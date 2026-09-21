@@ -1,0 +1,30 @@
+name: recipeboibot
+
+services:
+  recipeboibot:
+    build: .
+    container_name: recipeboibot
+    restart: unless-stopped
+    env_file: .env.local
+    environment:
+      NODE_ENV: production
+      PORT: 3087
+      DATABASE_PATH: /app/data/recipes.sqlite
+      TRUST_PROXY: "true"
+      APP_URL: https://recipes.spas-sky.ru
+      AI_MAX_TOTAL_REQUESTS: "80"
+      TELEGRAM_POLLING: "${TELEGRAM_POLLING:-true}"
+    ports:
+      - "127.0.0.1:3087:3087"
+    volumes:
+      - recipeboibot-data:/app/data
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  recipeboibot-data:

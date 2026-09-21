@@ -1,0 +1,10 @@
+[Unit]
+Description=Encrypted Recipeboibot SQLite backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/recipeboibot
+ExecStart=/bin/sh /opt/recipeboibot/deploy/backup.sh /opt/recipeboibot/backups
+UMask=0077

@@ -1,0 +1,10 @@
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+const { config } = await import(pathToFileURL(path.resolve('src/config.js')));
+const { normalizeRecipe } = await import(pathToFileURL(path.resolve('src/openai.js')));
+const recipe = await normalizeRecipe({ userId: null, sourceName: 'Deployment verification', text: 'Омлет: 2 яйца, щепотка соли. Взбить яйца с солью и обжарить 5 минут на сковороде.' });
+if (!recipe.ingredients.length || !recipe.steps.length) throw new Error('Production AI extraction incomplete');
+const response = await fetch(`https://api.telegram.org/bot${config.telegramToken}/getChatMenuButton`, { method: 'POST' });
+const payload = await response.json();
+if (!payload.ok || payload.result.web_app?.url?.replace(/\/$/, '') !== 'https://recipes.spas-sky.ru') throw new Error('Telegram menu URL mismatch');
+console.log(JSON.stringify({ productionAI: true, recipeTitle: recipe.title, telegramMenuUrl: payload.result.web_app.url }));
