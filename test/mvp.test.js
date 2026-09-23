@@ -45,11 +45,41 @@ test('recipe access and search are isolated by owner', () => {
   assert.equal(database.archiveRecipe(bob.id, recipe.id), false);
 });
 
+test('search ignores generic recipe wording and requires the requested dish', () => {
+  const owner = database.upsertTelegramUser({ id: 203, first_name: 'Поиск' });
+  database.createRecipe(owner.id, { title: 'Протеиновое мороженое', description: 'Простой рецепт десерта', ingredients: [{ name: 'молоко' }] });
+  database.createRecipe(owner.id, { title: 'Жареные баклажаны', ingredients: [{ name: 'баклажаны' }] });
+  const fermented = database.createRecipe(owner.id, { title: 'Квашеные баклажаны', ingredients: [{ name: 'баклажаны' }] });
+  assert.deepEqual(database.searchRecipes(owner.id, 'Рецепт квашеных баклажанов').map((recipe) => recipe.id), [fermented.id]);
+  assert.deepEqual(database.searchRecipes(owner.id, 'квашеные баклажаны').map((recipe) => recipe.id), [fermented.id]);
+  assert.equal(database.searchRecipes(owner.id, 'курицей').length, 0);
+});
+
 test('manual edits survive and ready status is saved', () => {
   const user = database.upsertTelegramUser({ id: 301, first_name: 'Маша' });
   const recipe = database.createRecipe(user.id, { title: 'Черновик', ingredients: [], steps: [] });
   const updated = database.updateRecipe(user.id, recipe.id, { ...recipe, title: 'Мой суп', status: 'ready', notes: 'Больше перца' });
   assert.equal(updated.title, 'Мой суп'); assert.equal(updated.status, 'ready'); assert.equal(updated.notes, 'Больше перца');
+});
+
+test('recipe share links are stable, read-only and do not expose personal notes', () => {
+  const owner = database.upsertTelegramUser({ id: 302, first_name: 'Марина' });
+  const stranger = database.upsertTelegramUser({ id: 303, first_name: 'Чужой' });
+  const recipe = database.createRecipe(owner.id, {
+    title: 'Сырники', description: 'Домашний рецепт', notes: 'Секретная заметка',
+    ingredients: [{ name: 'творог', raw: 'творог' }], steps: [{ position: 1, text: 'Смешать' }]
+  });
+  const token = database.createRecipeShare(owner.id, recipe.id);
+  assert.match(token, /^[A-Za-z0-9_-]{32}$/);
+  assert.equal(database.createRecipeShare(owner.id, recipe.id), token);
+  assert.equal(database.createRecipeShare(stranger.id, recipe.id), null);
+  const shared = database.getSharedRecipe(token);
+  assert.equal(shared.title, 'Сырники');
+  assert.equal(shared.sharedBy, 'Марина');
+  assert.equal('notes' in shared, false);
+  assert.equal('user_id' in shared, false);
+  database.archiveRecipe(owner.id, recipe.id);
+  assert.equal(database.getSharedRecipe(token), null);
 });
 
 test('SSRF guard rejects localhost and private addresses', async () => {
@@ -92,6 +122,51 @@ test('HTTP API requires signed Telegram auth and an allowed user', async () => {
     const allowedInit = security.makeTelegramInitData(allowedTg, process.env.TELEGRAM_BOT_TOKEN);
     const response = await fetch(`${base}/api/recipes`, { headers: { authorization: `tma ${allowedInit}` } });
     assert.equal(response.status, 200); assert.ok(Array.isArray(await response.json()));
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('owner can create a public recipe link that opens without Telegram auth', async () => {
+  const telegramUser = { id: 403, first_name: 'Лена' };
+  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const recipe = database.createRecipe(owner.id, { title: 'Шарлотка', notes: 'Только для меня', ingredients: [{ name: 'яблоки' }], steps: [{ text: 'Испечь' }] });
+  const initData = security.makeTelegramInitData(telegramUser, process.env.TELEGRAM_BOT_TOKEN);
+  const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const created = await fetch(`${base}/api/recipes/${recipe.id}/share`, { method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(created.status, 200);
+    const share = await created.json();
+    assert.match(share.path, /^\/share\/[A-Za-z0-9_-]{32}$/);
+    const publicResponse = await fetch(`${base}/api/shares/${share.token}`);
+    assert.equal(publicResponse.status, 200);
+    const publicRecipe = await publicResponse.json();
+    assert.equal(publicRecipe.title, 'Шарлотка');
+    assert.equal(publicRecipe.sharedBy, 'Лена');
+    assert.equal('notes' in publicRecipe, false);
+    assert.equal((await fetch(`${base}/api/shares/${'x'.repeat(32)}`)).status, 404);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('suggestion save API requires the owner and confirms only once', async () => {
+  const ownerTg = { id: 404, first_name: 'Оля' }, otherTg = { id: 405, first_name: 'Вера' };
+  const owner = database.upsertTelegramUser(ownerTg), other = database.upsertTelegramUser(otherTg);
+  database.allowUser(owner.id); database.allowUser(other.id);
+  const proposal = database.createRecipeSuggestion(owner.id, 'суп с чечевицей', {
+    title: 'Суп с чечевицей', ingredients: [{ name: 'чечевица', raw: 'чечевица' }], steps: [{ position: 1, text: 'Сварить' }]
+  });
+  const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/api/suggestions/${proposal.id}/save`;
+  try {
+    const headersFor = (tg) => ({ authorization: `tma ${security.makeTelegramInitData(tg, process.env.TELEGRAM_BOT_TOKEN)}` });
+    assert.equal((await fetch(url, { method: 'POST', headers: headersFor(otherTg) })).status, 404);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+    const first = await fetch(url, { method: 'POST', headers: headersFor(ownerTg) });
+    assert.equal(first.status, 200);
+    const saved = await first.json();
+    assert.equal(saved.origin, 'generated');
+    const repeated = await fetch(url, { method: 'POST', headers: headersFor(ownerTg) });
+    assert.equal((await repeated.json()).id, saved.id);
+    assert.equal(database.listRecipes(owner.id).length, 1);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 

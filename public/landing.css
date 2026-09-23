@@ -1,0 +1,322 @@
+/* Public landing: paper, graphite, olive, with lavender reserved for the brand phrase. */
+body:has(.landing:not([hidden])), html:has(.landing:not([hidden])) { background: #f6f5f0; }
+[hidden] { display: none !important; }
+html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
+.landing { --ink: #2e322d; --muted: #66685f; --berry: #58624a; --lp-purple: #7a678b; --lp-olive: #58624a; --lp-paper: #f6f5f0; --lp-rule: #d7d8ce; background: var(--lp-paper); color: var(--ink); font-size: 16px; line-height: 1.6; overflow-x: clip; }
+.landing a { color: inherit; text-decoration: none; }
+.landing h1, .landing h2, .landing h3 { font-weight: 400; }
+.landing h2 { font-size: clamp(36px, 3.6vw, 50px); line-height: 1.13; letter-spacing: -.035em; }
+.landing h4 { margin: 0; font-size: 13px; font-weight: 500; }
+.landing em { color: var(--lp-purple); font-weight: 400; }
+.landing button { cursor: pointer; }
+.landing :is(a, button, input, summary):focus-visible { outline: 3px solid var(--lp-olive); outline-offset: 4px; }
+.lp-wrap { width: min(1200px, calc(100% - 112px)); margin-inline: auto; }
+.lp-wrap *, .lp-workspace > * { min-width: 0; }
+.lp-header { position: sticky; top: 0; z-index: 30; min-height: 100px; padding: 22px 0; border-bottom: 1px solid var(--lp-rule); gap: 24px; background: var(--lp-paper); box-shadow: 0 0 0 60px var(--lp-paper); clip-path: inset(0 -60px); }
+.lp-brand { display: inline-flex; align-items: center; gap: 11px; font: 30px Georgia, serif; white-space: nowrap; }
+.lp-brand img, .lp-bot-heading img, .lp-flow-bot img { border-radius: 50%; mix-blend-mode: multiply; }
+.lp-nav { display: flex; gap: 30px; font-size: 14px; }
+.lp-header-cta { font-size: 14px; border-bottom: 1px solid var(--lp-olive); padding: 9px 0; white-space: nowrap; }
+.lp-header-cta span { margin-left: 12px; }
+.lp-nav a:hover, .lp-header-cta:hover { color: var(--lp-olive); }
+.lp-hero { display: grid; grid-template-columns: 1.2fr 1fr; gap: 70px; align-items: center; padding-block: 62px 76px; }
+.landing h1 { font-size: clamp(50px, 5.4vw, 76px); line-height: 1.07; letter-spacing: -.05em; }
+.lp-lead { max-width: 470px; margin: 27px 0 29px; color: var(--muted); font-size: 18px; line-height: 1.75; }
+.landing .lp-button { min-height: 56px; display: inline-flex; align-items: center; justify-content: space-between; gap: 35px; padding: 15px 24px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 15px; transition: background .2s; }
+.landing .lp-button:hover { background: #48513f; }
+.lp-button span { font-size: 23px; line-height: 1; }
+.lp-caption { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
+.lp-hero-flow { width: 100%; max-width: 420px; margin: 0 0 0 auto; }
+.lp-hero-flow figcaption { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 12px; margin-bottom: 22px; }
+.lp-hero-flow figcaption > span { font-style: italic; }
+.lp-source-slip { margin: 0 50px 0 12px; background: #efede2; border: 1px solid #d6d2c2; padding: 14px 23px; transform: rotate(-3deg); }
+.lp-source-slip > span { color: var(--muted); font-size: 10px; }
+.lp-source-slip p { margin: 4px 0; font: italic 24px/1.2 Georgia, serif; }
+.lp-source-slip small { font-size: 14px; }
+.lp-forward-line { display: flex; align-items: center; gap: 12px; margin: 10px 0 12px 46px; color: var(--lp-olive); font-size: 12px; }
+.lp-forward-line > span { font-size: 28px; }
+.lp-telegram { margin-left: 40px; background: #eaede3; padding: 18px 20px 20px; border: 1px solid #d2d8c8; border-radius: 12px; }
+.lp-bot-heading { display: flex; gap: 9px; align-items: center; font-size: 14px; line-height: 1.4; }
+.lp-bot-heading small { display: block; color: var(--muted); font-size: 10px; }
+.lp-sent-photo { width: fit-content; margin: 17px 0 14px auto; padding: 9px 13px; background: #dbe2cd; border-radius: 9px 9px 2px 9px; font-size: 12px; }
+.lp-sent-photo span { margin-left: 16px; color: var(--lp-olive); }
+.lp-saved-recipe { padding: 19px 20px 0; background: #fffefa; border: 1px solid var(--lp-rule); border-radius: 6px; }
+.lp-saved-status { color: var(--lp-olive); font-size: 10px; }
+.lp-saved-recipe h2 { font-size: 27px; margin-top: 8px; line-height: 1.15; }
+.lp-saved-recipe > p { margin: 9px 0 14px; color: var(--muted); font-size: 11px; }
+.lp-saved-recipe > div { display: flex; justify-content: space-between; padding-block: 5px; font-size: 12px; }
+.lp-saved-recipe > div span { color: var(--muted); }
+.lp-saved-recipe > a { display: flex; justify-content: space-between; margin-top: 12px; padding-block: 12px; border-top: 1px solid var(--lp-rule); color: var(--lp-olive); font-size: 12px; }
+.lp-scattered { border-top: 1px solid var(--lp-rule); padding-top: 64px; display: grid; grid-template-columns: .85fr 1.5fr; column-gap: 65px; }
+.lp-scattered-copy { padding-top: 25px; }
+.lp-scattered-copy > p { max-width: 320px; color: var(--muted); font-size: 15px; line-height: 1.8; margin: 22px 0 0; }
+.lp-artifacts { position: relative; height: 380px; isolation: isolate; }
+.lp-paper { position: absolute; top: 8px; left: 0; width: 235px; aspect-ratio: 1; transform: rotate(-7deg); background: url('/assets/recipe-paper-v1.png') center / contain no-repeat; filter: drop-shadow(2px 8px 5px #34291d24); }
+.lp-paper-writing { position: absolute; inset: 28px 25px 24px 63px; color: #383735; font-family: 'Segoe Print', 'Bradley Hand', cursive; transform: rotate(-1deg); }
+.lp-paper-writing > span { font-size: 8px; }
+.lp-paper-writing h3 { margin: 7px 0 0; font: 17px/1.25 'Segoe Print', 'Bradley Hand', cursive; }
+.lp-paper-writing p { margin: 8px 0 0; font: 11px/1.9 'Segoe Print', 'Bradley Hand', cursive; }
+.lp-paper-writing > small { display: block; margin-top: 5px; font-size: 9px; }
+.lp-chat-scrap { position: absolute; z-index: 2; top: 4px; right: 13px; width: 250px; height: 210px; transform: rotate(4deg); background: #dce7ed; border: 1px solid #ccd7df; border-radius: 9px; box-shadow: 0 9px 22px #1f344a20; font-family: Arial, sans-serif; font-size: 11px; color: #17212b; overflow: hidden; }
+.lp-chat-bar { display: flex; align-items: center; gap: 6px; height: 44px; padding: 5px 9px; background: #fff; box-shadow: 0 1px 3px #17212b19; }
+.lp-chat-back { color: #3390ec; font-size: 26px; line-height: 1; }
+.lp-chat-avatar { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: #4fa3eb; color: white; font-weight: bold; }
+.lp-chat-name { font-size: 10px; font-weight: bold; line-height: 1.2; }
+.lp-chat-name small { display: block; font-size: 8px; font-weight: normal; color: #728391; }
+.lp-chat-menu { margin-left: auto; color: #7b8c9a; font-size: 20px; }
+.lp-chat-day { width: fit-content; margin: 8px auto 6px; padding: 1px 7px; border-radius: 9px; background: #9cabb799; color: white; font-size: 8px; }
+.lp-chat-bubble { width: 184px; margin-left: 9px; padding: 8px 9px 5px; background: white; border-radius: 6px 6px 6px 2px; box-shadow: 0 1px 2px #0001; }
+.lp-chat-bubble p { margin: 0 0 5px; line-height: 1.35; }
+.lp-chat-attachment { border-left: 2px solid #3390ec; background: #f3f6f8; padding: 5px 6px; line-height: 1.25; }
+.lp-chat-attachment strong, .lp-chat-attachment small { display: block; }
+.lp-chat-attachment strong { color: #2879bd; font-size: 9px; }
+.lp-chat-attachment small { margin-top: 3px; color: #63727d; font-size: 8px; }
+.lp-chat-time { display: block; text-align: right; color: #84939d; margin-top: 3px; font-size: 8px; }
+.lp-chat-time b { color: #54a6e9; }
+.lp-video-scrap { position: absolute; z-index: 3; width: 255px; top: 198px; left: 152px; transform: rotate(-3deg); border: 5px solid #101010; border-radius: 5px; background: #101010; color: #fff; box-shadow: 0 9px 22px #1b1b1b2e; font-family: Arial, sans-serif; overflow: hidden; }
+.lp-video-top { height: 23px; display: flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 10px; letter-spacing: -.02em; }
+.lp-video-dots { margin-left: auto; color: #ccc; font-size: 17px; }
+.lp-video-still { height: 133px; position: relative; background: #101010; overflow: hidden; }
+.lp-video-still::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(#0008, transparent 28%, transparent 58%, #000c); }
+.lp-video-still img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lp-video-title { position: absolute; z-index: 1; top: 6px; left: 7px; right: 7px; color: #fff; font-size: 9px; font-weight: bold; text-shadow: 0 1px 3px #000; }
+.lp-video-play { position: absolute; z-index: 1; top: 48%; left: 50%; display: grid; place-items: center; width: 38px; height: 38px; transform: translate(-50%, -50%); border-radius: 50%; background: #101010d9; color: #fff; font-size: 14px; box-shadow: 0 1px 5px #0008; }
+.lp-video-progress { position: absolute; z-index: 2; left: 7px; right: 7px; bottom: 24px; height: 3px; background: #fff9; }
+.lp-video-progress::before { content: ''; position: absolute; inset: 0 72% 0 0; background: #ff0033; }
+.lp-video-progress i { position: absolute; z-index: 1; left: 28%; top: 50%; width: 7px; height: 7px; transform: translate(-50%, -50%); border-radius: 50%; background: #ff0033; }
+.lp-video-controls { position: absolute; z-index: 2; left: 7px; right: 7px; bottom: 4px; display: flex; align-items: center; gap: 8px; height: 15px; color: #fff; font-size: 9px; text-shadow: 0 1px 2px #000; }
+.lp-video-controls small { font-size: 8px; white-space: nowrap; }
+.lp-video-volume { margin-left: auto; }
+.lp-video-caption { padding: 7px 7px 8px; background: #fff; color: #171717; }
+.lp-video-caption p { margin: 0; font-size: 10px; line-height: 1.2; font-weight: bold; }
+.lp-video-caption small { display: block; margin-top: 3px; color: #777; font-size: 8px; }
+.lp-note-scrap { position: absolute; right: 0; top: 259px; width: 176px; height: 110px; padding: 8px 11px; background: #fffef3; border: 1px solid #e3e0c6; border-radius: 5px; box-shadow: 0 8px 18px #302c1b17; transform: rotate(6deg); font-family: Arial, sans-serif; }
+.lp-note-toolbar { display: flex; justify-content: space-between; color: #bf9423; font-size: 9px; border-bottom: 1px solid #ece8d9; padding-bottom: 3px; }
+.lp-note-scrap strong { display: block; margin-top: 7px; font-size: 11px; }
+.lp-note-scrap p { margin: 4px 0 0; font-size: 9px; line-height: 1.35; }
+.lp-note-scrap > small { display: block; margin-top: 3px; font-size: 7px; color: #9e9b8a; }
+.lp-converge { grid-column: 1 / -1; display: grid; grid-template-columns: .75fr 1.5fr; column-gap: 55px; align-items: center; padding-block: 28px 54px; }
+.lp-converge h2 { font-size: clamp(28px, 2.8vw, 37px); }
+.lp-converge h2 { grid-column: 1; grid-row: 1 / 3; }
+.lp-flow { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: minmax(120px,1fr) 100px minmax(210px,1.25fr); align-items: center; gap: 30px; width: 100%; min-height: 186px; }
+.lp-flow-sources { position: relative; height: 155px; }
+.lp-flow-source { position: absolute; display: block; min-width: 112px; padding: 8px 10px; font-size: 10px; line-height: 1.2; box-shadow: 0 4px 10px #2e322d16; transform-origin: center; }
+.lp-flow-source b { display: block; font-size: 12px; margin-top: 3px; }
+.lp-flow-paper { left: 6px; top: 6px; transform: rotate(-8deg); background: #eee6d4; color: #554c3c; font-family: 'Segoe Print', cursive; }
+.lp-flow-chat { right: -6px; top: 55px; transform: rotate(6deg); background: #fff; border-left: 3px solid #3390ec; color: #283847; font-family: Arial, sans-serif; }
+.lp-flow-video { left: 13px; bottom: 2px; transform: rotate(-3deg); background: #232323; color: white; font-family: Arial, sans-serif; }
+.lp-flow-video i { color: #ff0033; font-style: normal; }
+.lp-flow-bot { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; text-align: center; font-size: 13px; line-height: 1.3; }
+.lp-flow-bot::before, .lp-flow-bot::after { position: absolute; top: 31px; color: #a8ada0; font-size: 19px; content: '→'; }
+.lp-flow-bot::before { left: -20px; }
+.lp-flow-bot::after { right: -20px; }
+.lp-flow-bot img { margin-bottom: 7px; }
+.lp-flow-bot small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.lp-flow-list { padding: 12px 13px; border: 1px solid #d3d9cc; border-radius: 7px; background: #fffefa; box-shadow: 0 8px 25px #2e322d10; }
+.lp-flow-list-heading { display: flex; justify-content: space-between; gap: 10px; padding-bottom: 6px; font-size: 11px; font-weight: 600; }
+.lp-flow-list-heading span { color: var(--muted); font-size: 9px; font-weight: 400; }
+.lp-flow-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid #e8eae2; font-size: 10px; }
+.lp-flow-row small { color: var(--muted); font-size: 8px; white-space: nowrap; }
+.lp-flow-replay { grid-column: 2; grid-row: 2; display: block; margin: -5px 0 0 auto; padding: 5px 0; border: 0; border-bottom: 1px solid #9ba394; background: none; color: var(--muted); font-size: 11px; }
+.lp-flow.is-playing .lp-flow-source { animation: lp-into-bot .95s cubic-bezier(.46,.04,.75,.45) var(--delay) both; }
+.lp-flow.is-playing .lp-flow-bot img { animation: lp-bot-receives .5s ease-in-out 1.2s 2; }
+.lp-flow.is-playing .lp-flow-row { animation: lp-row-appear .42s ease-out var(--delay) both; }
+.lp-flow.is-complete .lp-flow-source { animation: lp-source-return .35s ease-out both; }
+@keyframes lp-into-bot { 0% { opacity: 1; translate: 0 0; scale: 1; } 72% { opacity: 1; } 100% { opacity: 0; translate: var(--travel-x) var(--travel-y); scale: .15; } }
+@keyframes lp-source-return { from { opacity: 0; scale: .8; } to { opacity: 1; scale: 1; } }
+@keyframes lp-bot-receives { 50% { transform: scale(1.14); } }
+@keyframes lp-row-appear { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+.lp-product { background: #eaede3; padding-block: 62px 48px; }
+.lp-product-heading { display: flex; justify-content: space-between; align-items: end; gap: 35px; margin-bottom: 30px; }
+.lp-product-heading h2 { font-size: clamp(32px, 3.1vw, 43px); }
+.lp-product-heading p { margin: 0; font-size: 13px; color: var(--muted); }
+.lp-workspace { display: grid; grid-template-columns: 285px minmax(0, 1fr); border: 1px solid #cdd2c4; border-radius: 9px; background: #fffefa; overflow: hidden; }
+.lp-library-panel { padding: 23px 18px; background: #f4f4ed; border-right: 1px solid var(--lp-rule); }
+.lp-library-heading { font-size: 14px; }
+.lp-library-heading > span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.lp-search { display: flex; align-items: center; gap: 7px; padding: 10px; border: 1px solid #cbd0c2; border-radius: 5px; margin-block: 19px 16px; background: #fffefa; }
+.lp-search svg { flex-shrink: 0; color: var(--muted); }
+.lp-search input { width: 100%; min-width: 0; border: 0; background: transparent; font-size: 12px; padding: 2px 0; border-radius: 0; box-shadow: none; }
+.lp-search input::placeholder { color: var(--muted); opacity: 1; }
+.lp-recipe-list { display: grid; gap: 4px; }
+.lp-recipe-list button { display: block; width: 100%; text-align: left; padding: 14px 11px; border: 1px solid transparent; border-radius: 5px; background: transparent; }
+.lp-recipe-list button:hover { background: #e9ecdf; }
+.lp-recipe-list button[aria-pressed="true"] { background: #e5eadc; border-color: #d1d9c3; }
+.lp-recipe-list button > span { display: block; font-size: 13px; line-height: 1.5; }
+.lp-recipe-list button small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+.lp-library-note { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 22px 10px 0; }
+.lp-empty { color: var(--muted); font-size: 13px; margin: 20px 10px; }
+.lp-recipe-view { padding: 28px; }
+.lp-recipe-heading { display: flex; justify-content: space-between; align-items: start; gap: 15px; padding-bottom: 22px; border-bottom: 1px solid var(--lp-rule); }
+.lp-recipe-heading h3 { font-size: 31px; line-height: 1.2; max-width: 355px; letter-spacing: -.025em; }
+.lp-recipe-heading p { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+.lp-source-detail { position: relative; flex-shrink: 0; }
+.lp-source-detail summary { cursor: pointer; list-style: none; font-size: 11px; border-bottom: 1px solid #a3aa95; padding: 4px 0; color: var(--lp-olive); }
+.lp-source-detail summary::-webkit-details-marker { display: none; }
+.lp-source-detail > div { position: absolute; right: 0; top: 35px; width: 260px; padding: 16px; background: #f6f5f0; border: 1px solid var(--lp-rule); box-shadow: 0 8px 24px #2e322d12; z-index: 5; font-size: 12px; }
+.lp-cooking { display: grid; grid-template-columns: .85fr 1.15fr; gap: 26px; padding-top: 24px; }
+.lp-ingredients ul { list-style: none; padding: 0; margin: 13px 0 0; }
+.lp-ingredients li { border-bottom: 1px solid #ecece4; padding-block: 8px; font-size: 12px; color: #60645a; }
+.lp-cook-panel { display: flex; flex-direction: column; padding-left: 25px; border-left: 1px solid var(--lp-rule); }
+#lp-demo-progress { font-size: 11px; color: var(--lp-olive); margin: 18px 0 10px; }
+#lp-demo-step-text { font-size: clamp(18px, 1.8vw, 23px); line-height: 1.5; margin: 0 0 20px; min-height: 145px; }
+#lp-step-meter { display: block; width: 100%; height: 3px; appearance: none; border: 0; background: #e1e4d9; color: var(--lp-olive); margin-top: auto; }
+#lp-step-meter::-webkit-progress-bar { background: #e1e4d9; }
+#lp-step-meter::-webkit-progress-value { background: var(--lp-olive); }
+#lp-step-meter::-moz-progress-bar { background: var(--lp-olive); }
+.lp-demo-step-controls { display: flex; justify-content: space-between; gap: 10px; margin-top: 20px; }
+.lp-demo-step-controls button { min-height: 44px; padding: 10px 14px; border: 1px solid #cdd2c4; border-radius: 5px; background: transparent; font-size: 12px; }
+.lp-demo-step-controls button:last-child { background: var(--ink); border-color: var(--ink); color: #fff; }
+.lp-demo-step-controls button:disabled { opacity: .45; cursor: default; }
+.lp-save { display: grid; grid-template-columns: .8fr 1.2fr; gap: 60px; align-items: start; margin-top: 35px; }
+.lp-save h3 { font-size: 28px; line-height: 1.25; }
+.lp-input-tabs { display: flex; gap: 22px; flex-wrap: wrap; }
+.lp-input-tabs button { padding: 4px 0 8px; background: transparent; border: 0; border-bottom: 2px solid transparent; font-size: 13px; color: var(--muted); min-height: 40px; }
+.lp-input-tabs button[aria-pressed="true"] { color: var(--ink); border-color: var(--lp-olive); }
+.lp-save-options > p { font-size: 13px; margin: 12px 0 8px; min-height: 42px; color: #59614f; }
+.lp-save-note { font-size: 11px; color: var(--muted); }
+.lp-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 60px; padding-block: 70px; }
+.lp-faq h2 { font-size: 41px; padding-top: 8px; }
+.lp-questions details { border-top: 1px solid var(--lp-rule); }
+.lp-questions details:last-child { border-bottom: 1px solid var(--lp-rule); }
+.lp-questions summary { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-block: 17px; list-style: none; cursor: pointer; font-size: 14px; }
+.lp-questions summary::-webkit-details-marker { display: none; }
+.lp-questions summary span { color: var(--lp-olive); font-size: 24px; font-weight: 300; }
+.lp-questions details[open] summary span { transform: rotate(45deg); }
+.lp-questions details p { margin: 0 30px 20px 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+.lp-questions details p a { text-decoration: underline; text-underline-offset: 3px; }
+.lp-end { display: flex; justify-content: space-between; align-items: center; gap: 30px; padding-block: 5px 65px; }
+.lp-end h2 { font-size: clamp(32px, 3.4vw, 46px); }
+.lp-end p { margin: 16px 0 0; color: var(--muted); font-size: 15px; }
+.lp-end > a { flex-shrink: 0; }
+.lp-footer { border-top: 1px solid var(--lp-rule); padding-block: 26px; display: flex; justify-content: space-between; align-items: center; gap: 25px; color: var(--muted); font-size: 12px; }
+.lp-footer .lp-brand { color: var(--ink); font-size: 24px; }
+.lp-footer > div { display: flex; gap: 25px; }
+.lp-skip { position: fixed; left: 20px; top: -100px; z-index: 100; padding: 12px 20px; background: white; }
+.lp-skip:focus { top: 15px; }
+.lp-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (max-width: 1100px) {
+  .lp-wrap { width: calc(100% - 64px); }
+  .lp-hero { gap: 35px; }
+  .lp-scattered { gap: 30px; }
+  .lp-artifacts { height: 385px; }
+  .lp-paper { width: 208px; left: 0; }
+  .lp-paper-writing { inset: 26px 23px 22px 56px; }
+  .lp-paper-writing h3 { font-size: 15px; }
+  .lp-paper-writing p { font-size: 10px; }
+  .lp-chat-scrap { width: 225px; }
+  .lp-video-scrap { left: 104px; top: 200px; width: 210px; }
+  .lp-video-still { height: 110px; }
+  .lp-note-scrap { top: 260px; width: 155px; }
+  .lp-workspace { grid-template-columns: 245px minmax(0, 1fr); }
+  .lp-recipe-view { padding: 23px; }
+  .lp-cooking { grid-template-columns: 1fr; gap: 20px; }
+  .lp-ingredients ul { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
+  .lp-cook-panel { padding: 18px 0 0; border: 0; border-top: 1px solid var(--lp-rule); }
+  #lp-demo-step-text { min-height: 75px; }
+}
+@media (max-width: 760px) {
+  .lp-wrap { width: calc(100% - 40px); }
+  .lp-header { min-height: 82px; padding-block: 17px; gap: 12px; }
+  .lp-brand { font-size: 25px; gap: 8px; }
+  .lp-brand img { width: 33px; height: 33px; }
+  .lp-nav { display: none; }
+  .lp-header-cta { font-size: 12px; }
+  .lp-header-cta span { margin-left: 5px; }
+  .lp-hero { grid-template-columns: 1fr; padding-block: 42px 44px; gap: 35px; }
+  .landing h1 { font-size: clamp(45px, 10.5vw, 70px); }
+  .lp-lead { font-size: 16px; max-width: 480px; margin-block: 23px; }
+  .lp-hero-flow { margin-inline: auto; max-width: 390px; }
+  .lp-hero-flow figcaption { margin-bottom: 16px; }
+  .lp-source-slip { margin-right: 40px; }
+  .lp-telegram { margin-left: 25px; }
+  .lp-scattered { grid-template-columns: 1fr; padding-top: 38px; gap: 24px; }
+  .lp-scattered-copy { padding: 0; }
+  .lp-scattered-copy h2 br { display: none; }
+  .lp-scattered-copy > p { max-width: 450px; margin-top: 16px; }
+  .lp-artifacts { width: min(100%, 510px); margin-inline: auto; height: 385px; }
+  .lp-paper { left: 8px; top: 8px; }
+  .lp-chat-scrap { top: 32px; right: 3px; }
+  .lp-video-scrap { left: 45px; top: 217px; }
+  .lp-note-scrap { top: 266px; }
+  .lp-converge { display: block; padding-block: 16px 42px; }
+  .lp-converge h2 { font-size: 31px; }
+  .lp-flow { grid-template-columns: minmax(90px,1fr) 76px minmax(150px,1.15fr); gap: 8px; margin-top: 28px; }
+  .lp-flow-source { min-width: 83px; padding: 6px; font-size: 8px; }
+  .lp-flow-source b { font-size: 10px; }
+  .lp-flow-bot::before { left: -8px; }
+  .lp-flow-bot::after { right: -8px; }
+  .lp-flow-list { padding: 9px; }
+  .lp-flow-list-heading { font-size: 10px; }
+  .lp-flow-list-heading span { font-size: 8px; }
+  .lp-flow-row { display: block; line-height: 1.25; }
+  .lp-flow-row small { display: block; margin-top: 2px; }
+  .lp-product { padding-block: 40px 32px; }
+  .lp-product-heading { display: block; margin-bottom: 22px; }
+  .lp-product-heading h2 { font-size: 34px; }
+  .lp-product-heading h2 br { display: none; }
+  .lp-product-heading p { margin-top: 17px; }
+  .lp-product-heading p br { display: none; }
+  .lp-workspace { grid-template-columns: 1fr; }
+  .lp-library-panel { border-right: 0; border-bottom: 1px solid var(--lp-rule); padding: 20px 16px; }
+  .lp-library-heading { display: flex; justify-content: space-between; align-items: baseline; }
+  .lp-search { margin-block: 15px 12px; }
+  .lp-search input { font-size: 16px; }
+  .lp-recipe-list { gap: 2px; }
+  .lp-recipe-list button { padding-block: 10px; }
+  .lp-recipe-list button small { margin-top: 2px; }
+  .lp-library-note { margin-top: 12px; }
+  .lp-recipe-view { padding: 23px 18px; }
+  .lp-recipe-heading h3 { font-size: 28px; }
+  .lp-recipe-heading { flex-wrap: wrap; gap: 12px; padding-bottom: 17px; }
+  .lp-source-detail { flex-basis: 100%; }
+  .lp-source-detail summary { width: fit-content; }
+  .lp-source-detail > div { position: static; width: 100%; margin-top: 12px; box-shadow: none; }
+  .lp-cooking { padding-top: 18px; }
+  .lp-ingredients ul { margin-top: 7px; }
+  .lp-ingredients li { font-size: 12px; }
+  #lp-demo-step-text { min-height: 100px; font-size: 23px; }
+  .lp-save { grid-template-columns: 1fr; gap: 18px; margin-top: 28px; }
+  .lp-save h3 { font-size: 28px; }
+  .lp-save h3 br { display: none; }
+  .lp-input-tabs { justify-content: space-between; gap: 10px; }
+  .lp-save-options > p { min-height: 65px; }
+  .lp-faq { grid-template-columns: 1fr; gap: 25px; padding-block: 44px; }
+  .lp-faq h2 { font-size: 36px; }
+  .lp-faq h2 br { display: none; }
+  .lp-questions summary { font-size: 14px; }
+  .lp-end { display: block; padding-block: 5px 44px; }
+  .lp-end h2 { font-size: 36px; }
+  .lp-end p br { display: none; }
+  .lp-end > a { margin-top: 23px; }
+}
+@media (max-width: 380px) {
+  .lp-header-cta { font-size: 11px; }
+  .lp-artifacts { height: 345px; }
+  .lp-paper { width: 177px; }
+  .lp-paper-writing { inset: 22px 18px 16px 47px; }
+  .lp-paper-writing h3 { font-size: 13px; margin-top: 4px; }
+  .lp-paper-writing p { font-size: 8px; margin-top: 5px; }
+  .lp-paper-writing > small, .lp-paper-writing > span { font-size: 7px; }
+  .lp-chat-scrap { width: 160px; height: 179px; top: 42px; right: 0; }
+  .lp-chat-bubble { width: 139px; }
+  .lp-chat-attachment small { font-size: 7px; }
+  .lp-video-scrap { width: 162px; left: 14px; top: 202px; }
+  .lp-video-still { height: 82px; }
+  .lp-video-title { font-size: 7px; }
+  .lp-video-progress { bottom: 19px; }
+  .lp-video-controls { gap: 4px; font-size: 8px; }
+  .lp-video-controls span:nth-child(2), .lp-video-volume, .lp-video-controls span:nth-last-child(2) { display: none; }
+  .lp-note-scrap { width: 132px; right: 2px; top: 235px; }
+  .lp-telegram { margin-left: 12px; padding: 15px; }
+  .lp-source-slip { margin-right: 25px; }
+  .lp-flow { grid-template-columns: 82px 65px minmax(0,1fr); gap: 6px; }
+  .lp-flow-bot { font-size: 10px; }
+  .lp-flow-bot img { width: 40px; height: 40px; }
+  .lp-flow-bot::before, .lp-flow-bot::after { font-size: 13px; top: 22px; }
+  .lp-flow-bot::before { left: -2px; }
+  .lp-flow-bot::after { right: -2px; }
+  .lp-ingredients ul { grid-template-columns: 1fr; }
+  .lp-footer > div { gap: 15px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { html:has(.landing:not([hidden])) { scroll-behavior: auto; } .lp-flow.is-playing .lp-flow-source, .lp-flow.is-playing .lp-flow-bot img, .lp-flow.is-playing .lp-flow-row { animation: none; } }

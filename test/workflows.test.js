@@ -15,6 +15,7 @@ const database = await import('../src/db.js');
 const importer = await import('../src/importer.js');
 const telegramModule = await import('../src/telegram.js');
 const openaiModule = await import('../src/openai.js');
+const suggestions = await import('../src/suggestions.js');
 
 test.after(() => {
   database.db.close();
@@ -27,10 +28,87 @@ const normalizedRecipe = (title = 'Крылышки с мёдом') => ({
   steps: [{ position: 1, text: 'Приготовить', confidence: 1 }], tags: ['курица'], warnings: [], sourceName: null
 });
 
+test('empty search proposes a recipe and saves it only after owner confirmation', async () => {
+  const owner = database.upsertTelegramUser({ id: 6160, first_name: 'Автор' });
+  const other = database.upsertTelegramUser({ id: 6161, first_name: 'Другой' });
+  let calls = 0;
+  const generate = async () => { calls += 1; return normalizedRecipe('Новый ужин с фасолью'); };
+  const proposal = await suggestions.suggestForEmptySearch(owner.id, 'ужин с фасолью', { generate });
+  assert.equal(database.listRecipes(owner.id).length, 0);
+  assert.equal((await suggestions.suggestForEmptySearch(owner.id, 'ужин с фасолью', { generate })).id, proposal.id);
+  assert.equal(calls, 1);
+  assert.equal(database.saveRecipeSuggestion(other.id, proposal.id), null);
+  const saved = database.saveRecipeSuggestion(owner.id, proposal.id);
+  assert.equal(saved.origin, 'generated');
+  assert.equal(saved.status, 'ready');
+  assert.equal(saved.sourceName, 'Создано для меня · AI');
+  assert.equal(database.saveRecipeSuggestion(owner.id, proposal.id).id, saved.id);
+  assert.equal(database.listRecipes(owner.id).length, 1);
+  await assert.rejects(suggestions.suggestForEmptySearch(owner.id, 'фасоль', { generate }), (error) => error.status === 409);
+});
+
+test('parallel empty searches share one generation request', async () => {
+  const owner = database.upsertTelegramUser({ id: 6164, first_name: 'Параллельно' });
+  let release; const gate = new Promise((resolve) => { release = resolve; }); let calls = 0;
+  const generate = async () => { calls += 1; await gate; return normalizedRecipe('Пирог с яблоком'); };
+  const first = suggestions.suggestForEmptySearch(owner.id, 'пирог с яблоком', { generate });
+  const second = suggestions.suggestForEmptySearch(owner.id, 'пирог с яблоком', { generate });
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(calls, 1);
+  assert.equal(a.id, b.id);
+});
+
+test('group suggestion can only be added by the collection owner', async () => {
+  const owner = database.upsertTelegramUser({ id: 6162, first_name: 'Владелец' });
+  database.setGroupAccessByTelegramId(6162, true);
+  database.activateTelegramGroup(owner.id, { id: -61620, type: 'group', title: 'Семья' });
+  const proposal = database.createRecipeSuggestion(owner.id, 'пирог с грушей', normalizedRecipe('Грушевый пирог'));
+  const originalFetch = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (url, options) => { calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) }); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    const callback = { id: 'callback-1', data: `suggest:save:${proposal.id}`, message: { message_id: 11, chat: { id: -61620, type: 'group' } }, from: { id: 6163, first_name: 'Участник' } };
+    await telegramModule.handleSuggestionCallback(callback);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+    assert.equal(calls[0].body.show_alert, true);
+    calls.length = 0;
+    await telegramModule.handleSuggestionCallback({ ...callback, from: { id: 6162, first_name: 'Владелец' } });
+    assert.equal(database.listRecipes(owner.id).length, 1);
+    assert.deepEqual(calls.map((call) => call.method), ['answerCallbackQuery', 'editMessageReplyMarkup', 'sendMessage']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('private Telegram search shows a generated recipe and waits for the save button', async () => {
+  const telegramUser = { id: 6165, first_name: 'Поиск' };
+  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('api.openai.com')) {
+      aiCalls += 1;
+      assert.equal(JSON.parse(options.body).text.format.name, 'recipe_generation');
+      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify(normalizedRecipe('Суп с тыквой')), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
+    }
+    sent.push(JSON.parse(options.body));
+    return { json: async () => ({ ok: true, result: { message_id: 12 } }) };
+  };
+  try {
+    await telegramModule.handleMessage({ chat: { id: 6165, type: 'private' }, from: telegramUser, text: 'Найди суп с тыквой' });
+    assert.equal(aiCalls, 1);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+    assert.match(sent[0].text, /ничего подходящего/);
+    assert.match(sent[1].text, /Суп с тыквой/);
+    const callbackData = sent[1].reply_markup.inline_keyboard[0][0].callback_data;
+    assert.match(callbackData, /^suggest:save:/);
+    await telegramModule.handleSuggestionCallback({ id: 'callback-private', data: callbackData, message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser });
+    assert.equal(database.listRecipes(owner.id).length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('intent detection routes clear voice/text requests and asks on ambiguity', () => {
   assert.equal(telegramModule.detectIntent('Есть курица, что приготовить на ужин?'), 'search');
   assert.equal(telegramModule.detectIntent('Найди те крылышки с мёдом'), 'search');
   assert.equal(telegramModule.detectIntent('Сохрани мой рецепт: курица, мёд, масло'), 'save');
+  assert.equal(telegramModule.detectIntent('/save курица, мёд, масло'), 'save');
   assert.equal(telegramModule.detectIntent('Курица и мёд'), 'ambiguous');
   assert.equal(telegramModule.detectIntent('', { hasPhoto: true }), 'save');
 });
@@ -152,7 +230,9 @@ test('failed process and Telegram update can be reclaimed safely', () => {
   const claim = database.claimImport(user.id, { sourceType: 'url', sourceKey: 'url:https://example.test/recover', sourceUrl: 'https://example.test/recover', label: 'example.test' });
   database.updateJob(claim.job.id, 'normalizing');
   assert.ok(database.interruptActiveJobs() >= 1);
+  assert.equal(database.listImportJobs(user.id).length, 0);
   assert.equal(database.claimImport(user.id, { sourceType: 'url', sourceKey: 'url:https://example.test/recover' }).state, 'claimed');
+  assert.equal(database.listImportJobs(user.id).length, 1);
   assert.equal(database.claimUpdate(7001), true); database.failUpdate(7001);
   assert.equal(database.claimUpdate(7001), true); database.completeUpdate(7001);
   assert.equal(database.claimUpdate(7001), false);
@@ -174,7 +254,7 @@ test('Mini App deep links retain exact recipe or result query', () => {
   assert.equal(results.searchParams.get('q'), 'крылышки с мёдом');
 });
 
-test('new and returning users can Start without an invite code', async () => {
+test('first Start explains the bot with three actions; returning Start stays concise', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -182,9 +262,105 @@ test('new and returning users can Start without an invite code', async () => {
     await telegramModule.handleMessage(message); await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6401).is_allowed, 1);
     assert.equal(sent.length, 2);
-    assert.ok(sent.every((body) => body.reply_markup?.inline_keyboard?.[0]?.[0]?.web_app?.url));
+    assert.match(sent[0].text, /Что я умею/);
+    assert.match(sent[0].text, /Как начать/);
+    assert.deepEqual(sent[0].reply_markup.inline_keyboard.map((row) => row[0].text), ['Сохранить рецепт', 'Что приготовить?', 'Мои рецепты']);
+    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'add');
+    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[1][0].web_app.url).searchParams.get('view'), 'search');
+    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[2][0].web_app.url).searchParams.get('view'), 'collection');
+    assert.match(sent[1].text, /С возвращением/);
+    assert.equal(sent[1].reply_markup.inline_keyboard[0][0].text, 'Открыть приложение');
     assert.ok(sent.every((body) => !/код приглашения/i.test(body.text)));
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('group access is denied by default, allows three active groups, and frees a removed slot', async () => {
+  const originalFetch = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) });
+    return { json: async () => ({ ok: true, result: {} }) };
+  };
+  try {
+    const deniedChange = {
+      chat: { id: -65020, type: 'group', title: 'Без права' },
+      from: { id: 6502, first_name: 'Нет права' },
+      old_chat_member: { status: 'left' }, new_chat_member: { status: 'member' }
+    };
+    await telegramModule.handleMyChatMember(deniedChange);
+    assert.deepEqual(calls.map((x) => x.method), ['sendMessage', 'leaveChat']);
+    assert.match(calls[0].body.text, /Групповой доступ пока не подключён/);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].url, 'https://recipes.spas-sky.ru/groups.html');
+    assert.equal(database.getActiveTelegramGroup(-65020), null);
+
+    calls.length = 0;
+    const owner = database.upsertTelegramUser({ id: 6501, first_name: 'Владелец' });
+    database.setGroupAccessByTelegramId(6501, true);
+    for (const chatId of [-65011, -65012, -65013]) {
+      await telegramModule.handleMyChatMember({
+        chat: { id: chatId, type: 'supergroup', title: `Группа ${chatId}` }, from: { id: 6501, first_name: 'Владелец' },
+        old_chat_member: { status: 'left' }, new_chat_member: { status: 'member' }
+      });
+    }
+    assert.equal(database.listActiveTelegramGroups(owner.id).length, 3);
+    assert.ok(calls.every((x) => x.method === 'sendMessage'));
+
+    calls.length = 0;
+    await telegramModule.handleMyChatMember({
+      chat: { id: -65014, type: 'group', title: 'Лишняя' }, from: { id: 6501, first_name: 'Владелец' },
+      old_chat_member: { status: 'left' }, new_chat_member: { status: 'member' }
+    });
+    assert.deepEqual(calls.map((x) => x.method), ['sendMessage', 'leaveChat']);
+    assert.match(calls[0].body.text, /Все 3 места уже заняты/);
+
+    await telegramModule.handleMyChatMember({
+      chat: { id: -65011, type: 'supergroup', title: 'Удалённая' }, from: { id: 6501, first_name: 'Владелец' },
+      old_chat_member: { status: 'member' }, new_chat_member: { status: 'left' }
+    });
+    calls.length = 0;
+    await telegramModule.handleMyChatMember({
+      chat: { id: -65014, type: 'group', title: 'Новая третья' }, from: { id: 6501, first_name: 'Владелец' },
+      old_chat_member: { status: 'left' }, new_chat_member: { status: 'member' }
+    });
+    assert.equal(database.listActiveTelegramGroups(owner.id).length, 3);
+    assert.deepEqual(calls.map((x) => x.method), ['sendMessage']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('an active group uses its owner collection and leaves after access is revoked', async () => {
+  const originalFetch = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) });
+    return { json: async () => ({ ok: true, result: {} }) };
+  };
+  try {
+    const owner = database.upsertTelegramUser({ id: 6510, first_name: 'Хозяин коллекции' });
+    database.setGroupAccessByTelegramId(6510, true);
+    database.activateTelegramGroup(owner.id, { id: -65100, type: 'group', title: 'Семейная' });
+    database.createRecipe(owner.id, { status: 'ready', title: 'Курица с лимоном', ingredients: [{ name: 'курица', raw: 'курица' }], steps: [{ position: 1, text: 'Запечь' }] });
+
+    await telegramModule.handleMessage({ chat: { id: -65100, type: 'group' }, from: { id: 6511, first_name: 'Участник' }, text: '/find@Recipeboibot курица' });
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((x) => x.method === 'sendMessage'));
+    assert.match(calls[0].body.text, /коллекции владельца группы/);
+    assert.match(calls[1].body.text, /Курица с лимоном/);
+    assert.ok(calls.every((x) => !x.body.reply_markup?.inline_keyboard?.flat().some((button) => button.web_app)));
+
+    calls.length = 0;
+    await telegramModule.handleMessage({ chat: { id: -65100, type: 'group' }, from: { id: 6510, first_name: 'Хозяин коллекции' }, new_chat_members: [{ id: 123456, is_bot: true }] });
+    assert.equal(calls.length, 0);
+
+    database.setGroupAccessByTelegramId(6510, false);
+    await telegramModule.handleMessage({ chat: { id: -65100, type: 'group' }, from: { id: 6511, first_name: 'Участник' }, text: '/find курица' });
+    assert.deepEqual(calls.map((x) => x.method), ['sendMessage', 'leaveChat']);
+    assert.equal(database.getActiveTelegramGroup(-65100), null);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('group access page explains the offer and links back to the bot', () => {
+  const page = fs.readFileSync(path.resolve('public/groups.html'), 'utf8');
+  assert.match(page, /Решайте, что приготовить, вместе/);
+  assert.match(page, /До трёх групп/);
+  assert.match(page, /https:\/\/t\.me\/Recipeboibot\?start=group_access/);
 });
 
 test('mobile collection is fixed to two columns with an honest preview fallback', () => {
@@ -211,6 +387,29 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
   assert.match(index, /app\.js\?v=6/);
 });
 
+test('recipe detail exposes sharing to the owner and a read-only public view', () => {
+  const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
+  const css = fs.readFileSync(path.resolve('public/refinements.css'), 'utf8');
+  assert.match(app, /id="share">Поделиться/);
+  assert.match(app, /detail-edit" id="edit">Изменить/);
+  assert.match(app, /\/api\/recipes\/\$\{encodeURIComponent\(recipe\.id\)\}\/share/);
+  assert.match(app, /\/api\/shares\/\$\{encodeURIComponent\(token\)\}/);
+  assert.match(app, /sharedBy/);
+  assert.match(css, /\.shared-intro \{/);
+  assert.match(css, /\.detail-actions\.shared-actions \{ grid-template-columns: 1fr; \}/);
+});
+
+test('recipe cards expose only a confirmable delete control before opening the detail view', () => {
+  const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
+  const css = fs.readFileSync(path.resolve('public/styles.css'), 'utf8');
+  assert.match(app, /class="card-open" data-recipe=/);
+  assert.match(app, /data-remove-recipe=/);
+  assert.doesNotMatch(app, /data-edit-recipe=/);
+  assert.match(app, /function removeRecipeFromList/);
+  assert.match(app, /confirm\('Убрать рецепт из библиотеки\?'\)/);
+  assert.match(css, /\.card-remove \{ position: absolute; top: 8px; right: 8px/);
+});
+
 test('home prioritizes choosing and the collection, with manual saving last', () => {
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
   const home = app.slice(app.indexOf('function home()'), app.indexOf('function searchView()'));
@@ -219,4 +418,13 @@ test('home prioritizes choosing and the collection, with manual saving last', ()
   assert.ok(home.indexOf('id="collection"') < home.indexOf('id="add"'));
   assert.match(home, /home-footer[\s\S]*id="add"/);
   assert.doesNotMatch(home, /home-hero|hero-art|save-action|empty-add/);
+});
+
+test('empty collection offers a first-recipe action that opens the import form', () => {
+  const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
+  const collection = app.slice(app.indexOf('function collection('), app.indexOf('async function render()'));
+  assert.match(collection, /class="empty collection-empty"/);
+  assert.match(collection, /class="primary accent" id="add" type="button">Добавить первый рецепт/);
+  assert.match(collection, /document\.querySelector\('#add'\)\.onclick = importSheet/);
+  assert.match(app, /firstRecipe \? 'Добавить первый рецепт' : 'Сохранить вручную'/);
 });

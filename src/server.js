@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { config } from './config.js';
-import { archiveRecipe, deleteUserData, getRecipe, listImportJobs, listRecipes, searchRecipes, updateRecipe, upsertTelegramUser } from './db.js';
+import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
+import { suggestForEmptySearch } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
 
@@ -73,11 +74,25 @@ async function api(request, response, url) {
   if (request.method === 'GET' && url.pathname === '/api/search') {
     const q = (url.searchParams.get('q') || '').slice(0,500);
     if (!q.trim()) return json(response, 200, listRecipes(user.id));
-    return json(response, 200, searchRecipes(user.id, q));
+    return json(response, 200, searchRecipes(user.id, q).filter((recipe) => recipe.status === 'ready'));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/suggestions') {
+    rateLimit(`ai:${user.id}`, 8, 60_000);
+    const input = await bodyJson(request, 2000);
+    return json(response, 200, await suggestForEmptySearch(user.id, input.query));
+  }
+  if (request.method === 'POST' && /^\/api\/suggestions\/[0-9a-f-]{36}\/save$/i.test(url.pathname)) {
+    const recipe = saveRecipeSuggestion(user.id, url.pathname.split('/').at(-2));
+    return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Предложение больше недоступно' });
   }
   if (request.method === 'GET' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
     const recipe = getRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1)));
     return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Рецепт не найден' });
+  }
+  if (request.method === 'POST' && /^\/api\/recipes\/[^/]+\/share$/.test(url.pathname)) {
+    const id = decodeURIComponent(url.pathname.split('/').at(-2));
+    const token = createRecipeShare(user.id, id);
+    return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && url.pathname === '/api/import') {
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
@@ -115,6 +130,10 @@ export function createServer() {
     try {
       rateLimit(`ip:${clientIp(request)}`);
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (request.method === 'GET' && /^\/api\/shares\/[A-Za-z0-9_-]{32}$/.test(url.pathname)) {
+        const recipe = getSharedRecipe(url.pathname.split('/').at(-1));
+        return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Ссылка на рецепт недоступна' });
+      }
       if (url.pathname.startsWith('/api/')) return await api(request, response, url);
       if (serveStatic(response, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(response, '/index.html');

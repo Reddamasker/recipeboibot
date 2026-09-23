@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f3f0f7">
+  <title>Групповой доступ — Твои рецепты</title>
+  <meta name="description" content="Добавьте «Твои рецепты» в семейный чат или группу друзей, чтобы вместе искать, сохранять и выбирать рецепты.">
+  <style>
+    :root { color-scheme: light; --ink:#2c2532; --muted:#716979; --lavender:#eee8f5; --accent:#7549a6; --accent-dark:#56317c; --card:#fff; --line:#e6dfea; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:linear-gradient(160deg,#f8f5fb 0%,#eee8f5 55%,#f7f3ef 100%); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    a { color:inherit; }
+    .page { width:min(680px,100%); min-height:100vh; margin:auto; padding:24px 18px 48px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:750; }
+    .mark { display:grid; width:38px; height:38px; place-items:center; border-radius:13px; color:#fff; background:var(--accent); box-shadow:0 8px 22px #7549a638; }
+    .hero { padding:54px 4px 34px; }
+    .eyebrow { margin:0 0 12px; color:var(--accent); font-size:13px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+    h1 { max-width:620px; margin:0; font-size:clamp(36px,10vw,60px); line-height:1.02; letter-spacing:-.045em; }
+    .lead { max-width:570px; margin:22px 0 0; color:var(--muted); font-size:19px; }
+    .cta { display:inline-flex; align-items:center; justify-content:center; min-height:54px; margin-top:28px; padding:0 24px; border-radius:18px; color:#fff; background:var(--accent); font-weight:750; text-decoration:none; box-shadow:0 12px 30px #7549a640; }
+    .cta:active { background:var(--accent-dark); transform:translateY(1px); }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .card { min-height:164px; padding:22px; border:1px solid #ffffffb3; border-radius:24px; background:#ffffffc9; box-shadow:0 10px 35px #4c355712; backdrop-filter:blur(10px); }
+    .icon { display:grid; width:42px; height:42px; margin-bottom:22px; place-items:center; border-radius:14px; background:var(--lavender); font-size:21px; }
+    .card h2 { margin:0 0 7px; font-size:18px; }
+    .card p { margin:0; color:var(--muted); font-size:14px; }
+    .steps { margin-top:14px; padding:28px; border-radius:26px; color:#fff; background:#33273c; }
+    .steps h2 { margin:0 0 22px; font-size:25px; }
+    .step { display:grid; grid-template-columns:34px 1fr; gap:13px; align-items:start; padding:15px 0; border-top:1px solid #ffffff24; }
+    .step:first-of-type { border-top:0; padding-top:0; }
+    .num { display:grid; width:30px; height:30px; place-items:center; border-radius:50%; background:#ffffff1c; font-size:13px; font-weight:800; }
+    .step strong { display:block; margin:3px 0 3px; }
+    .step span:last-child { color:#d9cede; font-size:14px; }
+    .note { margin:14px 0 0; padding:20px 22px; border:1px solid var(--line); border-radius:22px; background:#fdfbfe; color:var(--muted); font-size:14px; }
+    .bottom { padding:36px 4px 0; text-align:center; }
+    .bottom h2 { margin:0; font-size:28px; }
+    .bottom p { margin:10px auto 0; max-width:440px; color:var(--muted); }
+    footer { margin-top:38px; color:var(--muted); font-size:13px; text-align:center; }
+    @media (max-width:520px) { .page{padding-inline:14px}.hero{padding-top:42px}.grid{grid-template-columns:1fr}.card{min-height:0}.steps{padding:24px 20px} }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="brand"><span class="mark">Р</span><span>Твои рецепты</span></div>
+    <section class="hero">
+      <p class="eyebrow">Групповой доступ</p>
+      <h1>Решайте, что приготовить, вместе</h1>
+      <p class="lead">Добавьте бота в семейный чат, компанию друзей или рабочую группу — и пользуйтесь коллекцией рецептов прямо в разговоре.</p>
+      <a class="cta" href="https://t.me/Recipeboibot?start=group_access">Открыть бота в Telegram</a>
+    </section>
+
+    <section class="grid" aria-label="Возможности группового доступа">
+      <article class="card"><div class="icon">⌕</div><h2>Искать вместе</h2><p>Бот найдёт подходящее блюдо в коллекции владельца группы.</p></article>
+      <article class="card"><div class="icon">＋</div><h2>Сохранять на месте</h2><p>Ссылки, фотографии и тексты превращаются в понятные рецепты.</p></article>
+      <article class="card"><div class="icon">3</div><h2>До трёх групп</h2><p>Подключайте семейный чат, друзей и другую важную компанию.</p></article>
+      <article class="card"><div class="icon">◌</div><h2>Без лишнего шума</h2><p>Бот отвечает на команды и обращения, не вмешиваясь в обычную беседу.</p></article>
+    </section>
+
+    <section class="steps">
+      <h2>Как это работает</h2>
+      <div class="step"><span class="num">1</span><span><strong>Подключите доступ</strong>Сейчас он выдаётся участникам теста вручную.</span></div>
+      <div class="step"><span class="num">2</span><span><strong>Добавьте бота в группу</strong>Группа привяжется к вашей коллекции рецептов.</span></div>
+      <div class="step"><span class="num">3</span><span><strong>Ищите и сохраняйте</strong>Используйте <code>/find</code>, <code>/save</code> или ответьте на сообщение бота.</span></div>
+    </section>
+
+    <p class="note"><strong>Важно:</strong> участники подключённой группы смогут искать рецепты владельца и сохранять новые в его коллекцию. Бот работает в режиме приватности Telegram и не читает весь обычный разговор.</p>
+
+    <section class="bottom">
+      <h2>Попробуйте в своём чате</h2>
+      <p>Откройте бота и узнайте, доступно ли подключение групп для вашего аккаунта.</p>
+      <a class="cta" href="https://t.me/Recipeboibot?start=group_access">Перейти в Telegram</a>
+    </section>
+    <footer>Твои рецепты · закрытый тест</footer>
+  </main>
+</body>
+</html>

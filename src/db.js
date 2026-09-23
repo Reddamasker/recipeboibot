@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 
@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS recipes (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS recipes_owner_updated ON recipes(user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS recipe_shares (
+  token TEXT PRIMARY KEY,
+  recipe_id TEXT NOT NULL UNIQUE REFERENCES recipes(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS recipe_shares_recipe ON recipe_shares(recipe_id);
 CREATE TABLE IF NOT EXISTS import_jobs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -86,12 +92,31 @@ CREATE TABLE IF NOT EXISTS pending_intents (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS recipe_suggestions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  query TEXT NOT NULL,
+  recipe_json TEXT NOT NULL,
+  recipe_id TEXT REFERENCES recipes(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS suggestions_owner_query ON recipe_suggestions(user_id, query, created_at DESC);
+CREATE TABLE IF NOT EXISTS telegram_groups (
+  chat_id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK(type IN ('group','supergroup')),
+  title TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `);
 
 function ensureColumn(table, name, definition) {
   if (!db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
 }
 
+ensureColumn('users', 'group_access', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('recipes', 'source_key', 'TEXT');
 ensureColumn('recipes', 'thumbnail_url', 'TEXT');
 ensureColumn('import_jobs', 'source_key', 'TEXT');
@@ -117,6 +142,7 @@ db.exec(`
 CREATE UNIQUE INDEX IF NOT EXISTS recipes_owner_source_key ON recipes(user_id, source_key) WHERE source_key IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_owner_source_key ON import_jobs(user_id, source_key) WHERE source_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS jobs_owner_updated ON import_jobs(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS telegram_groups_owner_status ON telegram_groups(owner_user_id, status);
 UPDATE processed_updates SET updated_at=created_at WHERE updated_at IS NULL;
 UPDATE recipes SET status='ready' WHERE status='draft' AND id IN (SELECT recipe_id FROM import_jobs WHERE status='awaiting_review' AND recipe_id IS NOT NULL);
 UPDATE import_jobs SET status='ready' WHERE status='awaiting_review' AND recipe_id IS NOT NULL;
@@ -177,6 +203,52 @@ export function allowUser(userId) { db.prepare('UPDATE users SET is_allowed=1,up
 export function getUserByTelegramId(id) { return db.prepare('SELECT * FROM users WHERE telegram_id=?').get(String(id)); }
 export function getUserById(id) { return db.prepare('SELECT * FROM users WHERE id=?').get(id); }
 
+export const GROUP_LIMIT = 3;
+
+export function setGroupAccessByTelegramId(telegramId, enabled) {
+  const result = db.prepare('UPDATE users SET group_access=?,updated_at=? WHERE telegram_id=?').run(enabled ? 1 : 0, now(), String(telegramId));
+  return result.changes ? getUserByTelegramId(telegramId) : null;
+}
+
+export function activateTelegramGroup(ownerUserId, chat) {
+  const chatId = String(chat.id);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const owner = db.prepare('SELECT * FROM users WHERE id=?').get(ownerUserId);
+    if (!owner?.group_access) { db.exec('COMMIT'); return { state: 'forbidden' }; }
+    const existing = db.prepare('SELECT * FROM telegram_groups WHERE chat_id=?').get(chatId);
+    if (existing?.status === 'active' && existing.owner_user_id === ownerUserId) {
+      db.prepare('UPDATE telegram_groups SET type=?,title=?,updated_at=? WHERE chat_id=?').run(chat.type, chat.title || '', now(), chatId);
+      const count = db.prepare("SELECT COUNT(*) AS count FROM telegram_groups WHERE owner_user_id=? AND status='active'").get(ownerUserId).count;
+      db.exec('COMMIT');
+      return { state: 'active', group: getActiveTelegramGroup(chatId), count, limit: GROUP_LIMIT };
+    }
+    const count = db.prepare("SELECT COUNT(*) AS count FROM telegram_groups WHERE owner_user_id=? AND status='active' AND chat_id<>?").get(ownerUserId, chatId).count;
+    if (count >= GROUP_LIMIT) { db.exec('COMMIT'); return { state: 'limit', count, limit: GROUP_LIMIT }; }
+    const at = now();
+    db.prepare(`INSERT INTO telegram_groups(chat_id,owner_user_id,type,title,status,created_at,updated_at)
+      VALUES(?,?,?,?, 'active',?,?)
+      ON CONFLICT(chat_id) DO UPDATE SET owner_user_id=excluded.owner_user_id,type=excluded.type,title=excluded.title,status='active',updated_at=excluded.updated_at`)
+      .run(chatId, ownerUserId, chat.type, chat.title || '', at, at);
+    db.exec('COMMIT');
+    return { state: 'activated', group: getActiveTelegramGroup(chatId), count: count + 1, limit: GROUP_LIMIT };
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+
+export function getActiveTelegramGroup(chatId) {
+  return db.prepare(`SELECT g.*,u.telegram_id,u.username,u.display_name,u.group_access
+    FROM telegram_groups g JOIN users u ON u.id=g.owner_user_id
+    WHERE g.chat_id=? AND g.status='active'`).get(String(chatId)) || null;
+}
+
+export function deactivateTelegramGroup(chatId) {
+  return db.prepare("UPDATE telegram_groups SET status='inactive',updated_at=? WHERE chat_id=? AND status='active'").run(now(), String(chatId)).changes > 0;
+}
+
+export function listActiveTelegramGroups(ownerUserId) {
+  return db.prepare("SELECT * FROM telegram_groups WHERE owner_user_id=? AND status='active' ORDER BY created_at").all(ownerUserId);
+}
+
 const parseJob = (row) => row ? ({ ...row, userId: row.user_id, recipeId: row.recipe_id, sourceType: row.source_type, sourceKey: row.source_key, sourceUrl: row.source_url, thumbnailUrl: row.thumbnail_url, errorCode: row.error_code, errorMessage: row.error_message, createdAt: row.created_at, updatedAt: row.updated_at }) : null;
 
 export function claimImport(userId, { sourceType, sourceKey = null, sourceUrl = null, label = 'Источник', thumbnailUrl = null }) {
@@ -214,7 +286,7 @@ export function updateJob(id, status, fields = {}) {
   db.prepare('UPDATE import_jobs SET status=?,recipe_id=COALESCE(?,recipe_id),error_code=?,error_message=?,thumbnail_url=COALESCE(?,thumbnail_url),updated_at=? WHERE id=?')
     .run(status, fields.recipeId || null, fields.errorCode || null, fields.errorMessage ? String(fields.errorMessage).slice(0, 300) : null, fields.thumbnailUrl || null, now(), id);
 }
-export function listImportJobs(userId) { return db.prepare("SELECT * FROM import_jobs WHERE user_id=? AND status NOT IN ('ready','awaiting_review') ORDER BY updated_at DESC LIMIT 20").all(userId).map(parseJob); }
+export function listImportJobs(userId) { return db.prepare("SELECT * FROM import_jobs WHERE user_id=? AND status IN ('received','fetching','extracting','normalizing') ORDER BY updated_at DESC LIMIT 20").all(userId).map(parseJob); }
 export function interruptActiveJobs() { return db.prepare("UPDATE import_jobs SET status='interrupted',error_code='PROCESS_INTERRUPTED',error_message='Обработка была прервана. Отправьте тот же источник ещё раз — дубль не создастся.',updated_at=? WHERE status IN ('received','fetching','extracting','normalizing')").run(now()).changes; }
 export function setPendingIntent(userId, payload) {
   const at = now();
@@ -227,6 +299,34 @@ export function getPendingIntent(userId) {
   try { return JSON.parse(row.payload_json); } catch { clearPendingIntent(userId); return null; }
 }
 export function clearPendingIntent(userId) { db.prepare('DELETE FROM pending_intents WHERE user_id=?').run(userId); }
+
+const parseSuggestion = (row) => row ? { id: row.id, query: row.query, recipe: JSON.parse(row.recipe_json), recipeId: row.recipe_id, createdAt: row.created_at } : null;
+export function getRecipeSuggestion(userId, id) {
+  const row = db.prepare('SELECT * FROM recipe_suggestions WHERE id=? AND user_id=?').get(id, userId);
+  return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? parseSuggestion(row) : null;
+}
+export function findRecipeSuggestion(userId, query) {
+  const row = db.prepare('SELECT * FROM recipe_suggestions WHERE user_id=? AND query=? AND recipe_id IS NULL ORDER BY created_at DESC LIMIT 1').get(userId, query);
+  return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? parseSuggestion(row) : null;
+}
+export function createRecipeSuggestion(userId, query, recipe) {
+  const id = randomUUID();
+  db.prepare('DELETE FROM recipe_suggestions WHERE created_at<?').run(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+  db.prepare('INSERT INTO recipe_suggestions(id,user_id,query,recipe_json,created_at) VALUES(?,?,?,?,?)').run(id, userId, query, JSON.stringify(recipe), now());
+  return getRecipeSuggestion(userId, id);
+}
+export function saveRecipeSuggestion(userId, id) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const suggestion = getRecipeSuggestion(userId, id);
+    if (!suggestion) { db.exec('COMMIT'); return null; }
+    if (suggestion.recipeId) { const recipe = getRecipe(userId, suggestion.recipeId); db.exec('COMMIT'); return recipe; }
+    const recipe = createRecipe(userId, { ...suggestion.recipe, origin: 'generated', status: 'ready', sourceType: 'generated', sourceName: 'Создано для меня · AI' });
+    db.prepare('UPDATE recipe_suggestions SET recipe_id=? WHERE id=?').run(recipe.id, id);
+    db.exec('COMMIT');
+    return recipe;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
 
 export function createRecipe(userId, input) {
   const id = randomUUID(), at = now();
@@ -242,6 +342,40 @@ export function createRecipe(userId, input) {
 
 export function getRecipe(userId, id) { return parseRecipe(db.prepare('SELECT * FROM recipes WHERE id=? AND user_id=?').get(id, userId)); }
 export function listRecipes(userId) { return db.prepare("SELECT * FROM recipes WHERE user_id=? AND status!='archived' ORDER BY updated_at DESC").all(userId).map(parseRecipe); }
+export function createRecipeShare(userId, recipeId) {
+  const recipe = db.prepare("SELECT id FROM recipes WHERE id=? AND user_id=? AND status!='archived'").get(recipeId, userId);
+  if (!recipe) return null;
+  const current = db.prepare('SELECT token FROM recipe_shares WHERE recipe_id=?').get(recipeId);
+  if (current) return current.token;
+  const token = randomBytes(24).toString('base64url');
+  db.prepare('INSERT INTO recipe_shares(token,recipe_id,created_at) VALUES(?,?,?)').run(token, recipeId, now());
+  return token;
+}
+export function getSharedRecipe(token) {
+  const row = db.prepare(`SELECT r.*, u.display_name AS shared_by
+    FROM recipe_shares s
+    JOIN recipes r ON r.id=s.recipe_id
+    JOIN users u ON u.id=r.user_id
+    WHERE s.token=? AND r.status!='archived'`).get(String(token));
+  if (!row) return null;
+  const recipe = parseRecipe(row);
+  return {
+    id: recipe.id,
+    title: recipe.title,
+    description: recipe.description,
+    servings: recipe.servings,
+    prepMinutes: recipe.prepMinutes,
+    cookMinutes: recipe.cookMinutes,
+    ingredients: recipe.ingredients,
+    steps: recipe.steps,
+    tags: recipe.tags,
+    warnings: recipe.warnings,
+    sourceUrl: recipe.sourceUrl,
+    sourceName: recipe.sourceName,
+    thumbnailUrl: recipe.thumbnailUrl,
+    sharedBy: row.shared_by
+  };
+}
 export function updateRecipe(userId, id, input) {
   const current = getRecipe(userId, id);
   if (!current) return null;
@@ -255,17 +389,32 @@ export function updateRecipe(userId, id, input) {
 }
 export function archiveRecipe(userId, id) { return db.prepare("UPDATE recipes SET status='archived',updated_at=? WHERE id=? AND user_id=?").run(now(), id, userId).changes > 0; }
 
+const searchStopWords = new Set(['рецепт', 'рецепта', 'рецепты', 'рецептов', 'рецепте', 'рецептом', 'с', 'со', 'из', 'на', 'для', 'и', 'в', 'во', 'по', 'как', 'приготовить', 'найти', 'найди', 'покажи', 'блюдо', 'блюда', 'ужин', 'ужина', 'за', 'минут', 'минуты', 'минуту', 'не', 'слишком']);
+const searchTokens = (value) => String(value).toLocaleLowerCase('ru').replaceAll('ё', 'е').match(/[\p{L}\p{N}]+/gu) || [];
+function sameSearchWord(left, right) {
+  if (left === right) return true;
+  const shorter = Math.min(left.length, right.length);
+  if (shorter < 5 || Math.abs(left.length - right.length) > 3) return false;
+  return left.slice(0, Math.max(4, shorter - 2)) === right.slice(0, Math.max(4, shorter - 2));
+}
+
 export function searchRecipes(userId, query) {
-  const words = String(query).toLocaleLowerCase('ru').split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2);
+  const quick = /(быстр|скор)/iu.test(query);
+  const light = /(низкокалор|не\s+слишком\s+калор|легк)/iu.test(query);
+  const words = searchTokens(query).filter((word) => word.length > 2 && !/^\d+$/u.test(word) && !searchStopWords.has(word) && !/^(быстр|скор|низкокалор|калор|легк)/u.test(word));
   const maxMinutes = Number.parseInt(String(query).match(/(?:за|<|max|maximum|максимум)\s*(\d{1,3})/i)?.[1] || '', 10);
   return listRecipes(userId).map((recipe) => {
-    const haystack = [recipe.title, recipe.description, recipe.notes, ...recipe.tags, ...recipe.ingredients.map((x) => x.name || x.raw || x)].join(' ').toLocaleLowerCase('ru');
-    let score = words.reduce((sum, word) => sum + (haystack.includes(word) ? 3 : 0), 0);
-    if (/\b(быстр|скор)а?/i.test(query) && ((recipe.prepMinutes || 0) + (recipe.cookMinutes || 0)) <= 30) score += 2;
-    if (maxMinutes && ((recipe.prepMinutes || 0) + (recipe.cookMinutes || 0)) <= maxMinutes) score += 3;
-    if (/\b(низкокалор|не\s+слишком\s+калор|легк)/i.test(query) && recipe.tags.some((t) => /(легк|низкокалор)/i.test(t))) score += 3;
+    const fields = [recipe.title, recipe.description, recipe.notes, ...recipe.tags, ...recipe.ingredients.map((x) => x.name || x.raw || x)];
+    const tokens = fields.map(searchTokens);
+    const matches = words.map((word) => tokens.findIndex((field) => field.some((token) => sameSearchWord(word, token))));
+    if (matches.includes(-1)) return { recipe, score: 0 };
+    let score = matches.reduce((sum, field) => sum + ([5, 2, 1, 3][field] ?? 2), 0);
+    const totalMinutes = recipe.prepMinutes != null || recipe.cookMinutes != null ? (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0) : null;
+    if (quick && totalMinutes !== null && totalMinutes <= 30) score += 2;
+    if (maxMinutes && totalMinutes !== null && totalMinutes <= maxMinutes) score += 3;
+    if (light && recipe.tags.some((t) => /(легк|низкокалор)/i.test(t))) score += 3;
     return { recipe, score };
-  }).filter((x) => x.score > 0 || words.length === 0).sort((a, b) => b.score - a.score).map((x) => x.recipe);
+  }).filter((x) => x.score > 0 || (words.length === 0 && !quick && !light && !maxMinutes)).sort((a, b) => b.score - a.score).map((x) => x.recipe);
 }
 
 export function recordProviderRequest({ userId, operation, model, inputUnits = 0, outputUnits = 0, reasoningUnits = 0, cachedInputUnits = 0, totalUnits = inputUnits + outputUnits, usageComplete = false, status, providerStatus = null, errorCode = null, errorType = null, errorMessage = null, requestId = null, clientRequestId = null, incompleteReason = null, retryAfter = null }) {
