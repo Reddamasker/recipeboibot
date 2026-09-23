@@ -100,7 +100,7 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
   const reply_markup = recipeButton(recipe, options);
   const photo = recipe.origin === 'generated' && config.appUrl?.startsWith('https://') ? `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg` : recipe.thumbnailUrl;
   if (photo) {
-    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Фото — иллюстрация</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
+    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Иллюстрация: готовое блюдо может выглядеть иначе.</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
     catch (error) { log('warn', 'telegram_preview_failed', { error, recipeId: recipe.id }); }
   }
   await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
@@ -151,7 +151,7 @@ export async function handleSuggestionCallback(callback) {
       const suggestion = await suggestForEmptySearch(userId, proposal.query);
       const recipe = suggestion.recipe;
       if (config.appUrl?.startsWith('https://')) {
-        try { await telegram('sendPhoto', { chat_id: chat.id, photo: `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg`, caption: 'Фото — иллюстрация: готовое блюдо может выглядеть иначе. Gareth Hubbard / Unsplash: https://unsplash.com/photos/green-vegetable-on-brown-wooden-table-qPcSUERqBAc' }); }
+        try { await telegram('sendPhoto', { chat_id: chat.id, photo: `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg`, caption: 'Иллюстрация: готовое блюдо может выглядеть иначе. Фото: Gareth Hubbard / Unsplash: https://unsplash.com/photos/green-vegetable-on-brown-wooden-table-qPcSUERqBAc' }); }
         catch (error) { log('warn', 'telegram_suggestion_photo_failed', { error }); }
       }
       const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');

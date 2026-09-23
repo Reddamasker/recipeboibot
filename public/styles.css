@@ -167,7 +167,7 @@ header {
   white-space: nowrap;
 }
 .card-art.fallback .badge { position: absolute; left: 0; bottom: 0; }
-.badge.generated, .badge.failed { background: #f7e3e8; color: #8f3151; }
+.badge.failed { background: #f7e3e8; color: #8f3151; }
 .suggestion { margin: 24px 0; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
 .suggestion-image { display: block; width: 100%; max-height: 330px; object-fit: cover; border-radius: 14px; margin: 14px 0 0; }
 .image-note, .generated-image-note { color: var(--muted); font-size: 12px; line-height: 1.45; }
