@@ -15,7 +15,7 @@ const recipeSchema = {
 };
 
 function ensureBudget(inputLength) {
-  if (!config.openaiKey || !config.textModel) throw Object.assign(new Error('AI не настроен'), { status: 503 });
+  if (!config.openaiKey || !config.textModel) throw Object.assign(new Error('Сервис создания рецептов не настроен'), { status: 503 });
   if (inputLength > config.aiMaxInputChars) throw Object.assign(new Error('Исходный материал слишком большой'), { status: 413 });
 }
 
@@ -70,11 +70,11 @@ export function providerFailureMessage(details, operation = 'recipe_extraction')
   if (details.providerStatus === 429) return `OpenAI отклонил запрос из-за лимита${suffix} Повторите попытку после снятия ограничения.`;
   if (details.providerStatus === 401 || details.providerStatus === 403) return `OpenAI отклонил доступ к модели${suffix} Нужна проверка настроек API.`;
   if (details.providerStatus === 400) return `OpenAI отклонил параметры запроса${suffix}`;
-  if (details.errorCode === 'response_incomplete') return `AI не завершил формирование ответа${suffix}`;
-  if (details.errorCode === 'invalid_structured_output') return `AI вернул ответ не в ожидаемом формате рецепта${suffix}`;
-  if (details.errorCode === 'missing_output') return `AI завершил запрос без текста рецепта${suffix}`;
+  if (details.errorCode === 'response_incomplete') return `Не удалось завершить формирование ответа${suffix}`;
+  if (details.errorCode === 'invalid_structured_output') return `Не удалось получить рецепт в нужном формате${suffix}`;
+  if (details.errorCode === 'missing_output') return `Ответ не содержит текста рецепта${suffix}`;
   if (details.providerStatus && details.providerStatus >= 500) return `OpenAI вернул временную серверную ошибку${suffix} Повторите попытку позже.`;
-  return `${operation === 'transcription' ? 'Не удалось распознать речь' : 'Не удалось получить корректный рецепт от AI'}${suffix}`;
+  return `${operation === 'transcription' ? 'Не удалось распознать речь' : 'Не удалось получить корректный рецепт'}${suffix}`;
 }
 
 async function responsePayload(response) {

@@ -101,6 +101,12 @@ CREATE TABLE IF NOT EXISTS recipe_suggestions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS suggestions_owner_query ON recipe_suggestions(user_id, query, created_at DESC);
+CREATE TABLE IF NOT EXISTS search_offers (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  query TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS telegram_groups (
   chat_id TEXT PRIMARY KEY,
   owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -300,6 +306,17 @@ export function getPendingIntent(userId) {
 }
 export function clearPendingIntent(userId) { db.prepare('DELETE FROM pending_intents WHERE user_id=?').run(userId); }
 
+export function createSearchOffer(userId, query) {
+  const id = randomUUID();
+  db.prepare('DELETE FROM search_offers WHERE created_at<?').run(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+  db.prepare('INSERT INTO search_offers(id,user_id,query,created_at) VALUES(?,?,?,?)').run(id, userId, query, now());
+  return id;
+}
+export function getSearchOffer(userId, id) {
+  const row = db.prepare('SELECT query,created_at FROM search_offers WHERE id=? AND user_id=?').get(id, userId);
+  return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? row : null;
+}
+
 const parseSuggestion = (row) => row ? { id: row.id, query: row.query, recipe: JSON.parse(row.recipe_json), recipeId: row.recipe_id, createdAt: row.created_at } : null;
 export function getRecipeSuggestion(userId, id) {
   const row = db.prepare('SELECT * FROM recipe_suggestions WHERE id=? AND user_id=?').get(id, userId);
@@ -321,7 +338,7 @@ export function saveRecipeSuggestion(userId, id) {
     const suggestion = getRecipeSuggestion(userId, id);
     if (!suggestion) { db.exec('COMMIT'); return null; }
     if (suggestion.recipeId) { const recipe = getRecipe(userId, suggestion.recipeId); db.exec('COMMIT'); return recipe; }
-    const recipe = createRecipe(userId, { ...suggestion.recipe, origin: 'generated', status: 'ready', sourceType: 'generated', sourceName: 'Создано для меня · AI' });
+    const recipe = createRecipe(userId, { ...suggestion.recipe, origin: 'generated', status: 'ready', sourceType: 'generated', sourceName: 'Создано в «Рецептах»' });
     db.prepare('UPDATE recipe_suggestions SET recipe_id=? WHERE id=?').run(recipe.id, id);
     db.exec('COMMIT');
     return recipe;
@@ -361,6 +378,7 @@ export function getSharedRecipe(token) {
   const recipe = parseRecipe(row);
   return {
     id: recipe.id,
+    origin: recipe.origin,
     title: recipe.title,
     description: recipe.description,
     servings: recipe.servings,
@@ -447,7 +465,7 @@ export function reserveAiRequest() {
   try {
     const total = db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n;
     const daily = db.prepare('SELECT COUNT(*) AS n FROM ai_reservations WHERE created_at>=?').get(new Date().toISOString().slice(0,10)).n;
-    if (total >= config.aiMaxTotalRequests || daily >= config.aiMaxDailyRequests) throw Object.assign(new Error('Лимит AI закрытого теста исчерпан. Обратитесь к владельцу.'), { status: 429 });
+    if (total >= config.aiMaxTotalRequests || daily >= config.aiMaxDailyRequests) throw Object.assign(new Error('Лимит запросов закрытого теста исчерпан. Обратитесь к владельцу.'), { status: 429 });
     db.prepare('INSERT INTO ai_reservations VALUES(?,?)').run(randomUUID(), now());
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }

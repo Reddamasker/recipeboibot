@@ -100,12 +100,12 @@ test('SSRF rejects special-use and mapped IPv6 addresses', () => {
 
 test('AI quota reserves before calls and survives failed attempts', () => {
   for (let i=0; i<40; i++) database.reserveAiRequest();
-  assert.throws(() => database.reserveAiRequest(), /Лимит AI/);
+  assert.throws(() => database.reserveAiRequest(), /Лимит запросов/);
   assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n, 40);
   database.db.prepare("UPDATE ai_reservations SET created_at = datetime('now', '-1 day')").run();
   for (let i=0; i<40; i++) database.reserveAiRequest();
   database.db.prepare("UPDATE ai_reservations SET created_at = datetime('now', '-1 day')").run();
-  assert.throws(() => database.reserveAiRequest(), /Лимит AI/);
+  assert.throws(() => database.reserveAiRequest(), /Лимит запросов/);
   assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n, 80);
 });
 

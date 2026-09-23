@@ -41,7 +41,7 @@ test('empty search proposes a recipe and saves it only after owner confirmation'
   const saved = database.saveRecipeSuggestion(owner.id, proposal.id);
   assert.equal(saved.origin, 'generated');
   assert.equal(saved.status, 'ready');
-  assert.equal(saved.sourceName, 'Создано для меня · AI');
+  assert.equal(saved.sourceName, 'Создано в «Рецептах»');
   assert.equal(database.saveRecipeSuggestion(owner.id, proposal.id).id, saved.id);
   assert.equal(database.listRecipes(owner.id).length, 1);
   await assert.rejects(suggestions.suggestForEmptySearch(owner.id, 'фасоль', { generate }), (error) => error.status === 409);
@@ -78,7 +78,23 @@ test('group suggestion can only be added by the collection owner', async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('private Telegram search shows a generated recipe and waits for the save button', async () => {
+test('group search offer rejects a non-owner before generation', async () => {
+  const owner = database.upsertTelegramUser({ id: 6166, first_name: 'Владелец' });
+  database.setGroupAccessByTelegramId(6166, true);
+  database.activateTelegramGroup(owner.id, { id: -61660, type: 'group', title: 'Семья' });
+  const offerId = database.createSearchOffer(owner.id, 'ужин');
+  const originalFetch = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (url, options) => { calls.push({ url: String(url), body: JSON.parse(options.body) }); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    await telegramModule.handleSuggestionCallback({ id: 'offer-group', data: `offer:create:${offerId}`, message: { message_id: 1, chat: { id: -61660, type: 'group' } }, from: { id: 6167, first_name: 'Участник' } });
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /answerCallbackQuery/);
+    assert.equal(calls[0].body.show_alert, true);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('private Telegram search asks before generation and waits for the save button', async () => {
   const telegramUser = { id: 6165, first_name: 'Поиск' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
   const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
@@ -93,14 +109,24 @@ test('private Telegram search shows a generated recipe and waits for the save bu
   };
   try {
     await telegramModule.handleMessage({ chat: { id: 6165, type: 'private' }, from: telegramUser, text: 'Найди суп с тыквой' });
-    assert.equal(aiCalls, 1);
+    assert.equal(aiCalls, 0);
     assert.equal(database.listRecipes(owner.id).length, 0);
     assert.match(sent[0].text, /ничего подходящего/);
-    assert.match(sent[1].text, /Суп с тыквой/);
-    const callbackData = sent[1].reply_markup.inline_keyboard[0][0].callback_data;
+    const offer = sent[0].reply_markup.inline_keyboard[0][0].callback_data;
+    assert.match(offer, /^offer:create:/);
+    const callback = { id: 'callback-private', message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser };
+    await telegramModule.handleSuggestionCallback({ ...callback, data: sent[0].reply_markup.inline_keyboard[1][0].callback_data });
+    assert.equal(aiCalls, 0);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+    await telegramModule.handleSuggestionCallback({ ...callback, data: offer });
+    assert.equal(aiCalls, 1);
+    const suggestionMessage = sent.find((message) => message.text?.includes('Суп с тыквой'));
+    assert.match(suggestionMessage.text, /Создано в «Рецептах»/);
+    const callbackData = suggestionMessage.reply_markup.inline_keyboard[0][0].callback_data;
     assert.match(callbackData, /^suggest:save:/);
-    await telegramModule.handleSuggestionCallback({ id: 'callback-private', data: callbackData, message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser });
+    await telegramModule.handleSuggestionCallback({ ...callback, data: callbackData });
     assert.equal(database.listRecipes(owner.id).length, 1);
+    assert.equal(database.listRecipes(owner.id)[0].sourceName, 'Создано в «Рецептах»');
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -176,7 +202,7 @@ test('incomplete and malformed structured responses are distinguished', async ()
     });
     await assert.rejects(openaiModule.normalizeRecipe({ userId: user.id, text: 'Ингредиенты и шаги второго рецепта', sourceName: 'Тест' }), (error) => {
       assert.equal(error.errorCode, 'invalid_structured_output');
-      assert.match(error.message, /не в ожидаемом формате/);
+      assert.match(error.message, /не удалось получить рецепт в нужном формате/i);
       return true;
     });
   } finally { globalThis.fetch = originalFetch; }
@@ -192,7 +218,7 @@ test('/usage reports exact monitored tokens without an AI call', async () => {
     database.recordProviderRequest({ userId: user.id, operation: 'recipe_extraction', model: 'test-model', inputUnits: 120, outputUnits: 80, reasoningUnits: 30, cachedInputUnits: 20, totalUnits: 200, usageComplete: true, status: 'ok', clientRequestId: 'client-test' });
     await telegramModule.handleMessage({ chat: { id: telegramId, type: 'private' }, from: { id: telegramId, first_name: 'Мониторинг' }, text: '/usage' });
     assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /Использование AI/);
+    assert.match(sent[0].text, /Использование сервиса/);
     assert.match(sent[0].text, /120/);
     assert.match(sent[0].text, /80/);
     assert.match(sent[0].text, /reasoning: 30/);
@@ -384,7 +410,7 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
   assert.match(css, /\.detail-actions \{ position: fixed/);
   assert.match(css, /\.recipe-panel \{[\s\S]*border-top: 1px solid var\(--line\)/);
   assert.match(index, /refinements\.css\?v=6/);
-  assert.match(index, /app\.js\?v=6/);
+  assert.match(index, /app\.js\?v=7/);
 });
 
 test('recipe detail exposes sharing to the owner and a read-only public view', () => {

@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, upsertTelegramUser } from './db.js';
+import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
 import { transcribeAudio } from './openai.js';
 import { suggestForEmptySearch } from './suggestions.js';
@@ -23,7 +23,7 @@ function usageMessage(userId) {
   const usage = aiUsageSummary(userId);
   const { reservations, totals, recent } = usage;
   const lines = [
-    '<b>Использование AI</b>',
+    '<b>Использование сервиса</b>',
     `Запросы сегодня: <b>${number(reservations.today)} / ${number(reservations.dailyLimit)}</b>`,
     `Запросы всего: <b>${number(reservations.total)} / ${number(reservations.totalLimit)}</b>`,
     '',
@@ -98,8 +98,9 @@ function recipeButton(recipe, { groupMode = false } = {}) {
 async function sendRecipeCard(chatId, recipe, options = {}) {
   const caption = `<b>${escapeHtml(recipe.title)}</b>${recipe.sourceName ? `\n${escapeHtml(recipe.sourceName)}` : ''}`;
   const reply_markup = recipeButton(recipe, options);
-  if (recipe.thumbnailUrl) {
-    try { await telegram('sendPhoto', { chat_id: chatId, photo: recipe.thumbnailUrl, caption, parse_mode: 'HTML', reply_markup }); return; }
+  const photo = recipe.origin === 'generated' && config.appUrl?.startsWith('https://') ? `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg` : recipe.thumbnailUrl;
+  if (photo) {
+    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Фото — иллюстрация</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
     catch (error) { log('warn', 'telegram_preview_failed', { error, recipeId: recipe.id }); }
   }
   await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
@@ -110,19 +111,8 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   const results = searchRecipes(user.id, normalizedQuery).filter((recipe) => recipe.status === 'ready').slice(0, 8);
   if (!results.length) {
-    await send(chatId, `В ${groupMode ? 'коллекции владельца группы' : 'вашей коллекции'} ничего подходящего для «<b>${escapeHtml(normalizedQuery)}</b>» нет. Составляю новый рецепт…`);
-    try {
-      const suggestion = await suggestForEmptySearch(user.id, normalizedQuery);
-      const recipe = suggestion.recipe;
-      const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
-      const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
-      const detail = `${recipe.title}\nСоздано для вас · AI${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
-      const buttons = { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
-      await send(chatId, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
-    } catch (error) {
-      log('error', 'telegram_suggestion_failed', { error, userId: user.id });
-      await send(chatId, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
-    }
+    const offerId = createSearchOffer(user.id, normalizedQuery);
+    await send(chatId, `В ${groupMode ? 'коллекции владельца группы' : 'вашей коллекции'} ничего подходящего для «<b>${escapeHtml(normalizedQuery)}</b>» нет. Создать новый рецепт по этому запросу или поискать ещё?${groupMode ? '\nВыбрать может только владелец коллекции.' : ''}`, { reply_markup: { inline_keyboard: [[{ text: 'Создать новый рецепт', callback_data: `offer:create:${offerId}` }], [{ text: 'Поищу ещё', callback_data: `offer:skip:${offerId}` }]] } });
     return [];
   }
   const allUrl = groupMode ? null : webAppUrl({ view: 'results', q: normalizedQuery });
@@ -132,25 +122,50 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
 }
 
 export async function handleSuggestionCallback(callback) {
-  const match = String(callback.data || '').match(/^suggest:(save|skip):([0-9a-f-]{36})$/i);
+  const match = String(callback.data || '').match(/^(suggest|offer):(save|skip|create):([0-9a-f-]{36})$/i);
   if (!match || !callback.message?.chat || !callback.from) return;
   const chat = callback.message.chat;
   const groupMode = ['group', 'supergroup'].includes(chat.type);
   const owner = groupMode ? getActiveTelegramGroup(chat.id) : upsertTelegramUser(callback.from);
   if (!owner || (groupMode && String(owner.telegram_id) !== String(callback.from.id))) {
-    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Добавить рецепт может только владелец коллекции', show_alert: true });
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Выбрать может только владелец коллекции', show_alert: true });
     return;
   }
-  if (!getRecipeSuggestion(groupMode ? owner.owner_user_id : owner.id, match[2])) {
+  const userId = groupMode ? owner.owner_user_id : owner.id;
+  const proposal = match[1] === 'offer' ? getSearchOffer(userId, match[3]) : getRecipeSuggestion(userId, match[3]);
+  if (!proposal) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true });
     return;
   }
-  if (match[1] === 'skip') {
+  if (match[2] === 'skip') {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт не добавлен' });
     await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
+    if (match[1] === 'offer') await send(chat.id, 'Напишите другой запрос — поищу ещё в коллекции.');
     return;
   }
-  const recipe = saveRecipeSuggestion(groupMode ? owner.owner_user_id : owner.id, match[2]);
+  if (match[1] === 'offer' && match[2] === 'create') {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Составляю рецепт' });
+    await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
+    await send(chat.id, 'Составляю рецепт по вашему запросу…');
+    try {
+      const suggestion = await suggestForEmptySearch(userId, proposal.query);
+      const recipe = suggestion.recipe;
+      if (config.appUrl?.startsWith('https://')) {
+        try { await telegram('sendPhoto', { chat_id: chat.id, photo: `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg`, caption: 'Фото — иллюстрация: готовое блюдо может выглядеть иначе. Gareth Hubbard / Unsplash: https://unsplash.com/photos/green-vegetable-on-brown-wooden-table-qPcSUERqBAc' }); }
+        catch (error) { log('warn', 'telegram_suggestion_photo_failed', { error }); }
+      }
+      const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
+      const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
+      const detail = `${recipe.title}\nСоздано в «Рецептах»${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
+      const buttons = { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
+      await send(chat.id, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
+    } catch (error) {
+      log('error', 'telegram_suggestion_failed', { error, userId });
+      await send(chat.id, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
+    }
+    return;
+  }
+  const recipe = saveRecipeSuggestion(userId, match[3]);
   if (!recipe) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true }); return; }
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт добавлен' });
   await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
@@ -158,7 +173,7 @@ export async function handleSuggestionCallback(callback) {
 }
 
 async function finishImport(chatId, outcome, options = {}) {
-  if (outcome.state === 'processing') { await send(chatId, 'Этот источник уже обрабатывается. Новую задачу и лишний AI-вызов не создаю.'); return; }
+  if (outcome.state === 'processing') { await send(chatId, 'Этот источник уже обрабатывается. Новую задачу не создаю.'); return; }
   const recipe = outcome.recipe;
   if (outcome.state === 'existing') { await send(chatId, `Этот рецепт уже есть: <b>${escapeHtml(recipe.title)}</b>.`, { reply_markup: recipeButton(recipe, options) }); return; }
   await send(chatId, `Сохранено: <b>${escapeHtml(recipe.title)}</b>. Рецепт уже появился ${options.groupMode ? 'в коллекции владельца группы' : 'в вашей коллекции'}.`, { reply_markup: recipeButton(recipe, options) });
