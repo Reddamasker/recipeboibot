@@ -6,7 +6,7 @@ import { generateRecipeImage } from './recipe-images.js';
 import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 2, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 2 });
+export const DINNER_BUFFER = Object.freeze({ version: 2, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const fills = new Map(), imageTasks = new Map();
 let activeImages = 0;
 const imageQueue = [];
@@ -113,11 +113,17 @@ function drainImages() {
   }
 }
 
-function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes, images = true } = {}) {
+function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes, images = true, catalogFirst = true } = {}) {
   if (acceptedDinnerOptionId(userId, sessionId)) return Promise.resolve();
   if (fills.has(sessionId)) return fills.get(sessionId);
   const context = getContext(), key = synchronize(userId, sessionId, context);
-  const count = DINNER_BUFFER.total - activeCount(userId, sessionId);
+  // House recipes and their stored photos are shared by every user. Creating
+  // another image for the same dish is unnecessary. Only fill real catalog gaps
+  // with generation, without blocking a usable ready selection.
+  if (catalogFirst) fallbackFill(userId, sessionId, context);
+  const active = activeCount(userId, sessionId);
+  // Return the visible trio first; the reserve is generated in the background.
+  const count = active === 0 ? DINNER_BUFFER.visible : DINNER_BUFFER.total - active;
   if (count <= 0) { if (images) warmImages(userId, sessionId); return Promise.resolve(); }
   const session = getDinnerSession(userId, sessionId);
   if (!config.dinnerLlmEnabled || session.buffer_retry_at > Date.now()) {
@@ -141,7 +147,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
         if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }
       }
       if (added < count) setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
-      fallbackFill(userId, sessionId, context);
+      fallbackFill(userId, sessionId, context, active + count);
       addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added } });
     } catch (error) {
       if (getDinnerSession(userId, sessionId) && dinnerContextKey(getContext()) === key) {
@@ -169,7 +175,10 @@ export async function bufferedDinner(userId, sessionId, getContext, options = {}
   synchronize(userId, sessionId, getContext());
   const prior = listDinnerOptions(userId, sessionId);
   if (!currentDinnerOptions(userId, sessionId).length) {
-    if (!prior.length) await fill(userId, sessionId, getContext, options);
+    if (!prior.length) {
+      if (options.catalogFirst === false) await fill(userId, sessionId, getContext, options);
+      else prefetchDinnerBuffer(userId, sessionId, getContext, options);
+    }
     else if (!ready(userId, sessionId).length) fallbackFill(userId, sessionId, getContext(), DINNER_BUFFER.visible);
     // Constraints may have changed while the provider was running.
     synchronize(userId, sessionId, getContext());

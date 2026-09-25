@@ -134,7 +134,7 @@ function bufferResponse(userId, sessionId, buffer) {
   return { sessionId, pantry: context.pantry, recommendations, recommendation: recommendations[0] || null, reserve,
     preparing: buffer.preparing, imagesPending: Boolean(config.dinnerLlmEnabled && config.dinnerImagesEnabled && config.openaiKey && config.imageModel) && [...buffer.current,...buffer.reserve].some((o) => o.recipe.dinnerGenerated && !o.recipe.thumbnailUrl && o.imageState !== 'failed'),
     rejectedCount: context.rejected.length, retryCount: retryCountInSession(userId, sessionId),
-    notice: fallback && config.dinnerLlmEnabled ? 'Сейчас показываю подходящие готовые рецепты: новые варианты пока не удалось подготовить.' : null,
+    notice: fallback && getDinnerSession(userId, sessionId).buffer_retry_at > Date.now() && config.dinnerLlmEnabled ? 'Сейчас показываю подходящие готовые рецепты: новые варианты пока не удалось подготовить.' : null,
     message: recommendations.length ? null : buffer.preparing ? preparingMessage : 'Пока не удалось подготовить новые рецепты, а подходящий готовый запас закончился. Можно повторить чуть позже или уточнить продукты.' };
 }
 

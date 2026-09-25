@@ -3,6 +3,51 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
+test('first dinner opens minimal preferences before generation; returning client goes straight to dinner', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
+  let needsOnboarding = true, questions = 0, recipes = 0;
+  const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal,
+    api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding }),
+    showDinnerOnboarding: async () => { questions++; }, loadDinnerRecommendation: async () => { recipes++; },
+    toast: assert.fail, setRoute() {}, home() {} };
+  vm.runInNewContext(handler, sandbox);
+  await sandbox.beginDinner(); assert.equal(questions, 1); assert.equal(recipes, 0);
+  needsOnboarding = false;
+  await sandbox.beginDinner(); assert.equal(questions, 1); assert.equal(recipes, 1);
+  await sandbox.beginDinner(true); assert.equal(questions, 2);
+});
+
+test('dinner image polling recovers after a network failure', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('let dinnerPollTimer;'), source.indexOf('\nasync function showNextDinner'));
+  const dinner = { sessionId: 's', recommendations: [{ id: 'a', recipe: {} }], reserve: [], imagesPending: true };
+  const timers = []; let requests = 0, paints = 0;
+  const sandbox = { state: { dinner }, clearTimeout() {}, setTimeout(fn) { timers.push(fn); },
+    location: { search: '?view=dinner' }, URLSearchParams, AbortSignal,
+    api: async () => { if (++requests === 1) throw new Error('temporary offline'); return { recommendations: [{ id: 'a', recipe: { thumbnailUrl: '/image.jpg' } }], reserve: [1,2,3], imagesPending: false }; },
+    dinnerView() { paints++; } };
+  vm.runInNewContext(handler, sandbox);
+  sandbox.scheduleDinnerPrefetch(dinner);
+  await timers.shift()(); assert.equal(timers.length, 1);
+  await timers.shift()(); assert.equal(paints, 1);
+  assert.equal(dinner.recommendations[0].recipe.thumbnailUrl, '/image.jpg');
+  assert.equal(timers.length, 0);
+});
+
+test('open full recipe keeps waiting for its image after a transient fetch failure', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('async function waitForRecipeImage('), source.indexOf('\nfunction recipeDetail'));
+  let requests = 0, rendered;
+  const sandbox = { state: { recipes: [] }, URLSearchParams, AbortSignal,
+    location: { search: '?recipe=dinner%3Aimage' }, document: { querySelector: () => ({}) },
+    setTimeout(fn) { fn(); }, api: async () => { if (++requests === 1) throw new Error('offline'); return { id: 'dinner:image', thumbnailUrl: '/ready.jpg' }; },
+    closeOverlay() {}, recipeDetail(recipe) { rendered = recipe; } };
+  vm.runInNewContext(handler, sandbox);
+  await sandbox.waitForRecipeImage('dinner:image');
+  assert.equal(requests, 2); assert.equal(rendered.thumbnailUrl, '/ready.jpg');
+});
+
 test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
   assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.1'));

@@ -25,38 +25,78 @@ const batch = () => ['mince-meatballs','mince-pasta','keema-potato','mince-potat
 const fixture = (id) => { const user = upsertTelegramUser({ id, first_name: 'Генерация' }); confirmDinnerIntake(user.id, { availableIngredients: ['говяжий фарш','картошка','рис','паста'], householdSize: 4, maxMinutes: 30 }); return user; };
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} } });
 
-test('six generated recipes persist and reserve promotion does not wait for background generation', async () => {
+test('fresh client gets catalog recipes with existing images and no provider requests', async () => {
+  const user = upsertTelegramUser({ id: 620, first_name: 'Fresh catalog' });
+  updateDinnerProfile(user.id, { excludedIngredients: ['арахис'], preferredMaxCookingTime: 30, onboardingCompleted: true });
+  const before = db.prepare('SELECT count(*) n FROM ai_reservations').get().n;
+  let generationCalls = 0;
+  const generate = async () => { generationCalls++; throw new Error('catalog must be sufficient'); };
+  const started = performance.now();
+  const result = await recommendDinner(user.id, startDinner(user.id).sessionId, { generate });
+  assert.ok(performance.now() - started < 1000);
+  assert.equal(result.recommendations.length, 3);
+  assert.equal(result.reserve.length, 3);
+  assert.equal(result.preparing, false); assert.equal(result.imagesPending, false);
+  assert.equal(result.notice, null);
+  for (const option of [...result.recommendations, ...result.reserve]) {
+    assert.equal(option.recipe.origin, 'seed');
+    assert.equal(option.recipe.dinnerGenerated, undefined);
+    assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
+    assert.equal(hasExcludedIngredient(option.recipe, ['арахис']), false);
+  }
+  assert.equal(generationCalls, 0);
+  assert.equal(db.prepare('SELECT count(*) n FROM ai_reservations').get().n, before);
+  const next = await nextDinner(user.id, result.recommendations.map(o => o.id), { generate });
+  assert.deepEqual(next.recommendations.map(o => o.id), result.reserve.map(o => o.id));
+});
+
+test('all house recipes have a complete recipe and a reusable local JPEG', () => {
+  assert.ok(SEED_RECIPES.length >= 32);
+  for (const recipe of SEED_RECIPES) {
+    assert.ok(recipe.ingredients.length >= 2);
+    assert.ok(recipe.steps.length >= 4);
+    const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
+    assert.equal(bytes.readUInt16BE(0), 0xffd8);
+  }
+});
+
+test('visible trio returns before reserve generation and reserve promotion does not wait for refill', async () => {
   const user = fixture(602), session = startDinner(user.id);
   let calls = 0, resolveRefill;
   const generate = async ({ count, profile, pantry, rejectedTitles }) => {
     calls++; assert.equal(profile.householdSize, 4); assert.equal(pantry.length, 4);
-    if (calls === 1) { assert.equal(count, 6); return { recipes: batch() }; }
-    assert.equal(count, 3); assert.equal(rejectedTitles.length, 6);
+    assert.equal(count, 3);
+    if (calls === 1) return { recipes: batch().slice(0,3) };
+    assert.equal(rejectedTitles.length, calls === 2 ? 3 : 6);
     return new Promise((resolve) => { resolveRefill = resolve; });
   };
-  const first = await recommendDinner(user.id, session.sessionId, { generate });
-  assert.equal(first.recommendations.length, 3); assert.equal(first.reserve.length, 3);
+  const first = await recommendDinner(user.id, session.sessionId, { catalogFirst: false, generate });
+  assert.equal(first.recommendations.length, 3); assert.equal(first.reserve.length, 0);
+  assert.equal(first.preparing, true); assert.equal(calls, 2);
   assert.equal(first.imagesPending, false);
   assert.ok([...first.recommendations,...first.reserve].every((o) => o.method === 'generated' && o.recipe.id.startsWith('dinner:')));
   assert.equal(listRecipes(user.id).length, 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE user_id=? AND event='recommendation_shown'").get(user.id).n, 3);
-  const reopened = await recommendDinner(user.id, startDinner(user.id).sessionId, { generate });
-  assert.deepEqual(reopened.recommendations.map((o) => o.id), first.recommendations.map((o) => o.id)); assert.equal(calls, 1);
+  const reopened = await recommendDinner(user.id, startDinner(user.id).sessionId, { catalogFirst: false, generate });
+  assert.deepEqual(reopened.recommendations.map((o) => o.id), first.recommendations.map((o) => o.id)); assert.equal(calls, 2);
+  resolveRefill({ recipes: batch().slice(3) }); await tick();
+  const prepared = prefetchDinner(user.id, session.sessionId, { catalogFirst: false, generate });
+  assert.equal(prepared.reserve.length, 3);
   const ids = first.recommendations.map((o) => o.id);
-  const next = await nextDinner(user.id, ids, { generate });
-  assert.deepEqual(next.recommendations.map((o) => o.id), first.reserve.map((o) => o.id));
-  assert.equal(next.preparing, true); assert.equal(next.reserve.length, 0); assert.equal(calls, 2);
-  const replay = await nextDinner(user.id, ids, { generate });
-  assert.deepEqual(replay.recommendations.map((o) => o.id), next.recommendations.map((o) => o.id)); assert.equal(replay.retryCount, 1); assert.equal(calls, 2);
+  const next = await nextDinner(user.id, ids, { catalogFirst: false, generate });
+  assert.deepEqual(next.recommendations.map((o) => o.id), prepared.reserve.map((o) => o.id));
+  assert.equal(next.preparing, true); assert.equal(next.reserve.length, 0); assert.equal(calls, 3);
+  const replay = await nextDinner(user.id, ids, { catalogFirst: false, generate });
+  assert.deepEqual(replay.recommendations.map((o) => o.id), next.recommendations.map((o) => o.id)); assert.equal(replay.retryCount, 1); assert.equal(calls, 3);
   const refill = batch().slice(0,3); ['Рагу мясника','Паста с мясной крошкой','Мясные шарики с пряным соусом'].forEach((title, i) => { refill[i].recipe.title = title; });
   resolveRefill({ recipes: refill }); await tick();
-  const ready = prefetchDinner(user.id, session.sessionId, { generate });
+  const ready = prefetchDinner(user.id, session.sessionId, { catalogFirst: false, generate });
   assert.equal(ready.reserve.length, 3); assert.equal(ready.preparing, false);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE user_id=? AND event='recommendation_shown'").get(user.id).n, 6);
   const selected = next.recommendation;
   assert.equal(getDinnerRecipe(user.id, selected.recipe.id).steps.length, 4);
   const stranger = fixture(603); assert.equal(getDinnerRecipe(stranger.id, selected.recipe.id), null);
-  await assert.rejects(nextDinner(stranger.id, next.recommendations.map((o) => o.id), { generate }), { status: 404 });
+  await assert.rejects(nextDinner(stranger.id, next.recommendations.map((o) => o.id), { catalogFirst: false, generate }), { status: 404 });
   decideDinner(user.id, selected.id, 'accepted'); finishDinner(user.id, selected.id);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE recommendation_id=? AND event='recipe_cooked'").get(selected.id).n, 1);
 });
@@ -64,26 +104,27 @@ test('six generated recipes persist and reserve promotion does not wait for back
 test('provider failure returns six deterministic recipes without a retry storm', async () => {
   const user = fixture(604); let calls = 0;
   const generate = async () => { calls++; throw new Error('provider down'); };
-  const session = startDinner(user.id), first = await recommendDinner(user.id, session.sessionId, { generate });
+  const session = startDinner(user.id), first = await recommendDinner(user.id, session.sessionId, { catalogFirst: false, generate });
   assert.equal(first.recommendations.length, 3); assert.equal(first.reserve.length, 3);
   assert.ok([...first.recommendations,...first.reserve].every((o) => o.method === 'deterministic'));
   assert.match(first.notice, /готовые рецепты/);
-  const next = await nextDinner(user.id, first.recommendations.map((o) => o.id), { generate });
+  const next = await nextDinner(user.id, first.recommendations.map((o) => o.id), { catalogFirst: false, generate });
   assert.deepEqual(next.recommendations.map((o) => o.id), first.reserve.map((o) => o.id));
-  prefetchDinner(user.id, session.sessionId, { generate }); assert.equal(calls, 1);
+  prefetchDinner(user.id, session.sessionId, { catalogFirst: false, generate }); assert.equal(calls, 1);
 });
 
 test('concurrent initial requests generate once and prepared recipes survive a new process', async () => {
   const user = fixture(608), session = startDinner(user.id); let calls = 0, resolve;
   const generate = async () => { calls++; return new Promise((done) => { resolve = done; }); };
-  const a = recommendDinner(user.id, session.sessionId, { generate });
-  const b = recommendDinner(user.id, session.sessionId, { generate });
+  const a = recommendDinner(user.id, session.sessionId, { catalogFirst: false, generate });
+  const b = recommendDinner(user.id, session.sessionId, { catalogFirst: false, generate });
   assert.equal(calls, 1); resolve({ recipes: batch() });
   const [first, second] = await Promise.all([a,b]);
   assert.deepEqual(first.recommendations.map((o) => o.id), second.recommendations.map((o) => o.id));
+  assert.equal(calls, 2); resolve({ recipes: batch().slice(3) }); await tick();
   const child = spawnSync(process.execPath, ['--input-type=module','-e', `
     import {recommendDinner} from './src/dinner-service.js';
-    let called=false; const r=await recommendDinner(${JSON.stringify(user.id)},${JSON.stringify(session.sessionId)},{generate:async()=>{called=true;throw new Error('must use stored recipes');}});
+    let called=false; const r=await recommendDinner(${JSON.stringify(user.id)},${JSON.stringify(session.sessionId)},{catalogFirst:false,generate:async()=>{called=true;throw new Error('must use stored recipes');}});
     console.log(JSON.stringify({called,ids:r.recommendations.map(o=>o.id),reserve:r.reserve.length}));
   `], { encoding: 'utf8', env: process.env });
   assert.equal(child.status, 0, child.stderr);
@@ -106,7 +147,7 @@ test('generated validation rejects allergies, missing base, invalid amounts, slo
 
 test('full generated detail is private and its generated illustration is served from the stored bytes', async () => {
   const user = fixture(610); allowUser(user.id);
-  const result = await recommendDinner(user.id, startDinner(user.id).sessionId, { generate: async () => ({ recipes: batch() }) });
+  const result = await recommendDinner(user.id, startDinner(user.id).sessionId, { catalogFirst: false, generate: async () => ({ recipes: batch() }) });
   const selected = result.recommendation, jpeg = Buffer.from([0xff,0xd8,0xff,0x01,0xff,0xd9]);
   setDinnerOptionImage(selected.id, 'ready', { mime: 'image/jpeg', bytes: jpeg });
   const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -138,8 +179,8 @@ test('raw rice needs realistic cooking instructions and ingredient preparation i
 
 test('warming a buffer does not count as opening or showing it', async () => {
   const user = fixture(609), session = startDinner(user.id, { prefetchOnly: true });
-  prefetchDinner(user.id, session.sessionId, { generate: async () => ({ recipes: batch() }) }); await tick();
-  assert.equal(listDinnerOptions(user.id, session.sessionId).filter((o) => o.state === 'ready').length, 6);
+  prefetchDinner(user.id, session.sessionId, { catalogFirst: false, generate: async () => ({ recipes: batch() }) }); await tick();
+  assert.equal(listDinnerOptions(user.id, session.sessionId).filter((o) => o.state === 'ready').length, 3);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE user_id=? AND event IN ('recommendation_shown','dinner_recommendation_opened')").get(user.id).n, 0);
   const opened = startDinner(user.id);
   assert.equal(opened.sessionId, session.sessionId);
@@ -149,10 +190,10 @@ test('warming a buffer does not count as opening or showing it', async () => {
 test('duplicate recipes are filtered and changed hard constraints invalidate the reserve', async () => {
   const user = fixture(605), session = startDinner(user.id);
   const generate = async () => ({ recipes: [batch()[0], batch()[0], ...batch().slice(2)] });
-  const first = await recommendDinner(user.id, session.sessionId, { generate });
+  const first = await recommendDinner(user.id, session.sessionId, { catalogFirst: false, generate });
   assert.equal(new Set([...first.recommendations,...first.reserve].map((o) => o.recipe.title)).size, 6);
   updateDinnerProfile(user.id, { excludedIngredients: ['говядина'] });
-  const safe = await recommendDinner(user.id, session.sessionId, { generate }); await tick();
+  const safe = await recommendDinner(user.id, session.sessionId, { catalogFirst: false, generate }); await tick();
   assert.ok([...safe.recommendations,...safe.reserve].every((o) => !hasExcludedIngredient(o.recipe, ['говядина'])));
   assert.ok(listDinnerOptions(user.id, session.sessionId).some((o) => o.state === 'discarded'));
 });

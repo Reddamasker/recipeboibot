@@ -80,7 +80,7 @@ async function beginDinner(forceOnboarding = false) {
   try {
     const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
-    if (forceOnboarding) await showDinnerOnboarding();
+    if (forceOnboarding || session.needsOnboarding) await showDinnerOnboarding();
     else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
 }
@@ -103,7 +103,7 @@ async function loadDinnerRecommendation() {
   state.dinner.recommendation = null;
   state.dinner.message = dinner.pantry?.length
     ? 'Составляю рецепты под твои продукты — сразу с запасом для следующего выбора…'
-    : 'Составляю варианты ужина — сразу с запасом для следующего выбора…';
+    : 'Составляю три варианта ужина…';
   dinnerView();
   try {
     const result = await api('/api/dinner/recommend', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
@@ -133,7 +133,7 @@ function scheduleDinnerPrefetch(dinner) {
   dinnerPollTimer = setTimeout(async () => {
     if (dinner !== state.dinner || dinner.accepted || new URLSearchParams(location.search).get('view') !== 'dinner') return;
     try {
-      const result = await api('/api/dinner/prefetch', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
+      const result = await api('/api/dinner/prefetch', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }), signal: AbortSignal.timeout(12000) });
       if (dinner !== state.dinner || dinner.switching || dinner.accepted) return;
       if (!result.recommendations.length && result.reserve?.length) return loadDinnerRecommendation();
       const imagesChanged = JSON.stringify(dinner.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl])) !== JSON.stringify(result.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl]));
@@ -141,7 +141,10 @@ function scheduleDinnerPrefetch(dinner) {
       if (imagesChanged) { dinner.recommendations = result.recommendations; dinner.recommendation = result.recommendation; dinner.message = result.message; if (!dinner.askingReason) dinnerView(); }
       // Stop polling an exhausted offline fallback; an explicit retry can restart generation.
       if (result.preparing || result.imagesPending || result.reserve?.length >= 3) scheduleDinnerPrefetch(dinner);
-    } catch { /* Keep the current and reserve recipes during a network interruption. */ }
+    } catch {
+      // A transient network failure must not permanently stop image updates.
+      if (dinner === state.dinner) scheduleDinnerPrefetch(dinner);
+    }
   }, 3000);
 }
 
@@ -363,12 +366,13 @@ async function waitForRecipeImage(id) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
     if (new URLSearchParams(location.search).get('recipe') !== id || !document.querySelector('.recipe-detail-sheet')) return;
     try {
-      const recipe = await api(`${id.startsWith('dinner:') ? '/api/dinner/recipes' : '/api/recipes'}/${encodeURIComponent(id)}`);
+      const recipe = await api(`${id.startsWith('dinner:') ? '/api/dinner/recipes' : '/api/recipes'}/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(12000) });
+      if (new URLSearchParams(location.search).get('recipe') !== id || !document.querySelector('.recipe-detail-sheet')) return;
       if (!recipe.thumbnailUrl) continue;
       state.recipes = state.recipes.map((item) => item.id === id ? recipe : item);
       closeOverlay(); recipeDetail(recipe);
       return;
-    } catch { return; }
+    } catch { /* Retry while this recipe remains open. */ }
   }
 }
 

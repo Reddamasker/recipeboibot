@@ -25,7 +25,7 @@ function currentDinnerIntake(userId) {
   return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId) });
 }
 function prepareDinner(userId) {
-  try { const session = startDinner(userId, { prefetchOnly: true }); prefetchDinner(userId, session.sessionId); }
+  try { const session = startDinner(userId, { prefetchOnly: true }); if (!session.needsOnboarding) prefetchDinner(userId, session.sessionId); }
   catch (error) { log('warn', 'telegram_dinner_prefetch_failed', { error: error.message }); }
 }
 async function sendDinnerEntry(chatId, userId) {

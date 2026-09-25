@@ -3,7 +3,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { buildWebDocument } from '../src/web-document.js';
-process.env.DATABASE_PATH = './data/ui-test.sqlite';
+process.env.DATABASE_PATH ||= './data/ui-test.sqlite';
 process.env.TELEGRAM_POLLING = 'false';
 const { config } = await import('../src/config.js');
 const { createServer } = await import('../src/server.js');
