@@ -2,6 +2,7 @@ const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
 const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null };
+window.miniProbe?.('app-script');
 
 tg?.ready(); tg?.expand();
 if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }
@@ -77,7 +78,7 @@ function home() {
 async function beginDinner(forceOnboarding = false) {
   clearTimeout(dinnerPollTimer);
   try {
-    const session = await api('/api/dinner/open', { method: 'POST', body: '{}' });
+    const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
     if (forceOnboarding) await showDinnerOnboarding();
     else await loadDinnerRecommendation();
@@ -318,7 +319,7 @@ async function render() {
   const recipeId = params.get('recipe'); if (recipeId) await openRecipe(recipeId, false);
 }
 
-async function refresh() { const library = await api('/api/library'); state.recipes = library.recipes; state.jobs = library.jobs; }
+async function refresh() { const library = await api('/api/library', { signal: AbortSignal.timeout(12000) }); state.recipes = library.recipes; state.jobs = library.jobs; }
 async function loadAndRender() { await refresh(); await render(); }
 function closeOverlay() { document.querySelector('.overlay')?.remove(); }
 function overlay(content, sheetClass = '', dismissible = true) { const el = document.createElement('div'); el.className = 'overlay'; el.innerHTML = `<section class="sheet ${esc(sheetClass)}"><div class="sheet-handle"></div>${content}</section>`; root.append(el); if (dismissible) el.addEventListener('click', (e) => { if (e.target === el) closeDetailRoute(); }); return el; }
@@ -463,11 +464,24 @@ function settingsSheet() { const el = overlay(`<div class="sheet-head"><div><div
 window.addEventListener('popstate', async (event) => { if (!tg?.initData) return; closeOverlay(); await render(); requestAnimationFrame(() => scrollTo(0, event.state?.scrollY || 0)); });
 async function boot() {
   const sharedMatch = location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
-  if (!sharedMatch && !tg?.initData) return;
+  if (!sharedMatch && !tg?.initData) { window.miniProbe?.('missing-init-data'); return; }
+  window.miniProbe?.('app-boot');
   const landing = document.querySelector('#landing');
   if (landing) landing.hidden = true;
   root.hidden = false;
   if (sharedMatch) { await openSharedRecipe(sharedMatch[1]); return; }
-  try { [state.me] = await Promise.all([api('/api/me')]); await refresh(); await render(); } catch (error) { root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>${esc(error.message)}</p><p>Вернитесь в чат бота и нажмите Start.</p></main>`; }
+  try {
+    state.me = await api('/api/me', { signal: AbortSignal.timeout(12000) });
+    window.miniProbe?.('profile-loaded');
+    await refresh();
+    window.miniProbe?.('library-loaded');
+    window.__miniRendered = true;
+    await render();
+    window.miniProbe?.('view-rendered');
+  } catch (error) {
+    window.__miniRendered = true;
+    window.miniProbe?.('app-error');
+    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>${esc(error.message)}</p><p>Вернитесь в чат бота и нажмите Start.</p></main>`;
+  }
 }
 boot();
