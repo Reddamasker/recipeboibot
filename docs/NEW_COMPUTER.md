@@ -6,7 +6,13 @@
 
 ## Скачать доступ на новом компьютере
 
-После входа в свой GitHub скачай [зашифрованный архив доступа](https://github.com/Reddamasker/recipeboibot/releases/download/workstation-access-2026-09-25/recipeboibot-access.zip.enc) в Downloads. Ключ переноса передаётся владельцу отдельно в исходном чате; в GitHub его нет. Передай новому Codex путь к скачанному файлу и этот ключ. Он выполнит:
+После клонирования приватного репозитория новый Codex сам скачает зашифрованный архив доступа в Downloads через твою авторизацию GitHub:
+
+```powershell
+node scripts/download-access.js
+```
+
+Архив хранится в [приватном релизе GitHub](https://github.com/Reddamasker/recipeboibot/releases/tag/workstation-access-2026-09-25). Ключ переноса передаётся владельцу отдельно в исходном чате; в GitHub его нет. Передай новому Codex ключ. Он выполнит:
 
 ```powershell
 node scripts/restore-access.js "$env:USERPROFILE\Downloads\recipeboibot-access.zip.enc" '<ключ переноса>'
