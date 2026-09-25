@@ -108,6 +108,39 @@ header {
 .home-status { margin-top: 40px; }
 .home-status h2 { margin-bottom: 20px; font: 400 20px Georgia, serif; }
 
+.dinner-page { padding: 0 0 42px; }
+.dinner-decision, .dinner-onboarding { max-width: 640px; margin: 0 auto; }
+.dinner-decision h1, .dinner-onboarding h1 { margin: 10px 0 14px; font: 400 clamp(34px, 7vw, 48px)/1.04 Georgia, serif; letter-spacing: -.035em; }
+.dinner-decision > p, .dinner-onboarding > p, .dinner-help { color: var(--muted); line-height: 1.5; }
+.dinner-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
+.dinner-actions .primary, .dinner-actions .secondary { min-height: 54px; width: 100%; }
+.dinner-actions .manual-save { margin: 4px 0 0; text-align: center; }
+.dinner-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 22px 0; }
+.dinner-option { min-height: 50px; border: 1px solid var(--line); border-radius: 15px; padding: 10px; background: var(--paper); cursor: pointer; text-align: left; }
+.dinner-option.selected { border-color: var(--berry); background: var(--lilac-soft); color: var(--berry-dark); font-weight: 800; }
+.dinner-onboarding .field { margin-top: 8px; }
+.dinner-picks { max-width: 680px; }
+.dinner-picks h1 { margin-bottom: 22px; }
+.dinner-menu { margin: 0; border: 1px solid var(--line); border-radius: 22px; padding: 0 24px; background: var(--paper); box-shadow: 0 12px 32px rgba(48,37,55,.045); list-style: none; }
+.dinner-menu-item { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 18px; padding: 19px 0; border-bottom: 1px solid var(--line); }
+.dinner-menu-item:last-child { border-bottom: 0; }
+.dinner-menu-index { padding-top: 3px; color: #a99aaf; font: 400 22px Georgia, serif; }
+.dinner-menu-body { min-width: 0; }
+.dinner-menu-reason { margin: 0 0 7px; color: var(--berry-dark); font-size: 12px; font-weight: 700; }
+.dinner-menu-title { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.dinner-menu-title h2 { font: 400 clamp(22px, 4.5vw, 29px)/1.1 Georgia, serif; letter-spacing: -.025em; }
+.dinner-menu-title img { width: 52px; height: 52px; flex: none; border-radius: 10px; object-fit: cover; }
+.dinner-menu-ingredients { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.dinner-pantry { margin: -3px 0 17px; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.dinner-menu-actions { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
+.dinner-pick-button { min-height: 42px; border: 1px solid var(--berry); border-radius: 11px; padding: 8px 13px; background: transparent; color: var(--berry-dark); font-size: 12px; font-weight: 800; cursor: pointer; }
+.dinner-pick-button:hover { background: var(--lilac-soft); }
+.dinner-pick-button span { margin-left: 7px; }
+.dinner-recipe-link { min-height: 42px; border: 0; padding: 8px 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
+.dinner-picks .dinner-actions { margin-top: 14px; }
+.dinner-picks .dinner-actions .secondary { min-height: 44px; border: 0; background: transparent; color: var(--berry-dark); font-size: 12px; }
+
 .section-head { margin: 0 2px 16px; display: flex; align-items: end; justify-content: space-between; gap: 18px; }
 .section-head h2 { margin-top: 5px; font-size: 30px; line-height: 1; letter-spacing: -0.025em; }
 .section-head > span { color: var(--muted); font-size: 12px; }
@@ -331,5 +364,10 @@ button:disabled { cursor: wait; opacity: .5; }
   .card-body { padding: 13px 0 8px; }
   .card h3 { font-size: 19px; }
   .form-row { grid-template-columns: 1fr; }
+  .dinner-page .back-link { padding-bottom: 15px; }
+  .dinner-menu { padding: 0 16px; border-radius: 18px; }
+  .dinner-menu-item { grid-template-columns: 24px minmax(0, 1fr); gap: 12px; padding: 16px 0; }
+  .dinner-menu-index { font-size: 18px; }
+  .dinner-menu-title h2 { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

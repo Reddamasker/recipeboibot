@@ -6,86 +6,66 @@
   <meta name="theme-color" content="#f6f5f0">
   <title>Рецепты — все те самые рецепты в одном месте</title>
   <meta name="description" content="Перешлите рецепт в Telegram — ссылкой, фото, текстом или голосовым. Сохраните в личную коллекцию, найдите по названию или ингредиенту и готовьте по шагам.">
-  <link rel="icon" href="/assets/recipe-bot-avatar-v3.png" type="image/png">
-  <link rel="stylesheet" href="/styles.css?v=7.2">
-  <link rel="stylesheet" href="/refinements.css?v=6.6">
-  <link rel="stylesheet" href="/landing.css?v=9">
+  <link rel="icon" href="/assets/recipe-bot-avatar-v3.webp" type="image/webp">
+  <link rel="stylesheet" href="/styles.css?v=8.1">
+  <link rel="stylesheet" href="/refinements.css?v=dinner-9.0">
+  <link rel="stylesheet" href="/landing.css?v=24">
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script defer src="/landing.js?v=6"></script>
-  <script defer src="/app.js?v=7.2"></script>
+  <script defer src="/landing.js?v=entry-8.2"></script>
+  <script defer src="/app.js?v=dinner-10.0"></script>
 </head>
 <body>
 <div id="landing" class="landing">
   <a class="lp-skip" href="#main">К содержанию</a>
   <header class="lp-header lp-wrap">
-    <a class="lp-brand" href="/" aria-label="Рецепты — главная"><img src="/assets/recipe-bot-avatar-v3.png" width="42" height="42" alt=""><span>Рецепты</span></a>
+    <a class="lp-brand" href="/" aria-label="Рецепты — главная"><img src="/assets/recipe-bot-avatar-v3.webp" width="42" height="42" alt=""><span>Рецепты</span></a>
     <nav class="lp-nav" aria-label="Основная навигация"><a href="#collection">Попробовать пример</a><a href="#questions">Вопросы</a></nav>
-    <a class="lp-header-cta" href="https://t.me/Recipeboibot">Открыть в Telegram <span aria-hidden="true">↗</span></a>
+    <a class="lp-header-cta" href="https://t.me/Recipeboibot?start=dinner">Открыть в Telegram <span aria-hidden="true">↗</span></a>
   </header>
   <main id="main">
     <section class="lp-hero lp-wrap" aria-labelledby="lp-title">
       <div class="lp-intro">
         <h1 id="lp-title">Все <em>те самые</em> <br>рецепты — <br>в одном месте.</h1>
         <p class="lp-lead">Перешлите рецепт в Telegram один раз — ссылкой, фото, текстом или голосовым сообщением. «Рецепты» разберут его и сохранят в вашей коллекции.</p>
-        <a class="lp-button" href="https://t.me/Recipeboibot">Открыть в Telegram <span aria-hidden="true">↗</span></a>
+        <a class="lp-button" href="https://t.me/Recipeboibot?start=dinner">Открыть в Telegram <span aria-hidden="true">↗</span></a>
         <p class="lp-caption">Нажмите Start и пришлите рецепт. Тест без оплаты.</p>
       </div>
-      <figure class="lp-hero-flow">
-        <figcaption>Как рецепт попадает в коллекцию <span>пример</span></figcaption>
-        <div class="lp-source-slip"><span>Фото из галереи</span><p>Сырники <br><small>творог 300 г · яйцо · мука</small></p></div>
-        <div class="lp-forward-line"><span aria-hidden="true">↳</span> Переслать в «Рецепты»</div>
-        <div class="lp-telegram">
-          <div class="lp-bot-heading"><img src="/assets/recipe-bot-avatar-v3.png" width="32" height="32" alt=""><div>Рецепты<small>бот в Telegram</small></div></div>
-          <div class="lp-sent-photo">Фото рецепта <span>✓✓</span></div>
-          <div class="lp-saved-recipe"><span class="lp-saved-status">Сохранено в коллекцию</span><h2>Бабушкины сырники</h2><p>20 минут · 2 порции</p><div>Ингредиенты <span>5</span></div><div>Шаги приготовления <span>3</span></div><a href="#collection" data-open-example>Открыть пример <span aria-hidden="true">↗</span></a></div>
-        </div>
-      </figure>
-    </section>
-    <section class="lp-scattered lp-wrap" aria-labelledby="lp-scattered-title">
-      <div class="lp-scattered-copy"><h2 id="lp-scattered-title">Где же был <br>тот рецепт?</h2><p>Соленья — на листке. Десерт прислал друг. Паста осталась в сохранённом видео.</p><p>А ещё — заметки, скриншоты и старые переписки. Прежде чем готовить, приходится вспоминать, где искать.</p></div>
-      <div class="lp-artifacts" aria-label="Примеры рецептов, разбросанных по разным местам">
+      <div class="lp-showcase" id="how-it-works">
+        <div class="lp-artifacts" aria-label="Примеры рецептов, разбросанных по разным местам">
         <div class="lp-paper"><div class="lp-paper-writing"><span>Из семейной тетради</span><h3>Огурцы на зиму</h3><p>На 1 литр воды:<br>соль — 2 ст. ложки<br>укроп, чеснок,<br>лист смородины</p><small>Мамин рецепт</small></div></div>
-        <div class="lp-chat-scrap"><div class="lp-chat-bar"><span class="lp-chat-back">‹</span><span class="lp-chat-avatar">М</span><span class="lp-chat-name">Миша<small>был(а) недавно</small></span><span class="lp-chat-menu">⋮</span></div><div class="lp-chat-day">14 июня</div><div class="lp-chat-bubble"><p>Вот десерт, который ты просил!</p><div class="lp-chat-attachment"><strong>Чизкейк без выпечки</strong><small>300 г сливочного сыра, печенье, сливки…</small></div><small class="lp-chat-time">18:42 <b>✓✓</b></small></div></div>
-        <div class="lp-video-scrap"><div class="lp-video-top"><strong>Домашняя кухня</strong><span class="lp-video-dots">⋮</span></div><div class="lp-video-still"><img src="/assets/recipe-video-still-v2.png" alt="Кадр видео: готовят томатный соус для пасты" loading="lazy"><span class="lp-video-title">Паста с томатами за 20 минут</span><span class="lp-video-play" aria-hidden="true">▶</span><span class="lp-video-progress" aria-hidden="true"><i></i></span><div class="lp-video-controls" aria-hidden="true"><span>▶</span><span>❚❚</span><small>0:38 / 2:14</small><span class="lp-video-volume">◖))</span><span>⚙</span><span>⛶</span></div></div><div class="lp-video-caption"><p>Паста с томатами за 20 минут</p><small>Сохранённое видео</small></div></div>
+        <div class="lp-chat-scrap"><div class="lp-chat-bar"><span class="lp-chat-back">‹</span><span class="lp-chat-avatar">М</span><span class="lp-chat-name">Миша<small>был(а) недавно</small></span><span class="lp-chat-menu">⋮</span></div><div class="lp-chat-day">14 июня</div><div class="lp-chat-text">Привет, вот тот рецепт чизкейка, про который говорили. <small>18:41</small></div><div class="lp-chat-bubble"><img src="/assets/telegram-voice-message-v1.webp" width="600" height="200" alt="Голосовое сообщение от Миши, 18 секунд" loading="eager"></div></div>
+        <div class="lp-video-scrap"><div class="lp-video-top"><strong>Домашняя кухня</strong><span class="lp-video-dots">⋮</span></div><div class="lp-video-still"><img src="/assets/recipe-video-still-v2.webp" width="640" height="360" alt="Кадр видео: готовят томатный соус для пасты" loading="lazy"><span class="lp-video-title">Паста с томатами за 20 минут</span><span class="lp-video-play" aria-hidden="true">▶</span><span class="lp-video-progress" aria-hidden="true"><i></i></span><div class="lp-video-controls" aria-hidden="true"><span>▶</span><span>❚❚</span><small>0:38 / 2:14</small><span class="lp-video-volume">◖))</span><span>⚙</span><span>⛶</span></div></div><div class="lp-video-caption"><p>Паста с томатами за 20 минут</p><small>Сохранённое видео</small></div></div>
         <div class="lp-note-scrap"><div class="lp-note-toolbar"><span>‹ Заметки</span><span>•••</span></div><strong>К салату</strong><p>фета, огурцы, томаты<br>маслины, масло<br>щепотка орегано</p><small>12 июня 2024</small></div>
-      </div>
-      <div class="lp-converge" id="how-it-works">
-        <h2>Теперь достаточно <br>переслать рецепт один раз.</h2>
-        <div class="lp-flow" id="lp-flow" role="img" aria-label="Записка, сообщение Telegram и видео пересылаются боту «Рецепты», который добавляет блюда в единую коллекцию.">
-          <div class="lp-flow-sources" aria-hidden="true"><span class="lp-flow-source lp-flow-paper" style="--delay:0s">Записка <b>Огурцы</b></span><span class="lp-flow-source lp-flow-chat" style="--delay:.28s">Миша в Telegram <b>Чизкейк</b></span><span class="lp-flow-source lp-flow-video" style="--delay:.56s"><i>▶</i> Видео <b>Паста</b></span></div>
-          <div class="lp-flow-bot" id="lp-flow-bot" aria-hidden="true"><img src="/assets/recipe-bot-avatar-v3.png" width="52" height="52" alt=""><strong>Рецепты</strong><small>бот в Telegram</small></div>
-          <div class="lp-flow-list" aria-hidden="true"><div class="lp-flow-list-heading">Моя коллекция <span>3 рецепта</span></div><div class="lp-flow-row" style="--delay:1.48s"><span>Огурцы на зиму</span><small>Из записки</small></div><div class="lp-flow-row" style="--delay:1.8s"><span>Чизкейк без выпечки</span><small>Из сообщения</small></div><div class="lp-flow-row" style="--delay:2.12s"><span>Паста с томатами</span><small>Из видео</small></div></div>
         </div>
-        <button class="lp-flow-replay" id="lp-flow-replay" type="button" aria-label="Повторить анимацию сохранения рецептов">Повторить ↺</button>
+        <div class="lp-conversion" aria-label="Бот сохраняет рецепты из разных источников в коллекцию">
+          <div class="lp-flow-bot" id="lp-flow-bot" aria-hidden="true"><img src="/assets/recipe-bot-avatar-v3.webp" width="52" height="52" alt=""><strong>Рецепты</strong><small>бот в Telegram</small></div>
+          <div class="lp-flow-list" aria-hidden="true"><div class="lp-flow-list-heading">Моя коллекция <span>3 рецепта</span></div><div class="lp-flow-row" style="--delay:1.7s"><span>Огурцы на зиму</span><small>Из записки</small></div><div class="lp-flow-row" style="--delay:2s"><span>Чизкейк без выпечки</span><small>Из голосового</small></div><div class="lp-flow-row" style="--delay:2.3s"><span>Паста с томатами</span><small>Из видео</small></div></div>
+          <button class="lp-flow-replay" id="lp-flow-replay" type="button" aria-label="Повторить анимацию сохранения рецептов">Повторить ↺</button>
+        </div>
       </div>
     </section>
     <section class="lp-product" id="collection" aria-labelledby="lp-product-title"><div class="lp-wrap">
-      <div class="lp-product-heading"><h2 id="lp-product-title">А когда захотите приготовить — <br>найдите рецепт.</h2><p>По названию или ингредиенту. <br>Попробуйте поискать «творог».</p></div>
-      <div class="lp-workspace">
-        <aside class="lp-library-panel" aria-label="Учебная коллекция">
-          <div class="lp-library-heading">Моя коллекция <span>3 рецепта</span></div>
-          <label class="lp-search"><span class="lp-visually-hidden">Поиск по названию или ингредиенту</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="6" stroke="currentColor" stroke-width="1.5"/><path d="m15 15 6 6" stroke="currentColor" stroke-width="1.5"/></svg><input id="lp-search" type="search" placeholder="Название или ингредиент" autocomplete="off"></label>
-          <div class="lp-recipe-list" id="lp-recipe-list">
-            <button type="button" data-lp-recipe="dinner" aria-pressed="true"><span>Паста с томатами и базиликом</span><small>Из видео · 25 минут</small></button>
-            <button type="button" data-lp-recipe="breakfast" aria-pressed="false"><span>Бабушкины сырники</span><small>Из записки · 20 минут</small></button>
-            <button type="button" data-lp-recipe="quick" aria-pressed="false"><span>Салат с фетой</span><small>Из голосового · 15 минут</small></button>
-          </div>
-          <p class="lp-empty" id="lp-search-empty" hidden>В примере нет такого рецепта. Попробуйте «паста», «творог» или «фета».</p>
-          <p class="lp-library-note" id="lp-search-status" role="status">Учебная коллекция. В боте будут ваши рецепты.</p>
-        </aside>
-        <article class="lp-recipe-view" aria-labelledby="lp-demo-title">
-          <div class="lp-recipe-heading"><div><h3 id="lp-demo-title">Паста с томатами и базиликом</h3><p id="lp-demo-meta">25 минут · 2 порции</p></div><details class="lp-source-detail" id="lp-source-detail"><summary>Источник <span aria-hidden="true">↗</span></summary><div id="lp-demo-source">Сохранённое видео с рецептом пасты. Это учебный пример; у рецепта из доступной ссылки в боте будет переход к оригиналу.</div></details></div>
-          <div class="lp-cooking">
-            <div class="lp-ingredients"><h4>Ингредиенты</h4><ul id="lp-demo-ingredients"><li>Паста — 200 г</li><li>Томаты — 400 г</li><li>Чеснок — 1 зубчик</li><li>Оливковое масло — 2 ст. л.</li><li>Базилик — несколько листьев</li><li>Соль — по вкусу</li></ul></div>
-            <div class="lp-cook-panel"><h4>Готовьте по шагам</h4><div aria-live="polite" aria-atomic="true"><p id="lp-demo-progress">Шаг 1 из 3</p><p id="lp-demo-step-text">Нарежьте томаты и чеснок. Вымойте базилик.</p></div><progress id="lp-step-meter" value="1" max="3" aria-label="Прогресс приготовления">1 из 3</progress><div class="lp-demo-step-controls"><button type="button" id="lp-demo-prev" disabled>← Назад</button><button type="button" id="lp-demo-next">Дальше →</button></div></div>
-          </div>
-        </article>
-      </div>
-      <div class="lp-save" aria-labelledby="lp-save-title">
-        <h3 id="lp-save-title">Сохраняйте рецепт так, <br>как он у вас появился.</h3>
-        <div class="lp-save-options"><div class="lp-input-tabs" role="group" aria-label="Способ сохранения"><button type="button" data-input="link" aria-pressed="true">Ссылка</button><button type="button" data-input="photo" aria-pressed="false">Фото</button><button type="button" data-input="text" aria-pressed="false">Текст</button><button type="button" data-input="voice" aria-pressed="false">Голосовое</button></div><p id="lp-input-description" aria-live="polite">Перешлите доступную ссылку из соцсети или чата. Бот разберёт текст или речь и сохранит переход к оригиналу.</p><span class="lp-save-note">Перед готовкой проверьте распознанные количества и шаги.</span></div>
-      </div>
-      <noscript><p>Интерактивный поиск и переключение шагов работают с JavaScript. Добавить свой рецепт можно <a href="https://t.me/Recipeboibot">в Telegram</a>.</p></noscript>
+      <h2 class="lp-product-title" id="lp-product-title">Получи оформленный рецепт <em>одним сообщением</em> в бот</h2>
+      <div class="lp-product-journey"><div class="lp-chat-demo">
+        <div class="lp-chat-demo-head"><span class="lp-chat-demo-back" aria-hidden="true">‹</span><img src="/assets/recipe-bot-avatar-v3.webp" width="38" height="38" alt=""><div><strong>Рецепты</strong><small>бот в Telegram</small></div></div>
+        <div class="lp-chat-demo-body"><div class="lp-chat-demo-day">14 июня</div><div class="lp-message-user">Рецепт чизкейка от Миши <small>18:43 ✓✓</small></div><div class="lp-message-bot"><img src="/assets/recipe-bot-avatar-v3.webp" width="30" height="30" alt="">
+      <article class="lp-opened-recipe recipe-detail-sheet" id="lp-recipe-preview" aria-labelledby="lp-preview-title">
+        <div class="detail-content"><div class="detail-heading"><div class="lp-recipe-topline"><span class="eyebrow">Сохранённый рецепт</span><button class="lp-demo-edit" type="button" disabled>Изменить</button></div><h2 id="lp-preview-title">Чизкейк без выпечки</h2><p class="lp-recipe-summary">30 минут · 8 порций <span>Из голосового от Миши</span></p></div>
+          <section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h3>Ингредиенты</h3></div><span>6</span></div><div class="ingredient-list"><div class="ingredient-row"><div><strong>Песочное печенье</strong></div><span>200 г</span></div><div class="ingredient-row"><div><strong>Сливочное масло</strong></div><span>90 г</span></div><div class="ingredient-row"><div><strong>Сливочный сыр</strong></div><span>300 г</span></div><div class="ingredient-row"><div><strong>Сливки</strong></div><span>200 мл</span></div><div class="ingredient-row"><div><strong>Сахарная пудра</strong></div><span>80 г</span></div><div class="ingredient-row"><div><strong>Желатин</strong></div><span>10 г</span></div></div></section>
+          <section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h3>Как готовить</h3></div><span>3</span></div><div class="step-list"><div class="step-card"><span class="step-number">1</span><p>Измельчите печенье, смешайте с растопленным маслом и утрамбуйте в форму.</p></div><div class="step-card"><span class="step-number">2</span><p>Замочите желатин. Взбейте сыр, сливки и пудру, затем добавьте желатин.</p></div><div class="step-card"><span class="step-number">3</span><p>Выложите начинку на основу и охладите минимум 4 часа.</p></div></div></section>
+        </div>
+        <div class="detail-actions"><button class="secondary share-button" id="lp-demo-share" type="button">Поделиться</button><button class="primary accent" id="lp-demo-cook" type="button" disabled>Начать готовить</button></div>
+      </article></div></div></div></div>
+      <section class="lp-quiz" id="quiz" aria-labelledby="lp-quiz-title">
+        <div class="lp-quiz-intro"><h3 id="lp-quiz-title">Проверьте, нужны ли вам «Рецепты»</h3></div>
+        <div class="lp-quiz-card" id="lp-quiz-card" aria-live="polite">
+          <div class="lp-quiz-progress"><span id="lp-quiz-count">1 из 3</span><div aria-hidden="true"><i class="is-active"></i><i></i><i></i></div></div>
+          <div class="lp-quiz-question"><span id="lp-quiz-number">01</span><h4 id="lp-quiz-question">Пролистывали ли вы десятки видео в поисках того самого рецепта, который запомнился, но вы забыли сохранить?</h4></div>
+          <div class="lp-quiz-actions" role="group" aria-label="Варианты ответа"><button type="button" data-quiz-answer="yes">Да, бывало</button><button type="button" data-quiz-answer="no">Нет</button></div>
+          <button class="lp-quiz-back" id="lp-quiz-back" type="button" hidden>← Назад</button>
+        </div>
+      </section>
+      <noscript><p>Добавить свой рецепт можно <a href="https://t.me/Recipeboibot?start=dinner">в Telegram</a>.</p></noscript>
     </div></section>
     <section class="lp-faq lp-wrap" id="questions" aria-labelledby="lp-faq-title"><h2 id="lp-faq-title">Перед первым <br>рецептом</h2><div class="lp-questions">
       <details><summary>Нужно устанавливать приложение?<span aria-hidden="true">+</span></summary><p>Нет. Откройте бота в Telegram и нажмите Start. Коллекция открывается там же. Отдельный аккаунт и пароль не нужны.</p></details>
@@ -97,7 +77,7 @@
       <details><summary>Сколько стоит?<span aria-hidden="true">+</span></summary><p>Сейчас это закрытый тест без оплаты и подписок. Обработка новых материалов может остановиться, если исчерпан общий лимит теста. <a href="/terms.html">Условия теста</a>.</p></details>
       <details><summary>В коллекции уже есть рецепты?<span aria-hidden="true">+</span></summary><p>Нет, поиск работает по добавленным вами рецептам. Начните с одного блюда и пополняйте коллекцию постепенно. Если поиск ничего не найдёт, бот сообщит об этом.</p></details>
     </div></section>
-    <section class="lp-end lp-wrap"><div><h2>Сохраните первый рецепт</h2><p>Перешлите ссылку, фото или сообщение — <br>«Рецепты» соберут ингредиенты и шаги.</p></div><a class="lp-button" href="https://t.me/Recipeboibot">Открыть в Telegram <span aria-hidden="true">↗</span></a></section>
+    <section class="lp-end lp-wrap"><div><h2>Сохраните первый рецепт</h2><p>Перешлите ссылку, фото или сообщение — <br>«Рецепты» соберут ингредиенты и шаги.</p></div><a class="lp-button" href="https://t.me/Recipeboibot?start=dinner">Открыть в Telegram <span aria-hidden="true">↗</span></a></section>
   </main>
   <footer class="lp-footer lp-wrap"><a class="lp-brand" href="/">Рецепты</a><div><a href="/privacy.html">Ваши данные</a><a href="/terms.html">Условия</a></div></footer>
 </div>

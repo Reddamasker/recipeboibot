@@ -12,6 +12,7 @@ services:
       DATABASE_PATH: /app/data/recipes.sqlite
       TRUST_PROXY: "true"
       APP_URL: https://recipes.spas-sky.ru
+      OPENAI_IMAGE_MODEL: gpt-image-2.5-flare
       AI_MAX_TOTAL_REQUESTS: "80"
       TELEGRAM_POLLING: "${TELEGRAM_POLLING:-true}"
     ports:

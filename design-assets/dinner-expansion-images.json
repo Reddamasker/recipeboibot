@@ -1,0 +1,42 @@
+{
+  "tool": "built-in imagegen",
+  "purpose": "Six original dinner illustrations, JPEG quality 82",
+  "images": [
+    {
+      "id": "mince-pasta",
+      "prompt": "Use case photorealistic-natural. One square editorial food photograph for the existing home recipe app. Appetizing realistic textures, warm window light, cream ceramic dish on neutral linen, close overhead three-quarter angle, plated food fills 80% of frame. No text, no hands, no collage, no garnish or sides absent from ingredients. Photograph this cooked recipe accurately: {\"id\":\"mince-pasta\",\"title\":\"Макароны по-флотски\",\"description\":\"Знакомый ужин с рассыпчатым фаршем и золотистым луком. Готовьте пасту и мясо параллельно.\",\"ingredients\":[\"говяжий фарш\",\"паста\",\"лук\",\"растительное масло\"]}",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-f55ff182-54e9-4185-b30e-9ddeb0749e52.png",
+      "file": "public/assets/dinner/mince-pasta.jpg"
+    },
+    {
+      "id": "mince-meatballs",
+      "prompt": "Use case photorealistic-natural. One square editorial food photograph for the existing home recipe app. Appetizing realistic textures, warm window light, cream ceramic dish on neutral linen, close overhead three-quarter angle, plated food fills 80% of frame. No text, no hands, no collage, no garnish or sides absent from ingredients. Photograph this cooked recipe accurately: {\"id\":\"mince-meatballs\",\"title\":\"Фрикадельки в томатном соусе\",\"description\":\"Небольшие мясные шарики в густом томатном соусе. Можно подать с рисом или пастой из домашних запасов.\",\"ingredients\":[\"говяжий фарш\",\"лук\",\"томаты\",\"чеснок\",\"растительное масло\"]}",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-6b857f71-d67f-4e07-815c-79a90524cac4.png",
+      "file": "public/assets/dinner/mince-meatballs.jpg"
+    },
+    {
+      "id": "mince-potato",
+      "prompt": "Use case photorealistic-natural. One square editorial food photograph for the existing home recipe app. Appetizing realistic textures, warm window light, cream ceramic dish on neutral linen, close overhead three-quarter angle, plated food fills 80% of frame. No text, no hands, no collage, no garnish or sides absent from ingredients. Photograph this cooked recipe accurately: {\"id\":\"mince-potato\",\"title\":\"Картофель с фаршем на сковороде\",\"description\":\"Мягкий картофель, сочный фарш и сладкий лук — всё готовится в одной глубокой сковороде.\",\"ingredients\":[\"говяжий фарш\",\"картофель\",\"лук\",\"растительное масло\"]}",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-6c8c791f-2c89-4eac-9dec-9b81bfd0c1ae.png",
+      "file": "public/assets/dinner/mince-potato.jpg"
+    },
+    {
+      "id": "keftedes",
+      "prompt": "Use case photorealistic-natural. One square editorial food photograph for the existing home recipe app. Appetizing realistic textures, warm window light, cream ceramic dish on neutral linen, close overhead three-quarter angle, plated food fills 80% of frame. No text, no hands, no collage, no garnish or sides absent from ingredients. Photograph this cooked recipe accurately: {\"id\":\"keftedes\",\"title\":\"Кефтедес\",\"description\":\"Наша домашняя версия греческих котлеток: небольшие, румяные, с сушёной мятой. Гарнир можно выбрать из того, что есть дома.\",\"ingredients\":[\"говяжий фарш\",\"лук\",\"яйца\",\"панировочные сухари\",\"сушёная мята\",\"растительное масло\"]}",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-2d22c666-7715-455b-a6ca-1c6c17441034.png",
+      "file": "public/assets/dinner/keftedes.jpg"
+    },
+    {
+      "id": "keema-potato",
+      "prompt": "Use case photorealistic-natural. One square editorial food photograph for the existing home recipe app. Appetizing realistic textures, warm window light, cream ceramic dish on neutral linen, close overhead three-quarter angle, plated food fills 80% of frame. No text, no hands, no collage, no garnish or sides absent from ingredients. Photograph this cooked recipe accurately: {\"id\":\"keema-potato\",\"title\":\"Кима с картофелем\",\"description\":\"Упрощённая домашняя кима: фарш с картофелем в ароматном соусе. Используйте мягкий карри без чили; состав смеси проверьте при аллергии.\",\"ingredients\":[\"говяжий фарш\",\"картофель\",\"лук\",\"томаты\",\"карри без чили\",\"растительное масло\"]}",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-303f111f-e7b7-4999-8c8d-b79345e99f38.png",
+      "file": "public/assets/dinner/keema-potato.jpg"
+    },
+    {
+      "id": "soboro-don",
+      "prompt": "Use case photorealistic-natural. One square editorial food photograph for the existing home recipe app. Appetizing realistic textures, warm window light, cream ceramic dish on neutral linen, close overhead three-quarter angle, plated food fills 80% of frame. No text, no hands, no collage, no garnish or sides absent from ingredients. Photograph this cooked recipe accurately: {\"id\":\"soboro-don\",\"title\":\"Соборо-дон\",\"description\":\"Домашняя версия японской рисовой чаши с говяжьим фаршем и нежным яйцом. Немного сахара уравновешивает соевый соус.\",\"ingredients\":[\"говяжий фарш\",\"рис\",\"яйца\",\"соевый соус\",\"сахар\",\"имбирь\",\"растительное масло\"]}",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-c2647959-965b-4487-b93a-2ad7a39cc55e.png",
+      "file": "public/assets/dinner/soboro-don.jpg"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0 };
+const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null };
 
 tg?.ready(); tg?.expand();
 if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }
@@ -23,9 +23,7 @@ async function publicApi(path) {
 const totalTime = (recipe) => (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0);
 const initial = () => (state.me?.displayName || 'Я').trim()[0]?.toLocaleUpperCase('ru') || 'Я';
 const ingredientText = (item) => [item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '').join(' ');
-const safeImage = (value) => /^https:\/\//i.test(value || '') ? esc(value) : '';
-const generatedImage = '/assets/recipe-idea-illustration-v1.jpg';
-const generatedImageCredit = 'https://unsplash.com/photos/green-vegetable-on-brown-wooden-table-qPcSUERqBAc';
+const safeImage = (value) => /^https:\/\//i.test(value || '') || (/^\/(?:recipe|dinner)-images\/[0-9a-f-]{36}$/i.test(value || '') || /^\/assets\/dinner\/[a-z0-9-]+\.jpg$/i.test(value || '')) ? esc(value) : '';
 
 function setRoute(values, { replace = false, historyState = {} } = {}) {
   const url = new URL(location.href);
@@ -39,8 +37,8 @@ function header() {
 }
 
 function card(recipe) {
-  const image = recipe.origin === 'generated' ? generatedImage : safeImage(recipe.thumbnailUrl);
-  return `<article class="card"><button class="card-open" data-recipe="${esc(recipe.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"><div class="card-art ${image ? 'has-image' : 'fallback'}">${image ? `<img src="${image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>Превью<br>недоступно</span>`}<span class="badge">${esc(recipe.origin === 'generated' ? 'Создано в «Рецептах»' : recipe.sourceName || 'Личный рецепт')}</span></div><div class="card-body"><h3>${esc(recipe.title)}</h3><div class="meta">${totalTime(recipe) ? `<span>⏱ ${totalTime(recipe)} мин</span>` : '<span>Время не указано</span>'}${recipe.ingredients?.length ? `<span>${recipe.ingredients.length} ингредиентов</span>` : ''}</div></div></button><button class="card-remove" type="button" data-remove-recipe="${esc(recipe.id)}" aria-label="Удалить рецепт: ${esc(recipe.title)}">×</button></article>`;
+  const image = safeImage(recipe.thumbnailUrl);
+  return `<article class="card"><button class="card-open" data-recipe="${esc(recipe.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"><div class="card-art ${image ? 'has-image' : 'fallback'}">${image ? `<img src="${image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${recipe.origin === 'generated' ? 'Фото пока нет' : 'Превью<br>недоступно'}</span>`}<span class="badge">${esc(recipe.origin === 'generated' ? 'Создано в «Рецептах»' : recipe.sourceName || 'Личный рецепт')}</span></div><div class="card-body"><h3>${esc(recipe.title)}</h3><div class="meta">${totalTime(recipe) ? `<span>⏱ ${totalTime(recipe)} мин</span>` : '<span>Время не указано</span>'}${recipe.ingredients?.length ? `<span>${recipe.ingredients.length} ингредиентов</span>` : ''}</div></div></button><button class="card-remove" type="button" data-remove-recipe="${esc(recipe.id)}" aria-label="Удалить рецепт: ${esc(recipe.title)}">×</button></article>`;
 }
 
 function jobCard(job) {
@@ -60,21 +58,214 @@ function home() {
   const recent = state.recipes.slice(0, 4);
   root.innerHTML = `${header()}<main class="home-page">
     <section class="home-choice" aria-label="Выбор блюда">
-      <h1><button id="choose" class="choose-link"><span>Что<br><em>приготовить?</em></span><span class="choose-arrow" aria-hidden="true">↗</span></button></h1>
-      <p>Из того, что вы сохранили.</p>
+      <h1><button id="choose" class="choose-link"><span>Что приготовить<br><em>сегодня?</em></span><span class="choose-arrow" aria-hidden="true">↗</span></button></h1>
+      <p>Три идеи для ужина — из твоих рецептов или нашей подборки.</p>
     </section>
     <section class="home-library" aria-labelledby="collection-title">
       <h2 id="collection-title"><button class="collection-link" id="collection"><span>Мои рецепты <small>${state.recipes.length}</small></span><span aria-hidden="true">→</span></button></h2>
-      ${recent.length ? `<div class="grid">${recent.map(card).join('')}</div>` : '<div class="empty home-empty"><p>Здесь будут ваши рецепты.<br>Перешлите ссылку или рецепт в чат бота.</p></div>'}
+      ${recent.length ? `<div class="grid">${recent.map(card).join('')}</div>` : '<div class="empty home-empty"><p>Перешли рецепт в чат бота — так я лучше пойму, что предложить тебе на ужин.</p></div>'}
     </section>
     ${state.jobs.length ? `<section class="home-status"><h2>Обработка источников</h2><div class="grid jobs-grid">${state.jobs.map(jobCard).join('')}</div></section>` : ''}
     <footer class="home-footer"><button class="manual-save" id="add">Добавить рецепт вручную</button></footer>
   </main>`;
   bindCommon();
-  document.querySelector('#choose').onclick = () => { setRoute({ view: 'search' }); render(); };
+  document.querySelector('#choose').onclick = () => { setRoute({ view: 'dinner' }); beginDinner(); };
   document.querySelector('#collection').onclick = () => { setRoute({ view: 'collection' }); render(); };
   document.querySelector('#add').onclick = importSheet;
 }
+
+async function beginDinner(forceOnboarding = false) {
+  clearTimeout(dinnerPollTimer);
+  try {
+    const session = await api('/api/dinner/open', { method: 'POST', body: '{}' });
+    state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
+    if (forceOnboarding) await showDinnerOnboarding();
+    else await loadDinnerRecommendation();
+  } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
+}
+
+async function showDinnerOnboarding() {
+  const dinner = state.dinner;
+  if (!dinner) return;
+  try {
+    await api('/api/dinner/onboarding/start', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
+    state.onboarding = { step: 0, householdType: dinner.profile.householdType, householdSize: dinner.profile.householdSize, hasChildren: dinner.profile.hasChildren, preferredMaxCookingTime: dinner.profile.preferredMaxCookingTime, excludedIngredients: dinner.profile.excludedIngredients.join(', '), preferredCategories: { ...dinner.profile.preferredCategories } };
+    dinnerView();
+  } catch (error) { toast(error.message); }
+}
+
+async function loadDinnerRecommendation() {
+  if (!state.dinner) return;
+  const dinner = state.dinner;
+  state.dinner.loading = true;
+  state.dinner.recommendations = [];
+  state.dinner.recommendation = null;
+  state.dinner.message = 'Составляю рецепты под твои продукты — сразу с запасом для следующего выбора…';
+  dinnerView();
+  try {
+    const result = await api('/api/dinner/recommend', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
+    if (state.dinner !== dinner) return;
+    state.dinner.loading = false;
+    state.dinner.recommendations = result.recommendations || (result.recommendation ? [result.recommendation] : []);
+    state.dinner.recommendation = result.recommendation;
+    state.dinner.pantry = result.pantry || [];
+    state.dinner.message = result.message;
+    state.dinner.accepted = false;
+    state.dinner.askingReason = false;
+    state.dinner.rejectedCount = result.rejectedCount || 0;
+    state.dinner.retryCount = result.retryCount || 0;
+    state.dinner.reserve = result.reserve || [];
+    state.dinner.preparing = result.preparing;
+    state.dinner.imagesPending = result.imagesPending;
+    state.dinner.notice = result.notice;
+    dinnerView();
+    scheduleDinnerPrefetch(dinner);
+  } catch (error) { state.dinner.loading = false; state.dinner.message = error.message; dinnerView(); toast(error.message); }
+}
+
+let dinnerPollTimer;
+function scheduleDinnerPrefetch(dinner) {
+  clearTimeout(dinnerPollTimer);
+  if (dinner !== state.dinner || dinner.accepted || (!dinner.preparing && !dinner.imagesPending && dinner.reserve?.length >= 3)) return;
+  dinnerPollTimer = setTimeout(async () => {
+    if (dinner !== state.dinner || dinner.accepted || new URLSearchParams(location.search).get('view') !== 'dinner') return;
+    try {
+      const result = await api('/api/dinner/prefetch', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
+      if (dinner !== state.dinner || dinner.switching || dinner.accepted) return;
+      if (!result.recommendations.length && result.reserve?.length) return loadDinnerRecommendation();
+      const imagesChanged = JSON.stringify(dinner.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl])) !== JSON.stringify(result.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl]));
+      Object.assign(dinner, { reserve: result.reserve || [], preparing: result.preparing, imagesPending: result.imagesPending, notice: result.notice });
+      if (imagesChanged) { dinner.recommendations = result.recommendations; dinner.recommendation = result.recommendation; dinner.message = result.message; if (!dinner.askingReason) dinnerView(); }
+      // Stop polling an exhausted offline fallback; an explicit retry can restart generation.
+      if (result.preparing || result.imagesPending || result.reserve?.length >= 3) scheduleDinnerPrefetch(dinner);
+    } catch { /* Keep the current and reserve recipes during a network interruption. */ }
+  }, 3000);
+}
+
+async function showNextDinner() {
+  const dinner = state.dinner;
+  if (!dinner || dinner.switching) return;
+  const previous = dinner.recommendations;
+  const previousReserve = dinner.reserve;
+  dinner.lastRejectedId = previous[0]?.id;
+  dinner.switching = true;
+  clearTimeout(dinnerPollTimer);
+  // The full reserve is already in memory: change the screen before sending the request.
+  if (dinner.reserve?.length) {
+    dinner.recommendations = dinner.reserve; dinner.recommendation = dinner.reserve[0]; dinner.reserve = [];
+  }
+  dinnerView();
+  try {
+    const result = await api('/api/dinner/next', { method: 'POST', body: JSON.stringify({ ids: previous.map((o) => o.id) }) });
+    if (state.dinner !== dinner) return;
+    Object.assign(dinner, result, { switching: false, askingReason: false, accepted: false });
+    dinnerView(); scheduleDinnerPrefetch(dinner);
+  } catch (error) {
+    if (state.dinner !== dinner) return;
+    dinner.recommendations = previous; dinner.recommendation = previous[0]; dinner.reserve = previousReserve; dinner.switching = false;
+    dinnerView(); toast(error.message);
+  }
+}
+
+function onboardingView() {
+  const data = state.onboarding, step = data.step;
+  const choices = (items, selected, field) => `<div class="dinner-options">${items.map(([value, label]) => `<button type="button" class="dinner-option ${selected === value ? 'selected' : ''}" data-${field}="${value}">${label}</button>`).join('')}</div>`;
+  const content = [
+    `<h1>Для кого обычно готовишь?</h1>${choices([['self', 'Для себя'], ['couple', 'Для двоих'], ['family', 'Для семьи']], data.householdType, 'household')}<label class="dinner-help" for="dinner-household-size">Сколько человек за столом?</label><input class="field" id="dinner-household-size" type="number" min="1" max="10" inputmode="numeric" value="${data.householdSize || ''}" placeholder="Например, 3"><p class="dinner-help">Есть дети?</p>${choices([['yes','Да'],['no','Нет']], data.hasChildren === null ? null : data.hasChildren ? 'yes' : 'no', 'children')}`,
+    `<h1>Сколько времени есть на ужин?</h1>${choices([['15', 'До 15 минут'], ['30', 'До 30 минут'], ['60', 'До 60 минут'], ['any', 'Неважно']], data.preferredMaxCookingTime === null ? 'any' : String(data.preferredMaxCookingTime), 'time')}`,
+    `<h1>Есть ли аллергия?</h1><p>Назови аллергены и другие продукты, которые нужно исключить.</p><input class="field" id="dinner-excluded" value="${esc(data.excludedIngredients)}" placeholder="Например: грибы, арахис"><p class="dinner-help">Разделяй продукты запятыми. Если аллергии и исключений нет, оставь поле пустым.</p>`,
+    `<h1>Какие блюда тебе нравятся?</h1><div class="dinner-options">${[['pasta','Паста'],['asian','Азиатское'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']].map(([key, label]) => `<button type="button" class="dinner-option ${data.preferredCategories[key] ? 'selected' : ''}" data-category="${key}">${label}</button>`).join('')}</div>`
+  ][step];
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button><div class="eyebrow">БЫСТРАЯ НАСТРОЙКА · ${step + 1} ИЗ 4</div><section class="dinner-onboarding">${content}<div class="dinner-actions"><button class="primary accent" id="onboarding-next">${step === 3 ? 'Показать ужин' : 'Дальше'}</button>${step !== 2 ? '<button class="secondary" id="onboarding-skip">Пропустить</button>' : ''}</div></section></main>`;
+  bindCommon();
+  document.querySelector('#dinner-home').onclick = () => { state.onboarding = null; setRoute({}); render(); };
+  document.querySelectorAll('[data-household]').forEach((button) => button.onclick = () => { data.householdType = button.dataset.household; data.householdSize = button.dataset.household === 'self' ? 1 : button.dataset.household === 'couple' ? 2 : data.householdSize > 2 ? data.householdSize : null; onboardingView(); });
+  document.querySelector('#dinner-household-size')?.addEventListener('input', (event) => { const value = Number(event.target.value); data.householdSize = Number.isInteger(value) && value >= 1 && value <= 10 ? value : null; });
+  document.querySelectorAll('[data-children]').forEach((button) => button.onclick = () => { data.hasChildren = button.dataset.children === 'yes'; onboardingView(); });
+  document.querySelectorAll('[data-time]').forEach((button) => button.onclick = () => { data.preferredMaxCookingTime = button.dataset.time === 'any' ? null : Number(button.dataset.time); onboardingView(); });
+  document.querySelectorAll('[data-category]').forEach((button) => button.onclick = () => { const key = button.dataset.category; if (data.preferredCategories[key]) delete data.preferredCategories[key]; else data.preferredCategories[key] = 0.8; onboardingView(); });
+  const advance = async () => {
+    if (step === 2) data.excludedIngredients = document.querySelector('#dinner-excluded').value;
+    if (step < 3) { data.step += 1; onboardingView(); return; }
+    try {
+      const profile = await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify({ householdType: data.householdType, householdSize: data.householdSize, hasChildren: data.hasChildren, preferredMaxCookingTime: data.preferredMaxCookingTime, excludedIngredients: data.excludedIngredients.split(',').map((item) => item.trim()).filter(Boolean), preferredCategories: data.preferredCategories, onboardingCompleted: true }) });
+      state.dinner.profile = profile; state.onboarding = null; await beginDinner();
+    } catch (error) { toast(error.message); }
+  };
+  document.querySelector('#onboarding-next').onclick = advance;
+  document.querySelector('#onboarding-skip')?.addEventListener('click', advance);
+}
+
+function dinnerChoiceCard(option, index) {
+  const recipe = option.recipe;
+  const image = safeImage(recipe.thumbnailUrl);
+  const minutes = totalTime(recipe);
+  const pitch = option.pitch || { label: index === 0 ? 'На сегодня' : 'Ещё вариант', reason: option.reasons?.[0] || '' };
+  const ingredients = (recipe.ingredients || []).map((item) => item.name || item.raw || item).filter(Boolean).slice(0, 3).map(esc).join(' · ');
+  const discovery = option.role === 'variety' && recipe.discovery;
+  const reason = [discovery ? pitch.label : pitch.reason, minutes && option.role !== 'quick' ? `${minutes} мин` : null].filter(Boolean).join(' · ');
+  const missing = option.pantryMatch?.missing?.length ? `<p class="dinner-menu-missing">Докупить: ${esc(option.pantryMatch.missing.join(', '))}</p>` : '';
+  const servingNote = state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
+  return `<li class="dinner-menu-item"><span class="dinner-menu-index" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery || ingredients ? `<p class="dinner-menu-ingredients">${discovery ? esc(pitch.reason) : ingredients}</p>` : ''}${missing}${servingNote}<div class="dinner-menu-actions"><button class="dinner-pick-button" ${state.dinner?.switching ? 'disabled' : ''} data-dinner-accept="${esc(option.id)}">Готовим <span aria-hidden="true">→</span></button><button class="dinner-recipe-link" data-dinner-full="${esc(option.id)}">Рецепт</button></div></div></li>`;
+}
+
+function updateDinnerIngredients() {
+  const url = 'https://t.me/Recipeboibot?start=ingredients';
+  if (window.Telegram?.WebApp?.openTelegramLink) window.Telegram.WebApp.openTelegramLink(url);
+  else window.location.href = url;
+}
+
+function dinnerView() {
+  if (state.onboarding) return onboardingView();
+  const dinner = state.dinner, items = dinner?.recommendations || [];
+  const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
+  const content = dinner?.askingReason ? `<section class="dinner-decision"><div class="eyebrow">ПОМОГИ УТОЧНИТЬ ВЫБОР</div><h1>Почему не подходит?</h1><div class="dinner-options">${[['too_long','Долго'],['not_today','Не хочется'],['recently_ate','Недавно ел'],['missing_ingredients','Нет ингредиентов'],['too_hard','Слишком сложно'],['other','Другое']].map(([key, label]) => `<button class="dinner-option" data-reason="${key}">${label}</button>`).join('')}</div><button class="manual-save" id="reason-skip">Пропустить</button></section>`
+    : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
+    : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Отличный выбор. Рецепт под рукой, когда будешь готовить.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
+    : `<section class="dinner-decision dinner-picks"><div class="eyebrow">СЕГОДНЯ НА УЖИН</div><h1>Что на ужин?</h1>${dinner.pantry?.length ? `<p class="dinner-pantry">Из того, что ты назвал: ${esc(dinner.pantry.join(', '))}</p>` : ''}${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${content}</main>`;
+  bindCommon();
+  document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
+  document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));
+  document.querySelector('#dinner-pantry-update')?.addEventListener('click', updateDinnerIngredients);
+  document.querySelector('#dinner-retry')?.addEventListener('click', () => beginDinner());
+  document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
+  document.querySelectorAll('[data-dinner-accept]').forEach((button) => button.onclick = async () => { const selected = items.find((option) => option.id === button.dataset.dinnerAccept); button.disabled = true; if (!await acceptDinnerItem(selected)) button.disabled = false; });
+  document.querySelector('#dinner-reject-batch')?.addEventListener('click', showNextDinner);
+  document.querySelector('#dinner-reason-open')?.addEventListener('click', () => { dinner.askingReason = true; dinnerView(); });
+  document.querySelectorAll('[data-reason]').forEach((button) => button.onclick = async () => { try { await api(`/api/dinner/recommendations/${dinner.lastRejectedId}/reason`, { method: 'POST', body: JSON.stringify({ reason: button.dataset.reason }) }); await loadDinnerRecommendation(); } catch (error) { toast(error.message); } });
+  document.querySelector('#reason-skip')?.addEventListener('click', () => { dinner.askingReason = false; dinnerView(); });
+  document.querySelectorAll('[data-dinner-full]').forEach((button) => button.onclick = () => { const selected = items.find((option) => option.id === button.dataset.dinnerFull); openRecipe(selected.recipe.id, true); });
+  document.querySelector('#dinner-full-recipe')?.addEventListener('click', () => { openRecipe(recipe.id, true); });
+  document.querySelector('#dinner-start-cooking')?.addEventListener('click', () => { if (recipe.steps?.length) cookMode(recipe, () => markDinnerCooked(item.id)); else openRecipe(recipe.id, true); });
+  document.querySelector('#dinner-mark-cooked')?.addEventListener('click', () => markDinnerCooked(item.id));
+}
+
+async function acceptDinnerItem(option) {
+  if (!option || !state.dinner) return false;
+  try {
+    const result = await api(`/api/dinner/recommendations/${option.id}/accept`, { method: 'POST', body: '{}' });
+    if (result.status !== 'accepted') throw new Error('Этот вариант уже недоступен');
+    state.dinner.recommendation = option;
+    state.dinner.accepted = true;
+    dinnerView();
+    return true;
+  } catch (error) { toast(error.message); return false; }
+}
+
+async function cookFromDinnerDetail(recipe) {
+  const inDinner = new URLSearchParams(location.search).get('view') === 'dinner';
+  const option = inDinner ? state.dinner?.recommendations.find((item) => item.recipe.id === recipe.id) : null;
+  if (option && !state.dinner.accepted && !await acceptDinnerItem(option)) return;
+  if (option) closeOverlay();
+  cookMode(recipe, option && state.dinner?.recommendation?.id === option.id ? () => markDinnerCooked(option.id) : null);
+}
+
+async function markDinnerCooked(id) {
+  try { await api(`/api/dinner/recommendations/${id}/cooked`, { method: 'POST', body: '{}' }); if (state.dinner?.recommendation?.id === id) { state.dinner.cooked = true; dinnerView(); } toast('Готово! Учту этот выбор в следующих рекомендациях.'); }
+  catch (error) { toast(error.message); }
+}
+
 
 function searchView() {
   root.innerHTML = `${header()}<main><button class="back-link" id="back-home">← На главную</button><section class="search-page"><div class="eyebrow">Что приготовить?</div><h1>Найдём в вашей коллекции</h1><p>Напишите продукты, блюдо или ограничение по времени.</p><form class="search-wrap" id="search-form"><input class="search" id="search" value="${esc(state.query)}" placeholder="Курица, крылышки с мёдом…" autofocus><button class="primary accent" aria-label="Найти">Найти</button></form></section>${!state.recipes.length ? '<div class="empty"><h2>Коллекция пока пуста</h2><p>Попробуйте поиск. Если совпадений нет, вы сами решите, создавать ли новый рецепт.</p></div>' : ''}</main>`;
@@ -84,7 +275,7 @@ function searchView() {
 
 function suggestionSection(suggestion) {
   const r = suggestion.recipe;
-  return `<section class="suggestion"><div class="eyebrow">Создано в «Рецептах»</div><img class="suggestion-image" src="${generatedImage}" alt="Иллюстрация: ингредиенты на кухонном столе"><p class="image-note">Иллюстрация: готовое блюдо может выглядеть иначе. <a href="${generatedImageCredit}" target="_blank" rel="noopener noreferrer">Фото: Gareth Hubbard / Unsplash</a></p><h2>${esc(r.title)}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ''}<div class="meta">${totalTime(r) ? `<span>⏱ ${totalTime(r)} мин</span>` : ''}${r.servings ? `<span>${esc(r.servings)} порции</span>` : ''}</div><h3>Ингредиенты</h3><ul>${r.ingredients.map((item) => `<li>${esc(ingredientText(item))}</li>`).join('')}</ul><h3>Приготовление</h3><ol>${r.steps.map((step) => `<li>${esc(step.text)}</li>`).join('')}</ol>${r.warnings?.length ? `<p class="suggestion-warning">${r.warnings.map(esc).join('<br>')}</p>` : ''}<p>Добавить этот рецепт в «Мои рецепты»?</p><button class="primary accent" id="save-suggestion" type="button">Добавить рецепт</button><button class="secondary" id="dismiss-suggestion" type="button">Не добавлять</button></section>`;
+  return `<section class="suggestion"><div class="eyebrow">Создано в «Рецептах»</div><h2>${esc(r.title)}</h2>${r.description ? `<p>${esc(r.description)}</p>` : ''}<div class="meta">${totalTime(r) ? `<span>⏱ ${totalTime(r)} мин</span>` : ''}${r.servings ? `<span>${esc(r.servings)} порции</span>` : ''}</div><h3>Ингредиенты</h3><ul>${r.ingredients.map((item) => `<li>${esc(ingredientText(item))}</li>`).join('')}</ul><h3>Приготовление</h3><ol>${r.steps.map((step) => `<li>${esc(step.text)}</li>`).join('')}</ol>${r.warnings?.length ? `<p class="suggestion-warning">${r.warnings.map(esc).join('<br>')}</p>` : ''}<p>Добавить этот рецепт в «Мои рецепты»?</p><button class="primary accent" id="save-suggestion" type="button">Добавить рецепт</button><button class="secondary" id="dismiss-suggestion" type="button">Не добавлять</button></section>`;
 }
 
 function collection(recipes = state.recipes, title = 'Мои рецепты', suggestion = null) {
@@ -106,7 +297,7 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
   document.querySelector('#dismiss-suggestion')?.addEventListener('click', () => collection([], title));
   document.querySelector('#save-suggestion')?.addEventListener('click', async (event) => {
     const button = event.currentTarget; button.disabled = true; button.textContent = 'Сохраняю…';
-    try { const recipe = await api(`/api/suggestions/${encodeURIComponent(suggestion.id)}/save`, { method: 'POST' }); await refresh(); toast('Рецепт добавлен в коллекцию'); await openRecipe(recipe.id, true); }
+    try { const recipe = await api(`/api/suggestions/${encodeURIComponent(suggestion.id)}/save`, { method: 'POST' }); await refresh(); toast('Рецепт добавлен в коллекцию'); await openRecipe(recipe.id, true); if (recipe.origin === 'generated' && !recipe.thumbnailUrl) void waitForRecipeImage(recipe.id); }
     catch (error) { toast(error.message); button.disabled = false; button.textContent = 'Добавить рецепт'; }
   });
 }
@@ -117,7 +308,8 @@ async function render() {
     let results = [];
     try { results = state.query ? await api(`/api/search?q=${encodeURIComponent(state.query)}`) : state.recipes; } catch (error) { toast(error.message); }
     collection(results, state.query ? `Результаты: ${state.query}` : 'Результаты');
-  } else if (view === 'collection') collection();
+  } else if (view === 'dinner') { if (!state.dinner) await beginDinner(); else dinnerView(); }
+  else if (view === 'collection') collection();
   else if (view === 'search') searchView();
   else if (view === 'add') { home(); setRoute({}, { replace: true }); importSheet(); }
   else home();
@@ -159,12 +351,30 @@ function closeDetailRoute() {
 async function openRecipe(id, pushRoute = false) {
   try {
     if (pushRoute) { state.scrollY = scrollY; const params = Object.fromEntries(new URLSearchParams(location.search)); params.recipe = id; setRoute(params, { historyState: { recipeOverlay: true, scrollY: state.scrollY } }); }
-    closeOverlay(); const recipe = await api(`/api/recipes/${encodeURIComponent(id)}`); recipeDetail(recipe);
+    closeOverlay(); const recipe = await api(`${/^(seed|dinner):/.test(id) ? '/api/dinner/recipes' : '/api/recipes'}/${encodeURIComponent(id)}`); recipeDetail(recipe); if (recipe.dinnerGenerated && !recipe.thumbnailUrl) void waitForRecipeImage(recipe.id);
   } catch (error) { toast(error.message); }
 }
 
+async function waitForRecipeImage(id) {
+  for (let attempt = 0; attempt < 36; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (new URLSearchParams(location.search).get('recipe') !== id || !document.querySelector('.recipe-detail-sheet')) return;
+    try {
+      const recipe = await api(`${id.startsWith('dinner:') ? '/api/dinner/recipes' : '/api/recipes'}/${encodeURIComponent(id)}`);
+      if (!recipe.thumbnailUrl) continue;
+      state.recipes = state.recipes.map((item) => item.id === id ? recipe : item);
+      closeOverlay(); recipeDetail(recipe);
+      return;
+    } catch { return; }
+  }
+}
+
 function recipeDetail(r, { shared = false } = {}) {
-  const image = r.origin === 'generated' ? generatedImage : safeImage(r.thumbnailUrl);
+  const catalog = r.origin === 'seed' || r.dinnerGenerated;
+  const dinnerOption = state.dinner?.recommendations.find((option) => option.recipe.id === r.id);
+  const missing = dinnerOption?.pantryMatch?.missing || r.pantryMatch?.missing || [];
+  const shopping = missing.length ? `<aside class="detail-shopping"><strong>Докупить</strong><p>${esc(missing.join(', '))}</p></aside>` : '';
+  const image = safeImage(r.thumbnailUrl);
   const hasSource = /^https?:\/\//i.test(r.sourceUrl || '');
   const sourceName = r.origin === 'generated' ? 'Создано в «Рецептах»' : r.sourceName || (hasSource ? 'Открыть источник' : 'Личный рецепт');
   const sourceChip = hasSource
@@ -175,7 +385,7 @@ function recipeDetail(r, { shared = false } = {}) {
     r.servings ? `<div class="detail-stat"><strong>${esc(r.servings)}</strong><span>порции</span></div>` : '',
     r.ingredients?.length ? `<div class="detail-stat"><strong>${r.ingredients.length}</strong><span>ингредиентов</span></div>` : ''
   ].filter(Boolean).join('');
-  const tags = (r.tags || []).map((tag) => shared ? `<span class="recipe-tag">${esc(tag)}</span>` : `<button class="recipe-tag" type="button" data-tag="${esc(tag)}">${esc(tag)}</button>`).join('');
+  const tags = (r.tags || []).map((tag) => shared || catalog ? `<span class="recipe-tag">${esc(tag)}</span>` : `<button class="recipe-tag" type="button" data-tag="${esc(tag)}">${esc(tag)}</button>`).join('');
   const warnings = (r.warnings || []).map((item) => `<li>${esc(item)}</li>`).join('');
   const warningCount = (r.warnings || []).length;
   const ingredients = (r.ingredients || []).map((item) => {
@@ -183,17 +393,18 @@ function recipeDetail(r, { shared = false } = {}) {
     return `<div class="ingredient-row"><div><strong>${esc(item.name || item.raw)}</strong>${item.comment ? `<small>${esc(item.comment)}</small>` : ''}</div>${amount ? `<span>${esc(amount)}</span>` : '<span class="amount-empty">по вкусу</span>'}</div>`;
   }).join('') || '<p class="detail-empty">Ингредиенты не извлечены</p>';
   const steps = (r.steps || []).map((item, index) => `<div class="step-card"><span class="step-number">${index + 1}</span><p>${esc(item.text)}</p></div>`).join('') || '<p class="detail-empty">Шаги не извлечены</p>';
-  const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="https://t.me/Recipeboibot" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
-  const toolbarActions = shared ? '' : '<div class="detail-toolbar-actions"><button class="detail-edit" id="edit">Изменить</button><button class="detail-close" data-close aria-label="Закрыть">✕</button></div>';
-  const actions = shared
+  const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="https://t.me/Recipeboibot?start=dinner" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
+  const backButton = shared ? '' : '<button class="detail-back" type="button" data-close aria-label="Назад"><span aria-hidden="true">←</span> Назад</button>';
+  const editButton = shared || catalog ? '' : '<button class="detail-edit" id="edit" type="button">Изменить</button>';
+  const actions = shared || catalog
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
-  const el = overlay(`${sharedIntro}<div class="detail-toolbar">${sourceChip}${toolbarActions}</div><div class="detail-media ${image ? 'has-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : '<div class="detail-media-fallback"><span>Р</span><small>Превью источника недоступно</small></div>'}</div>${r.origin === 'generated' ? `<p class="generated-image-note">Иллюстрация: готовое блюдо может выглядеть иначе. <a href="${generatedImageCredit}" target="_blank" rel="noopener noreferrer">Фото: Gareth Hubbard / Unsplash</a></p>` : ''}<div class="detail-content"><div class="detail-heading"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : 'Сохранённый рецепт'}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>Автоматическое извлечение · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div>${(r.origin === 'generated' || r.imageGenerated) && image ? '<p class="generated-image-note">Изображение создано ИИ; готовое блюдо может выглядеть иначе.</p>' : ''}<div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>Автоматическое извлечение · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (shared) el.classList.add('shared-overlay');
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
   el.querySelector('#edit')?.addEventListener('click', () => { closeOverlay(); editRecipe(r); });
   el.querySelector('#share')?.addEventListener('click', (event) => shareRecipe(r, event.currentTarget));
-  el.querySelector('#cook').onclick = () => cookMode(r);
+  el.querySelector('#cook').onclick = () => { void cookFromDinnerDetail(r); };
   el.querySelector('[data-source-link]')?.addEventListener('click', (event) => {
     if (!tg?.openLink) return;
     event.preventDefault();
@@ -224,7 +435,7 @@ async function openSharedRecipe(token) {
     closeOverlay(); root.innerHTML = ''; recipeDetail(recipe, { shared: true });
     document.title = `${recipe.title} — Рецепты`;
   } catch (error) {
-    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="https://t.me/Recipeboibot" style="text-decoration:none">Открыть сервис ↗</a></main>`;
+    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="https://t.me/Recipeboibot?start=dinner" style="text-decoration:none">Открыть сервис ↗</a></main>`;
   }
 }
 
@@ -244,8 +455,8 @@ async function removeRecipeFromList(id, button) {
   try { await api(`/api/recipes/${encodeURIComponent(id)}`, { method: 'DELETE' }); await refresh(); await render(); toast('Рецепт удалён'); }
   catch (error) { toast(error.message); button.disabled = false; }
 }
-function cookMode(r) { state.cookStep = 0; const el = document.createElement('div'); el.className = 'cook'; const draw = () => { el.innerHTML = `<div class="cook-top"><span>${state.cookStep + 1} из ${r.steps.length}</span><button class="icon-btn" id="cook-close">✕</button></div><div class="cook-step">${esc(r.steps[state.cookStep].text)}</div><div class="cook-nav"><button class="secondary" id="prev" ${state.cookStep === 0 ? 'disabled' : ''}>← Назад</button><button class="primary accent" id="next">${state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →'}</button></div>`; el.querySelector('#cook-close').onclick = () => el.remove(); el.querySelector('#prev').onclick = () => { state.cookStep--; draw(); }; el.querySelector('#next').onclick = () => { if (state.cookStep === r.steps.length - 1) el.remove(); else { state.cookStep++; draw(); } }; }; draw(); document.body.append(el); }
-function settingsSheet() { const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="ghost" id="delete-account">Удалить мои данные</button>`); el.querySelector('[data-close]').onclick = closeOverlay; el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); }; }
+function cookMode(r, onComplete = null) { state.cookStep = 0; const el = document.createElement('div'); el.className = 'cook'; const draw = () => { el.innerHTML = `<div class="cook-top"><span>${state.cookStep + 1} из ${r.steps.length}</span><button class="icon-btn" id="cook-close">✕</button></div><div class="cook-step">${esc(r.steps[state.cookStep].text)}</div><div class="cook-nav"><button class="secondary" id="prev" ${state.cookStep === 0 ? 'disabled' : ''}>← Назад</button><button class="primary accent" id="next">${state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →'}</button></div>`; el.querySelector('#cook-close').onclick = () => el.remove(); el.querySelector('#prev').onclick = () => { state.cookStep--; draw(); }; el.querySelector('#next').onclick = () => { if (state.cookStep === r.steps.length - 1) { el.remove(); onComplete?.(); } else { state.cookStep++; draw(); } }; }; draw(); document.body.append(el); }
+function settingsSheet() { const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button><button class="ghost" id="delete-account">Удалить мои данные</button>`); el.querySelector('[data-close]').onclick = closeOverlay; el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); }; el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); }; }
 
 window.addEventListener('popstate', async (event) => { if (!tg?.initData) return; closeOverlay(); await render(); requestAnimationFrame(() => scrollTo(0, event.state?.scrollY || 0)); });
 async function boot() {

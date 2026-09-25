@@ -12,7 +12,7 @@ const user = { id: 999000001, first_name: 'Тест интерфейса' };
 allowUser(upsertTelegramUser(user).id);
 const handler = createServer().listeners('request')[0];
 http.createServer((req, res) => {
-  if (req.url === '/') {
+  if (new URL(req.url, 'http://127.0.0.1').pathname === '/') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(fs.readFileSync('public/index.html', 'utf8').replace('https://telegram.org/js/telegram-web-app.js', '/test-sdk.js'));
   } else if (req.url === '/test-sdk.js') {

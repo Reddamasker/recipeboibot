@@ -9,6 +9,7 @@ process.env.TELEGRAM_BOT_TOKEN = '123456:test-secret';
 process.env.OPENAI_API_KEY = 'test-key';
 process.env.OPENAI_TEXT_MODEL = 'test-model';
 process.env.OPENAI_TRANSCRIBE_MODEL = 'test-transcribe';
+process.env.DINNER_LLM_ENABLED = 'false';
 process.env.APP_URL = 'https://recipes.example.test';
 
 const database = await import('../src/db.js');
@@ -130,13 +131,49 @@ test('private Telegram search asks before generation and waits for the save butt
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('intent detection routes clear voice/text requests and asks on ambiguity', () => {
+test('intent detection searches short text and saves detailed recipe text', () => {
   assert.equal(telegramModule.detectIntent('Есть курица, что приготовить на ужин?'), 'search');
   assert.equal(telegramModule.detectIntent('Найди те крылышки с мёдом'), 'search');
   assert.equal(telegramModule.detectIntent('Сохрани мой рецепт: курица, мёд, масло'), 'save');
+  assert.equal(telegramModule.detectIntent('Добавь рецепт борща'), 'save');
   assert.equal(telegramModule.detectIntent('/save курица, мёд, масло'), 'save');
-  assert.equal(telegramModule.detectIntent('Курица и мёд'), 'ambiguous');
+  assert.equal(telegramModule.detectIntent('Курица и мёд'), 'search');
+  assert.equal(telegramModule.detectIntent('Хочу что-то интересное к ужину, но пока не знаю, что именно выбрать из своей коллекции.'), 'ambiguous');
+  assert.equal(telegramModule.detectIntent('Ингредиенты: курица 500 г, соль, мёд и сливочное масло. Нарежьте курицу, смешайте с мёдом и солью, запекайте 40 мин до готовности.'), 'save');
+  assert.equal(telegramModule.detectIntent('Найди рецепт и сохрани его'), 'ambiguous');
   assert.equal(telegramModule.detectIntent('', { hasPhoto: true }), 'save');
+  assert.equal(telegramModule.detectIntent('https://example.com/recipe', { hasUrl: true }), 'save');
+});
+
+test('plain private message searches without asking to save', async () => {
+  const telegramUser = { id: 6168, first_name: 'Обычный запрос' };
+  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    await telegramModule.handleMessage({ chat: { id: 6168, type: 'private' }, from: telegramUser, text: 'Курица и мёд' });
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].text, /ничего подходящего/);
+    assert.doesNotMatch(sent[0].text, /Найти в вашей коллекции или сохранить/);
+    assert.equal(database.getPendingIntent(owner.id), null);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a new search replaces an unanswered intent question', async () => {
+  const telegramUser = { id: 6171, first_name: 'Новый запрос' };
+  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    const message = { chat: { id: 6171, type: 'private' }, from: telegramUser };
+    await telegramModule.handleMessage({ ...message, text: 'Найди рецепт и сохрани его' });
+    assert.match(sent.at(-1).text, /Найти в вашей коллекции или сохранить/);
+    assert.ok(database.getPendingIntent(owner.id));
+    await telegramModule.handleMessage({ ...message, text: 'Найди суп с тыквой' });
+    assert.match(sent.at(-1).text, /суп с тыквой/);
+    assert.equal(database.getPendingIntent(owner.id), null);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('voice path calls ASR once and keeps Telegram file identity for idempotency', async () => {
@@ -280,7 +317,7 @@ test('Mini App deep links retain exact recipe or result query', () => {
   assert.equal(results.searchParams.get('q'), 'крылышки с мёдом');
 });
 
-test('first Start explains the bot with three actions; returning Start stays concise', async () => {
+test('Start resumes unfinished intake; after skipping, returning Start stays concise', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -288,15 +325,201 @@ test('first Start explains the bot with three actions; returning Start stays con
     await telegramModule.handleMessage(message); await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6401).is_allowed, 1);
     assert.equal(sent.length, 2);
-    assert.match(sent[0].text, /Что я умею/);
-    assert.match(sent[0].text, /Как начать/);
-    assert.deepEqual(sent[0].reply_markup.inline_keyboard.map((row) => row[0].text), ['Сохранить рецепт', 'Что приготовить?', 'Мои рецепты']);
-    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'add');
-    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[1][0].web_app.url).searchParams.get('view'), 'search');
-    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[2][0].web_app.url).searchParams.get('view'), 'collection');
-    assert.match(sent[1].text, /С возвращением/);
-    assert.equal(sent[1].reply_markup.inline_keyboard[0][0].text, 'Открыть приложение');
-    assert.ok(sent.every((body) => !/код приглашения/i.test(body.text)));
+    assert.match(sent[0].text, /30–60 секунд/);
+    assert.match(sent[0].text, /дети/);
+    assert.equal(sent[0].reply_markup.inline_keyboard[0][0].callback_data, 'dinner:skip');
+    assert.match(sent[1].text, /30–60 секунд/);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
+    await telegramModule.handleMessage(message);
+    assert.match(sent.at(-1).text, /С возвращением/);
+    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Что приготовить сегодня?');
+    assert.ok(sent.every((body) => !/код приглашения/i.test(body.text || '')));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('first voice intake confirms pantry and restrictions before opening dinner', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (url, options) => {
+    const address = String(url);
+    if (address.includes('/file/bot')) return new Response(Buffer.from('voice'), { status: 200 });
+    if (address.includes('/v1/audio/transcriptions')) return new Response(JSON.stringify({ text: 'Есть курица, рис, лук и морковь. На троих, с ребёнком, без грибов, до 30 минут.' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const body = JSON.parse(options.body);
+    if (address.endsWith('/getFile')) return { json: async () => ({ ok: true, result: { file_path: 'voice.ogg', file_size: 5 } }) };
+    sent.push(body);
+    return { json: async () => ({ ok: true, result: {} }) };
+  };
+  try {
+    const from = { id: 6403, first_name: 'Голос' }, chat = { id: 6403, type: 'private' };
+    await telegramModule.handleMessage({ chat, from, text: '/start' });
+    await telegramModule.handleMessage({ chat, from, voice: { file_id: 'voice-1', duration: 45, mime_type: 'audio/ogg' } });
+    const user = database.getUserByTelegramId(6403);
+    const pending = database.getPendingIntent(user.id);
+    assert.equal(pending.kind, 'dinner-confirm');
+    assert.deepEqual(pending.intake.availableIngredients, ['курица', 'рис', 'лук', 'морковь']);
+    assert.deepEqual(pending.intake.excludedIngredients, ['грибов']);
+    assert.equal(pending.intake.householdSize, 3);
+    assert.equal(pending.intake.hasChildren, true);
+    assert.equal(pending.intake.maxMinutes, 30);
+    assert.match(sent.at(-1).text, /Проверьте/);
+    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'dinner:confirm');
+    await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6403', data: 'dinner:confirm', message: { chat }, from });
+    assert.equal(database.getPendingIntent(user.id), null);
+    assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');
+    assert.deepEqual(getDinnerContext(user.id), ['курица', 'рис', 'лук', 'морковь']);
+    assert.equal(getFoodProfile(user.id).householdSize, 3);
+    assert.equal(getFoodProfile(user.id).hasChildren, true);
+    assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['грибов']);
+    await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
+    await telegramModule.handleDinnerIntakeCallback({ id: 'skip-6403', data: 'dinner:skip', message: { chat }, from });
+    assert.deepEqual(getDinnerContext(user.id), []);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('text intake asks for missing household size before confirmation', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    const from = { id: 6404, first_name: 'Текст' }, chat = { id: 6404, type: 'private' };
+    await telegramModule.handleMessage({ chat, from, text: '/start' });
+    await telegramModule.handleMessage({ chat, from, text: 'Есть яйца, сыр, без грибов' });
+    assert.match(sent.at(-1).text, /На сколько человек/);
+    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][2].callback_data, 'dinner:size:3');
+    await telegramModule.handleDinnerIntakeCallback({ id: 'size-6404', data: 'dinner:size:3', message: { chat }, from });
+    assert.match(sent.at(-1).text, /Готовим на: 3/);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6404', data: 'dinner:confirm', message: { chat }, from });
+    const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');
+    const user = database.getUserByTelegramId(6404);
+    assert.deepEqual(getDinnerContext(user.id), ['яйца', 'сыр']);
+    assert.equal(getFoodProfile(user.id).householdSize, 3);
+    assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['грибов']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('multi-message onboarding and the correction button retain earlier answers', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  const from = { id: 6409, first_name: 'Дополнение' }, chat = { id: 6409, type: 'private' };
+  try {
+    await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
+    await telegramModule.handleMessage({ chat, from, text: 'Есть курица, рис. На троих, до 30 минут.' });
+    const user = database.getUserByTelegramId(from.id);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'redo-6409', data: 'dinner:redo', message: { chat }, from });
+    assert.deepEqual(database.getPendingIntent(user.id).intake.availableIngredients, ['курица', 'рис']);
+    await telegramModule.handleMessage({ chat, from, text: 'Забыл сказать, есть ребёнок. Аллергия на орехи.' });
+    const intake = database.getPendingIntent(user.id).intake;
+    assert.deepEqual(intake.availableIngredients, ['курица', 'рис']);
+    assert.equal(intake.householdSize, 3);
+    assert.equal(intake.hasChildren, true);
+    assert.equal(intake.maxMinutes, 30);
+    assert.deepEqual(intake.excludedIngredients, ['орехи']);
+    assert.match(sent.at(-1).text, /Аллергия и исключения/);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6409', data: 'dinner:confirm', message: { chat }, from });
+    const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');
+    assert.deepEqual(getDinnerContext(user.id), ['курица', 'рис']);
+    assert.equal(getFoodProfile(user.id).hasChildren, true);
+    await telegramModule.handleMessage({ chat, from, text: 'Забыл сказать, без детей.' });
+    assert.equal(database.getPendingIntent(user.id).intake.hasChildren, false);
+    assert.deepEqual(database.getPendingIntent(user.id).intake.availableIngredients, ['курица', 'рис']);
+    await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
+    await telegramModule.handleMessage({ chat, from, text: 'Ещё есть сыр.' });
+    assert.deepEqual(database.getPendingIntent(user.id).intake.availableIngredients, ['курица', 'рис', 'сыр']);
+    assert.equal(database.getPendingIntent(user.id).intake.householdSize, 3);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('onboarding restart marker keeps account access and opens intake on the next Start', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    const from = { id: 6406, first_name: 'Повторный вход' }, chat = { id: 6406, type: 'private' };
+    const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+    for (const text of ['/start', '/start dinner']) {
+      database.setPendingIntent(user.id, { kind: 'dinner-onboarding-restart' });
+      await telegramModule.handleMessage({ chat, from, text });
+      assert.equal(database.getUserByTelegramId(from.id).is_allowed, 1);
+      assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
+      assert.match(sent.at(-1).text, /30–60 секунд/);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('unblocking starts intake automatically; the accompanying Start does not duplicate it', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  const from = { id: 6407, first_name: 'Разблокировка' }, chat = { id: 6407, type: 'private' };
+  try {
+    await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'member' }, new_chat_member: { status: 'kicked' } });
+    assert.equal(sent.length, 0);
+    await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
+    const user = database.getUserByTelegramId(from.id);
+    assert.equal(user.is_allowed, 1);
+    assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
+    assert.match(sent[0].text, /30–60 секунд/);
+    await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
+    assert.equal(sent.length, 1);
+    const pending = database.getPendingIntent(user.id);
+    database.setPendingIntent(user.id, { ...pending, unblockedAt: Date.now() - 6000 });
+    await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
+    assert.equal(sent.length, 2);
+    await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
+    assert.equal(sent.length, 2, 'Start followed by unblock must also send only one prompt');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('reopening intake preserves a draft; unblocking a completed profile opens dinner', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  const from = { id: 6408, first_name: 'Продолжение' }, chat = { id: 6408, type: 'private' };
+  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const intake = { availableIngredients: ['курица', 'рис'], excludedIngredients: ['грибы'], householdSize: 3, hasChildren: true, maxMinutes: 30 };
+  try {
+    database.setPendingIntent(user.id, { kind: 'dinner-confirm', intake });
+    await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
+    assert.match(sent.at(-1).text, /Проверьте/);
+    assert.deepEqual(database.getPendingIntent(user.id).intake, intake);
+    await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
+    assert.match(sent.at(-1).text, /Проверьте/);
+    assert.deepEqual(database.getPendingIntent(user.id).intake, intake);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-resume', data: 'dinner:confirm', message: { chat }, from });
+    await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
+    assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    assert.equal(database.getPendingIntent(user.id), null);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('polling completes a dinner callback without routing it as an absent message', async () => {
+  const originalFetch = globalThis.fetch;
+  const from = { id: 6405, first_name: 'Polling' }, chat = { id: 6405, type: 'private' };
+  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  database.setPendingIntent(user.id, { kind: 'dinner-intake' });
+  let polls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/getUpdates')) {
+      polls += 1;
+      if (polls > 1) telegramModule.stopTelegramPolling();
+      return { json: async () => ({ ok: true, result: polls === 1 ? [{ update_id: 76405, callback_query: { id: 'polling-dinner', data: 'dinner:skip', message: { chat }, from } }] : [] }) };
+    }
+    return { json: async () => ({ ok: true, result: {} }) };
+  };
+  try {
+    await telegramModule.startTelegramPolling();
+    assert.equal(database.db.prepare('SELECT status FROM processed_updates WHERE update_id=?').get('76405').status, 'done');
+    assert.equal(database.getPendingIntent(user.id), null);
+  } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
+});
+
+test('first dinner deep link starts intake; returning deep link opens dinner directly', async () => {
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    const message = { chat: { id: 6402, type: 'private' }, from: { id: 6402, first_name: 'Ужин' }, text: '/start dinner' };
+    await telegramModule.handleMessage(message);
+    assert.equal(database.getUserByTelegramId(6402).is_allowed, 1);
+    assert.equal(sent[0].reply_markup.inline_keyboard[0][0].callback_data, 'dinner:skip');
+    await telegramModule.handleDinnerIntakeCallback({ id: 'skip-deep-link', data: 'dinner:skip', message, from: message.from });
+    await telegramModule.handleMessage(message);
+    assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -403,21 +626,23 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
   const index = fs.readFileSync(path.resolve('public/index.html'), 'utf8');
   assert.match(app, /<a class="source-chip" data-source-link href=/);
   assert.match(app, /tg\.openLink\(r\.sourceUrl\)/);
-  assert.match(app, /detail-toolbar">\$\{sourceChip\}/);
+  assert.match(app, /detail-media-source">\$\{sourceChip\}/);
+  assert.match(app, /class="detail-back"[^>]*data-close[^>]*>.*Назад/);
+  assert.doesNotMatch(app, /detail-toolbar/);
   assert.match(app, /recipe-detail-sheet/);
   assert.match(app, /data-tag=/);
   assert.match(css, /\.recipe-detail-sheet \{/);
   assert.match(css, /\.detail-actions \{ position: fixed/);
   assert.match(css, /\.recipe-panel \{[\s\S]*border-top: 1px solid var\(--line\)/);
-  assert.match(index, /refinements\.css\?v=6/);
-  assert.match(index, /app\.js\?v=7/);
+  assert.match(index, /refinements\.css\?v=[a-zA-Z0-9.-]+/);
+  assert.match(index, /app\.js\?v=[a-zA-Z0-9.-]+/);
 });
 
 test('recipe detail exposes sharing to the owner and a read-only public view', () => {
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
   const css = fs.readFileSync(path.resolve('public/refinements.css'), 'utf8');
   assert.match(app, /id="share">Поделиться/);
-  assert.match(app, /detail-edit" id="edit">Изменить/);
+  assert.match(app, /detail-heading-tools[^`]*\$\{editButton\}/);
   assert.match(app, /\/api\/recipes\/\$\{encodeURIComponent\(recipe\.id\)\}\/share/);
   assert.match(app, /\/api\/shares\/\$\{encodeURIComponent\(token\)\}/);
   assert.match(app, /sharedBy/);

@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS recipes (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS recipes_owner_updated ON recipes(user_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS recipe_images (
+  recipe_id TEXT PRIMARY KEY REFERENCES recipes(id) ON DELETE CASCADE,
+  mime TEXT NOT NULL CHECK(mime IN ('image/jpeg','image/png','image/webp')),
+  bytes BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS recipe_shares (
   token TEXT PRIMARY KEY,
   recipe_id TEXT NOT NULL UNIQUE REFERENCES recipes(id) ON DELETE CASCADE,
@@ -358,6 +363,25 @@ export function createRecipe(userId, input) {
 }
 
 export function getRecipe(userId, id) { return parseRecipe(db.prepare('SELECT * FROM recipes WHERE id=? AND user_id=?').get(id, userId)); }
+export function getRecipeImage(id) {
+  return db.prepare("SELECT i.mime,i.bytes FROM recipe_images i JOIN recipes r ON r.id=i.recipe_id WHERE r.id=? AND r.status!='archived'").get(id);
+}
+export function saveRecipeImage(userId, id, mime, bytes) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime) || !Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error('Некорректное изображение рецепта');
+  const recipe = getRecipe(userId, id);
+  if (!recipe || recipe.origin !== 'generated' || recipe.status === 'archived') return null;
+  const thumbnailUrl = `${config.appUrl}/recipe-images/${id}`;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('INSERT INTO recipe_images(recipe_id,mime,bytes) VALUES(?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET mime=excluded.mime,bytes=excluded.bytes').run(id, mime, bytes);
+    db.prepare('UPDATE recipes SET thumbnail_url=?,updated_at=? WHERE id=? AND user_id=?').run(thumbnailUrl, now(), id, userId);
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return getRecipe(userId, id);
+}
+export function listGeneratedRecipesWithoutImages() {
+  return db.prepare("SELECT r.user_id AS userId,r.id FROM recipes r LEFT JOIN recipe_images i ON i.recipe_id=r.id WHERE r.origin='generated' AND r.status!='archived' AND i.recipe_id IS NULL ORDER BY r.created_at").all();
+}
 export function listRecipes(userId) { return db.prepare("SELECT * FROM recipes WHERE user_id=? AND status!='archived' ORDER BY updated_at DESC").all(userId).map(parseRecipe); }
 export function createRecipeShare(userId, recipeId) {
   const recipe = db.prepare("SELECT id FROM recipes WHERE id=? AND user_id=? AND status!='archived'").get(recipeId, userId);

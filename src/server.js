@@ -3,11 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { config } from './config.js';
-import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, upsertTelegramUser } from './db.js';
+import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
 import { suggestForEmptySearch } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
+import { ensureRecipeImage } from './recipe-images.js';
+import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
+import { pantryCoverage, SEED_RECIPES } from './dinner.js';
+import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -71,6 +75,43 @@ async function api(request, response, url) {
   if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username });
   if (request.method === 'GET' && url.pathname === '/api/recipes') return json(response, 200, listRecipes(user.id));
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
+  if (request.method === 'GET' && url.pathname === '/api/dinner/profile') return json(response, 200, getFoodProfile(user.id));
+  if (request.method === 'GET' && url.pathname.startsWith('/api/dinner/recipes/')) {
+    const recipe = getDinnerRecipe(user.id, decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length)));
+    return json(response, recipe ? 200 : 404, recipe ? { ...recipe, pantryMatch: pantryCoverage(recipe, getDinnerContext(user.id)) } : { error: 'Рецепт не найден' });
+  }
+  if (request.method === 'PUT' && url.pathname === '/api/dinner/profile') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 4000)));
+  if (request.method === 'POST' && url.pathname === '/api/dinner/open') return json(response, 200, startDinner(user.id));
+  if (request.method === 'POST' && url.pathname === '/api/dinner/onboarding/start') {
+    const input = await bodyJson(request, 1000);
+    return json(response, 200, startDinnerOnboarding(user.id, String(input.sessionId || '')));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/dinner/recommend') {
+    rateLimit(`dinner:${user.id}`, 12, 60_000);
+    const input = await bodyJson(request, 1000);
+    return json(response, 200, await recommendDinner(user.id, String(input.sessionId || '')));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/dinner/reject-batch') {
+    const input = await bodyJson(request, 2000);
+    return json(response, 200, rejectDinnerBatch(user.id, input.ids));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/dinner/next') {
+    rateLimit(`dinner:${user.id}`, 12, 60_000);
+    const input = await bodyJson(request, 2000);
+    return json(response, 200, await nextDinner(user.id, input.ids));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/dinner/prefetch') {
+    const input = await bodyJson(request, 1000);
+    return json(response, 200, prefetchDinner(user.id, String(input.sessionId || '')));
+  }
+  const dinnerAction = url.pathname.match(/^\/api\/dinner\/recommendations\/([0-9a-f-]{36})\/(accept|reject|reason|cooked)$/i);
+  if (request.method === 'POST' && dinnerAction) {
+    const [, id, action] = dinnerAction;
+    if (action === 'accept' || action === 'reject') return json(response, 200, decideDinner(user.id, id, action === 'accept' ? 'accepted' : 'rejected'));
+    if (action === 'cooked') return json(response, 200, finishDinner(user.id, id));
+    const input = await bodyJson(request, 1000);
+    return json(response, 200, setDinnerRejectionReason(user.id, id, input.reason));
+  }
   if (request.method === 'GET' && url.pathname === '/api/search') {
     const q = (url.searchParams.get('q') || '').slice(0,500);
     if (!q.trim()) return json(response, 200, listRecipes(user.id));
@@ -83,7 +124,9 @@ async function api(request, response, url) {
   }
   if (request.method === 'POST' && /^\/api\/suggestions\/[0-9a-f-]{36}\/save$/i.test(url.pathname)) {
     const recipe = saveRecipeSuggestion(user.id, url.pathname.split('/').at(-2));
-    return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Предложение больше недоступно' });
+    if (!recipe) return json(response, 404, { error: 'Предложение больше недоступно' });
+    void ensureRecipeImage(user.id, recipe);
+    return json(response, 200, recipe);
   }
   if (request.method === 'GET' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
     const recipe = getRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1)));
@@ -130,6 +173,20 @@ export function createServer() {
     try {
       rateLimit(`ip:${clientIp(request)}`);
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (request.method === 'GET' && /^\/dinner-images\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+        const image = getDinnerOptionImage(url.pathname.split('/').at(-1));
+        if (!image) return json(response, 404, { error: 'Изображение недоступно' });
+        securityHeaders(response);
+        response.writeHead(200, { 'content-type': image.mime, 'content-length': image.bytes.length, 'cache-control': 'public, max-age=86400' });
+        return response.end(image.bytes);
+      }
+      if (request.method === 'GET' && /^\/recipe-images\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+        const image = getRecipeImage(url.pathname.split('/').at(-1));
+        if (!image) return json(response, 404, { error: 'Изображение недоступно' });
+        securityHeaders(response);
+        response.writeHead(200, { 'content-type': image.mime, 'content-length': image.bytes.length, 'cache-control': 'public, max-age=86400' });
+        return response.end(image.bytes);
+      }
       if (request.method === 'GET' && /^\/api\/shares\/[A-Za-z0-9_-]{32}$/.test(url.pathname)) {
         const recipe = getSharedRecipe(url.pathname.split('/').at(-1));
         return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Ссылка на рецепт недоступна' });

@@ -1,0 +1,162 @@
+{
+  "tool": "built-in imagegen",
+  "purpose": "Recipe catalog illustrations; JPEG encoding at quality 82",
+  "images": [
+    {
+      "id": "pasta-tomato",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-ef1c9759-3051-4975-b13f-c7a3056fcfc8.png",
+      "file": "public/assets/dinner/pasta-tomato.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"pasta-tomato\",\"title\":\"Паста с томатами и сыром\",\"description\":\"Томатный соус обволакивает пасту, а сыр плавится от её тепла.\",\"ingredients\":[\"паста\",\"томаты\",\"твёрдый сыр\",\"чеснок\",\"оливковое масло\"]}"
+    },
+    {
+      "id": "chicken-rice",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-a05ad0ef-863c-42da-ae05-7f90bb689822.png",
+      "file": "public/assets/dinner/chicken-rice.jpg",
+      "prompt": "Chicken breast pieces with cooked white rice, carrot and onion on cream ceramic. Natural window light, warm linen, square close-up, no extra ingredients or text."
+    },
+    {
+      "id": "chicken-rice-soup",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-60d157a6-49e7-4479-aeb5-e7695bf56269.png",
+      "file": "public/assets/dinner/chicken-rice-soup.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-rice-soup\",\"title\":\"Куриный суп с рисом\",\"description\":\"Лёгкий домашний суп без обжарки — с рисом, морковью и мягкой курицей.\",\"ingredients\":[\"куриное филе\",\"рис\",\"морковь\",\"лук\",\"вода\"]}"
+    },
+    {
+      "id": "rice-carrot-onion",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-f1644a25-2a2a-40c1-88c3-4c11bff144bf.png",
+      "file": "public/assets/dinner/rice-carrot-onion.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"rice-carrot-onion\",\"title\":\"Рис с морковью и луком\",\"description\":\"Простой рассыпчатый рис со сладкими обжаренными овощами.\",\"ingredients\":[\"рис\",\"морковь\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "fish-potato",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-7ba1fd0d-65fa-49e6-a0d1-555a1d12fbfa.png",
+      "file": "public/assets/dinner/fish-potato.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"fish-potato\",\"title\":\"Рыба с картофелем в духовке\",\"description\":\"Нежная белая рыба с картофельными дольками и лимоном.\",\"ingredients\":[\"филе рыбы\",\"картофель\",\"лимон\",\"растительное масло\"]}"
+    },
+    {
+      "id": "lentil-soup",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-07648ac6-cc4c-4bf6-a5ea-75bc39083ec1.png",
+      "file": "public/assets/dinner/lentil-soup.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"lentil-soup\",\"title\":\"Чечевичный суп\",\"description\":\"Густой согревающий суп: красная чечевица сама делает бульон бархатистым.\",\"ingredients\":[\"красная чечевица\",\"морковь\",\"лук\",\"томатная паста\",\"вода\"]}"
+    },
+    {
+      "id": "egg-salad",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-56fe58f1-eea3-484c-8c99-08d0270c21b3.png",
+      "file": "public/assets/dinner/egg-salad.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"egg-salad\",\"title\":\"Салат с яйцом и огурцом\",\"description\":\"Хрустящий огурец и нежное яйцо в лёгкой сметанной заправке.\",\"ingredients\":[\"яйца\",\"огурцы\",\"листья салата\",\"сметана\"]}"
+    },
+    {
+      "id": "buckwheat-mushroom",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-a481d21b-1b2c-4e5b-b216-7842b15ec006.png",
+      "file": "public/assets/dinner/buckwheat-mushroom.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"buckwheat-mushroom\",\"title\":\"Гречка с грибами\",\"description\":\"Рассыпчатая гречка с подрумяненными шампиньонами и луком.\",\"ingredients\":[\"гречка\",\"шампиньоны\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "turkey-pan",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-c5401f9e-b818-4bc5-b797-45daf109ebdb.png",
+      "file": "public/assets/dinner/turkey-pan.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"turkey-pan\",\"title\":\"Индейка с овощами на сковороде\",\"description\":\"Сочные кусочки индейки с кабачком и сладким перцем.\",\"ingredients\":[\"филе индейки\",\"кабачок\",\"болгарский перец\",\"растительное масло\"]}"
+    },
+    {
+      "id": "rice-vegetables",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-5afc3fd0-221c-461a-a790-7178a9996db6.png",
+      "file": "public/assets/dinner/rice-vegetables.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"rice-vegetables\",\"title\":\"Рис с овощами\",\"description\":\"Яркий рис с перцем и горошком, быстро обжаренный с соевым соусом.\",\"ingredients\":[\"рис\",\"морковь\",\"болгарский перец\",\"зелёный горошек\",\"соевый соус\",\"растительное масло\"]}"
+    },
+    {
+      "id": "vegetable-omelette",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-f3d03210-8ca7-4f6e-8a3f-70612ea5af99.png",
+      "file": "public/assets/dinner/vegetable-omelette.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"vegetable-omelette\",\"title\":\"Омлет с овощами\",\"description\":\"Пышный омлет с сочными томатами и сладким перцем.\",\"ingredients\":[\"яйца\",\"болгарский перец\",\"томаты\",\"растительное масло\"]}"
+    },
+    {
+      "id": "potato-skillet",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-02f6cc0c-fdfa-4be7-94a6-73e44e750559.png",
+      "file": "public/assets/dinner/potato-skillet.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"potato-skillet\",\"title\":\"Картофель с луком на сковороде\",\"description\":\"Золотистый картофель с мягким луком и свежей зеленью.\",\"ingredients\":[\"картофель\",\"лук\",\"растительное масло\",\"зелень\"]}"
+    },
+    {
+      "id": "tuna-salad",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-0c200a9f-b4fb-4adc-8a5a-1d97dae5b13f.png",
+      "file": "public/assets/dinner/tuna-salad.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"tuna-salad\",\"title\":\"Салат с тунцом и фасолью\",\"description\":\"Сытный салат без плиты: тунец, нежная фасоль и свежие овощи.\",\"ingredients\":[\"консервированный тунец\",\"консервированная фасоль\",\"огурцы\",\"листья салата\",\"оливковое масло\"]}"
+    },
+    {
+      "id": "chicken-buckwheat",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-df897de1-4a41-492d-be68-f6383a5a3c8f.png",
+      "file": "public/assets/dinner/chicken-buckwheat.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-buckwheat\",\"title\":\"Курица с гречкой\",\"description\":\"Домашний ужин с рассыпчатой гречкой и курицей в овощном соке.\",\"ingredients\":[\"куриное филе\",\"гречка\",\"морковь\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "couscous-vegetables",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-0d3e125a-61da-4bbe-beb0-6700fc62e90a.png",
+      "file": "public/assets/dinner/couscous-vegetables.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"couscous-vegetables\",\"title\":\"Кускус с овощами\",\"description\":\"Мягкий кускус с яркими овощами — быстрый ужин на одной сковороде.\",\"ingredients\":[\"кускус\",\"кабачок\",\"морковь\",\"болгарский перец\",\"растительное масло\"]}"
+    },
+    {
+      "id": "chicken-pasta",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-fa4b68c1-95e1-4b4b-8344-8e9a4bd8ee61.png",
+      "file": "public/assets/dinner/chicken-pasta.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-pasta\",\"title\":\"Паста с курицей в томатном соусе\",\"description\":\"Курица меняет привычный гарнир: вместо риса — паста в густом томатном соусе.\",\"ingredients\":[\"куриное филе\",\"паста\",\"томаты\",\"чеснок\",\"растительное масло\"]}"
+    },
+    {
+      "id": "chicken-potato",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-48fc0654-6ffd-4c48-93a3-3c7491d77ef4.png",
+      "file": "public/assets/dinner/chicken-potato.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-potato\",\"title\":\"Курица с картофелем на сковороде\",\"description\":\"Румяная курица и картофельные дольки — сытный ужин без духовки.\",\"ingredients\":[\"куриное филе\",\"картофель\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "chicken-cabbage",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-61d58be3-6a95-4700-9bd9-b3d4017d3804.png",
+      "file": "public/assets/dinner/chicken-cabbage.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-cabbage\",\"title\":\"Курица с тушёной капустой\",\"description\":\"Мягкая капуста и курица в собственном соке — без отдельного гарнира.\",\"ingredients\":[\"куриное филе\",\"капуста\",\"морковь\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "chicken-creamy",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-40d69774-6b49-4cb8-8e14-dd133e6f6ff3.png",
+      "file": "public/assets/dinner/chicken-creamy.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-creamy\",\"title\":\"Курица в сливочном соусе\",\"description\":\"Нежная курица в сливочном соусе с чесноком. Гарнир можно выбрать отдельно.\",\"ingredients\":[\"куриное филе\",\"сливки 10–20%\",\"чеснок\",\"растительное масло\"]}"
+    },
+    {
+      "id": "chicken-cutlets",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-8cdd3288-821b-405a-aa5a-8a530733f53b.png",
+      "file": "public/assets/dinner/chicken-cutlets.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"chicken-cutlets\",\"title\":\"Рубленые куриные котлеты\",\"description\":\"Небольшие румяные котлеты из филе — мясорубка не понадобится.\",\"ingredients\":[\"куриное филе\",\"яйца\",\"лук\",\"пшеничная мука\",\"растительное масло\"]}"
+    },
+    {
+      "id": "pork-peppers",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-ff24d728-fbcf-4f21-bb24-222f7ed035a8.png",
+      "file": "public/assets/dinner/pork-peppers.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"pork-peppers\",\"title\":\"Свинина со сладким перцем\",\"description\":\"Тонкие полоски свинины со сладким перцем и мягким луком.\",\"ingredients\":[\"свинина для жарки\",\"болгарский перец\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "pork-potato",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-c46b3ad8-0b58-4ccc-a1d9-110e240dbe9b.png",
+      "file": "public/assets/dinner/pork-potato.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"pork-potato\",\"title\":\"Свинина с картофелем\",\"description\":\"Картофель пропитывается мясным соком, пока ужин готовится под крышкой.\",\"ingredients\":[\"свинина для жарки\",\"картофель\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "beef-pasta",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-511a0dff-5afa-4d68-a55d-73cdfb5d92f7.png",
+      "file": "public/assets/dinner/beef-pasta.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"beef-pasta\",\"title\":\"Паста с говядиной и томатами\",\"description\":\"Полоски мягкой говядины и паста в насыщенном томатном соусе.\",\"ingredients\":[\"говядина для быстрой жарки\",\"паста\",\"томаты\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "beef-buckwheat",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-d0c304a6-0f04-4f53-9e4c-cb4c5c93fa6f.png",
+      "file": "public/assets/dinner/beef-buckwheat.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial food photograph for a home dinner recipe app, square image. Close-up three-quarter overhead view, complete plated dish filling 80% of frame on simple cream ceramic with warm neutral linen background. Natural window light, realistic delicious textures, quiet premium cookbook styling. No text, no collage, no hands, no labels, no props or garnish implying extra ingredients. Photograph ONLY the finished recipe described below; respect its exact ingredients and preparation style. Recipe: {\"id\":\"beef-buckwheat\",\"title\":\"Говядина с гречкой\",\"description\":\"Быстро обжаренная говядина с гречкой, луком и морковью.\",\"ingredients\":[\"говядина для быстрой жарки\",\"гречка\",\"морковь\",\"лук\",\"растительное масло\"]}"
+    },
+    {
+      "id": "pork-cabbage",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-e124548e-fa94-47a1-bc8c-ea7b464e75c5.png",
+      "file": "public/assets/dinner/pork-cabbage.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial photograph, square composition, of pork strips with soft stewed white cabbage and grated carrot. Only pork, cabbage, carrot, vegetable oil and salt. Home-cooked finished dish on a simple cream ceramic plate filling 80% of frame, warm neutral linen, natural window light, close-up three-quarter overhead angle, premium cookbook style. No text, no collage, no hands, no extra garnish or ingredients."
+    },
+    {
+      "id": "beef-peppers",
+      "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-acbcdc0b-68c6-4b28-ae49-0ce935867229.png",
+      "file": "public/assets/dinner/beef-peppers.jpg",
+      "prompt": "Use case: photorealistic-natural. One appetizing editorial photograph, square composition, of quick stir-fried thin beef strips with sliced sweet red bell peppers and onion. Only beef, bell pepper, onion, vegetable oil and salt. Home-cooked finished dish on a simple cream ceramic plate filling 80% of frame, warm neutral linen, natural window light, close-up three-quarter overhead angle, premium cookbook style. No text, no collage, no hands, no extra garnish or ingredients."
+    }
+  ]
+}

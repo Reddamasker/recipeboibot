@@ -17,3 +17,10 @@ uploads/
 *.log
 node_modules/
 .DS_Store
+.tmp/
+backups/
+transfer-private/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.bundle

@@ -1,119 +1,87 @@
-// This demo uses three local examples, never the visitor's real collection.
+// This landing uses a fictional recipe to demonstrate the product.
 (() => {
   const root = document.getElementById('landing');
   if (!root) return;
-  const recipes = {
-    dinner: {
-      title: 'Паста с томатами и базиликом', meta: '25 минут · 2 порции',
-      source: 'Сохранённое видео с рецептом пасты. Это учебный пример; у рецепта из доступной ссылки в боте будет переход к оригиналу.',
-      ingredients: ['Паста — 200 г', 'Томаты — 400 г', 'Чеснок — 1 зубчик', 'Оливковое масло — 2 ст. л.', 'Базилик — несколько листьев', 'Соль — по вкусу'],
-      steps: ['Нарежьте томаты и чеснок. Вымойте базилик.', 'Отварите пасту по инструкции на упаковке. В сковороде прогрейте масло с чесноком, добавьте томаты и тушите до мягкости.', 'Переложите пасту к томатам. Добавьте немного воды от варки, перемешайте и посолите по вкусу. Подавайте с базиликом.']
-    },
-    breakfast: {
-      title: 'Бабушкины сырники', meta: '20 минут · 2 порции',
-      source: 'Фото семейной записки: «Творог 300 г, 1 яйцо, 3 ложки муки, ложка сахара. Слепить сырники, обвалять в муке и обжарить». Учебный пример.',
-      ingredients: ['Творог — 300 г', 'Яйцо — 1 шт.', 'Мука — 3 ст. л. и немного для обваливания', 'Сахар — 1 ст. л.', 'Растительное масло — для жарки'],
-      steps: ['Разомните творог с яйцом и сахаром. Добавьте муку и перемешайте.', 'Сформируйте небольшие сырники и обваляйте в муке.', 'Разогрейте немного масла. Жарьте сырники на умеренном огне с обеих сторон до золотистой корочки и полной готовности внутри.']
-    },
-    quick: {
-      title: 'Салат с фетой', meta: '15 минут · 2 порции',
-      source: 'Голосовое сообщение: «Два томата, огурец, перец, сто граммов феты и горсть маслин. Крупно нарезать, добавить масло и орегано». Учебный пример.',
-      ingredients: ['Томаты — 2 шт.', 'Огурец — 1 шт.', 'Сладкий перец — 1 шт.', 'Фета — 100 г', 'Маслины — горсть', 'Оливковое масло — 2 ст. л.', 'Орегано — по вкусу'],
-      steps: ['Вымойте овощи. Крупно нарежьте томаты и огурец, удалите семена перца и нарежьте его.', 'Выложите овощи в миску. Добавьте маслины и фету.', 'Полейте оливковым маслом, посыпьте орегано и подавайте.']
-    }
-  };
-  const inputs = {
-    link: 'Перешлите доступную ссылку из соцсети или чата. Бот разберёт текст или речь и сохранит переход к оригиналу.',
-    photo: 'Сфотографируйте записку, страницу книги или пришлите скриншот. Текст должен быть чётким, а количества — видны.',
-    text: 'Перешлите сообщение с рецептом или напишите его в чат. Укажите продукты, количества и порядок приготовления.',
-    voice: 'Надиктуйте свой рецепт голосовым: какие продукты нужны, сколько и в каком порядке готовить.'
-  };
   const el = (id) => document.getElementById(id);
-  const buttons = [...root.querySelectorAll('[data-lp-recipe]')];
-  let selected = 'dinner';
-  let step = 0;
-  const drawStep = () => {
-    const steps = recipes[selected].steps;
-    el('lp-demo-progress').textContent = `Шаг ${step + 1} из ${steps.length}`;
-    el('lp-demo-step-text').textContent = steps[step];
-    el('lp-step-meter').max = steps.length;
-    el('lp-step-meter').value = step + 1;
-    el('lp-step-meter').textContent = `${step + 1} из ${steps.length}`;
-    el('lp-demo-prev').disabled = step === 0;
-    el('lp-demo-next').textContent = step === steps.length - 1 ? 'К началу ↺' : 'Дальше →';
-  };
-  const selectRecipe = (key) => {
-    selected = key;
-    const recipe = recipes[key];
-    el('lp-demo-title').textContent = recipe.title;
-    el('lp-demo-meta').textContent = recipe.meta;
-    el('lp-demo-source').textContent = recipe.source;
-    el('lp-source-detail').open = false;
-    el('lp-demo-ingredients').replaceChildren(...recipe.ingredients.map((text) => {
-      const item = document.createElement('li');
-      item.textContent = text;
-      return item;
-    }));
-    buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.lpRecipe === key)));
-    step = 0;
-    drawStep();
-  };
-  buttons.forEach((button) => button.addEventListener('click', () => selectRecipe(button.dataset.lpRecipe)));
-  root.querySelector('[data-open-example]').addEventListener('click', () => {
-    el('lp-search').value = '';
-    buttons.forEach((button) => { button.hidden = false; });
-    el('lp-search-empty').hidden = true;
-    el('lp-search-status').textContent = 'Учебная коллекция. В боте будут ваши рецепты.';
-    root.querySelector('.lp-recipe-view').hidden = false;
-    selectRecipe('breakfast');
+  el('lp-demo-share').addEventListener('click', async (event) => {
+    try {
+      await navigator.clipboard.writeText(`${location.origin}${location.pathname}#lp-recipe-preview`);
+      const button = event.currentTarget;
+      button.textContent = 'Ссылка на пример скопирована';
+      window.setTimeout(() => { button.textContent = 'Поделиться'; }, 2500);
+    } catch { event.currentTarget.textContent = 'Не удалось скопировать'; }
   });
-  el('lp-demo-prev').addEventListener('click', () => { if (step > 0) step--; drawStep(); });
-  el('lp-demo-next').addEventListener('click', () => { step = (step + 1) % recipes[selected].steps.length; drawStep(); });
-  const normalize = (text) => text.toLocaleLowerCase('ru').replaceAll('ё', 'е').trim();
-  el('lp-search').addEventListener('input', (event) => {
-    const words = normalize(event.target.value).split(/\s+/).filter(Boolean);
-    const matches = buttons.filter((button) => {
-      const recipe = recipes[button.dataset.lpRecipe];
-      const haystack = normalize([recipe.title, ...recipe.ingredients].join(' '));
-      const match = words.every((word) => haystack.includes(word));
-      button.hidden = !match;
-      return match;
-    });
-    el('lp-search-empty').hidden = matches.length > 0;
-    el('lp-search-status').textContent = words.length ? `Найдено в примере: ${matches.length} из 3.` : 'Учебная коллекция. В боте будут ваши рецепты.';
-    root.querySelector('.lp-recipe-view').hidden = matches.length === 0;
-    if (matches.length && !matches.some((button) => button.dataset.lpRecipe === selected)) selectRecipe(matches[0].dataset.lpRecipe);
+  const quizQuestions = [
+    'Пролистывали ли вы десятки видео в поисках того самого рецепта, который запомнился, но вы забыли сохранить?',
+    'Тратите ли вы более 7 минут на решение вопроса, что сегодня на ужин?',
+    'Терялись ли у вас рецепты из-за случайно удалённого скриншота или потерянной бумажки?'
+  ];
+  const quizCard = el('lp-quiz-card');
+  const quizAnswers = [];
+  let quizStep = 0;
+  const renderQuiz = () => {
+    quizCard.classList.remove('lp-quiz-result');
+    el('lp-quiz-count').textContent = `${quizStep + 1} из ${quizQuestions.length}`;
+    el('lp-quiz-number').textContent = `0${quizStep + 1}`;
+    el('lp-quiz-question').textContent = quizQuestions[quizStep];
+    quizCard.querySelectorAll('.lp-quiz-progress i').forEach((item, index) => item.classList.toggle('is-active', index <= quizStep));
+    quizCard.querySelector('.lp-quiz-actions').innerHTML = '<button type="button" data-quiz-answer="yes">Да, бывало</button><button type="button" data-quiz-answer="no">Нет</button>';
+    el('lp-quiz-back').hidden = quizStep === 0;
+  };
+  const renderQuizResult = () => {
+    const fits = quizAnswers.includes('yes');
+    const statistic = '<p class="lp-quiz-result-stat">Вы не одни: 45% опрошенных австралийцев тратили больше 10 минут в день, решая, что приготовить на ужин. <a href="https://mccrindle.com.au/app/uploads/images/HelloFresh_Australia27s-Cooking-Landscape_Report_FINAL_1Feb2017.pdf" target="_blank" rel="noreferrer">Источник — McCrindle Research</a></p>';
+    quizCard.classList.add('lp-quiz-result');
+    el('lp-quiz-number').textContent = fits ? 'Похоже, совпало' : 'Вот это порядок';
+    el('lp-quiz-question').innerHTML = fits
+      ? `«Рецепты» вам подойдут.<p class="lp-quiz-result-copy">Перешлите ссылку, фото, текст или голосовое один раз — и в следующий раз рецепт уже будет ждать в вашей коллекции.</p>${statistic}`
+      : `У вас с рецептами всё отлично.<p class="lp-quiz-result-copy">Серьёзно: сохранить, найти и не забыть — уже половина дела. Если источников станет больше, «Рецепты» помогут удержать этот порядок.</p>${statistic}`;
+    quizCard.querySelector('.lp-quiz-actions').innerHTML = '<a href="https://t.me/Recipeboibot?start=dinner">Открыть в Telegram ↗</a>';
+    el('lp-quiz-back').hidden = false;
+  };
+  quizCard.addEventListener('click', (event) => {
+    const answer = event.target.closest('[data-quiz-answer]');
+    if (answer) {
+      quizAnswers[quizStep] = answer.dataset.quizAnswer;
+      if (quizStep === quizQuestions.length - 1) renderQuizResult();
+      else { quizStep += 1; renderQuiz(); }
+      return;
+    }
+    if (event.target === el('lp-quiz-back')) {
+      if (quizCard.classList.contains('lp-quiz-result')) quizStep = quizQuestions.length - 1;
+      else quizStep = Math.max(0, quizStep - 1);
+      quizAnswers.length = quizStep;
+      renderQuiz();
+    }
   });
-  root.querySelectorAll('[data-input]').forEach((button) => button.addEventListener('click', () => {
-    root.querySelectorAll('[data-input]').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
-    el('lp-input-description').textContent = inputs[button.dataset.input];
-  }));
 
-  const flow = el('lp-flow');
+  const showcase = root.querySelector('.lp-showcase');
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   const replay = el('lp-flow-replay');
   if (motionPreference.matches) replay.hidden = true;
   else {
-    const sources = [...flow.querySelectorAll('.lp-flow-source')];
-    const lastRow = flow.querySelector('.lp-flow-row:last-child');
+    const sources = [...showcase.querySelectorAll('.lp-artifacts > *')];
+    const lastRow = showcase.querySelector('.lp-flow-row:last-child');
+    showcase.classList.add('is-ready');
     let hasPlayed = false;
     const playFlow = () => {
-      flow.classList.remove('is-playing', 'is-complete');
+      showcase.classList.remove('is-playing', 'is-complete');
       const target = el('lp-flow-bot').getBoundingClientRect();
       const centerX = target.left + target.width / 2;
       const centerY = target.top + target.height / 2;
-      sources.forEach((source) => {
+      sources.forEach((source, index) => {
         const box = source.getBoundingClientRect();
+        source.style.setProperty('--delay', `${index * .22}s`);
         source.style.setProperty('--travel-x', `${centerX - box.left - box.width / 2}px`);
         source.style.setProperty('--travel-y', `${centerY - box.top - box.height / 2}px`);
       });
-      void flow.offsetWidth;
-      flow.classList.add('is-playing');
+      void showcase.offsetWidth;
+      showcase.classList.add('is-playing');
     };
     lastRow.addEventListener('animationend', (event) => {
       if (event.animationName !== 'lp-row-appear') return;
-      flow.classList.remove('is-playing');
-      flow.classList.add('is-complete');
+      showcase.classList.remove('is-playing');
+      showcase.classList.add('is-complete');
     });
     replay.addEventListener('click', playFlow);
     const observer = new IntersectionObserver((entries) => {
@@ -123,6 +91,6 @@
         observer.disconnect();
       }
     }, { threshold: .55 });
-    observer.observe(flow);
+    observer.observe(showcase);
   }
 })();

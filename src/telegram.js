@@ -1,9 +1,13 @@
 import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
-import { transcribeAudio } from './openai.js';
+import { extractDinnerIntake, transcribeAudio } from './openai.js';
 import { suggestForEmptySearch } from './suggestions.js';
 import { log } from './log.js';
+import { ensureRecipeImage } from './recipe-images.js';
+import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
+import { confirmDinnerIntake, prefetchDinner, startDinner } from './dinner-service.js';
+import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
 
 const apiBase = () => `https://api.telegram.org/bot${config.telegramToken}`;
 const fileBase = () => `https://api.telegram.org/file/bot${config.telegramToken}`;
@@ -16,6 +20,113 @@ async function telegram(method, body = {}) {
 }
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...extra });
+function currentDinnerIntake(userId) {
+  const profile = getFoodProfile(userId);
+  return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId) });
+}
+function prepareDinner(userId) {
+  try { const session = startDinner(userId, { prefetchOnly: true }); prefetchDinner(userId, session.sessionId); }
+  catch (error) { log('warn', 'telegram_dinner_prefetch_failed', { error: error.message }); }
+}
+async function sendDinnerEntry(chatId, userId) {
+  if (userId) prepareDinner(userId);
+  const url = webAppUrl({ view: 'dinner' });
+  await send(chatId, '<b>Что приготовить сегодня?</b>\n\nОткройте три варианта ужина и выберите тот, который подходит сейчас.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Выбрать ужин', web_app: { url } }]] } } : {});
+}
+async function sendDinnerIntakePrompt(chatId, userId) {
+  const pending = getPendingIntent(userId);
+  const intake = pending?.intake || currentDinnerIntake(userId);
+  setPendingIntent(userId, { kind: 'dinner-intake', intake });
+  addDinnerEvent(userId, 'onboarding_started');
+  await send(chatId, '<b>Подберём ужин из того, что есть дома.</b>\n\nНажмите микрофон и за 30–60 секунд назовите продукты. Добавьте, на сколько человек готовите, есть ли дети, есть ли аллергия и сколько времени есть. Можно написать это текстом.\n\nНапример: «Есть курица, рис, лук и морковь. На троих, с ребёнком, аллергия на орехи, до 30 минут».\n\nМожно дополнять по частям — я запомню сказанное раньше.', { reply_markup: { inline_keyboard: [[{ text: 'Пока пропустить', callback_data: 'dinner:skip' }]] } });
+}
+
+// Telegram may deliver both an unblock event and /start for the same tap.
+const ENTRY_DEDUP_MS = 5000;
+async function resumeDinnerIntake(chatId, userId, pending, { unblocked = false } = {}) {
+  if (!unblocked && pending?.unblockedAt && Date.now() - pending.unblockedAt < ENTRY_DEDUP_MS) return;
+  if (unblocked && pending?.entrySentAt && Date.now() - pending.entrySentAt < ENTRY_DEDUP_MS) return;
+  if (pending?.kind === 'dinner-confirm') await sendDinnerIntakeSummary(chatId, userId, pending.intake);
+  else await sendDinnerIntakePrompt(chatId, userId);
+  setPendingIntent(userId, { ...getPendingIntent(userId), entrySentAt: Date.now(), ...(unblocked ? { unblockedAt: Date.now() } : {}) });
+}
+
+async function sendDinnerIntakeSummary(chatId, userId, intake) {
+  if (!intake.availableIngredients.length) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.'); return; }
+  if (!intake.householdSize) {
+    await send(chatId, `Записал продукты: <b>${escapeHtml(intake.availableIngredients.join(', '))}</b>.\nНа сколько человек готовим?`, { reply_markup: { inline_keyboard: [[1, 2, 3, 4, 5].map((size) => ({ text: String(size), callback_data: `dinner:size:${size}` }))] } });
+    return;
+  }
+  const lines = [
+    '<b>Проверьте, правильно ли я понял</b>',
+    `Есть дома: ${escapeHtml(intake.availableIngredients.join(', '))}`,
+    `Готовим на: ${intake.householdSize}`,
+    `Дети: ${intake.hasChildren === null ? 'не указано' : intake.hasChildren ? 'да' : 'нет'}`,
+    `Аллергия и исключения: ${intake.excludedIngredients.length ? escapeHtml(intake.excludedIngredients.join(', ')) : 'не указаны'}`,
+    `Время: ${intake.maxMinutes ? `до ${intake.maxMinutes} минут` : 'не указано'}`
+  ];
+  await send(chatId, lines.join('\n'), { reply_markup: { inline_keyboard: [[{ text: 'Верно · подобрать ужин', callback_data: 'dinner:confirm' }], [{ text: 'Дополнить или исправить', callback_data: 'dinner:redo' }]] } });
+}
+
+async function handleDinnerIntakeMessage(message, user, pending) {
+  const text = message.text?.trim() || '';
+  if (message.photo?.length || extractSharedUrl(text) || /^\/(?:save|find|search|help)(?:\s|$)/i.test(text)) { clearPendingIntent(user.id); return false; }
+  if (text === '/skip') { clearPendingIntent(user.id); clearDinnerContext(user.id); await sendDinnerEntry(message.chat.id, user.id); return true; }
+  let transcript = text;
+  if (message.voice || message.audio) {
+    try { await telegram('sendChatAction', { chat_id: message.chat.id, action: 'typing' }); transcript = (await interpretVoice(message, user)).text; }
+    catch (error) { await send(message.chat.id, `Не расслышал голосовое: ${escapeHtml(error.message)} Можно сказать ещё раз или написать список.`); return true; }
+  }
+  if (!transcript) return true;
+  let extracted = null;
+  try { extracted = await extractDinnerIntake({ userId: user.id, transcript }); }
+  catch (error) { log('warn', 'dinner_intake_fallback', { error: error.message, userId: user.id }); }
+  const intake = mergeDinnerIntake(pending.intake, extracted || parseDinnerIntakeFallback(transcript));
+  setPendingIntent(user.id, { kind: 'dinner-confirm', intake });
+  if (!intake.availableIngredients.length) { await send(message.chat.id, 'Запомнил. Теперь назовите продукты дома, например: «курица, рис, лук, морковь».'); return true; }
+  await sendDinnerIntakeSummary(message.chat.id, user.id, intake);
+  return true;
+}
+
+export async function handleDinnerIntakeCallback(callback) {
+  const data = String(callback.data || '');
+  if (!/^dinner:(?:skip|redo|confirm|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
+  const user = upsertTelegramUser(callback.from), chatId = callback.message.chat.id;
+  const pending = getPendingIntent(user.id);
+  if (data === 'dinner:skip') {
+    clearPendingIntent(user.id);
+    clearDinnerContext(user.id);
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+    await sendDinnerEntry(chatId, user.id);
+    return true;
+  }
+  if (data === 'dinner:redo') {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+    if (pending?.intake) await send(chatId, 'Что добавить или исправить? Напишите или скажите голосом только изменения. Продукты, семью, аллергию и время, о которых вы уже сказали, сохраню.');
+    else await sendDinnerIntakePrompt(chatId, user.id);
+    return true;
+  }
+  if (!pending || pending.kind !== 'dinner-confirm') {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот список уже неактуален', show_alert: true });
+    return true;
+  }
+  if (data.startsWith('dinner:size:')) {
+    const intake = normalizeDinnerIntake({ ...pending.intake, householdSize: Number(data.at(-1)) });
+    setPendingIntent(user.id, { kind: 'dinner-confirm', intake });
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+    await sendDinnerIntakeSummary(chatId, user.id, intake);
+    return true;
+  }
+  if (!pending.intake.availableIngredients.length) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала назовите продукты дома', show_alert: true }); return true; }
+  if (!pending.intake.householdSize) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала укажите число едоков', show_alert: true }); return true; }
+  confirmDinnerIntake(user.id, pending.intake);
+  prepareDinner(user.id);
+  clearPendingIntent(user.id);
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Учту продукты и ограничения' });
+  const url = webAppUrl({ view: 'dinner' });
+  await send(chatId, 'Продукты и ограничения запомнил. Составляю рецепты: три для выбора и ещё три в запасе. Если что-то нужно докупить, укажу это у блюда.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Посмотреть ужин', web_app: { url } }]] } } : {});
+  return true;
+}
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
 const number = (value) => new Intl.NumberFormat('ru-RU').format(Number(value) || 0);
 
@@ -56,7 +167,7 @@ export function detectIntent(text, { hasPhoto = false, hasUrl = false } = {}) {
   if (search && !save) return 'search';
   if (save && search) return 'ambiguous';
   if (value.length >= 80 && /(?:ингредиент|приготовлен|нареж|добав|смеш|ложк|\b\d+\s*(?:г|гр|мл|мин))/iu.test(value)) return 'save';
-  return 'ambiguous';
+  return value.length < 80 ? 'search' : 'ambiguous';
 }
 
 export function extractSharedUrl(text) {
@@ -98,9 +209,9 @@ function recipeButton(recipe, { groupMode = false } = {}) {
 async function sendRecipeCard(chatId, recipe, options = {}) {
   const caption = `<b>${escapeHtml(recipe.title)}</b>${recipe.sourceName ? `\n${escapeHtml(recipe.sourceName)}` : ''}`;
   const reply_markup = recipeButton(recipe, options);
-  const photo = recipe.origin === 'generated' && config.appUrl?.startsWith('https://') ? `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg` : recipe.thumbnailUrl;
+  const photo = recipe.thumbnailUrl;
   if (photo) {
-    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Иллюстрация: готовое блюдо может выглядеть иначе.</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
+    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Изображение создано ИИ; готовое блюдо может выглядеть иначе.</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
     catch (error) { log('warn', 'telegram_preview_failed', { error, recipeId: recipe.id }); }
   }
   await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
@@ -119,6 +230,15 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
   await send(chatId, `Как понял: ищу ${groupMode ? 'в коллекции владельца группы' : 'в вашей коллекции'} «<b>${escapeHtml(normalizedQuery)}</b>».\nНашёл: ${results.length}.`, allUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Все результаты', web_app: { url: allUrl } }]] } } : {});
   for (const recipe of results.slice(0, 3)) await sendRecipeCard(chatId, recipe, { groupMode });
   return results;
+}
+
+async function sendSuggestion(chatId, suggestion, { groupMode = false } = {}) {
+  const recipe = suggestion.recipe;
+  const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
+  const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
+  const detail = `${recipe.title}\nСоздано в «Рецептах»${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
+  const buttons = { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
+  await send(chatId, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
 }
 
 export async function handleSuggestionCallback(callback) {
@@ -149,25 +269,18 @@ export async function handleSuggestionCallback(callback) {
     await send(chat.id, 'Составляю рецепт по вашему запросу…');
     try {
       const suggestion = await suggestForEmptySearch(userId, proposal.query);
-      const recipe = suggestion.recipe;
-      if (config.appUrl?.startsWith('https://')) {
-        try { await telegram('sendPhoto', { chat_id: chat.id, photo: `${config.appUrl.replace(/\/$/, '')}/assets/recipe-idea-illustration-v1.jpg`, caption: 'Иллюстрация: готовое блюдо может выглядеть иначе. Фото: Gareth Hubbard / Unsplash: https://unsplash.com/photos/green-vegetable-on-brown-wooden-table-qPcSUERqBAc' }); }
-        catch (error) { log('warn', 'telegram_suggestion_photo_failed', { error }); }
-      }
-      const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
-      const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
-      const detail = `${recipe.title}\nСоздано в «Рецептах»${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
-      const buttons = { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
-      await send(chat.id, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
+      await sendSuggestion(chat.id, suggestion, { groupMode });
     } catch (error) {
       log('error', 'telegram_suggestion_failed', { error, userId });
       await send(chat.id, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
     }
     return;
   }
-  const recipe = saveRecipeSuggestion(userId, match[3]);
-  if (!recipe) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true }); return; }
+  const savedRecipe = saveRecipeSuggestion(userId, match[3]);
+  if (!savedRecipe) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true }); return; }
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт добавлен' });
+  void ensureRecipeImage(userId, savedRecipe);
+  const recipe = savedRecipe;
   await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
   await send(chat.id, `Сохранено: <b>${escapeHtml(recipe.title)}</b>. Рецепт теперь в ${groupMode ? 'коллекции владельца группы' : 'вашей коллекции'}.`, { reply_markup: recipeButton(recipe, { groupMode }) });
 }
@@ -194,10 +307,10 @@ async function saveContent(message, user, content, options = {}) {
 
 async function handlePendingChoice(message, user, pending) {
   const answer = String(message.text || '').trim();
-  if (/^(?:найти|ищи|поиск|в коллекции)/iu.test(answer)) {
+  if (/^(?:найти|ищи|поиск|в коллекции)[.!]?$/iu.test(answer)) {
     clearPendingIntent(user.id); await sendSearchResults(message.chat.id, user, pending.text); return true;
   }
-  if (/^(?:сохранить|сохрани|добавить|добавь)/iu.test(answer)) {
+  if (/^(?:сохранить|сохрани|добавить|добавь)[.!]?$/iu.test(answer)) {
     clearPendingIntent(user.id); await saveContent(message, user, pending); return true;
   }
   return false;
@@ -213,35 +326,35 @@ export async function handleMessage(message) {
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;
+    const pending = getPendingIntent(user.id);
+    const resumeOnboarding = ['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind);
     if (isFirstStart) allowUser(user.id);
     if (/^\/start(?:@[A-Za-z0-9_]+)?\s+group_access(?:\s|$)/i.test(text)) {
       await send(chatId, '<b>Групповой доступ</b>\n\nДобавьте «Твои рецепты» максимум в три группы, чтобы вместе искать блюда, сохранять рецепты из ссылок, фото и сообщений и быстрее решать, что приготовить.\n\nСейчас доступ подключается вручную. Если вы участвуете в тесте, попросите владельца сервиса включить его для вашего Telegram-аккаунта.');
       return;
     }
-    const appUrl = webAppUrl();
-    if (isFirstStart) {
-      const saveUrl = webAppUrl({ view: 'add' });
-      const searchUrl = webAppUrl({ view: 'search' });
-      const collectionUrl = webAppUrl({ view: 'collection' });
-      const buttons = saveUrl && searchUrl && collectionUrl ? { inline_keyboard: [
-        [{ text: 'Сохранить рецепт', web_app: { url: saveUrl } }],
-        [{ text: 'Что приготовить?', web_app: { url: searchUrl } }],
-        [{ text: 'Мои рецепты', web_app: { url: collectionUrl } }]
-      ] } : undefined;
-      await send(chatId, '<b>Привет! Я помогу собрать вашу личную коллекцию рецептов.</b>\n\nЧто я умею:\n• сохранять рецепты из ссылок, текста, фото и голосовых;\n• находить нужное обычными словами;\n• показывать ингредиенты и пошаговое приготовление.\n\n<b>Как начать</b>\nПришлите сюда рецепт (ссылку на видео, фото или просто надиктуйте) — я обработаю источник и добавлю рецепт в коллекцию. Для поиска напишите, например: «Есть курица, что приготовить?»\n\nКоллекция видна только вам. Результат автоматической обработки лучше проверить перед готовкой.', buttons ? { reply_markup: buttons } : {});
+    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+ingredients(?:\s|$)/i.test(text)) { await sendDinnerIntakePrompt(chatId, user.id); return; }
+    if (isFirstStart || resumeOnboarding) {
+      await resumeDinnerIntake(chatId, user.id, pending);
       return;
     }
-    await send(chatId, 'С возвращением! Пришлите рецепт, ссылку, фото или голосовое — я сохраню их в вашу коллекцию. Для поиска просто напишите, что хотите приготовить.', appUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть приложение', web_app: { url: appUrl } }]] } } : {});
+    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+dinner(?:\s|$)/i.test(text)) { await sendDinnerEntry(chatId, user.id); return; }
+    const dinnerUrl = webAppUrl({ view: 'dinner' });
+    await send(chatId, 'С возвращением! Выберите ужин на сегодня или пришлите рецепт, который вам понравился — я учту его в следующих предложениях. Если продукты дома изменились, отправьте /ingredients.', dinnerUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Что приготовить сегодня?', web_app: { url: dinnerUrl } }]] } } : {});
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
-  if (text === '/help') { await send(chatId, 'Поделитесь ссылкой, текстом или фото — рецепт сохранится автоматически. Можно отправить голосовой запрос: «Найди крылышки с мёдом». Если цель неясна, я спрошу: найти или сохранить.'); return; }
+  if (text === '/ingredients') { await sendDinnerIntakePrompt(chatId, user.id); return; }
+  if (text === '/dinner') { await sendDinnerEntry(chatId, user.id); return; }
+  if (text === '/help') { await send(chatId, 'Короткий текст ищу в вашей коллекции. Подробный текст с ингредиентами и шагами, ссылку или фото сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …». Если в сообщении есть и просьба найти, и просьба сохранить, я уточню цель.'); return; }
   if (text === '/usage') { await send(chatId, usageMessage(user.id)); return; }
   if (text === '/delete_data CONFIRM') { deleteUserData(user.id); await send(chatId, 'Ваши рецепты и профиль удалены.'); return; }
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }
 
   const pending = getPendingIntent(user.id);
+  if (pending && ['dinner-intake', 'dinner-confirm'].includes(pending.kind) && await handleDinnerIntakeMessage(message, user, pending)) return;
   if (pending && await handlePendingChoice(message, user, pending)) return;
+  if (pending) clearPendingIntent(user.id);
 
   let content = { text, sourceType: 'text', sourceKey: undefined, url: extractSharedUrl(text) };
   if (message.voice || message.audio) {
@@ -253,6 +366,11 @@ export async function handleMessage(message) {
       await send(chatId, escapeHtml(error.message || 'Не удалось обработать голосовое. Пришлите его ещё раз или напишите текстом.'));
       return;
     }
+  }
+  const isDinnerFollowup = /^(?:кстати\b|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$)/iu.test(content.text.trim());
+  if (!message.photo?.length && !content.url && isDinnerFollowup && getDinnerContext(user.id).length) {
+    await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id) });
+    return;
   }
   const intent = detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
   if (intent === 'search') { await sendSearchResults(chatId, user, content.text); return; }
@@ -278,6 +396,17 @@ async function leaveRejectedGroup(chatId, text, extra = {}) {
 
 export async function handleMyChatMember(change) {
   const chat = change?.chat;
+  if (chat?.type === 'private') {
+    // Opening a chat is not a Bot API event. Unblocking is, and can resume intake.
+    if (change.old_chat_member?.status !== 'kicked' || change.new_chat_member?.status !== 'member' || !change.from || change.from.is_bot || String(change.from.id) !== String(chat.id)) return;
+    const user = upsertTelegramUser(change.from);
+    if (!user.is_allowed) allowUser(user.id);
+    const pending = getPendingIntent(user.id);
+    if (!getFoodProfile(user.id).onboardingCompleted || ['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {
+      await resumeDinnerIntake(chat.id, user.id, pending, { unblocked: true });
+    } else await sendDinnerEntry(chat.id, user.id);
+    return;
+  }
   if (!chat || !['group', 'supergroup'].includes(chat.type)) return;
   const oldStatus = change.old_chat_member?.status;
   const newStatus = change.new_chat_member?.status;
@@ -355,7 +484,9 @@ export async function startTelegramPolling() {
         if ((!update.message && !update.my_chat_member && !update.callback_query) || !claimUpdate(update.update_id)) continue;
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
-          else if (update.callback_query) await handleSuggestionCallback(update.callback_query);
+          else if (update.callback_query) {
+            if (!await handleDinnerIntakeCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+          }
           else await handleMessage(update.message);
           completeUpdate(update.update_id);
         }
