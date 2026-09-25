@@ -4,8 +4,18 @@
   };
   window.miniProbe = report;
   report('boot-script');
+  document.addEventListener('DOMContentLoaded', () => report('dom-ready'));
   window.addEventListener('error', () => report('script-error'), true);
   window.addEventListener('unhandledrejection', () => report('promise-error'));
+
+  // Telegram's iOS bridge accepts the same ready event used by its Web App SDK.
+  // Send it before deferred styles and scripts can hold the native loading screen.
+  try {
+    if (window.TelegramWebviewProxy?.postEvent) {
+      window.TelegramWebviewProxy.postEvent('web_app_ready', JSON.stringify(''));
+      report('native-ready');
+    }
+  } catch { report('native-ready-error'); }
 
   let ready = false;
   const signalReady = () => {

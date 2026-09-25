@@ -5,13 +5,15 @@ import vm from 'node:vm';
 
 test('Mini App signals Telegram readiness before rendering and records its startup stage', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
-  assert.ok(index.indexOf('/mini-boot.js?v=1') < index.indexOf('/vendor/telegram-web-app.js?v=20260714'));
+  assert.ok(index.indexOf('/mini-boot.js?v=2') < index.indexOf('/styles.css?v=8.1'));
   assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.2'));
   const stages = [];
   let poll;
-  const window = { addEventListener() {} };
+  let nativeReadyCalls = 0;
+  const window = { addEventListener() {}, TelegramWebviewProxy: { postEvent(event, data) { assert.equal(event, 'web_app_ready'); assert.equal(data, '""'); nativeReadyCalls += 1; } } };
   vm.runInNewContext(fs.readFileSync('public/mini-boot.js', 'utf8'), {
     window,
+    document: { addEventListener() {} },
     fetch: async (url) => { stages.push(new URL(url, 'https://test.local').searchParams.get('mini')); },
     setInterval(callback) { poll = callback; return 1; },
     setTimeout() {},
@@ -21,7 +23,8 @@ test('Mini App signals Telegram readiness before rendering and records its start
   poll();
   poll();
   assert.equal(readyCalls, 1);
-  assert.deepEqual(stages, ['boot-script', 'telegram-ready']);
+  assert.equal(nativeReadyCalls, 1);
+  assert.deepEqual(stages, ['boot-script', 'native-ready', 'telegram-ready']);
 });
 
 test('More renders cached reserve before its HTTP request completes and recovers on network failure', async () => {
