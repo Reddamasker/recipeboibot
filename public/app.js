@@ -100,7 +100,9 @@ async function loadDinnerRecommendation() {
   state.dinner.loading = true;
   state.dinner.recommendations = [];
   state.dinner.recommendation = null;
-  state.dinner.message = 'Составляю рецепты под твои продукты — сразу с запасом для следующего выбора…';
+  state.dinner.message = dinner.pantry?.length
+    ? 'Составляю рецепты под твои продукты — сразу с запасом для следующего выбора…'
+    : 'Составляю варианты ужина — сразу с запасом для следующего выбора…';
   dinnerView();
   try {
     const result = await api('/api/dinner/recommend', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });

@@ -130,11 +130,12 @@ function bufferResponse(userId, sessionId, buffer) {
   };
   const recommendations = format(buffer.current), reserve = format(buffer.reserve);
   const fallback = recommendations.some((r) => r.method === 'deterministic');
+  const preparingMessage = context.pantry.length ? 'Готовлю новые рецепты под твои продукты…' : 'Готовлю новые рецепты для тебя…';
   return { sessionId, pantry: context.pantry, recommendations, recommendation: recommendations[0] || null, reserve,
     preparing: buffer.preparing, imagesPending: Boolean(config.dinnerLlmEnabled && config.dinnerImagesEnabled && config.openaiKey && config.imageModel) && [...buffer.current,...buffer.reserve].some((o) => o.recipe.dinnerGenerated && !o.recipe.thumbnailUrl && o.imageState !== 'failed'),
     rejectedCount: context.rejected.length, retryCount: retryCountInSession(userId, sessionId),
     notice: fallback && config.dinnerLlmEnabled ? 'Сейчас показываю подходящие готовые рецепты: новые варианты пока не удалось подготовить.' : null,
-    message: recommendations.length ? null : buffer.preparing ? 'Готовлю новые рецепты под твои продукты…' : 'Пока не удалось подготовить новые рецепты, а подходящий готовый запас закончился. Можно повторить чуть позже или уточнить продукты.' };
+    message: recommendations.length ? null : buffer.preparing ? preparingMessage : 'Пока не удалось подготовить новые рецепты, а подходящий готовый запас закончился. Можно повторить чуть позже или уточнить продукты.' };
 }
 
 export async function recommendDinner(userId, sessionId, options) {

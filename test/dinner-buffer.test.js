@@ -163,8 +163,15 @@ test('generation abstraction sends constraints and six recipes using strict JSON
     assert.equal(url, 'https://api.openai.com/v1/responses');
     const body = JSON.parse(init.body); assert.equal(body.model, 'test-model'); assert.equal(body.text.format.strict, true); assert.equal(body.text.format.name, 'dinner_generation');
     const input = JSON.parse(body.input[0].content[0].text); assert.equal(input.count, 6); assert.deepEqual(input.profile.excludedIngredients, ['орехи']);
+    if (input.pantry.length) assert.match(body.instructions, /Используй названные продукты как основу/);
+    else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное из имеющихся продуктов/); }
     return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ recipes: batch() }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 });
   };
-  try { const result = await generateDinnerRecipes({ userId: user.id, count: 6, profile: { excludedIngredients: ['орехи'] }, pantry: ['фарш'], signals: {}, recentRecipes: [], rejectedTitles: [] }); assert.equal(result.recipes.length, 6); }
+  try {
+    for (const pantry of [['фарш'], []]) {
+      const result = await generateDinnerRecipes({ userId: user.id, count: 6, profile: { excludedIngredients: ['орехи'] }, pantry, signals: {}, recentRecipes: [], rejectedTitles: [] });
+      assert.equal(result.recipes.length, 6);
+    }
+  }
   finally { globalThis.fetch = original; }
 });

@@ -317,7 +317,7 @@ test('Mini App deep links retain exact recipe or result query', () => {
   assert.equal(results.searchParams.get('q'), 'крылышки с мёдом');
 });
 
-test('Start resumes unfinished intake; after skipping, returning Start stays concise', async () => {
+test('first Start offers dinner immediately; ingredients remain optional', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -325,10 +325,12 @@ test('Start resumes unfinished intake; after skipping, returning Start stays con
     await telegramModule.handleMessage(message); await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6401).is_allowed, 1);
     assert.equal(sent.length, 2);
-    assert.match(sent[0].text, /30–60 секунд/);
-    assert.match(sent[0].text, /дети/);
-    assert.equal(sent[0].reply_markup.inline_keyboard[0][0].callback_data, 'dinner:skip');
-    assert.match(sent[1].text, /30–60 секунд/);
+    assert.match(sent[0].text, /Что приготовить сегодня/);
+    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id), null);
+    assert.match(sent[1].text, /С возвращением/);
+    await telegramModule.handleMessage({ ...message, text: '/ingredients' });
+    assert.match(sent.at(-1).text, /30–60 секунд/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
     assert.match(sent.at(-1).text, /С возвращением/);
@@ -351,6 +353,7 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
   try {
     const from = { id: 6403, first_name: 'Голос' }, chat = { id: 6403, type: 'private' };
     await telegramModule.handleMessage({ chat, from, text: '/start' });
+    await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleMessage({ chat, from, voice: { file_id: 'voice-1', duration: 45, mime_type: 'audio/ogg' } });
     const user = database.getUserByTelegramId(6403);
     const pending = database.getPendingIntent(user.id);
@@ -382,6 +385,7 @@ test('text intake asks for missing household size before confirmation', async ()
   try {
     const from = { id: 6404, first_name: 'Текст' }, chat = { id: 6404, type: 'private' };
     await telegramModule.handleMessage({ chat, from, text: '/start' });
+    await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleMessage({ chat, from, text: 'Есть яйца, сыр, без грибов' });
     assert.match(sent.at(-1).text, /На сколько человек/);
     assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][2].callback_data, 'dinner:size:3');
@@ -402,6 +406,7 @@ test('multi-message onboarding and the correction button retain earlier answers'
   const from = { id: 6409, first_name: 'Дополнение' }, chat = { id: 6409, type: 'private' };
   try {
     await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
+    await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleMessage({ chat, from, text: 'Есть курица, рис. На троих, до 30 минут.' });
     const user = database.getUserByTelegramId(from.id);
     await telegramModule.handleDinnerIntakeCallback({ id: 'redo-6409', data: 'dinner:redo', message: { chat }, from });
@@ -444,7 +449,7 @@ test('onboarding restart marker keeps account access and opens intake on the nex
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('unblocking starts intake automatically; the accompanying Start does not duplicate it', async () => {
+test('unblocking offers dinner without intake and the accompanying Start does not duplicate it', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   const from = { id: 6407, first_name: 'Разблокировка' }, chat = { id: 6407, type: 'private' };
@@ -454,16 +459,15 @@ test('unblocking starts intake automatically; the accompanying Start does not du
     await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
     const user = database.getUserByTelegramId(from.id);
     assert.equal(user.is_allowed, 1);
-    assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
-    assert.match(sent[0].text, /30–60 секунд/);
+    assert.equal(database.getPendingIntent(user.id), null);
+    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
     await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
     assert.equal(sent.length, 1);
-    const pending = database.getPendingIntent(user.id);
-    database.setPendingIntent(user.id, { ...pending, unblockedAt: Date.now() - 6000 });
-    await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
+    const otherFrom = { id: 6410, first_name: 'Первый вход' }, otherChat = { id: 6410, type: 'private' };
+    await telegramModule.handleMessage({ chat: otherChat, from: otherFrom, text: '/start' });
     assert.equal(sent.length, 2);
-    await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
-    assert.equal(sent.length, 2, 'Start followed by unblock must also send only one prompt');
+    await telegramModule.handleMyChatMember({ chat: otherChat, from: otherFrom, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
+    assert.equal(sent.length, 2, 'Start followed by unblock must also send only one entry');
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -509,15 +513,15 @@ test('polling completes a dinner callback without routing it as an absent messag
   } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
 });
 
-test('first dinner deep link starts intake; returning deep link opens dinner directly', async () => {
+test('first and returning dinner deep links open dinner directly', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
     const message = { chat: { id: 6402, type: 'private' }, from: { id: 6402, first_name: 'Ужин' }, text: '/start dinner' };
     await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6402).is_allowed, 1);
-    assert.equal(sent[0].reply_markup.inline_keyboard[0][0].callback_data, 'dinner:skip');
-    await telegramModule.handleDinnerIntakeCallback({ id: 'skip-deep-link', data: 'dinner:skip', message, from: message.from });
+    assert.equal(new URL(sent[0].reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    assert.equal(database.getPendingIntent(database.getUserByTelegramId(6402).id), null);
     await telegramModule.handleMessage(message);
     assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
   } finally { globalThis.fetch = originalFetch; }

@@ -43,6 +43,15 @@ async function sendDinnerIntakePrompt(chatId, userId) {
 
 // Telegram may deliver both an unblock event and /start for the same tap.
 const ENTRY_DEDUP_MS = 5000;
+const recentDinnerEntries = new Map();
+async function sendFirstDinnerEntry(chatId, userId, source) {
+  const recent = recentDinnerEntries.get(userId);
+  if (recent && recent.source !== source && Date.now() - recent.at < ENTRY_DEDUP_MS) return;
+  await sendDinnerEntry(chatId, userId);
+  const entry = { source, at: Date.now() };
+  recentDinnerEntries.set(userId, entry);
+  setTimeout(() => { if (recentDinnerEntries.get(userId) === entry) recentDinnerEntries.delete(userId); }, ENTRY_DEDUP_MS).unref();
+}
 async function resumeDinnerIntake(chatId, userId, pending, { unblocked = false } = {}) {
   if (!unblocked && pending?.unblockedAt && Date.now() - pending.unblockedAt < ENTRY_DEDUP_MS) return;
   if (unblocked && pending?.entrySentAt && Date.now() - pending.entrySentAt < ENTRY_DEDUP_MS) return;
@@ -334,10 +343,13 @@ export async function handleMessage(message) {
       return;
     }
     if (/^\/start(?:@[A-Za-z0-9_]+)?\s+ingredients(?:\s|$)/i.test(text)) { await sendDinnerIntakePrompt(chatId, user.id); return; }
-    if (isFirstStart || resumeOnboarding) {
+    if (resumeOnboarding) {
       await resumeDinnerIntake(chatId, user.id, pending);
       return;
     }
+    if (isFirstStart) { await sendFirstDinnerEntry(chatId, user.id, 'start'); return; }
+    const recentEntry = recentDinnerEntries.get(user.id);
+    if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
     if (/^\/start(?:@[A-Za-z0-9_]+)?\s+dinner(?:\s|$)/i.test(text)) { await sendDinnerEntry(chatId, user.id); return; }
     const dinnerUrl = webAppUrl({ view: 'dinner' });
     await send(chatId, 'С возвращением! Выберите ужин на сегодня или пришлите рецепт, который вам понравился — я учту его в следующих предложениях. Если продукты дома изменились, отправьте /ingredients.', dinnerUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Что приготовить сегодня?', web_app: { url: dinnerUrl } }]] } } : {});
@@ -402,9 +414,9 @@ export async function handleMyChatMember(change) {
     const user = upsertTelegramUser(change.from);
     if (!user.is_allowed) allowUser(user.id);
     const pending = getPendingIntent(user.id);
-    if (!getFoodProfile(user.id).onboardingCompleted || ['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {
+    if (['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {
       await resumeDinnerIntake(chat.id, user.id, pending, { unblocked: true });
-    } else await sendDinnerEntry(chat.id, user.id);
+    } else await sendFirstDinnerEntry(chat.id, user.id, 'unblocked');
     return;
   }
   if (!chat || !['group', 'supergroup'].includes(chat.type)) return;
