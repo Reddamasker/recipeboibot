@@ -30,9 +30,10 @@ function prepareDinner(userId) {
 }
 async function sendDinnerEntry(chatId, userId) {
   if (userId) prepareDinner(userId);
-  const url = webAppUrl({ view: 'dinner' });
+  const url = webAppUrl({ view: 'dinner', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
   await send(chatId, '<b>Что приготовить сегодня?</b>\n\nОткройте три варианта ужина и выберите тот, который подходит сейчас.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Выбрать ужин', web_app: { url } }]] } } : {});
 }
+let dinnerLaunchId = 0;
 async function sendDinnerIntakePrompt(chatId, userId) {
   const pending = getPendingIntent(userId);
   const intake = pending?.intake || currentDinnerIntake(userId);
