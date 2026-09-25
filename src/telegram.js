@@ -350,9 +350,7 @@ export async function handleMessage(message) {
     if (isFirstStart) { await sendFirstDinnerEntry(chatId, user.id, 'start'); return; }
     const recentEntry = recentDinnerEntries.get(user.id);
     if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
-    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+dinner(?:\s|$)/i.test(text)) { await sendDinnerEntry(chatId, user.id); return; }
-    const dinnerUrl = webAppUrl({ view: 'dinner' });
-    await send(chatId, 'С возвращением! Выберите ужин на сегодня или пришлите рецепт, который вам понравился — я учту его в следующих предложениях. Если продукты дома изменились, отправьте /ingredients.', dinnerUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Что приготовить сегодня?', web_app: { url: dinnerUrl } }]] } } : {});
+    await sendDinnerEntry(chatId, user.id);
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }

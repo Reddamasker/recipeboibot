@@ -328,13 +328,14 @@ test('first Start offers dinner immediately; ingredients remain optional', async
     assert.match(sent[0].text, /Что приготовить сегодня/);
     assert.equal(new URL(sent[0].reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id), null);
-    assert.match(sent[1].text, /С возвращением/);
+    assert.match(sent[1].text, /Что приготовить сегодня/);
+    assert.equal(sent[1].reply_markup.inline_keyboard[0][0].text, 'Выбрать ужин');
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /30–60 секунд/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
-    assert.match(sent.at(-1).text, /С возвращением/);
-    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Что приготовить сегодня?');
+    assert.match(sent.at(-1).text, /Что приготовить сегодня/);
+    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Выбрать ужин');
     assert.ok(sent.every((body) => !/код приглашения/i.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
 });
