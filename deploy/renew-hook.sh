@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
-if [ "${RENEWED_LINEAGE:-}" = /etc/letsencrypt/live/recipeboibot ]; then
-    nginx -t && systemctl reload nginx
-fi
+case "${RENEWED_LINEAGE:-}" in
+    /etc/letsencrypt/live/recipeboibot|/etc/letsencrypt/live/recipeboibot-vpn)
+        nginx -t && systemctl reload nginx
+        ;;
+esac

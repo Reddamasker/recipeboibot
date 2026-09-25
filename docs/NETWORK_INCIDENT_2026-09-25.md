@@ -1,4 +1,12 @@
-# Незавершённая диагностика загрузки Mini App
+# Диагностика загрузки Mini App
+
+## Установленный маршрут и опубликованный обход — 10:56 UTC
+
+Владелец подтвердил включённый VPN на iPhone. На Windows прочитаны только настройки маршрутизации Sota и журнал sing-box: режим bypassVpn, включены defaults/defaultsV2, правило geosite `domain_suffix: ".ru"`. Старый HTTPS к 72.56.97.79:8443 шёл через `outbound/direct[direct]`; SSH к тому же IP — через `outbound/vless[proxy]`. TLS-соединение с hostname вне .ru пошло через proxy. Настройки VPN/маршруты пользователя не изменялись. Это объясняет, почему включённый VPN не обеспечивал туннелирование старого входа; причина обрывов прямого маршрута отдельно не доказана.
+
+Опубликован `https://recipeboibot.72-56-97-79.sslip.io` на том же IP/backend. DNS-only имя sslip.io, сертификат Let's Encrypt `recipeboibot-vpn` до 2026-12-24. Новый vhost — `deploy/recipeboibot-vpn.conf`, установлен в sites-available/sites-enabled; port443 SSL без изменения HTTP/2 соседних сайтов. Логи: `/var/log/nginx/recipeboibot-vpn-access.log`. APP_URL в compose и default menu Bot API обновлены; пересоздан только контейнер без сборки образа. Nginx -t, compose config, healthcheck успешны. Renew-hook `/etc/letsencrypt/renewal-hooks/deploy/recipeboibot` обслуживает оба сертификата; sh -n и выполнение с новым RENEWED_LINEAGE прошли. Резервы: `backups/compose-before-vpn-entry-20260925.yaml`, `renew-hook-before-vpn-20260925.sh`, `nginx-vpn-acme-20260925.conf`. Попытка сертификата для provider-hostname twc1.net не прошла из-за общего лимита домена; он не используется.
+
+Пять полных загрузок документа 51545 байт дали HTTP200 за 0,36–0,69 с, журнал VPN подтверждает proxy. В 10:54:34–35 UTC настоящий Telegram Web по НОВОМУ hostname показал три блюда и фотографии, все API ответили 200, пришёл view-rendered. В 10:55:01 UTC открыта полная карточка рецепта (API200). Данные/квота не сбрасывались. Старые inline-кнопки и кешированное меню сохраняют прежний URL; новая проверенная кнопка находится в ответе бота на /dinner за 13:53 МСК. Запрошена проверка iPhone именно по ней, визуальный результат ещё ожидается. В поддержку не обращались. Старые выводы ниже — история, а не актуальная конфигурация.
 
 ## Последний результат — 10:28 UTC
 
