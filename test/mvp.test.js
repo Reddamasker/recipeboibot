@@ -125,6 +125,28 @@ test('HTTP API requires signed Telegram auth and an allowed user', async () => {
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('existing document routes serve a compressed startup with CSP and keep API authentication', async () => {
+  const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    for (const route of ['/', '/?view=dinner', '/index.html', `/share/${'x'.repeat(32)}`]) {
+      const response = await fetch(`${base}${route}`, { headers: { 'accept-encoding': 'gzip' } });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-encoding'), 'gzip');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('vary'), 'Accept-Encoding');
+      assert.match(response.headers.get('content-security-policy'), /script-src[^;]*'sha256-/);
+      assert.doesNotMatch(response.headers.get('content-security-policy').split('style-src')[0], /unsafe-inline/);
+      const html = await response.text();
+      assert.match(html, /id="app"/);
+      assert.doesNotMatch(html, /<script[^>]+src=/);
+    }
+    const plain = await fetch(base, { headers: { 'accept-encoding': 'identity' } });
+    assert.equal(plain.headers.get('content-encoding'), null);
+    assert.equal((await fetch(`${base}/api/me`)).status, 401);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('owner can create a public recipe link that opens without Telegram auth', async () => {
   const telegramUser = { id: 403, first_name: 'Лена' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);

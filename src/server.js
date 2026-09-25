@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
+import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
@@ -16,12 +17,13 @@ import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
 const rate = new Map();
+let webDocument;
 
-function securityHeaders(response) {
+function securityHeaders(response, scriptHashes = '') {
   response.setHeader('x-content-type-options', 'nosniff');
   response.setHeader('referrer-policy', 'no-referrer');
   response.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
-  response.setHeader('content-security-policy', "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org");
+  response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' https://telegram.org ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org`);
 }
 function json(response, status, value) {
   securityHeaders(response); response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value));
@@ -160,8 +162,17 @@ async function api(request, response, url) {
   return json(response, 404, { error: 'Не найдено' });
 }
 
-function serveStatic(response, pathname) {
+function serveStatic(request, response, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
+  if (requested === '/index.html') {
+    webDocument ??= buildWebDocument(publicDir);
+    const compressed = acceptsGzip(request.headers['accept-encoding']);
+    const bytes = compressed ? webDocument.gzip : webDocument.bytes;
+    securityHeaders(response, webDocument.scriptHashes);
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'vary': 'Accept-Encoding', 'content-length': bytes.length, ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
+    response.end(request.method === 'HEAD' ? undefined : bytes);
+    return true;
+  }
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
   securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
@@ -192,8 +203,8 @@ export function createServer() {
         return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Ссылка на рецепт недоступна' });
       }
       if (url.pathname.startsWith('/api/')) return await api(request, response, url);
-      if (serveStatic(response, url.pathname)) return;
-      if (!path.extname(url.pathname)) return serveStatic(response, '/index.html');
+      if (serveStatic(request, response, url.pathname)) return;
+      if (!path.extname(url.pathname)) return serveStatic(request, response, '/index.html');
       json(response, 404, { error: 'Не найдено' });
     } catch (error) { log('error', 'http_error', { error, method: request.method, path: url.pathname }); json(response, error.status || 500, { error: error.status && error.status < 500 ? error.message : 'Сервис временно недоступен' }); }
   });

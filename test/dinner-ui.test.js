@@ -3,21 +3,27 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-test('Mini App signals Telegram readiness before rendering and records its startup stage', () => {
+test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
-  assert.ok(index.indexOf('/mini-boot.js?v=2') < index.indexOf('/styles.css?v=8.1'));
-  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.2'));
+  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.1'));
+  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.3'));
   const stages = [];
   let poll;
   let nativeReadyCalls = 0;
-  const window = { addEventListener() {}, TelegramWebviewProxy: { postEvent(event, data) { assert.equal(event, 'web_app_ready'); assert.equal(data, '""'); nativeReadyCalls += 1; } } };
+  let parsed = false;
+  const app = { hidden: true }, landing = { hidden: false };
+  const window = { addEventListener() {}, TelegramWebviewProxy: { postEvent(event, data) { assert.equal(event, 'web_app_ready'); assert.equal(data, '""'); assert.equal(app.hidden, false); assert.equal(landing.hidden, true); nativeReadyCalls += 1; } } };
   vm.runInNewContext(fs.readFileSync('public/mini-boot.js', 'utf8'), {
     window,
-    document: { addEventListener() {} },
+    document: { addEventListener() {}, documentElement: {}, querySelector(id) { return parsed ? id === '#app' ? app : landing : null; } },
+    location: { hash: '' },
+    MutationObserver: class { observe() {} disconnect() {} },
     fetch: async (url) => { stages.push(new URL(url, 'https://test.local').searchParams.get('mini')); },
     setInterval(callback) { poll = callback; return 1; },
     setTimeout() {},
   });
+  assert.equal(nativeReadyCalls, 0);
+  parsed = true;
   let readyCalls = 0;
   window.Telegram = { WebApp: { ready() { readyCalls += 1; } } };
   poll();
@@ -25,6 +31,21 @@ test('Mini App signals Telegram readiness before rendering and records its start
   assert.equal(readyCalls, 1);
   assert.equal(nativeReadyCalls, 1);
   assert.deepEqual(stages, ['boot-script', 'native-ready', 'telegram-ready']);
+});
+
+test('public landing is not replaced by a Telegram timeout in a normal browser', () => {
+  const timers = [], stages = [];
+  const window = { addEventListener() {}, Telegram: { WebApp: { initData: '', ready() { assert.fail('not a Telegram launch'); } } } };
+  vm.runInNewContext(fs.readFileSync('public/mini-boot.js', 'utf8'), {
+    window, location: { hash: '#questions' },
+    document: { documentElement: {}, addEventListener() {}, querySelector() { assert.fail('public page must be left visible'); } },
+    MutationObserver: class { observe() {} disconnect() {} },
+    fetch: async (url) => stages.push(url), setInterval() {}, clearInterval() {},
+    setTimeout(callback) { timers.push(callback); },
+  });
+  timers.forEach((callback) => callback());
+  assert.equal(window.__miniLaunch, undefined);
+  assert.deepEqual(stages, ['/healthz?mini=boot-script']);
 });
 
 test('More renders cached reserve before its HTTP request completes and recovers on network failure', async () => {

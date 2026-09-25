@@ -464,7 +464,16 @@ function settingsSheet() { const el = overlay(`<div class="sheet-head"><div><div
 window.addEventListener('popstate', async (event) => { if (!tg?.initData) return; closeOverlay(); await render(); requestAnimationFrame(() => scrollTo(0, event.state?.scrollY || 0)); });
 async function boot() {
   const sharedMatch = location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
-  if (!sharedMatch && !tg?.initData) { window.miniProbe?.('missing-init-data'); return; }
+  if (!sharedMatch && !tg?.initData) {
+    window.miniProbe?.('missing-init-data');
+    if (window.__miniLaunch) {
+      document.querySelector('#landing')?.setAttribute('hidden', '');
+      root.hidden = false;
+      window.__miniRendered = true;
+      root.innerHTML = '<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>Telegram не передал данные входа. Закройте окно и откройте приложение кнопкой в чате бота.</p></main>';
+    }
+    return;
+  }
   window.miniProbe?.('app-boot');
   const landing = document.querySelector('#landing');
   if (landing) landing.hidden = true;
