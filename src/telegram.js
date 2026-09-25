@@ -6,7 +6,7 @@ import { suggestForEmptySearch } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
-import { confirmDinnerIntake, prefetchDinner, startDinner } from './dinner-service.js';
+import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
 
 const apiBase = () => `https://api.telegram.org/bot${config.telegramToken}`;
@@ -28,17 +28,30 @@ function prepareDinner(userId) {
   try { const session = startDinner(userId, { prefetchOnly: true }); if (!session.needsOnboarding) prefetchDinner(userId, session.sessionId); }
   catch (error) { log('warn', 'telegram_dinner_prefetch_failed', { error: error.message }); }
 }
-async function sendDinnerEntry(chatId, userId) {
+async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) {
+  if (userId && !skipOnboarding && !getFoodProfile(userId).onboardingCompleted) {
+    const pending = getPendingIntent(userId);
+    if (['dinner-intake', 'dinner-confirm'].includes(pending?.kind)) await resumeDinnerIntake(chatId, userId, pending);
+    else await sendDinnerProfilePrompt(chatId, userId);
+    return;
+  }
   if (userId) prepareDinner(userId);
   const url = webAppUrl({ view: 'dinner', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
   await send(chatId, '<b>Что приготовить сегодня?</b>\n\nОткройте три варианта ужина и выберите тот, который подходит сейчас.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Выбрать ужин', web_app: { url } }]] } } : {});
 }
 let dinnerLaunchId = 0;
-async function sendDinnerIntakePrompt(chatId, userId) {
+export async function sendDinnerProfilePrompt(chatId, userId) {
+  await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true });
+}
+async function sendDinnerIntakePrompt(chatId, userId, { profileOnly = false } = {}) {
   const pending = getPendingIntent(userId);
   const intake = pending?.intake || currentDinnerIntake(userId);
-  setPendingIntent(userId, { kind: 'dinner-intake', intake });
+  setPendingIntent(userId, { kind: 'dinner-intake', intake, profileOnly });
   addDinnerEvent(userId, 'onboarding_started');
+  if (profileOnly) {
+    await send(chatId, '<b>Давайте познакомимся — подберём ужин для вас.</b>\n\nНажмите микрофон и за 30–60 секунд расскажите:\n• На сколько человек обычно готовите?\n• Есть ли дети?\n• Есть ли аллергия или продукты, которые нужно исключить?\n• Сколько времени есть на приготовление?\n\nМожно написать текстом. Например: «На троих, с ребёнком, без орехов, до 30 минут».\n\nМожно дополнять по частям — я запомню сказанное раньше. Перечислять продукты дома не нужно.', { reply_markup: { inline_keyboard: [[{ text: 'Пока пропустить', callback_data: 'dinner:skip' }]] } });
+    return;
+  }
   await send(chatId, '<b>Подберём ужин из того, что есть дома.</b>\n\nНажмите микрофон и за 30–60 секунд назовите продукты. Добавьте, на сколько человек готовите, есть ли дети, есть ли аллергия и сколько времени есть. Можно написать это текстом.\n\nНапример: «Есть курица, рис, лук и морковь. На троих, с ребёнком, аллергия на орехи, до 30 минут».\n\nМожно дополнять по частям — я запомню сказанное раньше.', { reply_markup: { inline_keyboard: [[{ text: 'Пока пропустить', callback_data: 'dinner:skip' }]] } });
 }
 
@@ -51,25 +64,27 @@ async function sendFirstDinnerEntry(chatId, userId, source) {
   await sendDinnerEntry(chatId, userId);
   const entry = { source, at: Date.now() };
   recentDinnerEntries.set(userId, entry);
+  const pending = getPendingIntent(userId);
+  if (['dinner-intake', 'dinner-confirm'].includes(pending?.kind)) setPendingIntent(userId, { ...pending, entrySentAt: entry.at, ...(source === 'unblocked' ? { unblockedAt: entry.at } : {}) });
   setTimeout(() => { if (recentDinnerEntries.get(userId) === entry) recentDinnerEntries.delete(userId); }, ENTRY_DEDUP_MS).unref();
 }
 async function resumeDinnerIntake(chatId, userId, pending, { unblocked = false } = {}) {
   if (!unblocked && pending?.unblockedAt && Date.now() - pending.unblockedAt < ENTRY_DEDUP_MS) return;
   if (unblocked && pending?.entrySentAt && Date.now() - pending.entrySentAt < ENTRY_DEDUP_MS) return;
-  if (pending?.kind === 'dinner-confirm') await sendDinnerIntakeSummary(chatId, userId, pending.intake);
-  else await sendDinnerIntakePrompt(chatId, userId);
+  if (pending?.kind === 'dinner-confirm') await sendDinnerIntakeSummary(chatId, userId, pending.intake, pending);
+  else await sendDinnerIntakePrompt(chatId, userId, { profileOnly: pending?.profileOnly || pending?.kind === 'dinner-onboarding-restart' });
   setPendingIntent(userId, { ...getPendingIntent(userId), entrySentAt: Date.now(), ...(unblocked ? { unblockedAt: Date.now() } : {}) });
 }
 
-async function sendDinnerIntakeSummary(chatId, userId, intake) {
-  if (!intake.availableIngredients.length) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.'); return; }
+async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = false } = {}) {
+  if (!profileOnly && !intake.availableIngredients.length) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.'); return; }
   if (!intake.householdSize) {
-    await send(chatId, `Записал продукты: <b>${escapeHtml(intake.availableIngredients.join(', '))}</b>.\nНа сколько человек готовим?`, { reply_markup: { inline_keyboard: [[1, 2, 3, 4, 5].map((size) => ({ text: String(size), callback_data: `dinner:size:${size}` }))] } });
+    await send(chatId, `${intake.availableIngredients.length ? `Записал продукты: <b>${escapeHtml(intake.availableIngredients.join(', '))}</b>.\n` : ''}На сколько человек готовим?`, { reply_markup: { inline_keyboard: [[1, 2, 3, 4, 5].map((size) => ({ text: String(size), callback_data: `dinner:size:${size}` }))] } });
     return;
   }
   const lines = [
     '<b>Проверьте, правильно ли я понял</b>',
-    `Есть дома: ${escapeHtml(intake.availableIngredients.join(', '))}`,
+    ...(intake.availableIngredients.length ? [`Есть дома: ${escapeHtml(intake.availableIngredients.join(', '))}`] : []),
     `Готовим на: ${intake.householdSize}`,
     `Дети: ${intake.hasChildren === null ? 'не указано' : intake.hasChildren ? 'да' : 'нет'}`,
     `Аллергия и исключения: ${intake.excludedIngredients.length ? escapeHtml(intake.excludedIngredients.join(', ')) : 'не указаны'}`,
@@ -81,21 +96,30 @@ async function sendDinnerIntakeSummary(chatId, userId, intake) {
 async function handleDinnerIntakeMessage(message, user, pending) {
   const text = message.text?.trim() || '';
   if (message.photo?.length || extractSharedUrl(text) || /^\/(?:save|find|search|help)(?:\s|$)/i.test(text)) { clearPendingIntent(user.id); return false; }
-  if (text === '/skip') { clearPendingIntent(user.id); clearDinnerContext(user.id); await sendDinnerEntry(message.chat.id, user.id); return true; }
+  if (text === '/skip') { await skipDinnerIntake(message.chat.id, user.id, pending); return true; }
   let transcript = text;
   if (message.voice || message.audio) {
     try { await telegram('sendChatAction', { chat_id: message.chat.id, action: 'typing' }); transcript = (await interpretVoice(message, user)).text; }
-    catch (error) { await send(message.chat.id, `Не расслышал голосовое: ${escapeHtml(error.message)} Можно сказать ещё раз или написать список.`); return true; }
+    catch (error) { await send(message.chat.id, `Не расслышал голосовое: ${escapeHtml(error.message)} Можно сказать ещё раз или написать текстом.`); return true; }
   }
   if (!transcript) return true;
   let extracted = null;
   try { extracted = await extractDinnerIntake({ userId: user.id, transcript }); }
   catch (error) { log('warn', 'dinner_intake_fallback', { error: error.message, userId: user.id }); }
-  const intake = mergeDinnerIntake(pending.intake, extracted || parseDinnerIntakeFallback(transcript));
-  setPendingIntent(user.id, { kind: 'dinner-confirm', intake });
-  if (!intake.availableIngredients.length) { await send(message.chat.id, 'Запомнил. Теперь назовите продукты дома, например: «курица, рис, лук, морковь».'); return true; }
-  await sendDinnerIntakeSummary(message.chat.id, user.id, intake);
+  const patch = extracted || parseDinnerIntakeFallback(transcript);
+  // In the profile conversation unknown words are not a list of food at home.
+  if (pending.profileOnly && !extracted && !/(?:есть|дома|холодильник|продукт|остал)[^.!?\n]*\s/iu.test(transcript)) patch.availableIngredients = [];
+  const intake = mergeDinnerIntake(pending.intake, patch);
+  setPendingIntent(user.id, { kind: 'dinner-confirm', intake, profileOnly: Boolean(pending.profileOnly) });
+  await sendDinnerIntakeSummary(message.chat.id, user.id, intake, pending);
   return true;
+}
+
+async function skipDinnerIntake(chatId, userId, pending) {
+  if (pending.profileOnly) updateDinnerProfile(userId, { onboardingCompleted: true });
+  else clearDinnerContext(userId);
+  clearPendingIntent(userId);
+  await sendDinnerEntry(chatId, userId, { skipOnboarding: true });
 }
 
 export async function handleDinnerIntakeCallback(callback) {
@@ -103,16 +127,18 @@ export async function handleDinnerIntakeCallback(callback) {
   if (!/^dinner:(?:skip|redo|confirm|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
   const pending = getPendingIntent(user.id);
+  if (!pending || !['dinner-intake', 'dinner-confirm'].includes(pending.kind)) {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот список уже неактуален', show_alert: true });
+    return true;
+  }
   if (data === 'dinner:skip') {
-    clearPendingIntent(user.id);
-    clearDinnerContext(user.id);
     await telegram('answerCallbackQuery', { callback_query_id: callback.id });
-    await sendDinnerEntry(chatId, user.id);
+    await skipDinnerIntake(chatId, user.id, pending);
     return true;
   }
   if (data === 'dinner:redo') {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id });
-    if (pending?.intake) await send(chatId, 'Что добавить или исправить? Напишите или скажите голосом только изменения. Продукты, семью, аллергию и время, о которых вы уже сказали, сохраню.');
+    if (pending?.intake) await send(chatId, `Что добавить или исправить? Напишите или скажите голосом только изменения. ${pending.profileOnly ? 'Семью' : 'Продукты, семью'}, аллергию и время, о которых вы уже сказали, сохраню.`);
     else await sendDinnerIntakePrompt(chatId, user.id);
     return true;
   }
@@ -122,19 +148,21 @@ export async function handleDinnerIntakeCallback(callback) {
   }
   if (data.startsWith('dinner:size:')) {
     const intake = normalizeDinnerIntake({ ...pending.intake, householdSize: Number(data.at(-1)) });
-    setPendingIntent(user.id, { kind: 'dinner-confirm', intake });
+    setPendingIntent(user.id, { ...pending, kind: 'dinner-confirm', intake });
     await telegram('answerCallbackQuery', { callback_query_id: callback.id });
-    await sendDinnerIntakeSummary(chatId, user.id, intake);
+    await sendDinnerIntakeSummary(chatId, user.id, intake, pending);
     return true;
   }
-  if (!pending.intake.availableIngredients.length) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала назовите продукты дома', show_alert: true }); return true; }
+  if (!pending.profileOnly && !pending.intake.availableIngredients.length) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала назовите продукты дома', show_alert: true }); return true; }
   if (!pending.intake.householdSize) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала укажите число едоков', show_alert: true }); return true; }
-  confirmDinnerIntake(user.id, pending.intake);
+  if (pending.profileOnly && !pending.intake.availableIngredients.length) {
+    const intake = pending.intake;
+    updateDinnerProfile(user.id, { householdType: intake.householdType, householdSize: intake.householdSize, hasChildren: intake.hasChildren, preferredMaxCookingTime: intake.maxMinutes, excludedIngredients: intake.excludedIngredients, onboardingCompleted: true });
+  } else confirmDinnerIntake(user.id, pending.intake);
   prepareDinner(user.id);
   clearPendingIntent(user.id);
-  await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Учту продукты и ограничения' });
-  const url = webAppUrl({ view: 'dinner' });
-  await send(chatId, 'Продукты и ограничения запомнил. Составляю рецепты: три для выбора и ещё три в запасе. Если что-то нужно докупить, укажу это у блюда.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Посмотреть ужин', web_app: { url } }]] } } : {});
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Ответы сохранены' });
+  await sendDinnerEntry(chatId, user.id);
   return true;
 }
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
@@ -379,8 +407,8 @@ export async function handleMessage(message) {
     }
   }
   const isDinnerFollowup = /^(?:кстати\b|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$)/iu.test(content.text.trim());
-  if (!message.photo?.length && !content.url && isDinnerFollowup && getDinnerContext(user.id).length) {
-    await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id) });
+  if (!message.photo?.length && !content.url && isDinnerFollowup && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
+    await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: !getDinnerContext(user.id).length });
     return;
   }
   const intent = detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });

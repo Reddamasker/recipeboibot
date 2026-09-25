@@ -80,7 +80,7 @@ async function beginDinner(forceOnboarding = false) {
   try {
     const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
-    if (forceOnboarding || session.needsOnboarding) await showDinnerOnboarding();
+    if (forceOnboarding) await showDinnerOnboarding();
     else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-test('first dinner opens minimal preferences before generation; returning client goes straight to dinner', async () => {
+test('Mini App does not repeat chat onboarding; preferences open only on request', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
   let needsOnboarding = true, questions = 0, recipes = 0;
@@ -12,10 +12,10 @@ test('first dinner opens minimal preferences before generation; returning client
     showDinnerOnboarding: async () => { questions++; }, loadDinnerRecommendation: async () => { recipes++; },
     toast: assert.fail, setRoute() {}, home() {} };
   vm.runInNewContext(handler, sandbox);
-  await sandbox.beginDinner(); assert.equal(questions, 1); assert.equal(recipes, 0);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 1);
   needsOnboarding = false;
-  await sandbox.beginDinner(); assert.equal(questions, 1); assert.equal(recipes, 1);
-  await sandbox.beginDinner(true); assert.equal(questions, 2);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 2);
+  await sandbox.beginDinner(true); assert.equal(questions, 1);
 });
 
 test('dinner image polling recovers after a network failure', async () => {

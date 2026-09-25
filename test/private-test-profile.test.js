@@ -59,7 +59,8 @@ test('private fresh profile shares authenticated bot/API identity and preserves 
     await handleMessage({ from: tg, chat: { id: tg.id, type: 'private' }, text: '/start' });
     assert.equal(messages.length, 1);
     assert.equal(messages[0].chat_id, tg.id);
-    assert.equal(messages[0].reply_markup.inline_keyboard[0][0].text, 'Выбрать ужин');
+    assert.match(messages[0].text, /Давайте познакомимся/);
+    assert.equal(store.getPendingIntent(mode.testUserId).profileOnly, true);
     assert.doesNotMatch(messages[0].text, /возвращением|назовите продукты/i);
     assert.equal(store.getUserById(mode.testUserId).is_allowed, 1);
     assert.equal((await (await fetch(base + '/api/me', { headers })).json()).id, mode.testUserId);

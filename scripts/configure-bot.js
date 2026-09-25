@@ -19,7 +19,7 @@ await call('setMyCommands', { commands: [
   { command: 'privacy', description: 'Какие данные сохраняются' },
   { command: 'terms', description: 'Условия закрытого теста' }
 ] });
-const description = 'Что приготовить сегодня?\n\nНажмите «Начать» — предложу три варианта ужина. Выберите блюдо и откройте рецепт.\n\nПри желании расскажите о продуктах и предпочтениях. Сохраняйте любимые рецепты — они помогут лучше подбирать ужин.';
+const description = 'Что приготовить сегодня?\n\nНажмите «Начать» — познакомимся: расскажите голосом или текстом, для кого готовите, об аллергии и времени. Я покажу ответы для подтверждения и предложу три варианта ужина.\n\nПеречислять продукты дома не обязательно. Сохраняйте любимые рецепты — они помогут лучше подбирать ужин.';
 for (const language_code of ['', 'ru']) await call('setMyDescription', { description, language_code });
 await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Открыть приложение', web_app: { url: appUrl } } });
 console.log(JSON.stringify({ ok: true, username: bot.username, appUrl, menuConfigured: true }));
