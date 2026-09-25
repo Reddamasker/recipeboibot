@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, upsertTelegramUser } from './db.js';
+import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
 import { extractDinnerIntake, transcribeAudio } from './openai.js';
 import { suggestForEmptySearch } from './suggestions.js';
@@ -101,7 +101,7 @@ async function handleDinnerIntakeMessage(message, user, pending) {
 export async function handleDinnerIntakeCallback(callback) {
   const data = String(callback.data || '');
   if (!/^dinner:(?:skip|redo|confirm|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
-  const user = upsertTelegramUser(callback.from), chatId = callback.message.chat.id;
+  const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
   const pending = getPendingIntent(user.id);
   if (data === 'dinner:skip') {
     clearPendingIntent(user.id);
@@ -256,7 +256,7 @@ export async function handleSuggestionCallback(callback) {
   if (!match || !callback.message?.chat || !callback.from) return;
   const chat = callback.message.chat;
   const groupMode = ['group', 'supergroup'].includes(chat.type);
-  const owner = groupMode ? getActiveTelegramGroup(chat.id) : upsertTelegramUser(callback.from);
+  const owner = groupMode ? getActiveTelegramGroup(chat.id) : resolvePrivateTelegramUser(callback.from);
   if (!owner || (groupMode && String(owner.telegram_id) !== String(callback.from.id))) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Выбрать может только владелец коллекции', show_alert: true });
     return;
@@ -331,7 +331,7 @@ export async function handleMessage(message) {
   if (['group', 'supergroup'].includes(message.chat?.type)) { await handleGroupMessage(message); return; }
   if (message.chat?.type !== 'private') return;
   const chatId = message.chat.id;
-  const user = upsertTelegramUser(message.from);
+  const user = resolvePrivateTelegramUser(message.from);
   const text = message.text?.trim() || message.caption?.trim() || '';
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
   if (text.startsWith('/start')) {
@@ -410,7 +410,7 @@ export async function handleMyChatMember(change) {
   if (chat?.type === 'private') {
     // Opening a chat is not a Bot API event. Unblocking is, and can resume intake.
     if (change.old_chat_member?.status !== 'kicked' || change.new_chat_member?.status !== 'member' || !change.from || change.from.is_bot || String(change.from.id) !== String(chat.id)) return;
-    const user = upsertTelegramUser(change.from);
+    const user = resolvePrivateTelegramUser(change.from);
     if (!user.is_allowed) allowUser(user.id);
     const pending = getPendingIntent(user.id);
     if (['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {

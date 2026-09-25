@@ -4,7 +4,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
-import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, upsertTelegramUser } from './db.js';
+import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
 import { suggestForEmptySearch } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
@@ -52,7 +52,7 @@ function authenticate(request) {
   const header = request.headers.authorization || '';
   if (!header.startsWith('tma ')) throw Object.assign(new Error('Откройте приложение из Telegram'), { status: 401 });
   const telegramUser = validateTelegramInitData(header.slice(4), config.telegramToken);
-  const user = upsertTelegramUser(telegramUser);
+  const user = resolvePrivateTelegramUser(telegramUser);
   if (!user.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
   rateLimit(`user:${user.id}`);
   return user;

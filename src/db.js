@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS private_test_profiles (
+  owner_user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  test_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  CHECK(owner_user_id <> test_user_id)
+);
 CREATE TABLE IF NOT EXISTS recipes (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -211,6 +217,48 @@ export function upsertTelegramUser(telegramUser) {
 }
 
 export function allowUser(userId) { db.prepare('UPDATE users SET is_allowed=1,updated_at=? WHERE id=?').run(now(), userId); }
+
+// Only the server-side admin CLI can activate this mapping. Telegram identity
+// is validated normally; no query parameter/header can select another profile.
+// Group bindings deliberately continue to use the original account.
+export function resolvePrivateTelegramUser(telegramUser) {
+  const owner = upsertTelegramUser(telegramUser);
+  return db.prepare(`SELECT u.* FROM private_test_profiles p JOIN users u ON u.id=p.test_user_id
+    WHERE p.owner_user_id=?`).get(owner.id) || owner;
+}
+
+export function privateTestProfileStatus(telegramId) {
+  const owner = getUserByTelegramId(telegramId);
+  if (!owner) throw new Error('Telegram account not found');
+  const mapping = db.prepare('SELECT * FROM private_test_profiles WHERE owner_user_id=?').get(owner.id);
+  return { ownerUserId: owner.id, active: Boolean(mapping), testUserId: mapping?.test_user_id || null };
+}
+
+export function activatePrivateTestProfile(telegramId) {
+  if (!/^[1-9][0-9]*$/.test(String(telegramId))) throw new Error('Expected a real Telegram account ID');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const status = privateTestProfileStatus(telegramId);
+    if (!status.active) {
+      const owner = getUserById(status.ownerUserId), id = randomUUID(), at = now();
+      db.prepare(`INSERT INTO users(id,telegram_id,username,display_name,is_allowed,created_at,updated_at)
+        VALUES(?,?,?,?,0,?,?)`).run(id, `private-test:${id}`, owner.username, owner.display_name, at, at);
+      db.prepare('INSERT INTO private_test_profiles(owner_user_id,test_user_id,created_at) VALUES(?,?,?)')
+        .run(owner.id, id, at);
+    }
+    const result = privateTestProfileStatus(telegramId);
+    db.exec('COMMIT');
+    return result;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+
+export function deactivatePrivateTestProfile(telegramId) {
+  const status = privateTestProfileStatus(telegramId);
+  // Keep test history and AI accounting; only remove the routing override.
+  db.prepare('DELETE FROM private_test_profiles WHERE owner_user_id=?').run(status.ownerUserId);
+  return privateTestProfileStatus(telegramId);
+}
+
 export function getUserByTelegramId(id) { return db.prepare('SELECT * FROM users WHERE telegram_id=?').get(String(id)); }
 export function getUserById(id) { return db.prepare('SELECT * FROM users WHERE id=?').get(id); }
 
