@@ -25,7 +25,7 @@ async function sendTestOffer(chatId, userId, force = false) {
   if (!config.testContour) return;
   const status = mockPaymentStatus(userId);
   if (!status.hasFirstRecipe) {
-    if (force) await send(chatId, 'Сначала сохраните первый рецепт. После этого откроется тестовое предложение.');
+    if (force) await send(chatId, 'Сначала сохраните первый рецепт или приготовьте предложенный ужин. После этого откроется тестовое предложение.');
     return;
   }
   if (status.active) {
@@ -33,7 +33,8 @@ async function sendTestOffer(chatId, userId, force = false) {
     return;
   }
   if (!force && !claimMockOffer(userId)) return;
-  await send(chatId, `<b>Первый рецепт готов — он останется у вас.</b>\n\nЧтобы сохранять следующие рецепты автоматически, оформите тестовый доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. На экране оплаты можно пройти сценарии карты и СБП. Это макет: деньги не списываются.`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+  const lead = status.firstValue === 'cooked' ? 'Первый ужин приготовлен — теперь можно пополнить свою коллекцию.' : 'Первый рецепт готов — он останется в вашей коллекции.';
+  await send(chatId, `<b>${lead}</b>\n\nЧтобы сохранять следующие рецепты автоматически, оформите тестовый доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. На экране оплаты можно пройти сценарии карты и СБП. Это макет: деньги не списываются.`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
 }
 function currentDinnerIntake(userId) {
   const profile = getFoodProfile(userId);

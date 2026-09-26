@@ -12,7 +12,7 @@ process.env.TEST_PRICE_VARIANTS = '129';
 process.env.DINNER_LLM_ENABLED = 'false';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const store = await import('../src/db.js');
-const { getFoodProfile, saveFoodProfile } = await import('../src/dinner-store.js');
+const { addDinnerEvent, getFoodProfile, saveFoodProfile } = await import('../src/dinner-store.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { handleMessage, handleTestResetCallback, startTelegramPolling } = await import('../src/telegram.js');
@@ -62,6 +62,14 @@ test('first recipe leads to a server-priced checkout, outcomes, and isolated res
     assert.equal(store.db.prepare('SELECT count(*) n FROM mock_payments').get().n, 0);
     assert.equal(store.db.prepare('SELECT count(*) n FROM mock_orders').get().n, 0);
     assert.equal(store.db.prepare('SELECT count(*) n FROM mock_offers').get().n, 0);
+    const cookedOnly = store.upsertTelegramUser(ownerTg);
+    store.allowUser(cookedOnly.id);
+    addDinnerEvent(cookedOnly.id, 'recipe_cooked');
+    const afterDinner = await (await fetch(base + '/api/test/payment', { headers: headers(ownerTg) })).json();
+    assert.equal(afterDinner.hasFirstRecipe, true);
+    assert.equal(afterDinner.firstValue, 'cooked');
+    assert.equal((await fetch(base + '/api/import', { method: 'POST', headers: headers(ownerTg), body: JSON.stringify({ kind: 'text', value: 'test' }) })).status, 402);
+    assert.equal((await fetch(base + '/api/test/reset', { method: 'POST', headers: headers(ownerTg) })).status, 200);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 

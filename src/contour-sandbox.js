@@ -55,14 +55,19 @@ function hasRecipe(userId) {
   return Boolean(db.prepare("SELECT 1 FROM recipes WHERE user_id=? AND status='ready' LIMIT 1").get(userId));
 }
 
+function hasCookedDinner(userId) {
+  return Boolean(db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recipe_cooked' LIMIT 1").get(userId));
+}
+
 export function mockPaymentStatus(userId) {
   if (!config.testContour) throw error('Не найдено', 404);
   const offer = offerFor(userId);
   const payment = db.prepare('SELECT active,last_result,updated_at FROM mock_payments WHERE user_id=?').get(userId);
   const pending = db.prepare("SELECT id,method,amount_rub,variant,created_at FROM mock_orders WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(userId);
+  const firstValue = hasRecipe(userId) ? 'saved' : hasCookedDinner(userId) ? 'cooked' : null;
   return {
     active: Boolean(payment?.active), lastResult: payment?.last_result || null, updatedAt: payment?.updated_at || null,
-    hasFirstRecipe: hasRecipe(userId), offerShown: Boolean(offer.shown_at),
+    hasFirstRecipe: Boolean(firstValue), firstValue, offerShown: Boolean(offer.shown_at),
     offer: { variant: offer.variant, priceRub: offer.amount_rub, currency: 'RUB', period: 'month' },
     pendingOrder: pending ? { id: pending.id, method: pending.method, priceRub: pending.amount_rub, variant: pending.variant, createdAt: pending.created_at } : null
   };
