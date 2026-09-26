@@ -132,7 +132,6 @@ header {
 .dinner-menu-title img { width: 52px; height: 52px; flex: none; border-radius: 10px; object-fit: cover; }
 .dinner-menu-ingredients { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
-.dinner-pantry { margin: -3px 0 17px; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .dinner-menu-actions { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
 .dinner-pick-button { min-height: 42px; border: 1px solid var(--berry); border-radius: 11px; padding: 8px 13px; background: transparent; color: var(--berry-dark); font-size: 12px; font-weight: 800; cursor: pointer; }
 .dinner-pick-button:hover { background: var(--lilac-soft); }

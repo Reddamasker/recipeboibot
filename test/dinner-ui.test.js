@@ -3,6 +3,26 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
+test('dinner cards show only shopping needs and use the same time format', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function dinnerChoiceCard('), source.indexOf('\nfunction updateDinnerIngredients'));
+  const sandbox = {
+    state: { dinner: { profile: { householdSize: 2 } } },
+    totalTime: () => 25,
+    safeImage: () => '',
+    esc: (value) => String(value),
+  };
+  vm.runInNewContext(handler, sandbox);
+  const recipe = { title: 'Ужин', servings: 2, ingredients: [{ name: 'говяжий фарш' }, { name: 'паста' }, { name: 'лук' }] };
+  const familiar = sandbox.dinnerChoiceCard({ id: 'a', role: 'familiar', recipe, pitch: { label: 'Основа уже есть', reason: 'говяжий фарш уже есть дома' }, pantryMatch: { missing: ['паста'] } }, 0);
+  assert.match(familiar, /Основа уже есть · 25 мин/);
+  assert.match(familiar, /Докупить: паста/);
+  assert.doesNotMatch(familiar, /говяжий фарш|<p class="dinner-menu-ingredients">/);
+  const quick = sandbox.dinnerChoiceCard({ id: 'b', role: 'quick', recipe, pitch: { label: 'Быстро', reason: '25 минут на готовку' }, pantryMatch: { missing: ['паста'] } }, 1);
+  assert.match(quick, /Быстро · 25 мин/);
+  assert.doesNotMatch(quick, /на готовку|говяжий фарш/);
+});
+
 test('Mini App does not repeat chat onboarding; preferences open only on request', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
@@ -51,7 +71,7 @@ test('open full recipe keeps waiting for its image after a transient fetch failu
 test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
   assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.1'));
-  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.3'));
+  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.4'));
   const stages = [];
   let poll;
   let nativeReadyCalls = 0;

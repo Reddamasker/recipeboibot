@@ -87,7 +87,7 @@ function recommendationPitch({ candidate, role }, choices) {
   if (role === 'familiar') return candidate.recipe.userSaved
     ? { label: 'Сохранённое', reason: 'Ты сохранил этот рецепт' }
     : { label: 'На сегодня', reason: 'Из нашей подборки' };
-  if (role === 'quick') return { label: 'Быстро', reason: `${candidate.minutes} минут на готовку` };
+  if (role === 'quick') return { label: 'Быстро', reason: `${candidate.minutes} мин` };
   if (role === 'variety') {
     if (candidate.recipe.discovery) return { label: 'Попробовать новое', reason: candidate.recipe.discovery };
     const otherCategories = new Set(choices.filter((choice) => choice.role !== 'variety').flatMap((choice) => choice.candidate.categories));
