@@ -325,10 +325,10 @@ test('first Start restores chat introduction without requiring ingredients; skip
     await telegramModule.handleMessage(message); await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6401).is_allowed, 1);
     assert.equal(sent.length, 2);
-    assert.match(sent[0].text, /Давайте познакомимся/);
-    assert.match(sent[0].text, /Перечислять продукты дома не нужно/);
+    assert.match(sent[0].text, /Чтобы подобрать идеальный рецепт, скажите голосом или напишите прямо сейчас/);
+    assert.match(sent[0].text, /какие продукты есть/);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
-    assert.match(sent[1].text, /Давайте познакомимся/);
+    assert.match(sent[1].text, /Давай подберём ужин специально для тебя/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
     assert.match(sent.at(-1).text, /Что приготовить сегодня/);
@@ -517,7 +517,7 @@ test('onboarding restart marker keeps account access and opens intake on the nex
       await telegramModule.handleMessage({ chat, from, text });
       assert.equal(database.getUserByTelegramId(from.id).is_allowed, 1);
       assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
-      assert.match(sent.at(-1).text, /30–60 секунд/);
+      assert.match(sent.at(-1).text, /Чтобы подобрать идеальный рецепт, скажите голосом или напишите прямо сейчас/);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -533,7 +533,7 @@ test('unblocking restores introduction and the accompanying Start does not dupli
     const user = database.getUserByTelegramId(from.id);
     assert.equal(user.is_allowed, 1);
     assert.equal(database.getPendingIntent(user.id).profileOnly, true);
-    assert.match(sent[0].text, /Давайте познакомимся/);
+    assert.match(sent[0].text, /Давай подберём ужин специально для тебя/);
     await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
     assert.equal(sent.length, 1);
     const otherFrom = { id: 6410, first_name: 'Первый вход' }, otherChat = { id: 6410, type: 'private' };
@@ -593,7 +593,7 @@ test('dinner deep link introduces a new client and opens dinner after explicit s
     const message = { chat: { id: 6402, type: 'private' }, from: { id: 6402, first_name: 'Ужин' }, text: '/start dinner' };
     await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6402).is_allowed, 1);
-    assert.match(sent[0].text, /Давайте познакомимся/);
+    assert.match(sent[0].text, /Давай подберём ужин специально для тебя/);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6402).id).profileOnly, true);
     await telegramModule.handleMessage({ ...message, text: '/skip' });
     await telegramModule.handleMessage(message);
