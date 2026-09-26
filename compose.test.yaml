@@ -15,6 +15,7 @@ services:
       TEST_CONTOUR: "true"
       TEST_OWNER_TELEGRAM_ID: "6971956699"
       TEST_BOT_USERNAME: recipeboi_test_bot
+      TEST_PRICE_VARIANTS: "129"
       TELEGRAM_POLLING: "true"
       DINNER_IMAGES_ENABLED: "false"
       AI_MAX_DAILY_REQUESTS: "10"

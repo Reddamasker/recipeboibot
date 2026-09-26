@@ -8,6 +8,7 @@ process.env.TELEGRAM_BOT_TOKEN = '123456:test-contour-test';
 process.env.TEST_CONTOUR = 'true';
 process.env.TEST_OWNER_TELEGRAM_ID = '75101';
 process.env.TEST_BOT_USERNAME = 'recipeboi_test_bot';
+process.env.TEST_PRICE_VARIANTS = '129';
 process.env.DINNER_LLM_ENABLED = 'false';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const store = await import('../src/db.js');
@@ -22,34 +23,45 @@ test.after(() => {
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(process.env.DATABASE_PATH + suffix, { force: true });
 });
 
-test('owner can simulate payment outcomes and reset only the test account', async () => {
+test('first recipe leads to a server-priced checkout, outcomes, and isolated reset', async () => {
   const ownerTg = { id: 75101, first_name: 'Owner' };
   const otherTg = { id: 75102, first_name: 'Other' };
   const owner = store.upsertTelegramUser(ownerTg);
   store.allowUser(owner.id);
   await handleMessage({ from: otherTg, chat: { id: otherTg.id, type: 'private' }, text: '/start' });
   assert.equal(store.getUserByTelegramId(otherTg.id), undefined);
-  store.createRecipe(owner.id, { title: 'Test recipe', ingredients: [], steps: [] });
+  store.createRecipe(owner.id, { title: 'Test recipe', status: 'ready', ingredients: [], steps: [] });
   saveFoodProfile(owner.id, { householdType: null, householdSize: 2, hasChildren: false, preferredMaxCookingTime: 30, excludedIngredients: [], preferredCategories: {}, onboardingCompleted: true });
   const server = createServer();
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const headers = (user) => ({ authorization: `tma ${makeTelegramInitData(user, process.env.TELEGRAM_BOT_TOKEN)}`, 'content-type': 'application/json' });
-  const payment = (result) => fetch(base + '/api/test/payment', { method: 'POST', headers: headers(ownerTg), body: JSON.stringify({ result }) });
+  const order = async (method = 'card') => (await fetch(base + '/api/test/orders', { method: 'POST', headers: headers(ownerTg), body: JSON.stringify({ method, amountRub: 1 }) })).json();
+  const result = (id, outcome) => fetch(base + `/api/test/orders/${id}/result`, { method: 'POST', headers: headers(ownerTg), body: JSON.stringify({ result: outcome }) });
   try {
     assert.equal((await fetch(base + '/api/me', { headers: headers(otherTg) })).status, 403);
     assert.equal(store.getUserByTelegramId(otherTg.id), undefined);
-    assert.equal((await fetch(base + '/api/test/payment', { headers: headers(ownerTg) })).status, 200);
-    assert.equal((await (await payment('failure')).json()).active, false);
-    assert.equal((await (await payment('success')).json()).active, true);
-    assert.equal((await (await payment('cancel')).json()).active, true, 'cancel does not revoke paid test access');
-    assert.equal((await payment('forged')).status, 400);
+    const offer = await (await fetch(base + '/api/test/payment', { headers: headers(ownerTg) })).json();
+    assert.equal(offer.hasFirstRecipe, true);
+    assert.equal(offer.offer.priceRub, 129);
+    assert.equal((await fetch(base + '/api/import', { method: 'POST', headers: headers(ownerTg), body: JSON.stringify({ kind: 'text', value: 'test' }) })).status, 402);
+    const failed = await order();
+    assert.equal(failed.priceRub, 129, 'client cannot change price');
+    assert.equal((await (await result(failed.id, 'failure')).json()).payment.active, false);
+    const cancelled = await order('sbp');
+    assert.equal((await (await result(cancelled.id, 'cancel')).json()).payment.active, false);
+    const paid = await order();
+    assert.equal((await (await result(paid.id, 'success')).json()).payment.active, true);
+    assert.equal((await result(paid.id, 'failure')).status, 409);
+    assert.equal((await fetch(base + '/api/test/orders', { method: 'POST', headers: headers(ownerTg), body: JSON.stringify({ method: 'forged' }) })).status, 409);
     assert.equal((await fetch(base + '/api/test/reset', { method: 'POST', headers: headers(otherTg) })).status, 403);
     assert.equal((await fetch(base + '/api/test/reset', { method: 'POST', headers: headers(ownerTg) })).status, 200);
     assert.equal(store.getUserByTelegramId(ownerTg.id), undefined);
     assert.equal(store.listRecipes(owner.id).length, 0);
     assert.equal(getFoodProfile(owner.id).onboardingCompleted, false);
     assert.equal(store.db.prepare('SELECT count(*) n FROM mock_payments').get().n, 0);
+    assert.equal(store.db.prepare('SELECT count(*) n FROM mock_orders').get().n, 0);
+    assert.equal(store.db.prepare('SELECT count(*) n FROM mock_offers').get().n, 0);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 

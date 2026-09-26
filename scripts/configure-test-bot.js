@@ -21,10 +21,11 @@ await call('setMyCommands', { commands: [
   { command: 'start', description: 'Начать тестовый сценарий' },
   { command: 'dinner', description: 'Выбрать ужин' },
   { command: 'ingredients', description: 'Рассказать о продуктах' },
+  { command: 'offer', description: 'Предложение и тестовая оплата' },
   { command: 'test_reset', description: 'Сбросить мой тестовый профиль' },
   { command: 'help', description: 'Как пользоваться ботом' }
 ] });
 const description = 'Тестовый бот «Рецепты». Здесь можно пройти путь нового пользователя и проверить изменения. Начните с кнопки «Начать». Данные отделены от рабочего бота, оплата только имитируется.';
 for (const language_code of ['', 'ru']) await call('setMyDescription', { description, language_code });
-await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Тестовое приложение', web_app: { url: new URL('/?view=dinner', config.appUrl).href } } });
+await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Тестовое приложение', web_app: { url: new URL('/', config.appUrl).href } } });
 console.log(JSON.stringify({ ok: true, username: bot.username, appUrl: config.appUrl }));

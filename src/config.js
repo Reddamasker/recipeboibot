@@ -29,6 +29,7 @@ export const config = Object.freeze({
   testContour: process.env.TEST_CONTOUR === 'true',
   testOwnerTelegramId: process.env.TEST_OWNER_TELEGRAM_ID || '',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
+  testPriceVariants: (process.env.TEST_PRICE_VARIANTS || '129').split(',').map((value) => Number(value.trim())),
   openaiKey: process.env.OPENAI_API_KEY || '',
   textModel: process.env.OPENAI_TEXT_MODEL || '',
   dinnerTextModel: process.env.DINNER_TEXT_MODEL || process.env.OPENAI_TEXT_MODEL || '',
@@ -55,4 +56,5 @@ export function assertConfig() {
   if (missing.length) throw new Error(`Не настроены: ${missing.join(', ')}`);
   if (config.testContour && !/^[1-9][0-9]*$/.test(config.testOwnerTelegramId)) throw new Error('Не настроен TEST_OWNER_TELEGRAM_ID');
   if (config.testContour && !/^[A-Za-z0-9_]{5,32}$/.test(config.testBotUsername)) throw new Error('Не настроен TEST_BOT_USERNAME');
+  if (config.testContour && (config.testPriceVariants.length === 0 || config.testPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.testPriceVariants).size !== config.testPriceVariants.length)) throw new Error('Неверный TEST_PRICE_VARIANTS');
 }

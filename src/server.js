@@ -13,7 +13,7 @@ import { ensureRecipeImage } from './recipe-images.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
-import { mockPaymentStatus, requireTestOwner, resetTestUser, simulateMockPayment } from './contour-sandbox.js';
+import { canUseTestImport, createMockOrder, finishMockOrder, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -79,9 +79,14 @@ async function api(request, response, url) {
   if (url.pathname.startsWith('/api/test/')) {
     requireTestOwner(user.telegram_id);
     if (request.method === 'GET' && url.pathname === '/api/test/payment') return json(response, 200, mockPaymentStatus(user.id));
-    if (request.method === 'POST' && url.pathname === '/api/test/payment') {
+    if (request.method === 'POST' && url.pathname === '/api/test/orders') {
       const input = await bodyJson(request, 1000);
-      return json(response, 200, simulateMockPayment(user.id, input.result));
+      return json(response, 201, createMockOrder(user.id, input.method));
+    }
+    const orderResult = url.pathname.match(/^\/api\/test\/orders\/([0-9a-f-]{36})\/result$/i);
+    if (request.method === 'POST' && orderResult) {
+      const input = await bodyJson(request, 1000);
+      return json(response, 200, finishMockOrder(user.id, orderResult[1], input.result));
     }
     if (request.method === 'POST' && url.pathname === '/api/test/reset') {
       resetTestUser(user.telegram_id);
@@ -155,6 +160,7 @@ async function api(request, response, url) {
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && url.pathname === '/api/import') {
+    if (!canUseTestImport(user.id)) return json(response, 402, { error: `Для следующего автоматического импорта откройте тестовое предложение за ${mockPaymentStatus(user.id).offer.priceRub} ₽`, offerPath: '/?view=offer' });
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
     if (input.kind === 'url') outcome = await importUrl(user.id, String(input.value || ''));
