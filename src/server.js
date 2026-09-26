@@ -13,6 +13,7 @@ import { ensureRecipeImage } from './recipe-images.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
+import { mockPaymentStatus, requireTestOwner, resetTestUser, simulateMockPayment } from './contour-sandbox.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -52,6 +53,7 @@ function authenticate(request) {
   const header = request.headers.authorization || '';
   if (!header.startsWith('tma ')) throw Object.assign(new Error('Откройте приложение из Telegram'), { status: 401 });
   const telegramUser = validateTelegramInitData(header.slice(4), config.telegramToken);
+  if (config.testContour) requireTestOwner(telegramUser.id);
   const user = resolvePrivateTelegramUser(telegramUser);
   if (!user.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
   rateLimit(`user:${user.id}`);
@@ -74,7 +76,20 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
-  if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username });
+  if (url.pathname.startsWith('/api/test/')) {
+    requireTestOwner(user.telegram_id);
+    if (request.method === 'GET' && url.pathname === '/api/test/payment') return json(response, 200, mockPaymentStatus(user.id));
+    if (request.method === 'POST' && url.pathname === '/api/test/payment') {
+      const input = await bodyJson(request, 1000);
+      return json(response, 200, simulateMockPayment(user.id, input.result));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/test/reset') {
+      resetTestUser(user.telegram_id);
+      return json(response, 200, { reset: true });
+    }
+    return json(response, 404, { error: 'Не найдено' });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour });
   if (request.method === 'GET' && url.pathname === '/api/recipes') return json(response, 200, listRecipes(user.id));
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
   if (request.method === 'GET' && url.pathname === '/api/dinner/profile') return json(response, 200, getFoodProfile(user.id));
@@ -165,7 +180,7 @@ async function api(request, response, url) {
 function serveStatic(request, response, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
   if (requested === '/index.html') {
-    webDocument ??= buildWebDocument(publicDir);
+    webDocument ??= buildWebDocument(publicDir, { botUsername: config.testContour ? config.testBotUsername : undefined });
     const compressed = acceptsGzip(request.headers['accept-encoding']);
     const bytes = compressed ? webDocument.gzip : webDocument.bytes;
     securityHeaders(response, webDocument.scriptHashes);

@@ -463,7 +463,42 @@ async function removeRecipeFromList(id, button) {
   catch (error) { toast(error.message); button.disabled = false; }
 }
 function cookMode(r, onComplete = null) { state.cookStep = 0; const el = document.createElement('div'); el.className = 'cook'; const draw = () => { el.innerHTML = `<div class="cook-top"><span>${state.cookStep + 1} из ${r.steps.length}</span><button class="icon-btn" id="cook-close">✕</button></div><div class="cook-step">${esc(r.steps[state.cookStep].text)}</div><div class="cook-nav"><button class="secondary" id="prev" ${state.cookStep === 0 ? 'disabled' : ''}>← Назад</button><button class="primary accent" id="next">${state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →'}</button></div>`; el.querySelector('#cook-close').onclick = () => el.remove(); el.querySelector('#prev').onclick = () => { state.cookStep--; draw(); }; el.querySelector('#next').onclick = () => { if (state.cookStep === r.steps.length - 1) { el.remove(); onComplete?.(); } else { state.cookStep++; draw(); } }; }; draw(); document.body.append(el); }
-function settingsSheet() { const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button><button class="ghost" id="delete-account">Удалить мои данные</button>`); el.querySelector('[data-close]').onclick = closeOverlay; el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); }; el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); }; }
+function settingsSheet() {
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.me.testContour ? '<button class="secondary" id="test-payment">Тестовая оплата</button><button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  el.querySelector('[data-close]').onclick = closeOverlay;
+  el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
+  el.querySelector('#test-payment')?.addEventListener('click', () => { closeOverlay(); void mockPaymentSheet(); });
+  el.querySelector('#test-reset')?.addEventListener('click', async () => {
+    if (!confirm('Сбросить тестовый профиль, рецепты, историю ужинов и результат имитации оплаты?')) return;
+    try {
+      await api('/api/test/reset', { method: 'POST', body: '{}' });
+      closeOverlay();
+      root.innerHTML = '<main class="outside"><div class="brand-mark">Р</div><h1>Тестовый профиль сброшен</h1><p>Вернитесь в чат бота и нажмите /start, чтобы пройти путь нового пользователя.</p></main>';
+    } catch (error) { toast(error.message); }
+  });
+  el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); };
+}
+
+async function mockPaymentSheet() {
+  let status;
+  try { status = await api('/api/test/payment'); } catch (error) { toast(error.message); return; }
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ТЕСТОВЫЙ КОНТУР</div><h2>Оплата</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Это имитация: платежный сервис не вызывается, деньги не списываются.</p><p id="mock-payment-status"></p><button class="primary accent" data-result="success">Имитировать успешную оплату</button><button class="secondary" data-result="failure">Имитировать ошибку</button><button class="ghost" data-result="cancel">Имитировать отмену</button>`);
+  const show = () => {
+    const last = { success: 'успех', failure: 'ошибка', cancel: 'отмена' }[status.lastResult];
+    el.querySelector('#mock-payment-status').textContent = `${status.active ? 'Тестовый доступ активен.' : 'Тестовый доступ не активен.'}${last ? ` Последний сценарий: ${last}.` : ''}`;
+  };
+  show();
+  el.querySelector('[data-close]').onclick = closeOverlay;
+  el.querySelectorAll('[data-result]').forEach((button) => button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      status = await api('/api/test/payment', { method: 'POST', body: JSON.stringify({ result: button.dataset.result }) });
+      show();
+      toast({ success: 'Оплата имитирована', failure: 'Ошибка оплаты имитирована', cancel: 'Отмена оплаты имитирована' }[button.dataset.result]);
+    } catch (error) { toast(error.message); }
+    finally { button.disabled = false; }
+  }));
+}
 
 window.addEventListener('popstate', async (event) => { if (!tg?.initData) return; closeOverlay(); await render(); requestAnimationFrame(() => scrollTo(0, event.state?.scrollY || 0)); });
 async function boot() {

@@ -8,6 +8,7 @@ import { ensureRecipeImage } from './recipe-images.js';
 import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
+import { requireTestOwner, resetTestUser } from './contour-sandbox.js';
 
 const apiBase = () => `https://api.telegram.org/bot${config.telegramToken}`;
 const fileBase = () => `https://api.telegram.org/file/bot${config.telegramToken}`;
@@ -356,11 +357,19 @@ async function handlePendingChoice(message, user, pending) {
 
 export async function handleMessage(message) {
   if (!message.from || message.from.is_bot) return;
+  if (config.testContour) {
+    if (String(message.from.id) !== config.testOwnerTelegramId) return;
+    if (message.chat?.type !== 'private') return;
+  }
   if (['group', 'supergroup'].includes(message.chat?.type)) { await handleGroupMessage(message); return; }
   if (message.chat?.type !== 'private') return;
   const chatId = message.chat.id;
   const user = resolvePrivateTelegramUser(message.from);
   const text = message.text?.trim() || message.caption?.trim() || '';
+  if (config.testContour && text === '/test_reset') {
+    await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
+    return;
+  }
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;
@@ -435,6 +444,7 @@ async function leaveRejectedGroup(chatId, text, extra = {}) {
 
 export async function handleMyChatMember(change) {
   const chat = change?.chat;
+  if (config.testContour && String(change?.from?.id) !== config.testOwnerTelegramId) return;
   if (chat?.type === 'private') {
     // Opening a chat is not a Bot API event. Unblocking is, and can resume intake.
     if (change.old_chat_member?.status !== 'kicked' || change.new_chat_member?.status !== 'member' || !change.from || change.from.is_bot || String(change.from.id) !== String(chat.id)) return;
@@ -513,6 +523,10 @@ async function handleGroupMessage(message) {
 let running = false;
 export async function startTelegramPolling() {
   if (running || !config.telegramToken) return;
+  if (config.testContour) {
+    const bot = await telegram('getMe');
+    if (bot.username?.toLowerCase() !== config.testBotUsername.toLowerCase()) throw new Error('Unexpected bot token for test contour');
+  }
   running = true; let offset = 0;
   log('info', 'telegram_polling_started');
   while (running) {
@@ -520,11 +534,12 @@ export async function startTelegramPolling() {
       const updates = await telegram('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'my_chat_member', 'callback_query'] });
       for (const update of updates) {
         offset = Math.max(offset, update.update_id + 1);
+        if (config.testContour && update.callback_query && String(update.callback_query.from?.id) !== config.testOwnerTelegramId) continue;
         if ((!update.message && !update.my_chat_member && !update.callback_query) || !claimUpdate(update.update_id)) continue;
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
           else if (update.callback_query) {
-            if (!await handleDinnerIntakeCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+            if (!await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
           }
           else await handleMessage(update.message);
           completeUpdate(update.update_id);
@@ -535,3 +550,15 @@ export async function startTelegramPolling() {
   }
 }
 export function stopTelegramPolling() { running = false; }
+
+export async function handleTestResetCallback(callback) {
+  if (!config.testContour || !callback.data?.startsWith('test:reset:')) return false;
+  requireTestOwner(callback.from?.id);
+  if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from.id)) return false;
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  if (callback.data === 'test:reset:confirm') {
+    resetTestUser(callback.from.id);
+    await send(callback.message.chat.id, 'Тестовый профиль сброшен. Нажмите /start, чтобы пройти путь нового пользователя.');
+  } else if (callback.data === 'test:reset:cancel') await send(callback.message.chat.id, 'Сброс отменён.');
+  return true;
+}

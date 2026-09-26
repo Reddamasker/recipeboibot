@@ -1,0 +1,35 @@
+name: recipeboibot-test
+
+services:
+  app:
+    build: .
+    container_name: recipeboibot-test
+    restart: unless-stopped
+    env_file: .env.local
+    environment:
+      NODE_ENV: production
+      PORT: 3087
+      DATABASE_PATH: /app/data/recipes.sqlite
+      TRUST_PROXY: "true"
+      APP_URL: https://recipeboibot-test.72-56-97-79.sslip.io
+      TEST_CONTOUR: "true"
+      TEST_OWNER_TELEGRAM_ID: "6971956699"
+      TEST_BOT_USERNAME: recipeboi_test_bot
+      TELEGRAM_POLLING: "true"
+      DINNER_IMAGES_ENABLED: "false"
+      AI_MAX_DAILY_REQUESTS: "10"
+      AI_MAX_TOTAL_REQUESTS: "20"
+    ports:
+      - "127.0.0.1:3088:3087"
+    volumes:
+      - recipeboibot-test-data:/app/data
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  recipeboibot-test-data:
