@@ -1,4 +1,4 @@
-// One real AI request, counted in the configured database quota.
+// One real AI request, counted in database usage.
 // Does not add test recipes to any user's library.
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';

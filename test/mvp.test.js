@@ -98,15 +98,10 @@ test('SSRF rejects special-use and mapped IPv6 addresses', () => {
   assert.equal(security.isPrivateIp('93.184.215.14'), false);
 });
 
-test('AI quota reserves before calls and survives failed attempts', () => {
-  for (let i=0; i<40; i++) database.reserveAiRequest();
-  assert.throws(() => database.reserveAiRequest(), /Лимит запросов/);
-  assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n, 40);
-  database.db.prepare("UPDATE ai_reservations SET created_at = datetime('now', '-1 day')").run();
-  for (let i=0; i<40; i++) database.reserveAiRequest();
-  database.db.prepare("UPDATE ai_reservations SET created_at = datetime('now', '-1 day')").run();
-  assert.throws(() => database.reserveAiRequest(), /Лимит запросов/);
-  assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n, 80);
+test('AI attempts remain counted past the former daily and lifetime limits', () => {
+  for (let i=0; i<81; i++) database.recordAiAttempt();
+  assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n, 81);
+  assert.equal(database.aiUsageSummary(null).reservations.total, 81);
 });
 
 test('HTTP API requires signed Telegram auth and an allowed user', async () => {

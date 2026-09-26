@@ -173,8 +173,8 @@ function usageMessage(userId) {
   const { reservations, totals, recent } = usage;
   const lines = [
     '<b>Использование сервиса</b>',
-    `Запросы сегодня: <b>${number(reservations.today)} / ${number(reservations.dailyLimit)}</b>`,
-    `Запросы всего: <b>${number(reservations.total)} / ${number(reservations.totalLimit)}</b>`,
+    `Запросы сегодня: <b>${number(reservations.today)}</b>`,
+    `Запросы всего: <b>${number(reservations.total)}</b>`,
     '',
     '<b>Точные токены с момента включения мониторинга</b>',
     `Вход: ${number(totals.input_units)}`,

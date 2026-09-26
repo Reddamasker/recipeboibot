@@ -1,5 +1,5 @@
 // Local test harness only. Never included in the production Docker image.
-// Telegram identity is a test fixture; OpenAI calls are real and consume quota.
+// Telegram identity is a test fixture; OpenAI calls are real and counted in usage.
 import http from 'node:http';
 import path from 'node:path';
 import { buildWebDocument } from '../src/web-document.js';

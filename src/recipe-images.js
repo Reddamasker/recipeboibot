@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
-import { getRecipeImage, recordProviderRequest, reserveAiRequest, saveRecipeImage } from './db.js';
+import { getRecipeImage, recordAiAttempt, recordProviderRequest, saveRecipeImage } from './db.js';
 import { log } from './log.js';
 
 const inFlight = new Map();
@@ -13,7 +13,7 @@ function imagePrompt(recipe) {
 
 export async function generateRecipeImage(userId, recipe) {
   if (!config.openaiKey || !config.imageModel) return null;
-  reserveAiRequest();
+  recordAiAttempt();
   const clientRequestId = randomUUID();
   let response;
   let payload;

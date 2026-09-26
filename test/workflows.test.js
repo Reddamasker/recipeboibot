@@ -260,6 +260,8 @@ test('/usage reports exact monitored tokens without an AI call', async () => {
     assert.match(sent[0].text, /80/);
     assert.match(sent[0].text, /reasoning: 30/);
     assert.match(sent[0].text, /Всего: <b>200<\/b>/);
+    assert.doesNotMatch(sent[0].text, /Запросы сегодня: <b>[^<]*\//);
+    assert.doesNotMatch(sent[0].text, /Запросы всего: <b>[^<]*\//);
   } finally { globalThis.fetch = originalFetch; }
 });
 

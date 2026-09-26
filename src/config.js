@@ -35,8 +35,6 @@ export const config = Object.freeze({
   imageModel: process.env.OPENAI_IMAGE_MODEL || '',
   transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL || '',
   ytDlpPath: process.env.YTDLP_PATH || 'yt-dlp',
-  aiMaxDailyRequests: integer('AI_MAX_DAILY_REQUESTS', 40),
-  aiMaxTotalRequests: Math.min(80, integer('AI_MAX_TOTAL_REQUESTS', 80)),
   aiMaxInputChars: integer('AI_MAX_INPUT_CHARS', 30000),
   maxUploadBytes: integer('MAX_UPLOAD_BYTES', 6 * 1024 * 1024),
   maxRemoteBytes: integer('MAX_REMOTE_BYTES', 1536 * 1024),

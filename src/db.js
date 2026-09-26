@@ -527,20 +527,13 @@ export function aiUsageSummary(userId) {
   const recent = db.prepare(`SELECT operation,model,status,input_units,output_units,reasoning_units,total_units,error_code,created_at
     FROM provider_requests WHERE user_id=? AND usage_complete=1 ORDER BY created_at DESC LIMIT 5`).all(userId);
   return {
-    reservations: { today: reservations.today || 0, total: reservations.total || 0, dailyLimit: config.aiMaxDailyRequests, totalLimit: config.aiMaxTotalRequests },
+    reservations: { today: reservations.today || 0, total: reservations.total || 0 },
     totals: { ...totals, monitoringSince: recent.at(-1)?.created_at || null },
     recent
   };
 }
-export function reserveAiRequest() {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const total = db.prepare('SELECT COUNT(*) AS n FROM ai_reservations').get().n;
-    const daily = db.prepare('SELECT COUNT(*) AS n FROM ai_reservations WHERE created_at>=?').get(new Date().toISOString().slice(0,10)).n;
-    if (total >= config.aiMaxTotalRequests || daily >= config.aiMaxDailyRequests) throw Object.assign(new Error('Лимит запросов закрытого теста исчерпан. Обратитесь к владельцу.'), { status: 429 });
-    db.prepare('INSERT INTO ai_reservations VALUES(?,?)').run(randomUUID(), now());
-    db.exec('COMMIT');
-  } catch (error) { db.exec('ROLLBACK'); throw error; }
+export function recordAiAttempt() {
+  db.prepare('INSERT INTO ai_reservations VALUES(?,?)').run(randomUUID(), now());
 }
 export function claimUpdate(updateId) {
   const id = String(updateId), at = now();

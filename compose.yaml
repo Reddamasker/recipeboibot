@@ -13,7 +13,6 @@ services:
       TRUST_PROXY: "true"
       APP_URL: https://recipeboibot.72-56-97-79.sslip.io
       OPENAI_IMAGE_MODEL: gpt-image-2.5-flare
-      AI_MAX_TOTAL_REQUESTS: "80"
       TELEGRAM_POLLING: "${TELEGRAM_POLLING:-true}"
     ports:
       - "127.0.0.1:3087:3087"
