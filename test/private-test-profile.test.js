@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-process.env.DATABASE_PATH = path.resolve('data', `private-profile-test-${process.pid}.sqlite`);
+process.env.DATABASE_PATH = path.resolve('data', `private-profile-test-${randomUUID()}.sqlite`);
 process.env.TELEGRAM_BOT_TOKEN = '123456:private-profile-test';
 process.env.APP_URL = 'https://recipes.example';
 process.env.DINNER_LLM_ENABLED = 'false';

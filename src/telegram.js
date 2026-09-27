@@ -221,6 +221,22 @@ export function webAppUrl(params = {}) {
   return url.toString();
 }
 
+export async function sendNotificationReminder(delivery) {
+  const url = webAppUrl({ view: 'dinner', notification: delivery.id });
+  if (!url) throw new Error('APP_URL is not configured for notifications');
+  await send(delivery.telegramId, '<b>Пора выбрать, что приготовить</b>\n\nЯ подготовил три варианта с учётом твоих вкусов и ограничений.', {
+    reply_markup: { inline_keyboard: [[{ text: 'Посмотреть подборку', web_app: { url } }]] }
+  });
+}
+
+export async function sendNotificationRecipeLink(delivery, recipe) {
+  const url = webAppUrl({ recipe: recipe.id });
+  if (!url) throw new Error('APP_URL is not configured for notifications');
+  await send(delivery.telegramId, `<b>Выбрано: ${escapeHtml(recipe.title)}</b>\n\nСсылка на рецепт — в кнопке ниже.`, {
+    reply_markup: { inline_keyboard: [[{ text: 'Открыть рецепт', web_app: { url } }]] }
+  });
+}
+
 export function detectIntent(text, { hasPhoto = false, hasUrl = false } = {}) {
   const value = String(text || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru');
   if (hasPhoto || hasUrl) return 'save';

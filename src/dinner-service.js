@@ -58,6 +58,13 @@ export function startDinner(userId, { prefetchOnly = false } = {}) {
   return { sessionId, profile, pantry: getDinnerContext(userId), needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
 }
 
+export function resumeDinner(userId, sessionId) {
+  if (!getDinnerSession(userId, sessionId)) throw notFound();
+  markDinnerSessionOpened(userId, sessionId);
+  const profile = getFoodProfile(userId);
+  return { sessionId, profile, pantry: getDinnerContext(userId), needsOnboarding: false, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
+}
+
 export function startDinnerOnboarding(userId, sessionId) {
   if (!getDinnerSession(userId, sessionId)) throw notFound();
   addDinnerEvent(userId, 'onboarding_started', { sessionId });
@@ -179,7 +186,7 @@ export function decideDinner(userId, recommendationId, decision) {
   const recipe = recipeForDecision(userId, row.recipe_key);
   if (decision === 'accepted' && row.status === 'shown' && (!recipe || !rankCandidates([recipe], dinnerContext(userId, row.session_id)).length)) throw badRequest('Ограничения изменились. Обновите варианты ужина.');
   const updated = decideDinnerRecommendation(userId, recommendationId, decision, recipe ? recipeCategories(recipe) : []);
-  return { status: updated.status, sessionId: updated.session_id, rejectedCount: rejectedInSession(userId, updated.session_id).length };
+  return { status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
 }
 
 export function setDinnerRejectionReason(userId, recommendationId, reason) {

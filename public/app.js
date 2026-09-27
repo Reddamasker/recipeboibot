@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card' };
+const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card' };
 window.miniProbe?.('app-script');
 
 tg?.ready(); tg?.expand();
@@ -30,7 +30,7 @@ let requestRecorder = null;
 function setRoute(values, { replace = false, historyState = {} } = {}) {
   if (values.view && requestRecorder?.state === 'recording') requestRecorder.stop();
   const url = new URL(location.href);
-  for (const key of ['view', 'q', 'recipe']) url.searchParams.delete(key);
+  for (const key of ['view', 'q', 'recipe', 'notification']) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(values)) if (value) url.searchParams.set(key, value);
   history[replace ? 'replaceState' : 'pushState'](historyState, '', url);
 }
@@ -161,8 +161,10 @@ async function toggleRequestRecording(event) {
 async function beginDinner(forceOnboarding = false, startTrialTastePreferences = false) {
   clearTimeout(dinnerPollTimer);
   try {
-    const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
-    state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
+    const notificationId = !forceOnboarding ? new URLSearchParams(location.search).get('notification') : null;
+    const session = await api(notificationId ? `/api/notifications/${encodeURIComponent(notificationId)}/open` : '/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
+    state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, askingReason: false, loading: false };
+    if (session.acceptedOption) { dinnerView(); return; }
     if (startTrialTastePreferences && session.needsTastePreferences) showDinnerTastePreferences();
     else if (forceOnboarding) await showDinnerOnboarding();
     else await loadDinnerRecommendation();
@@ -390,11 +392,12 @@ function dinnerView() {
 async function acceptDinnerItem(option) {
   if (!option || !state.dinner) return false;
   try {
-    const result = await api(`/api/dinner/recommendations/${option.id}/accept`, { method: 'POST', body: '{}' });
+    const result = await api(state.dinner.notificationId ? `/api/notifications/${encodeURIComponent(state.dinner.notificationId)}/select` : `/api/dinner/recommendations/${option.id}/accept`, { method: 'POST', body: state.dinner.notificationId ? JSON.stringify({ recommendationId: option.id }) : '{}' });
     if (result.status !== 'accepted') throw new Error('Этот вариант уже недоступен');
     state.dinner.recommendation = option;
     state.dinner.accepted = true;
     dinnerView();
+    if (state.dinner.notificationId) toast(result.telegramSent ? 'Ссылка на рецепт отправлена в Telegram' : 'Выбор сохранён. Ссылка скоро придёт в Telegram.');
     return true;
   } catch (error) { toast(error.message); return false; }
 }
@@ -448,6 +451,38 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
   });
 }
 
+async function notificationSettingsPage() {
+  const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
+  if (!state.notificationSchedule) state.notificationSchedule = await api('/api/notifications/schedule', { signal: AbortSignal.timeout(12000) });
+  const schedule = state.notificationSchedule;
+  const timezone = schedule.timezone || deviceTimezone;
+  const days = [[1, 'Пн'], [2, 'Вт'], [3, 'Ср'], [4, 'Чт'], [5, 'Пт'], [6, 'Сб'], [0, 'Вс']];
+  let next = '';
+  if (schedule.enabled && schedule.nextDueAt) {
+    try { next = new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.nextDueAt)); } catch {}
+  }
+  root.innerHTML = `${header()}<main class="notification-page"><button class="back-link" id="notifications-back">← На главную</button><div class="eyebrow">УВЕДОМЛЕНИЯ В TELEGRAM</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">Сохранить расписание</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
+  bindCommon();
+  document.querySelector('#notifications-back').onclick = () => { setRoute({}); void render(); };
+  const enabled = document.querySelector('#notification-enabled');
+  const fields = document.querySelector('#notification-fields');
+  enabled.onchange = () => { fields.disabled = !enabled.checked; };
+  document.querySelector('#notification-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('[type=submit]');
+    const error = document.querySelector('#notification-error');
+    const weekdays = [...document.querySelectorAll('[name=weekday]:checked')].map((input) => Number(input.value));
+    error.hidden = true;
+    if (enabled.checked && !weekdays.length) { error.textContent = 'Выбери хотя бы один день.'; error.hidden = false; error.focus(); return; }
+    button.disabled = true; button.textContent = 'Сохраняю…';
+    try {
+      state.notificationSchedule = await api('/api/notifications/schedule', { method: 'PUT', body: JSON.stringify({ enabled: enabled.checked, weekdays, time: document.querySelector('#notification-time').value, timezone: deviceTimezone }) });
+      await notificationSettingsPage();
+      toast(enabled.checked ? 'Расписание сохранено' : 'Уведомления выключены');
+    } catch (failure) { error.textContent = failure.message; error.hidden = false; error.focus(); button.disabled = false; button.textContent = 'Сохранить расписание'; }
+  };
+}
+
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
   if (view === 'offer' && state.me?.testContour) offerPage();
@@ -458,6 +493,7 @@ async function render() {
     try { results = state.query ? await api(`/api/search?q=${encodeURIComponent(state.query)}`) : state.recipes; } catch (error) { toast(error.message); }
     collection(results, state.query ? `Результаты: ${state.query}` : 'Результаты');
   } else if (view === 'dinner') { if (!state.dinner) await beginDinner(); else dinnerView(); }
+  else if (view === 'notifications') await notificationSettingsPage();
   else if (view === 'collection') collection();
   else if (view === 'search') searchView();
   else if (view === 'add') { home(); setRoute({}, { replace: true }); importSheet(); }
@@ -816,8 +852,9 @@ function cookMode(r, onComplete = null) {
   mountModal(el, el, close, step);
 }
 function settingsSheet() {
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.me.testContour ? '<button class="secondary" id="test-payment">Тестовая оплата</button><button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.me.testContour ? '<button class="secondary" id="test-payment">Тестовая оплата</button><button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
+  el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
   el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
   el.querySelector('#test-payment')?.addEventListener('click', openOffer);
   el.querySelector('#test-reset')?.addEventListener('click', async () => {

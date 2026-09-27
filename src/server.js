@@ -15,6 +15,9 @@ import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
 import { canUseTestImport, createMockOrder, finishMockOrder, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
+import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
+import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
+import { sendNotificationRecipeLink } from './telegram.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -96,6 +99,27 @@ async function api(request, response, url) {
     return json(response, 404, { error: 'Не найдено' });
   }
   if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour });
+  if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, getNotificationSchedule(user.id));
+  if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));
+  const notificationAction = url.pathname.match(/^\/api\/notifications\/([0-9a-f-]{36})\/(open|select)$/i);
+  if (request.method === 'POST' && notificationAction) {
+    const [, id, action] = notificationAction;
+    if (action === 'open') return json(response, 200, openNotificationDinner(user.id, id));
+    const input = await bodyJson(request, 1000);
+    const selected = selectNotificationDinner(user.id, id, String(input.recommendationId || ''));
+    let telegramSent = Boolean(selected.delivery.choiceSentAt);
+    if (!telegramSent) {
+      try {
+        await sendNotificationRecipeLink(selected.delivery, selected.recipe);
+        markChoiceSent(id);
+        telegramSent = true;
+      } catch (error) {
+        markChoiceFailed(id);
+        log('warn', 'notification_choice_immediate_send_failed', { error, deliveryId: id });
+      }
+    }
+    return json(response, 200, { status: selected.status, sessionId: selected.delivery.sessionId, recipe: selected.recipe, telegramSent });
+  }
   if (request.method === 'GET' && url.pathname === '/api/recipes') return json(response, 200, listRecipes(user.id));
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
   if (request.method === 'GET' && url.pathname === '/api/dinner/profile') return json(response, 200, getFoodProfile(user.id));
