@@ -6,7 +6,7 @@ import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
-import { suggestForEmptySearch } from './suggestions.js';
+import { resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
@@ -118,6 +118,11 @@ async function api(request, response, url) {
     const q = (url.searchParams.get('q') || '').slice(0,500);
     if (!q.trim()) return json(response, 200, listRecipes(user.id));
     return json(response, 200, searchRecipes(user.id, q).filter((recipe) => recipe.status === 'ready'));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/recipe-request') {
+    rateLimit(`ai:${user.id}`, 8, 60_000);
+    const input = await bodyJson(request, 2000);
+    return json(response, 200, await resolveRecipeRequest(user.id, input.query));
   }
   if (request.method === 'POST' && url.pathname === '/api/suggestions') {
     rateLimit(`ai:${user.id}`, 8, 60_000);

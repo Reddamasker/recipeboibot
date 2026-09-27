@@ -62,6 +62,11 @@ function home() {
       <h1><button id="choose" class="choose-link"><span>Что приготовить<br><em>сегодня?</em></span><span class="choose-arrow" aria-hidden="true">↗</span></button></h1>
       <p>Три идеи для ужина — из твоих рецептов или нашей подборки.</p>
     </section>
+    <section class="home-search" aria-labelledby="home-search-title">
+      <h2 id="home-search-title">Что тебе хочется?</h2>
+      <form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Опиши желаемое блюдо" placeholder="Например, курица с рисом за 30 минут" required><button class="primary accent" type="submit">Подобрать рецепт</button></form>
+      <p>Сначала поищу готовый рецепт. Если подходящего нет — составлю новый. Голосом можно рассказать боту в чате.</p>
+    </section>
     <section class="home-library" aria-labelledby="collection-title">
       <h2 id="collection-title"><button class="collection-link" id="collection"><span>Мои рецепты <small>${state.recipes.length}</small></span><span aria-hidden="true">→</span></button></h2>
       ${recent.length ? `<div class="grid">${recent.map(card).join('')}</div>` : '<div class="empty home-empty"><p>Перешли рецепт в чат бота — так я лучше пойму, что предложить тебе на ужин.</p></div>'}
@@ -71,8 +76,26 @@ function home() {
   </main>`;
   bindCommon();
   document.querySelector('#choose').onclick = () => { setRoute({ view: 'dinner' }); beginDinner(); };
+  document.querySelector('#home-search-form').onsubmit = showRequestedRecipe;
   document.querySelector('#collection').onclick = () => { setRoute({ view: 'collection' }); render(); };
   document.querySelector('#add').onclick = importSheet;
+}
+
+async function showRequestedRecipe(event) {
+  event.preventDefault();
+  const query = document.querySelector('#home-search-input')?.value.trim();
+  const button = event.currentTarget.querySelector('button[type=submit]');
+  if (!query || !button || button.disabled) return;
+  button.disabled = true;
+  button.innerHTML = '<span class="loader"></span> Подбираю…';
+  try {
+    const result = await api('/api/recipe-request', { method: 'POST', body: JSON.stringify({ query }) });
+    if (new URLSearchParams(location.search).get('view')) return;
+    if (result.kind === 'existing') await openRecipe(result.recipe.id, true);
+    else if (result.kind === 'generated') recipeDetail({ ...result.suggestion.recipe, origin: 'generated', sourceName: 'Создано в «Рецептах»' }, { suggestion: result.suggestion });
+    else throw new Error('Не получилось подобрать рецепт');
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; button.textContent = 'Подобрать рецепт'; }
 }
 
 async function beginDinner(forceOnboarding = false) {
@@ -286,7 +309,7 @@ function suggestionSection(suggestion) {
 
 function collection(recipes = state.recipes, title = 'Мои рецепты', suggestion = null) {
   const emptyState = state.query
-    ? suggestion ? suggestionSection(suggestion) : '<div class="empty"><h2>Совпадений нет</h2><p>Мы не нашли в вашей коллекции рецепт по таком запросу. Хотите, чтобы мы предложили вам наш вариант рецепта?</p><div class="empty-search-actions"><button class="primary accent" id="generate-suggestion" type="button">Создать новый рецепт</button><button class="secondary" id="change-query" type="button">Изменить запрос</button><button class="secondary" id="show-all" type="button">Открыть всю коллекцию</button></div></div>'
+    ? suggestion ? suggestionSection(suggestion) : '<div class="empty"><h2>Совпадений нет</h2><p>Мы не нашли в вашей коллекции рецепт по такому запросу. Хотите, чтобы мы предложили вам наш вариант рецепта?</p><div class="empty-search-actions"><button class="primary accent" id="generate-suggestion" type="button">Создать новый рецепт</button><button class="secondary" id="change-query" type="button">Изменить запрос</button><button class="secondary" id="show-all" type="button">Открыть всю коллекцию</button></div></div>'
     : '<div class="empty collection-empty"><div class="eyebrow">Ваша коллекция начинается здесь</div><h2>Добавьте первый рецепт</h2><p>Вставьте ссылку, напишите рецепт или загрузите фото. После обработки он появится здесь.</p><button class="primary accent" id="add" type="button">Добавить первый рецепт</button><p class="empty-hint">Голосовое можно отправить боту в чате.</p></div>';
   root.innerHTML = `${header()}<main><button class="back-link" id="back-home">← На главную</button><div class="section-head page-title"><h1>${esc(title)}</h1><span>${recipes.length}</span></div>${state.jobs.length ? `<div class="grid jobs-grid">${state.jobs.map(jobCard).join('')}</div>` : ''}${recipes.length ? `<div class="grid">${recipes.map(card).join('')}</div>` : emptyState}${recipes.length || state.query ? '<button class="manual-save" id="add">Сохранить рецепт вручную</button>' : ''}</main>`;
   bindCommon(); document.querySelector('#back-home').onclick = () => { setRoute({}); render(); }; document.querySelector('#add').onclick = importSheet;
@@ -376,8 +399,8 @@ async function waitForRecipeImage(id) {
   }
 }
 
-function recipeDetail(r, { shared = false } = {}) {
-  const catalog = r.origin === 'seed' || r.dinnerGenerated;
+function recipeDetail(r, { shared = false, suggestion = null } = {}) {
+  const catalog = r.origin === 'seed' || r.dinnerGenerated || Boolean(suggestion);
   const dinnerOption = state.dinner?.recommendations.find((option) => option.recipe.id === r.id);
   const missing = dinnerOption?.pantryMatch?.missing || r.pantryMatch?.missing || [];
   const shopping = missing.length ? `<aside class="detail-shopping"><strong>Докупить</strong><p>${esc(missing.join(', '))}</p></aside>` : '';
@@ -403,13 +426,20 @@ function recipeDetail(r, { shared = false } = {}) {
   const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="https://t.me/Recipeboibot?start=dinner" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
   const backButton = shared ? '' : '<button class="detail-back" type="button" data-close aria-label="Назад"><span aria-hidden="true">←</span> Назад</button>';
   const editButton = shared || catalog ? '' : '<button class="detail-edit" id="edit" type="button">Изменить</button>';
-  const actions = shared || catalog
+  const actions = suggestion
+    ? '<div class="detail-actions"><button class="primary accent" id="save-suggestion" type="button">Добавить в мои рецепты</button><button class="secondary" id="cook" type="button">Начать готовить</button></div>'
+    : shared || catalog
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
-  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div>${(r.origin === 'generated' || r.imageGenerated) && image ? '<p class="generated-image-note">Изображение создано ИИ; готовое блюдо может выглядеть иначе.</p>' : ''}<div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>Автоматическое извлечение · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div>${(r.origin === 'generated' || r.imageGenerated) && image ? '<p class="generated-image-note">Изображение создано ИИ; готовое блюдо может выглядеть иначе.</p>' : ''}<div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : suggestion || r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (shared) el.classList.add('shared-overlay');
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
   el.querySelector('#edit')?.addEventListener('click', () => { closeOverlay(); editRecipe(r); });
+  el.querySelector('#save-suggestion')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget; button.disabled = true; button.textContent = 'Сохраняю…';
+    try { const saved = await api(`/api/suggestions/${encodeURIComponent(suggestion.id)}/save`, { method: 'POST', body: '{}' }); await refresh(); closeOverlay(); await openRecipe(saved.id, true); toast('Рецепт добавлен в коллекцию'); }
+    catch (error) { toast(error.message); button.disabled = false; button.textContent = 'Добавить в мои рецепты'; }
+  });
   el.querySelector('#share')?.addEventListener('click', (event) => shareRecipe(r, event.currentTarget));
   el.querySelector('#cook').onclick = () => { void cookFromDinnerDetail(r); };
   el.querySelector('[data-source-link]')?.addEventListener('click', (event) => {

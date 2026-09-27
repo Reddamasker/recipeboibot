@@ -2,15 +2,16 @@ import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
 import { extractDinnerIntake, transcribeAudio } from './openai.js';
-import { suggestForEmptySearch } from './suggestions.js';
+import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
 
-const apiBase = () => `https://api.telegram.org/bot${config.telegramToken}`;
-const fileBase = () => `https://api.telegram.org/file/bot${config.telegramToken}`;
+const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
+const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
+const fileBase = () => `${apiOrigin}/file/bot${config.telegramToken}`;
 
 async function telegram(method, body = {}) {
   const response = await fetch(`${apiBase()}/${method}`, { method: 'POST', signal: AbortSignal.timeout(method === 'getUpdates' ? 40000 : 15000), headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -247,7 +248,7 @@ function recipeButton(recipe, { groupMode = false } = {}) {
 async function sendRecipeCard(chatId, recipe, options = {}) {
   const caption = `<b>${escapeHtml(recipe.title)}</b>${recipe.sourceName ? `\n${escapeHtml(recipe.sourceName)}` : ''}`;
   const reply_markup = recipeButton(recipe, options);
-  const photo = recipe.thumbnailUrl;
+  const photo = recipe.thumbnailUrl?.startsWith('/assets/dinner/') && config.appUrl ? new URL(recipe.thumbnailUrl, config.appUrl).toString() : recipe.thumbnailUrl;
   if (photo) {
     try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Изображение создано ИИ; готовое блюдо может выглядеть иначе.</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
     catch (error) { log('warn', 'telegram_preview_failed', { error, recipeId: recipe.id }); }
@@ -258,6 +259,24 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
 async function sendSearchResults(chatId, user, query, { groupMode = false } = {}) {
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
+  if (!groupMode) {
+    const existing = findRequestedRecipe(user.id, normalizedQuery);
+    if (existing) {
+      await send(chatId, `Подобрал готовый рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>».`);
+      await sendRecipeCard(chatId, existing);
+      return [existing];
+    }
+    await send(chatId, `Подходящего готового рецепта по запросу «<b>${escapeHtml(normalizedQuery)}</b>» нет. Составляю новый…`);
+    try {
+      const result = await resolveRecipeRequest(user.id, normalizedQuery);
+      if (result.kind === 'existing') { await sendRecipeCard(chatId, result.recipe); return [result.recipe]; }
+      await sendSuggestion(chatId, result.suggestion);
+    } catch (error) {
+      log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
+      await send(chatId, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
+    }
+    return [];
+  }
   const results = searchRecipes(user.id, normalizedQuery).filter((recipe) => recipe.status === 'ready').slice(0, 8);
   if (!results.length) {
     const offerId = createSearchOffer(user.id, normalizedQuery);

@@ -90,13 +90,18 @@ header {
 }
 
 .home-page { padding-top: 34px; }
-.home-choice { margin: 0 0 70px; }
+.home-choice { margin: 0 0 38px; }
 .choose-link { width: 100%; display: flex; align-items: end; justify-content: space-between; gap: 10px; border: 0; padding: 0 0 16px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .choose-link > span:first-child { font: 400 clamp(48px, 8vw, 78px)/1.04 Georgia, serif; letter-spacing: -.055em; }
 .choose-link em { color: #76618b; font-weight: 400; }
 .choose-arrow { padding-bottom: 5px; color: #76618b; font: 300 42px/1 system-ui, sans-serif; transition: transform .2s; }
 .choose-link:hover .choose-arrow { transform: translate(3px, -3px); }
 .home-choice p { margin: 0; color: var(--muted); font-size: 14px; }
+.home-search { margin-bottom: 52px; }
+.home-search h2 { font-size: 28px; line-height: 1.1; }
+.home-search .search-wrap { display: grid; grid-template-columns: 1fr; margin: 16px 0 12px; }
+.home-search .search { min-width: 0; }
+.home-search > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .collection-link { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; margin-bottom: 26px; border: 0; padding: 0; background: transparent; text-align: left; cursor: pointer; font: 400 30px/1.2 Georgia, serif; }
 .collection-link small { margin-left: 8px; color: var(--muted); font: 400 12px system-ui, sans-serif; vertical-align: middle; }
 .collection-link > span:last-child { font: 400 24px system-ui, sans-serif; color: var(--muted); }
@@ -354,7 +359,7 @@ button:disabled { cursor: wait; opacity: .5; }
 @media (max-width: 480px) {
   .app-shell { padding-left: 24px; padding-right: 24px; }
   .home-page { padding-top: 30px; }
-  .home-choice { margin-bottom: 56px; }
+  .home-choice { margin-bottom: 34px; }
   .choose-link > span:first-child { font-size: clamp(32px, 10.8vw, 52px); }
   .choose-arrow { font-size: 32px; }
   .home-library .grid { gap: 24px 16px; }

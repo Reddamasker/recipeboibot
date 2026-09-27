@@ -17,6 +17,7 @@ const importer = await import('../src/importer.js');
 const telegramModule = await import('../src/telegram.js');
 const openaiModule = await import('../src/openai.js');
 const suggestions = await import('../src/suggestions.js');
+const dinnerStore = await import('../src/dinner-store.js');
 
 test.after(() => {
   database.db.close();
@@ -60,6 +61,42 @@ test('parallel empty searches share one generation request', async () => {
   assert.equal(a.id, b.id);
 });
 
+test('request uses saved and seed recipes before generating one unsaved recipe', async () => {
+  const savedOwner = database.upsertTelegramUser({ id: 6172, first_name: 'Готовый рецепт' });
+  const savedProposal = database.createRecipeSuggestion(savedOwner.id, 'бобовый рататуй', normalizedRecipe('Бобовый рататуй'));
+  const saved = database.saveRecipeSuggestion(savedOwner.id, savedProposal.id);
+  const fromCollection = await suggestions.resolveRecipeRequest(savedOwner.id, 'Хочу бобовый рататуй', { generate: assert.fail });
+  assert.equal(fromCollection.kind, 'existing');
+  assert.equal(fromCollection.recipe.id, saved.id);
+
+  const owner = database.upsertTelegramUser({ id: 6170, first_name: 'Рецепт по запросу' });
+  const other = database.upsertTelegramUser({ id: 6171, first_name: 'Другой' });
+  dinnerStore.saveFoodProfile(owner.id, { householdType: 'couple', householdSize: 2, hasChildren: false,
+    preferredMaxCookingTime: 30, excludedIngredients: ['орехи'], preferredCategories: {}, onboardingCompleted: true });
+  const fromBase = await suggestions.resolveRecipeRequest(owner.id, 'рис с овощами', { generate: assert.fail });
+  assert.equal(fromBase.kind, 'existing');
+  assert.match(fromBase.recipe.id, /^seed:/);
+
+  const recipe = { ...normalizedRecipe('Арбузный суп'), servings: 2, prepMinutes: 10, cookMinutes: 15,
+    ingredients: [{ name: 'арбуз', raw: 'арбуз', quantity: 300, unit: 'г', comment: null }] };
+  let input;
+  const result = await suggestions.resolveRecipeRequest(owner.id, 'хочу арбузный суп', { generate: async (value) => { input = value; return recipe; } });
+  assert.equal(result.kind, 'generated');
+  const suggestion = result.suggestion;
+  assert.equal(input.query, 'хочу арбузный суп');
+  assert.deepEqual(input.profile.excludedIngredients, ['орехи']);
+  assert.equal(database.listRecipes(owner.id).length, 0);
+  assert.match(suggestion.query, /^request:/);
+  assert.equal(database.saveRecipeSuggestion(other.id, suggestion.id), null);
+  const again = await suggestions.resolveRecipeRequest(owner.id, 'хочу арбузный суп', { generate: assert.fail });
+  assert.equal(again.suggestion.id, suggestion.id);
+  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, 'арбузный салат', { generate: async () => ({ ...recipe, title: 'Ореховый салат', ingredients: [{ name: 'орехи' }] }) }), { status: 422 });
+  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, 'арбузный крем', { generate: async () => ({ ...recipe, title: 'Долгий крем', cookMinutes: 35 }) }), { status: 422 });
+  const added = database.saveRecipeSuggestion(owner.id, suggestion.id);
+  assert.equal(added.title, 'Арбузный суп');
+  assert.equal(database.listRecipes(owner.id).length, 1);
+});
+
 test('group suggestion can only be added by the collection owner', async () => {
   const owner = database.upsertTelegramUser({ id: 6162, first_name: 'Владелец' });
   database.setGroupAccessByTelegramId(6162, true);
@@ -95,32 +132,25 @@ test('group search offer rejects a non-owner before generation', async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('private Telegram search asks before generation and waits for the save button', async () => {
+test('private Telegram request generates only after no ready recipe and waits for save', async () => {
   const telegramUser = { id: 6165, first_name: 'Поиск' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
   const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('api.openai.com')) {
       aiCalls += 1;
-      assert.equal(JSON.parse(options.body).text.format.name, 'recipe_generation');
-      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify(normalizedRecipe('Суп с тыквой')), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
+      assert.equal(JSON.parse(options.body).text.format.name, 'requested_recipe_generation');
+      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20 }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
     }
     sent.push(JSON.parse(options.body));
     return { json: async () => ({ ok: true, result: { message_id: 12 } }) };
   };
   try {
     await telegramModule.handleMessage({ chat: { id: 6165, type: 'private' }, from: telegramUser, text: 'Найди суп с тыквой' });
-    assert.equal(aiCalls, 0);
-    assert.equal(database.listRecipes(owner.id).length, 0);
-    assert.match(sent[0].text, /ничего подходящего/);
-    const offer = sent[0].reply_markup.inline_keyboard[0][0].callback_data;
-    assert.match(offer, /^offer:create:/);
-    const callback = { id: 'callback-private', message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser };
-    await telegramModule.handleSuggestionCallback({ ...callback, data: sent[0].reply_markup.inline_keyboard[1][0].callback_data });
-    assert.equal(aiCalls, 0);
-    assert.equal(database.listRecipes(owner.id).length, 0);
-    await telegramModule.handleSuggestionCallback({ ...callback, data: offer });
     assert.equal(aiCalls, 1);
+    assert.equal(database.listRecipes(owner.id).length, 0);
+    assert.match(sent[0].text, /Составляю новый/);
+    const callback = { id: 'callback-private', message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser };
     const suggestionMessage = sent.find((message) => message.text?.includes('Суп с тыквой'));
     assert.match(suggestionMessage.text, /Создано в «Рецептах»/);
     const callbackData = suggestionMessage.reply_markup.inline_keyboard[0][0].callback_data;
@@ -145,16 +175,16 @@ test('intent detection searches short text and saves detailed recipe text', () =
   assert.equal(telegramModule.detectIntent('https://example.com/recipe', { hasUrl: true }), 'save');
 });
 
-test('plain private message searches without asking to save', async () => {
+test('plain private message chooses a ready recipe without an AI call', async () => {
   const telegramUser = { id: 6168, first_name: 'Обычный запрос' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
   const originalFetch = globalThis.fetch; const sent = [];
-  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  globalThis.fetch = async (url, options) => { assert.doesNotMatch(String(url), /api\.openai\.com/); sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
-    await telegramModule.handleMessage({ chat: { id: 6168, type: 'private' }, from: telegramUser, text: 'Курица и мёд' });
-    assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /ничего подходящего/);
-    assert.doesNotMatch(sent[0].text, /Найти в вашей коллекции или сохранить/);
+    await telegramModule.handleMessage({ chat: { id: 6168, type: 'private' }, from: telegramUser, text: 'Рис с овощами' });
+    assert.equal(sent.length, 2);
+    assert.match(sent[0].text, /Подобрал готовый рецепт/);
+    assert.match(sent[1].caption, /Рис с овощами/);
     assert.equal(database.getPendingIntent(owner.id), null);
     assert.equal(database.listRecipes(owner.id).length, 0);
   } finally { globalThis.fetch = originalFetch; }
@@ -170,8 +200,8 @@ test('a new search replaces an unanswered intent question', async () => {
     await telegramModule.handleMessage({ ...message, text: 'Найди рецепт и сохрани его' });
     assert.match(sent.at(-1).text, /Найти в вашей коллекции или сохранить/);
     assert.ok(database.getPendingIntent(owner.id));
-    await telegramModule.handleMessage({ ...message, text: 'Найди суп с тыквой' });
-    assert.match(sent.at(-1).text, /суп с тыквой/);
+    await telegramModule.handleMessage({ ...message, text: 'Найди рис с овощами' });
+    assert.match(sent.at(-1).caption, /Рис с овощами/);
     assert.equal(database.getPendingIntent(owner.id), null);
   } finally { globalThis.fetch = originalFetch; }
 });

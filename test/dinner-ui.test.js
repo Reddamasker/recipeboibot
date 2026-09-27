@@ -3,6 +3,35 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
+test('home keeps dinner separate and resolves a written recipe request', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function home()'), source.indexOf('\nasync function beginDinner'));
+  const submit = { innerHTML: '', textContent: '', disabled: false };
+  const elements = Object.fromEntries(['#choose','#home-search-form','#home-search-input','#collection','#add'].map((key) => [key, { value: '', innerHTML: '', disabled: false }]));
+  elements['#home-search-form'].querySelector = () => submit;
+  const root = { innerHTML: '' };
+  const routes = [], requests = [], opened = []; let rendered; let response = { kind: 'existing', recipe: { id: 'seed:chicken-rice' } };
+  const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', card: () => '', bindCommon() {}, importSheet() {},
+    document: { querySelector: (key) => elements[key] }, setRoute: (value) => routes.push(value), beginDinner() {}, render() {}, loadAndRender() {},
+    api: async (path, options) => { requests.push([path, options.method, JSON.parse(options.body).query]); return response; },
+    openRecipe: async (id) => opened.push(id), location: { search: '' }, URLSearchParams, recipeDetail: (recipe, options) => { rendered = [recipe, options]; }, toast: assert.fail };
+  vm.runInNewContext(handler, sandbox);
+  sandbox.home();
+  assert.match(root.innerHTML, /Что тебе хочется/);
+  assert.match(root.innerHTML, /Сначала поищу готовый рецепт/);
+  elements['#choose'].onclick();
+  assert.equal(routes.at(-1).view, 'dinner');
+  elements['#home-search-input'].value = 'курица с рисом';
+  await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
+  assert.deepEqual(requests, [['/api/recipe-request', 'POST', 'курица с рисом']]);
+  assert.deepEqual(opened, ['seed:chicken-rice']);
+  response = { kind: 'generated', suggestion: { id: 'proposal', recipe: { title: 'Новое блюдо' } } };
+  elements['#home-search-input'].value = 'паста с грушей';
+  await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
+  assert.equal(rendered[0].title, 'Новое блюдо');
+  assert.equal(rendered[1].suggestion.id, 'proposal');
+});
+
 test('dinner cards show only shopping needs and use the same time format', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function dinnerChoiceCard('), source.indexOf('\nfunction updateDinnerIngredients'));
@@ -70,8 +99,8 @@ test('open full recipe keeps waiting for its image after a transient fetch failu
 
 test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
-  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.1'));
-  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.4'));
+  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.3'));
+  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.6'));
   const stages = [];
   let poll;
   let nativeReadyCalls = 0;

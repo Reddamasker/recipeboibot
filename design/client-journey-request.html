@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Клиентский путь · подбор по запросу</title>
+<style>
+  :root { font-family: Inter, "Segoe UI", sans-serif; color: #302537; background: #e9e2ef; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px; }
+  h1, h2, h3 { font-family: Georgia, serif; font-weight: 400; }
+  .intro { max-width: 760px; margin: 0 auto 26px; }
+  .intro h1 { font-size: 36px; margin: 0 0 8px; }
+  .intro p { line-height: 1.5; margin: 0; color: #756b7d; }
+  .flow { display: flex; flex-wrap: wrap; justify-content: center; align-items: start; gap: 18px; }
+  .step { width: 330px; }
+  .caption { margin: 0 0 10px; color: #7f2f49; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .phone { min-height: 650px; background: #f3f0f7; border: 8px solid #302537; border-radius: 38px; padding: 19px 17px 28px; box-shadow: 0 20px 55px rgba(48,37,55,.14); }
+  .brand { display: flex; justify-content: space-between; align-items: center; font: 24px Georgia, serif; margin-bottom: 32px; }
+  .avatar { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #ded5e5; border-radius: 50%; font: 14px Inter, sans-serif; }
+  .eyebrow { color: #a4415c; font-size: 10px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
+  .hero { margin-bottom: 30px; }
+  .hero h2 { font-size: 43px; line-height: 1; letter-spacing: -.045em; margin: 8px 0 10px; }
+  .hero em { color: #76618b; font-weight: 400; }
+  .muted { color: #756b7d; font-size: 13px; line-height: 1.5; }
+  .search { background: #fff; border: 1px solid #ded5e5; border-radius: 17px; padding: 15px; margin-bottom: 18px; }
+  .search label { display: block; font-weight: 800; font-size: 13px; margin-bottom: 11px; }
+  .search .input { border: 1px solid #ded5e5; border-radius: 10px; color: #756b7d; padding: 12px; font-size: 12px; }
+  .button { display: block; text-align: center; border-radius: 11px; padding: 12px; font-size: 13px; font-weight: 800; margin-top: 10px; }
+  .button.primary { background: #a4415c; color: #fff; }
+  .button.secondary { background: #e7def0; }
+  .link { padding: 14px 0; border-top: 1px solid #ded5e5; font: 25px Georgia, serif; }
+  .back { color: #a4415c; font-size: 12px; font-weight: 800; margin-bottom: 22px; }
+  .result { padding: 14px 0; border-bottom: 1px solid #ded5e5; }
+  .result h3 { margin: 5px 0; font-size: 24px; }
+  .result p { margin: 5px 0; }
+  .status { margin: 95px 0; text-align: center; }
+  .status .dot { display: block; width: 62px; height: 62px; margin: 0 auto 18px; border-radius: 21px; background: #ddf18a; }
+  .card { background: #fff; border-radius: 22px; overflow: hidden; }
+  .card .art { height: 120px; background: #e7def0; display: grid; place-items: center; color: #756b7d; font-size: 12px; }
+  .card .body { padding: 18px; }
+  .card h2 { font-size: 29px; margin: 4px 0 7px; }
+  .card h3 { font-size: 19px; margin: 20px 0 8px; }
+  .card ul, .card ol { padding-left: 20px; font-size: 12px; line-height: 1.6; }
+  .card .button { margin-top: 14px; }
+  .footnote { max-width: 1050px; margin: 28px auto 0; color: #756b7d; font-size: 13px; line-height: 1.5; }
+  @media (max-width: 700px) { body { padding: 18px 8px; } .intro { padding: 0 12px; } }
+</style>
+<main>
+  <div class="intro">
+    <h1>Клиентский путь: рецепт по желанию</h1>
+    <p>Отдельный от ужина сценарий. Текст в Mini App или голосовое в чате сначала сопоставляются с готовыми рецептами. Если подходящего нет, создаётся один новый рецепт.</p>
+  </div>
+  <div class="flow">
+    <section class="step">
+      <p class="caption">01 · Главная · выбор действия</p>
+      <div class="phone">
+        <div class="brand">Твои рецепты <span class="avatar">Я</span></div>
+        <div class="hero"><span class="eyebrow">Подбор ужина</span><h2>Что приготовить <em>сегодня?</em> ↗</h2><p class="muted">Три идеи для ужина с учётом предпочтений.</p></div>
+        <div class="search"><label>Что тебе хочется?</label><div class="input">Например, курица с рисом за 30 минут</div><div class="button primary">Подобрать рецепт</div></div>
+        <p class="muted">Сначала поищу готовый рецепт. Если подходящего нет — составлю новый. Голосом можно рассказать боту в чате.</p>
+        <div class="link">Мои рецепты →</div>
+      </div>
+    </section>
+    <section class="step">
+      <p class="caption">02А · Подходящий готовый рецепт</p>
+      <div class="phone">
+        <div class="back">← На главную</div>
+        <div class="card"><div class="art">Фото готового блюда</div><div class="body">
+          <span class="eyebrow">Из готовых рецептов</span><h2>Курица с рисом и овощами</h2><p class="muted">30 минут · 2 порции · пример</p>
+          <h3>Ингредиенты</h3><ul><li>Курица — 350 г</li><li>Рис — 160 г</li><li>Овощи — 250 г</li></ul>
+          <h3>Как готовить</h3><ol><li>Подготовить продукты.</li><li>Сварить рис.</li><li>Приготовить курицу с овощами.</li></ol>
+          <div class="button primary">Начать готовить</div>
+        </div></div>
+      </div>
+    </section>
+    <section class="step">
+      <p class="caption">02Б · Нет подходящего · генерация</p>
+      <div class="phone">
+        <div class="brand">Твои рецепты <span class="avatar">Я</span></div>
+        <div class="back">← На главную</div>
+        <div class="status"><span class="dot"></span><span class="eyebrow">Готового рецепта нет</span><h2>Составляю рецепт</h2><p class="muted">Учитываю запрос и пищевые ограничения. Новый рецепт появится в обычной карточке.</p></div>
+      </div>
+    </section>
+    <section class="step">
+      <p class="caption">03Б · Новый рецепт · полная карточка</p>
+      <div class="phone">
+        <div class="back">← На главную</div>
+        <div class="card"><div class="art">Фото готовится · рецепт доступен сразу</div><div class="body">
+          <span class="eyebrow">Создано для тебя</span><h2>Овощная паста с сыром</h2><p class="muted">25 минут · 2 порции · пример</p>
+          <h3>Ингредиенты</h3><ul><li>Паста — 180 г</li><li>Томаты — 300 г</li><li>Сыр — 40 г</li></ul>
+          <h3>Как готовить</h3><ol><li>Подготовить продукты.</li><li>Сварить пасту.</li><li>Приготовить соус и соединить.</li></ol>
+          <div class="button primary">Добавить в мои рецепты</div><div class="button secondary">Начать готовить</div>
+        </div></div>
+      </div>
+    </section>
+  </div>
+  <p class="footnote">Переходы: главная → ужин (три варианта); главная → запрос о блюде → подходящий рецепт из личной коллекции или готовой базы → полная карточка; если подходящего нет → генерация одного рецепта → полная карточка → добровольное сохранение. Голосовой запрос в личном чате проходит тот же порядок.</p>
+</main>
+</html>

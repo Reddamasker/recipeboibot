@@ -479,33 +479,40 @@ export function updateRecipe(userId, id, input) {
 }
 export function archiveRecipe(userId, id) { return db.prepare("UPDATE recipes SET status='archived',updated_at=? WHERE id=? AND user_id=?").run(now(), id, userId).changes > 0; }
 
-const searchStopWords = new Set(['рецепт', 'рецепта', 'рецепты', 'рецептов', 'рецепте', 'рецептом', 'с', 'со', 'из', 'на', 'для', 'и', 'в', 'во', 'по', 'как', 'приготовить', 'найти', 'найди', 'покажи', 'блюдо', 'блюда', 'ужин', 'ужина', 'за', 'минут', 'минуты', 'минуту', 'не', 'слишком']);
+const searchStopWords = new Set(['рецепт', 'рецепта', 'рецепты', 'рецептов', 'рецепте', 'рецептом', 'с', 'со', 'из', 'на', 'для', 'и', 'в', 'во', 'по', 'как', 'приготовить', 'найти', 'найди', 'покажи', 'блюдо', 'блюда', 'ужин', 'ужина', 'за', 'до', 'минут', 'минуты', 'минуту', 'не', 'слишком', 'я', 'мне', 'хочу', 'хотелось', 'бы', 'что', 'нибудь', 'что-нибудь', 'сделай', 'подбери', 'посоветуй', 'можно', 'какой', 'какое', 'какую', 'пожалуйста']);
 const searchTokens = (value) => String(value).toLocaleLowerCase('ru').replaceAll('ё', 'е').match(/[\p{L}\p{N}]+/gu) || [];
 function sameSearchWord(left, right) {
   if (left === right) return true;
   const shorter = Math.min(left.length, right.length);
-  if (shorter < 5 || Math.abs(left.length - right.length) > 3) return false;
+  if (shorter < 5) {
+    const [base, inflected] = left.length < right.length ? [left, right] : [right, left];
+    return base.length >= 3 && inflected.startsWith(base) && /^(?:а|у|е|ы|и|ом|ем|ов|ев|ам|ям|ами|ями|ах|ях)$/u.test(inflected.slice(base.length));
+  }
+  if (Math.abs(left.length - right.length) > 3) return false;
   return left.slice(0, Math.max(4, shorter - 2)) === right.slice(0, Math.max(4, shorter - 2));
 }
 
-export function searchRecipes(userId, query) {
+export function matchRecipes(recipes, query, { allowAll = true } = {}) {
   const quick = /(быстр|скор)/iu.test(query);
   const light = /(низкокалор|не\s+слишком\s+калор|легк)/iu.test(query);
   const words = searchTokens(query).filter((word) => word.length > 2 && !/^\d+$/u.test(word) && !searchStopWords.has(word) && !/^(быстр|скор|низкокалор|калор|легк)/u.test(word));
-  const maxMinutes = Number.parseInt(String(query).match(/(?:за|<|max|maximum|максимум)\s*(\d{1,3})/i)?.[1] || '', 10);
-  return listRecipes(userId).map((recipe) => {
+  const maxMinutes = Number.parseInt(String(query).match(/(?:за|до|<|max|maximum|максимум)\s*(\d{1,3})/i)?.[1] || '', 10);
+  return recipes.map((recipe) => {
     const fields = [recipe.title, recipe.description, recipe.notes, ...recipe.tags, ...recipe.ingredients.map((x) => x.name || x.raw || x)];
     const tokens = fields.map(searchTokens);
     const matches = words.map((word) => tokens.findIndex((field) => field.some((token) => sameSearchWord(word, token))));
     if (matches.includes(-1)) return { recipe, score: 0 };
     let score = matches.reduce((sum, field) => sum + ([5, 2, 1, 3][field] ?? 2), 0);
+    const titleWords = searchTokens(recipe.title).filter((word) => !searchStopWords.has(word));
+    if (words.length && titleWords.join(' ') === words.join(' ')) score += 20;
     const totalMinutes = recipe.prepMinutes != null || recipe.cookMinutes != null ? (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0) : null;
     if (quick && totalMinutes !== null && totalMinutes <= 30) score += 2;
     if (maxMinutes && totalMinutes !== null && totalMinutes <= maxMinutes) score += 3;
     if (light && recipe.tags.some((t) => /(легк|низкокалор)/i.test(t))) score += 3;
     return { recipe, score };
-  }).filter((x) => x.score > 0 || (words.length === 0 && !quick && !light && !maxMinutes)).sort((a, b) => b.score - a.score).map((x) => x.recipe);
+  }).filter((x) => x.score > 0 || (allowAll && words.length === 0 && !quick && !light && !maxMinutes)).sort((a, b) => b.score - a.score).map((x) => x.recipe);
 }
+export function searchRecipes(userId, query) { return matchRecipes(listRecipes(userId), query); }
 
 export function recordProviderRequest({ userId, operation, model, inputUnits = 0, outputUnits = 0, reasoningUnits = 0, cachedInputUnits = 0, totalUnits = inputUnits + outputUnits, usageComplete = false, status, providerStatus = null, errorCode = null, errorType = null, errorMessage = null, requestId = null, clientRequestId = null, incompleteReason = null, retryAfter = null }) {
   db.prepare('INSERT INTO provider_requests(id,user_id,operation,model,input_units,output_units,reasoning_units,cached_input_units,total_units,usage_complete,status,provider_status,error_code,error_type,error_message,request_id,client_request_id,incomplete_reason,retry_after,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
