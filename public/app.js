@@ -353,7 +353,7 @@ function dinnerChoiceCard(option, index) {
   const reason = [discovery || option.role === 'familiar' || option.role === 'quick' ? pitch.label : pitch.reason, minutes ? `${minutes} мин` : null].filter(Boolean).join(' · ');
   const missing = option.pantryMatch?.missing?.length ? `<p class="dinner-menu-missing">Докупить: ${esc(option.pantryMatch.missing.join(', '))}</p>` : '';
   const servingNote = state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
-  return `<li class="dinner-menu-item"><span class="dinner-menu-index" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}<div class="dinner-menu-actions"><button class="dinner-pick-button" ${state.dinner?.switching ? 'disabled' : ''} data-dinner-accept="${esc(option.id)}">Готовим <span aria-hidden="true">→</span></button><button class="dinner-recipe-link" data-dinner-full="${esc(option.id)}">Рецепт</button></div></div></li>`;
+  return `<li class="dinner-menu-item"><button type="button" class="dinner-menu-card" ${state.dinner?.switching ? 'disabled' : ''} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div></li>`;
 }
 
 function updateDinnerIngredients() {
@@ -378,7 +378,6 @@ function dinnerView() {
   document.querySelector('#dinner-retry')?.addEventListener('click', () => beginDinner());
   document.querySelector('#dinner-tastes')?.addEventListener('click', showDinnerTastePreferences);
   document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
-  document.querySelectorAll('[data-dinner-accept]').forEach((button) => button.onclick = async () => { const selected = items.find((option) => option.id === button.dataset.dinnerAccept); button.disabled = true; if (!await acceptDinnerItem(selected)) button.disabled = false; });
   document.querySelector('#dinner-reject-batch')?.addEventListener('click', showNextDinner);
   document.querySelector('#dinner-reason-open')?.addEventListener('click', () => { dinner.askingReason = true; dinnerView(); });
   document.querySelectorAll('[data-reason]').forEach((button) => button.onclick = async () => { try { await api(`/api/dinner/recommendations/${dinner.lastRejectedId}/reason`, { method: 'POST', body: JSON.stringify({ reason: button.dataset.reason }) }); await loadDinnerRecommendation(); } catch (error) { toast(error.message); } });
