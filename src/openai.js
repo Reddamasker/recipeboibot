@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 import { recordAiAttempt, recordProviderRequest } from './db.js';
 import { log } from './log.js';
+import { openaiFetch } from './openai-fetch.js';
 
 const recipeSchema = {
   type: 'object', additionalProperties: false,
@@ -91,7 +92,7 @@ async function requestResponse({ userId, operation, input, schema = recipeSchema
   const clientRequestId = randomUUID();
   let response; let payload;
   try {
-    response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', signal: AbortSignal.timeout(timeoutMs), headers: { authorization: `Bearer ${config.openaiKey}`, 'content-type': 'application/json', 'x-client-request-id': clientRequestId }, body: JSON.stringify(body) });
+    response = await openaiFetch('https://api.openai.com/v1/responses', { method: 'POST', signal: AbortSignal.timeout(timeoutMs), headers: { authorization: `Bearer ${config.openaiKey}`, 'content-type': 'application/json', 'x-client-request-id': clientRequestId }, body: JSON.stringify(body) });
     payload = await responsePayload(response);
     if (!response.ok) throw taggedError(payload.error?.message || `OpenAI HTTP ${response.status}`, { providerCode: payload.error?.code, providerType: payload.error?.type, providerMessage: payload.error?.message });
     if (payload.error || payload.status === 'failed') throw taggedError(payload.error?.message || 'OpenAI не сформировал ответ', { providerCode: payload.error?.code || 'response_failed', providerType: payload.error?.type, providerMessage: payload.error?.message });
@@ -227,7 +228,7 @@ async function transcribeFile({ userId, buffer, mime, filename, maxBytes, langua
   const clientRequestId = randomUUID();
   let response; let payload;
   try {
-    response = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', signal: AbortSignal.timeout(60000), headers: { authorization: `Bearer ${config.openaiKey}`, 'x-client-request-id': clientRequestId }, body: form });
+    response = await openaiFetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', signal: AbortSignal.timeout(60000), headers: { authorization: `Bearer ${config.openaiKey}`, 'x-client-request-id': clientRequestId }, body: form });
     payload = await responsePayload(response);
     if (!response.ok) throw taggedError(payload.error?.message || `OpenAI HTTP ${response.status}`, { providerCode: payload.error?.code, providerType: payload.error?.type, providerMessage: payload.error?.message });
     const usage = usageDetails(payload);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 import { getRecipeImage, recordAiAttempt, recordProviderRequest, saveRecipeImage } from './db.js';
 import { log } from './log.js';
+import { openaiFetch } from './openai-fetch.js';
 
 const inFlight = new Map();
 
@@ -18,7 +19,7 @@ export async function generateRecipeImage(userId, recipe) {
   let response;
   let payload;
   try {
-    response = await fetch('https://api.openai.com/v1/images/generations', {
+    response = await openaiFetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       signal: AbortSignal.timeout(180000),
       headers: { authorization: `Bearer ${config.openaiKey}`, 'content-type': 'application/json', 'x-client-request-id': clientRequestId },
