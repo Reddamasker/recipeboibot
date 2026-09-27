@@ -62,7 +62,9 @@ test('dinner cards omit ingredient previews, keep shopping needs and use the sam
 
 test('first dinner never starts taste onboarding before the trial; explicit settings remain available', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
+  const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
+  assert.match(document, /app\.js\?v=dinner-10\.12/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal,
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
