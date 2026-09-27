@@ -122,7 +122,8 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
     score += pantryMatch.coverage * DINNER_WEIGHTS.pantryFit - pantryMatch.missing.length * DINNER_WEIGHTS.pantryMissingPenalty;
     if (hasBase) score += DINNER_WEIGHTS.mainIngredientFit;
   }
-  score += categories.reduce((sum, key) => sum + Math.min(2, (categorySignals[key] || 0) + (profile.preferredCategories?.[key] || 0)) * DINNER_WEIGHTS.category, 0);
+  // Explicit tastes keep their effect even when accumulated history reaches its cap.
+  score += categories.reduce((sum, key) => sum + (Math.min(2, categorySignals[key] || 0) + (profile.preferredCategories?.[key] || 0)) * DINNER_WEIGHTS.category, 0);
   if (minutes !== null && (!profile.preferredMaxCookingTime || minutes <= profile.preferredMaxCookingTime)) score += DINNER_WEIGHTS.timeFit;
   const desiredServings = profile.householdSize || (profile.householdType === 'family' ? 3 : profile.householdType === 'couple' ? 2 : 1);
   if (recipe.servings) score += recipe.servings >= desiredServings ? DINNER_WEIGHTS.servingsFit : -DINNER_WEIGHTS.servingsFit;

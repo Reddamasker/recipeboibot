@@ -23,9 +23,12 @@ export function updateDinnerProfile(userId, input) {
   const excludedIngredients = input.excludedIngredients === undefined ? current.excludedIngredients : input.excludedIngredients;
   if (!Array.isArray(excludedIngredients) || excludedIngredients.length > 20 || excludedIngredients.some((item) => typeof item !== 'string' || item.length > 80)) throw badRequest('Проверьте исключённые продукты');
   const categories = input.preferredCategories === undefined ? current.preferredCategories : input.preferredCategories;
-  if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.entries(categories).some(([key, value]) => !CATEGORIES.has(key) || !Number.isFinite(value) || value < 0 || value > 1)) throw badRequest('Проверьте любимые блюда');
+  if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.entries(categories).some(([key, value]) => !CATEGORIES.has(key) || !Number.isFinite(value) || value < -1 || value > 1)) throw badRequest('Проверьте предпочтения в блюдах');
+  const tastePreferencesStatus = input.tastePreferencesStatus === undefined ? current.tastePreferencesStatus : input.tastePreferencesStatus;
+  if (!['pending', 'completed', 'skipped'].includes(tastePreferencesStatus)) throw badRequest('Проверьте статус знакомства со вкусами');
   const firstCompletion = !current.onboardingCompleted && input.onboardingCompleted === true;
-  const saved = saveFoodProfile(userId, { householdType, householdSize, hasChildren, preferredMaxCookingTime, excludedIngredients: [...new Set(excludedIngredients.map((item) => item.trim().toLocaleLowerCase('ru')).filter(Boolean))], preferredCategories: categories, onboardingCompleted: Boolean(input.onboardingCompleted ?? current.onboardingCompleted) });
+  const saved = saveFoodProfile(userId, { householdType, householdSize, hasChildren, preferredMaxCookingTime, excludedIngredients: [...new Set(excludedIngredients.map((item) => item.trim().toLocaleLowerCase('ru')).filter(Boolean))], preferredCategories: categories, tastePreferencesStatus, onboardingCompleted: Boolean(input.onboardingCompleted ?? current.onboardingCompleted) });
+  if (tastePreferencesStatus !== current.tastePreferencesStatus && tastePreferencesStatus !== 'pending') addDinnerEvent(userId, `taste_preferences_${tastePreferencesStatus}`);
   if (firstCompletion) addDinnerEvent(userId, 'onboarding_completed');
   return saved;
 }
@@ -52,7 +55,7 @@ export function startDinner(userId, { prefetchOnly = false } = {}) {
   const sessionId = findReusableDinnerSession(userId, dinnerContextKey({ profile, pantry: getDinnerContext(userId) })) || openDinnerSession(userId, { prefetchOnly });
   if (!prefetchOnly) markDinnerSessionOpened(userId, sessionId);
   const needsOnboarding = !profile.onboardingCompleted && listRecipes(userId).filter((recipe) => recipe.status === 'ready').length < 3;
-  return { sessionId, profile, pantry: getDinnerContext(userId), needsOnboarding };
+  return { sessionId, profile, pantry: getDinnerContext(userId), needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
 }
 
 export function startDinnerOnboarding(userId, sessionId) {
@@ -75,7 +78,7 @@ function recommendationReasons(chosen, profile, signals, history) {
   const reasons = [];
   if (chosen.minutes !== null) reasons.push(`${chosen.minutes} минут`);
   if (chosen.recipe.userSaved) reasons.push('Ты сохранил этот рецепт');
-  if (chosen.categories.some((key) => (signals[key] || 0) + (profile.preferredCategories[key] || 0) >= 0.5)) reasons.push('Подходит под твои предпочтения');
+  if (!chosen.categories.some((key) => profile.preferredCategories[key] < 0) && chosen.categories.some((key) => (signals[key] || 0) + (profile.preferredCategories[key] || 0) >= 0.5)) reasons.push('Подходит под твои предпочтения');
   if (profile.householdType === 'family' && chosen.recipe.servings >= 3) reasons.push('Подходит для семьи');
   if (history.some((event) => event.event === 'recipe_cooked') && !history.some((event) => event.recipeKey === chosen.recipe.id && event.event === 'recipe_cooked')) reasons.push('Ты ещё не готовил это блюдо');
   return reasons.slice(0, 3);

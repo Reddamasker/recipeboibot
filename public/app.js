@@ -153,6 +153,7 @@ async function beginDinner(forceOnboarding = false) {
     const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
     if (forceOnboarding) await showDinnerOnboarding();
+    else if (session.needsTastePreferences) showDinnerTastePreferences();
     else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
 }
@@ -165,6 +166,47 @@ async function showDinnerOnboarding() {
     state.onboarding = { step: 0, householdType: dinner.profile.householdType, householdSize: dinner.profile.householdSize, hasChildren: dinner.profile.hasChildren, preferredMaxCookingTime: dinner.profile.preferredMaxCookingTime, excludedIngredients: dinner.profile.excludedIngredients.join(', '), preferredCategories: { ...dinner.profile.preferredCategories } };
     dinnerView();
   } catch (error) { toast(error.message); }
+}
+
+function tasteChoices(categories) {
+  const tags = [['pasta','Паста'],['asian','Азиатское'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']];
+  return `<h1>Что ты любишь есть?</h1><p>Отметь любимые блюда и те, которые не по вкусу. Так подбор станет точнее.</p>${[[1, 'Нравится'], [-1, 'Не нравится']].map(([value, title]) => `<fieldset class="taste-group"><legend>${title}</legend><div class="dinner-options">${tags.map(([key, label]) => `<button type="button" class="dinner-option ${Math.sign(categories[key] || 0) === value ? 'selected' : ''}" data-taste="${key}" data-value="${value}" aria-pressed="${Math.sign(categories[key] || 0) === value}">${label}</button>`).join('')}</div></fieldset>`).join('')}<p class="dinner-help">Можно выбрать несколько тегов. Повторное нажатие снимает выбор. Нелюбимые блюда будем предлагать реже. Аллергию и продукты, которые нельзя, укажи отдельно в настройках.</p>`;
+}
+
+function bindTasteChoices(data, redraw) {
+  document.querySelectorAll('[data-taste]').forEach((button) => button.onclick = () => {
+    if (data.saving) return;
+    const key = button.dataset.taste, value = Number(button.dataset.value);
+    if (Math.sign(data.preferredCategories[key] || 0) === value) delete data.preferredCategories[key];
+    else data.preferredCategories[key] = value;
+    redraw();
+    document.querySelector(`[data-taste="${key}"][data-value="${value}"]`)?.focus();
+  });
+}
+
+function showDinnerTastePreferences() {
+  clearTimeout(dinnerPollTimer);
+  state.onboarding = { tasteOnly: true, preferredCategories: { ...state.dinner.profile.preferredCategories }, saving: false };
+  dinnerView();
+}
+
+function tastePreferencesView() {
+  const data = state.onboarding;
+  root.innerHTML = `${header()}<main class="dinner-page"><div class="eyebrow">ТВОИ ВКУСЫ</div><section class="dinner-onboarding">${tasteChoices(data.preferredCategories)}<div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>Пока пропустить</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
+  bindCommon();
+  bindTasteChoices(data, tastePreferencesView);
+  const finish = async (skip) => {
+    if (data.saving) return;
+    data.saving = true; tastePreferencesView();
+    try {
+      const input = skip ? { tastePreferencesStatus: 'skipped' } : { preferredCategories: data.preferredCategories, tastePreferencesStatus: 'completed' };
+      await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify(input) });
+      state.onboarding = null;
+      await beginDinner();
+    } catch (error) { data.saving = false; tastePreferencesView(); toast(error.message); }
+  };
+  document.querySelector('#taste-save').onclick = () => finish(false);
+  document.querySelector('#taste-skip').onclick = () => finish(true);
 }
 
 async function loadDinnerRecommendation() {
@@ -246,13 +288,14 @@ async function showNextDinner() {
 }
 
 function onboardingView() {
+  if (state.onboarding.tasteOnly) return tastePreferencesView();
   const data = state.onboarding, step = data.step;
   const choices = (items, selected, field) => `<div class="dinner-options">${items.map(([value, label]) => `<button type="button" class="dinner-option ${selected === value ? 'selected' : ''}" data-${field}="${value}">${label}</button>`).join('')}</div>`;
   const content = [
     `<h1>Для кого обычно готовишь?</h1>${choices([['self', 'Для себя'], ['couple', 'Для двоих'], ['family', 'Для семьи']], data.householdType, 'household')}<label class="dinner-help" for="dinner-household-size">Сколько человек за столом?</label><input class="field" id="dinner-household-size" type="number" min="1" max="10" inputmode="numeric" value="${data.householdSize || ''}" placeholder="Например, 3"><p class="dinner-help">Есть дети?</p>${choices([['yes','Да'],['no','Нет']], data.hasChildren === null ? null : data.hasChildren ? 'yes' : 'no', 'children')}`,
     `<h1>Сколько времени есть на ужин?</h1>${choices([['15', 'До 15 минут'], ['30', 'До 30 минут'], ['60', 'До 60 минут'], ['any', 'Неважно']], data.preferredMaxCookingTime === null ? 'any' : String(data.preferredMaxCookingTime), 'time')}`,
     `<h1>Есть ли аллергия?</h1><p>Назови аллергены и другие продукты, которые нужно исключить.</p><input class="field" id="dinner-excluded" value="${esc(data.excludedIngredients)}" placeholder="Например: грибы, арахис"><p class="dinner-help">Разделяй продукты запятыми. Если аллергии и исключений нет, оставь поле пустым.</p>`,
-    `<h1>Какие блюда тебе нравятся?</h1><div class="dinner-options">${[['pasta','Паста'],['asian','Азиатское'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']].map(([key, label]) => `<button type="button" class="dinner-option ${data.preferredCategories[key] ? 'selected' : ''}" data-category="${key}">${label}</button>`).join('')}</div>`
+    tasteChoices(data.preferredCategories)
   ][step];
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button><div class="eyebrow">БЫСТРАЯ НАСТРОЙКА · ${step + 1} ИЗ 4</div><section class="dinner-onboarding">${content}<div class="dinner-actions"><button class="primary accent" id="onboarding-next">${step === 3 ? 'Показать ужин' : 'Дальше'}</button>${step !== 2 ? '<button class="secondary" id="onboarding-skip">Пропустить</button>' : ''}</div></section></main>`;
   bindCommon();
@@ -261,17 +304,21 @@ function onboardingView() {
   document.querySelector('#dinner-household-size')?.addEventListener('input', (event) => { const value = Number(event.target.value); data.householdSize = Number.isInteger(value) && value >= 1 && value <= 10 ? value : null; });
   document.querySelectorAll('[data-children]').forEach((button) => button.onclick = () => { data.hasChildren = button.dataset.children === 'yes'; onboardingView(); });
   document.querySelectorAll('[data-time]').forEach((button) => button.onclick = () => { data.preferredMaxCookingTime = button.dataset.time === 'any' ? null : Number(button.dataset.time); onboardingView(); });
-  document.querySelectorAll('[data-category]').forEach((button) => button.onclick = () => { const key = button.dataset.category; if (data.preferredCategories[key]) delete data.preferredCategories[key]; else data.preferredCategories[key] = 0.8; onboardingView(); });
-  const advance = async () => {
+  bindTasteChoices(data, onboardingView);
+  const advance = async (skip = false) => {
+    if (data.saving) return;
     if (step === 2) data.excludedIngredients = document.querySelector('#dinner-excluded').value;
     if (step < 3) { data.step += 1; onboardingView(); return; }
+    data.saving = true;
+    document.querySelector('#onboarding-next').disabled = true;
+    document.querySelector('#onboarding-skip').disabled = true;
     try {
-      const profile = await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify({ householdType: data.householdType, householdSize: data.householdSize, hasChildren: data.hasChildren, preferredMaxCookingTime: data.preferredMaxCookingTime, excludedIngredients: data.excludedIngredients.split(',').map((item) => item.trim()).filter(Boolean), preferredCategories: data.preferredCategories, onboardingCompleted: true }) });
+      const profile = await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify({ householdType: data.householdType, householdSize: data.householdSize, hasChildren: data.hasChildren, preferredMaxCookingTime: data.preferredMaxCookingTime, excludedIngredients: data.excludedIngredients.split(',').map((item) => item.trim()).filter(Boolean), ...(!skip ? { preferredCategories: data.preferredCategories } : {}), tastePreferencesStatus: skip ? 'skipped' : 'completed', onboardingCompleted: true }) });
       state.dinner.profile = profile; state.onboarding = null; await beginDinner();
-    } catch (error) { toast(error.message); }
+    } catch (error) { data.saving = false; onboardingView(); toast(error.message); }
   };
-  document.querySelector('#onboarding-next').onclick = advance;
-  document.querySelector('#onboarding-skip')?.addEventListener('click', advance);
+  document.querySelector('#onboarding-next').onclick = () => advance();
+  document.querySelector('#onboarding-skip')?.addEventListener('click', () => advance(true));
 }
 
 function dinnerChoiceCard(option, index) {
@@ -300,13 +347,14 @@ function dinnerView() {
   const content = dinner?.askingReason ? `<section class="dinner-decision"><div class="eyebrow">ПОМОГИ УТОЧНИТЬ ВЫБОР</div><h1>Почему не подходит?</h1><div class="dinner-options">${[['too_long','Долго'],['not_today','Не хочется'],['recently_ate','Недавно ел'],['missing_ingredients','Нет ингредиентов'],['too_hard','Слишком сложно'],['other','Другое']].map(([key, label]) => `<button class="dinner-option" data-reason="${key}">${label}</button>`).join('')}</div><button class="manual-save" id="reason-skip">Пропустить</button></section>`
     : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Отличный выбор. Рецепт под рукой, когда будешь готовить.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
-    : `<section class="dinner-decision dinner-picks"><div class="eyebrow">СЕГОДНЯ НА УЖИН</div><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
+    : `<section class="dinner-decision dinner-picks"><div class="eyebrow">СЕГОДНЯ НА УЖИН</div><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${content}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));
   document.querySelector('#dinner-pantry-update')?.addEventListener('click', updateDinnerIngredients);
   document.querySelector('#dinner-retry')?.addEventListener('click', () => beginDinner());
+  document.querySelector('#dinner-tastes')?.addEventListener('click', showDinnerTastePreferences);
   document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
   document.querySelectorAll('[data-dinner-accept]').forEach((button) => button.onclick = async () => { const selected = items.find((option) => option.id === button.dataset.dinnerAccept); button.disabled = true; if (!await acceptDinnerItem(selected)) button.disabled = false; });
   document.querySelector('#dinner-reject-batch')?.addEventListener('click', showNextDinner);

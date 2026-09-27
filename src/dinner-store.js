@@ -69,6 +69,7 @@ const ensureColumn = (table, name, definition) => {
 };
 ensureColumn('food_profiles', 'household_size', 'INTEGER');
 ensureColumn('food_profiles', 'has_children', 'INTEGER');
+ensureColumn('food_profiles', 'taste_preferences_status', "TEXT NOT NULL DEFAULT 'pending'");
 ensureColumn('dinner_sessions', 'pantry_json', "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn('dinner_sessions', 'buffer_context', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('dinner_sessions', 'buffer_retry_at', 'INTEGER NOT NULL DEFAULT 0');
@@ -86,16 +87,17 @@ export function getFoodProfile(userId) {
     preferredMaxCookingTime: row.preferred_max_cooking_time,
     excludedIngredients: parseJson(row.excluded_ingredients_json, []),
     preferredCategories: parseJson(row.preferred_categories_json, {}),
+    tastePreferencesStatus: row.taste_preferences_status,
     onboardingCompleted: Boolean(row.onboarding_completed)
-  } : { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, onboardingCompleted: false };
+  } : { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, tastePreferencesStatus: 'pending', onboardingCompleted: false };
 }
 
 export function saveFoodProfile(userId, profile) {
-  db.prepare(`INSERT INTO food_profiles(user_id,household_type,household_size,has_children,preferred_max_cooking_time,excluded_ingredients_json,preferred_categories_json,onboarding_completed,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET household_type=excluded.household_type,household_size=excluded.household_size,has_children=excluded.has_children,
+  db.prepare(`INSERT INTO food_profiles(user_id,household_type,household_size,has_children,preferred_max_cooking_time,excluded_ingredients_json,preferred_categories_json,onboarding_completed,updated_at,taste_preferences_status)
+    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET household_type=excluded.household_type,household_size=excluded.household_size,has_children=excluded.has_children,
     preferred_max_cooking_time=excluded.preferred_max_cooking_time,excluded_ingredients_json=excluded.excluded_ingredients_json,
-    preferred_categories_json=excluded.preferred_categories_json,onboarding_completed=excluded.onboarding_completed,updated_at=excluded.updated_at`)
-    .run(userId, profile.householdType, profile.householdSize, profile.hasChildren === null ? null : profile.hasChildren ? 1 : 0, profile.preferredMaxCookingTime, JSON.stringify(profile.excludedIngredients), JSON.stringify(profile.preferredCategories), profile.onboardingCompleted ? 1 : 0, now());
+    preferred_categories_json=excluded.preferred_categories_json,onboarding_completed=excluded.onboarding_completed,updated_at=excluded.updated_at,taste_preferences_status=excluded.taste_preferences_status`)
+    .run(userId, profile.householdType, profile.householdSize, profile.hasChildren === null ? null : profile.hasChildren ? 1 : 0, profile.preferredMaxCookingTime, JSON.stringify(profile.excludedIngredients), JSON.stringify(profile.preferredCategories), profile.onboardingCompleted ? 1 : 0, now(), profile.tastePreferencesStatus ?? getFoodProfile(userId).tastePreferencesStatus);
   return getFoodProfile(userId);
 }
 

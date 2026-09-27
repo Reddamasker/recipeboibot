@@ -58,19 +58,54 @@ test('dinner cards show only shopping needs and use the same time format', () =>
   assert.doesNotMatch(quick, /на готовку|говяжий фарш/);
 });
 
-test('Mini App does not repeat chat onboarding; preferences open only on request', async () => {
+test('Mini App asks tastes once without repeating chat onboarding; full settings remain optional', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  let needsOnboarding = true, questions = 0, recipes = 0;
+  let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal,
-    api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding }),
+    api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
+    showDinnerTastePreferences: () => { tastes++; },
     showDinnerOnboarding: async () => { questions++; }, loadDinnerRecommendation: async () => { recipes++; },
     toast: assert.fail, setRoute() {}, home() {} };
   vm.runInNewContext(handler, sandbox);
-  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 1);
-  needsOnboarding = false;
-  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 2);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(tastes, 1); assert.equal(recipes, 0);
+  needsOnboarding = false; needsTastePreferences = false;
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 1); assert.equal(tastes, 1);
   await sandbox.beginDinner(true); assert.equal(questions, 1);
+});
+
+test('taste tags switch between like, dislike and neutral; failed saves retain draft, skip omits it', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function tasteChoices('), source.indexOf('\nasync function loadDinnerRecommendation'));
+  const buttons = [1, -1].map((value) => ({ dataset: { taste: 'fish', value: String(value) } }));
+  const elements = Object.fromEntries(['#taste-save', '#taste-skip'].map((key) => [key, {}]));
+  const root = { innerHTML: '' }, requests = [], errors = [];
+  let fail = true, dinners = 0;
+  const state = { dinner: { profile: { preferredCategories: { pasta: 0.8 } } } };
+  const sandbox = { root, state, clearTimeout() {}, dinnerPollTimer: null, header: () => '', bindCommon() {},
+    document: { querySelectorAll: () => buttons, querySelector: (key) => elements[key] || { focus() {} } },
+    dinnerView: () => sandbox.tastePreferencesView(),
+    beginDinner: async () => { dinners++; }, toast: (message) => errors.push(message),
+    api: async (url, options) => { requests.push(JSON.parse(options.body)); if (fail) throw new Error('offline'); return {}; } };
+  vm.runInNewContext(handler, sandbox);
+  sandbox.showDinnerTastePreferences();
+  assert.match(root.innerHTML, /Нравится/); assert.match(root.innerHTML, /Не нравится/);
+  buttons[0].onclick(); assert.equal(state.onboarding.preferredCategories.fish, 1);
+  buttons[1].onclick(); assert.equal(state.onboarding.preferredCategories.fish, -1);
+  assert.match(root.innerHTML, /data-taste="fish" data-value="-1" aria-pressed="true"/);
+  buttons[1].onclick(); assert.equal(state.onboarding.preferredCategories.fish, undefined);
+  buttons[1].onclick();
+  await elements['#taste-save'].onclick();
+  assert.equal(dinners, 0); assert.deepEqual(errors, ['offline']);
+  assert.equal(state.onboarding.preferredCategories.fish, -1); assert.equal(state.onboarding.saving, false);
+  fail = false;
+  await elements['#taste-save'].onclick();
+  assert.deepEqual(requests.at(-1), { preferredCategories: { pasta: 0.8, fish: -1 }, tastePreferencesStatus: 'completed' });
+  assert.equal(state.onboarding, null); assert.equal(dinners, 1);
+  sandbox.showDinnerTastePreferences(); buttons[0].onclick();
+  await elements['#taste-skip'].onclick();
+  assert.deepEqual(requests.at(-1), { tastePreferencesStatus: 'skipped' });
+  assert.equal(dinners, 2);
 });
 
 test('dinner image polling recovers after a network failure', async () => {
@@ -105,8 +140,8 @@ test('open full recipe keeps waiting for its image after a transient fetch failu
 
 test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
-  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.5'));
-  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.9'));
+  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v='));
+  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v='));
   const stages = [];
   let poll;
   let nativeReadyCalls = 0;

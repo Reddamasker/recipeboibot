@@ -10,13 +10,65 @@ process.env.DINNER_LLM_ENABLED = 'false';
 const { db, upsertTelegramUser, allowUser, createRecipe } = await import('../src/db.js');
 const { hasExcludedIngredient, isDinnerCandidate, pantryCoverage, rankCandidates, recipeCategories, selectDinnerChoices, shortlistDinnerCandidates, SEED_RECIPES } = await import('../src/dinner.js');
 const { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } = await import('../src/dinner-intake.js');
-const { confirmDinnerIntake, recommendDinner, rejectDinnerBatch, startDinner } = await import('../src/dinner-service.js');
+const { confirmDinnerIntake, recommendDinner, rejectDinnerBatch, startDinner, updateDinnerProfile } = await import('../src/dinner-service.js');
+const { getFoodProfile } = await import('../src/dinner-store.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 
 test.after(() => {
   db.close();
   for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} }
+});
+
+test('explicit likes and dislikes change ranking even with strong history, without weakening exclusions', () => {
+  const pasta = { id: 'pasta', title: 'Паста', ingredients: [{ name: 'макароны' }] };
+  const fish = { id: 'fish', title: 'Рыба', ingredients: [{ name: 'рыба' }] };
+  const profile = { preferredCategories: { pasta: 1, fish: -1 } };
+  const ranked = rankCandidates([fish, pasta], { profile });
+  assert.deepEqual(ranked.map((item) => item.recipe.id), ['pasta', 'fish']);
+  assert.equal(ranked[0].score, 2);
+  assert.equal(ranked[1].score, -2);
+  const neutral = rankCandidates([fish], { categorySignals: { fish: 100 } })[0];
+  const disliked = rankCandidates([fish], { profile, categorySignals: { fish: 100 } })[0];
+  assert.equal(neutral.score - disliked.score, 2);
+  assert.deepEqual(rankCandidates([pasta], { profile: { ...profile, excludedIngredients: ['глютен'] } }), []);
+});
+
+test('taste onboarding persists independently, skip preserves answers, edits invalidate prepared dinner', async () => {
+  const user = upsertTelegramUser({ id: 650, first_name: 'Вкусы' });
+  assert.equal(startDinner(user.id).needsTastePreferences, true);
+  updateDinnerProfile(user.id, { onboardingCompleted: true, excludedIngredients: ['орехи'], householdSize: 2 });
+  assert.equal(startDinner(user.id).needsTastePreferences, true, 'chat introduction does not answer taste questions');
+  updateDinnerProfile(user.id, { preferredCategories: { pasta: 1, fish: -1 }, tastePreferencesStatus: 'completed' });
+  const session = startDinner(user.id);
+  assert.equal(session.needsTastePreferences, false);
+  const first = await recommendDinner(user.id, session.sessionId);
+  updateDinnerProfile(user.id, { preferredCategories: { pasta: -1, fish: 1 } });
+  const updated = await recommendDinner(user.id, session.sessionId);
+  assert.ok(updated.recommendations.every((item) => !first.recommendations.some((old) => old.id === item.id)));
+  updateDinnerProfile(user.id, { tastePreferencesStatus: 'skipped' });
+  const saved = getFoodProfile(user.id);
+  assert.deepEqual(saved.preferredCategories, { pasta: -1, fish: 1 });
+  assert.deepEqual(saved.excludedIngredients, ['орехи']);
+  assert.equal(saved.householdSize, 2);
+  assert.equal(saved.onboardingCompleted, true);
+  assert.equal(startDinner(user.id).needsTastePreferences, false);
+  updateDinnerProfile(user.id, { preferredCategories: {}, tastePreferencesStatus: 'completed' });
+  assert.deepEqual(getFoodProfile(user.id).preferredCategories, {});
+  const stranger = upsertTelegramUser({ id: 651, first_name: 'Другой' });
+  assert.equal(startDinner(stranger.id).needsTastePreferences, true);
+  assert.deepEqual(getFoodProfile(stranger.id).preferredCategories, {});
+});
+
+test('invalid taste values cannot modify the profile; old positive preferences remain supported', () => {
+  const user = upsertTelegramUser({ id: 652, first_name: 'Проверка' });
+  updateDinnerProfile(user.id, { preferredCategories: { pasta: 0.8 } });
+  const original = getFoodProfile(user.id);
+  for (const preferredCategories of [{ unknown: 1 }, { fish: -2 }, { pasta: 2 }, { fish: '1' }, { fish: NaN }, [], null]) {
+    assert.throws(() => updateDinnerProfile(user.id, { preferredCategories }), (error) => error.status === 400);
+    assert.deepEqual(getFoodProfile(user.id), original);
+  }
+  assert.throws(() => updateDinnerProfile(user.id, { tastePreferencesStatus: null }), (error) => error.status === 400);
 });
 
 test('scoring applies food exclusions, time limits, saved preference and recent cooking', () => {
