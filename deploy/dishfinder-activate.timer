@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry dishfinder.ru HTTPS activation every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=dishfinder-activate.service
+
+[Install]
+WantedBy=timers.target

@@ -1,8 +1,9 @@
 import { config } from '../src/config.js';
 if (!config.appUrl) throw new Error('APP_URL is required');
 const appUrl = new URL('/?view=dinner', config.appUrl).href;
+const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 async function call(method, body = {}) {
-  const r = await fetch(`https://api.telegram.org/bot${config.telegramToken}/${method}`, { method: 'POST', signal: AbortSignal.timeout(15000), headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(`${apiOrigin}/bot${config.telegramToken}/${method}`, { method: 'POST', signal: AbortSignal.timeout(15000), headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const value = await r.json(); if (!value.ok) throw new Error(`${method} failed (${r.status})`); return value.result;
 }
 const bot = await call('getMe');

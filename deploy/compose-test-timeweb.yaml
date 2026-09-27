@@ -1,0 +1,46 @@
+﻿name: recipeboibot-test
+
+services:
+  app:
+    build: .
+    container_name: recipeboibot-test
+    restart: unless-stopped
+    env_file: .env.local
+    environment:
+      NODE_ENV: production
+      PORT: 3087
+      DATABASE_PATH: /app/data/recipes.sqlite
+      TRUST_PROXY: "true"
+      APP_URL: https://recipeboibot-test.89-223-123-75.sslip.io
+      TELEGRAM_API_ORIGIN: https://recipeboibot.72-56-97-79.sslip.io/telegram-api
+      OPENAI_HTTPS_PROXY: http://72.56.97.79:3128
+      NODE_OPTIONS: "--dns-result-order=ipv6first --no-network-family-autoselection"
+      TEST_CONTOUR: "true"
+      TEST_OWNER_TELEGRAM_ID: "6971956699"
+      TEST_BOT_USERNAME: recipeboi_test_bot
+      TEST_PRICE_VARIANTS: "129"
+      TELEGRAM_POLLING: "true"
+      DINNER_IMAGES_ENABLED: "true"
+      OPENAI_IMAGE_MODEL: gpt-image-2.5-flare
+    ports:
+      - "127.0.0.1:3088:3087"
+    volumes:
+      - recipeboibot-test-data:/app/data
+    networks:
+      - recipeboibot-v6
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  recipeboibot-test-data:
+    external: true
+    name: recipeboibot-test_recipeboibot-test-data
+
+networks:
+  recipeboibot-v6:
+    external: true

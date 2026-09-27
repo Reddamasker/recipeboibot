@@ -365,11 +365,11 @@ test('first Start restores chat introduction without requiring ingredients; skip
     assert.equal(sent[0].reply_markup, undefined);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
     assert.match(sent[1].text, /Давай подберём ужин специально для тебя/);
+    const messagesBeforeSkip = sent.filter((body) => body.chat_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
-    assert.match(sent.at(-1).text, /Что приготовить сегодня/);
-    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Выбрать ужин');
-    assert.ok(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.has('launch'));
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeSkip);
+    assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /назовите продукты/);
     assert.match(sent.at(-1).text, /🎙 <b>Запишите голосовое сообщение<\/b>/);
@@ -406,15 +406,17 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.deepEqual(pending.intake.availableIngredients, []);
     assert.match(sent.at(-1).text, /Проверьте/);
     assert.equal(getFoodProfile(user.id).onboardingCompleted, false);
+    const messagesBeforeConfirm = sent.filter((body) => body.chat_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'profile-confirm', data: 'dinner:confirm', message: { chat }, from });
     assert.equal(getFoodProfile(user.id).onboardingCompleted, true);
     assert.equal(getFoodProfile(user.id).preferredMaxCookingTime, 60);
     assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['орехов']);
     assert.deepEqual(getDinnerContext(user.id), []);
     assert.equal(database.getPendingIntent(user.id), null);
-    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Выбрать ужин');
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeConfirm);
+    assert.equal(sent.at(-1).text, 'Ответы сохранены');
     await telegramModule.handleMessage({ chat, from, text: '/start' });
-    assert.match(sent.at(-1).text, /Что приготовить сегодня/);
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeConfirm);
     await telegramModule.handleDinnerIntakeCallback({ id: 'stale-skip', data: 'dinner:skip', message: { chat }, from });
     assert.equal(sent.at(-1).show_alert, true);
     assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['орехов']);
@@ -476,9 +478,11 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
     assert.equal(pending.intake.maxMinutes, 30);
     assert.match(sent.at(-1).text, /Проверьте/);
     assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'dinner:confirm');
+    const messagesBeforeConfirm = sent.filter((body) => body.chat_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6403', data: 'dinner:confirm', message: { chat }, from });
     assert.equal(database.getPendingIntent(user.id), null);
-    assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeConfirm);
+    assert.equal(sent.at(-1).text, 'Ответы сохранены');
     const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');
     assert.deepEqual(getDinnerContext(user.id), ['курица', 'рис', 'лук', 'морковь']);
     assert.equal(getFoodProfile(user.id).householdSize, 3);
@@ -583,7 +587,7 @@ test('unblocking restores introduction and the accompanying Start does not dupli
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('reopening intake preserves a draft; unblocking a completed profile opens dinner', async () => {
+test('reopening intake preserves a draft; completed profiles prepare dinner without an extra message', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   const from = { id: 6408, first_name: 'Продолжение' }, chat = { id: 6408, type: 'private' };
@@ -597,9 +601,10 @@ test('reopening intake preserves a draft; unblocking a completed profile opens d
     await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
     assert.match(sent.at(-1).text, /Проверьте/);
     assert.deepEqual(database.getPendingIntent(user.id).intake, intake);
+    const messagesBeforeConfirm = sent.filter((body) => body.chat_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-resume', data: 'dinner:confirm', message: { chat }, from });
     await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
-    assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeConfirm);
     assert.equal(database.getPendingIntent(user.id), null);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -625,7 +630,7 @@ test('polling completes a dinner callback without routing it as an absent messag
   } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
 });
 
-test('dinner deep link introduces a new client and opens dinner after explicit skip', async () => {
+test('dinner deep link introduces a new client and prepares dinner after explicit skip without an extra message', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -636,7 +641,8 @@ test('dinner deep link introduces a new client and opens dinner after explicit s
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6402).id).profileOnly, true);
     await telegramModule.handleMessage({ ...message, text: '/skip' });
     await telegramModule.handleMessage(message);
-    assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
+    assert.equal(sent.filter((body) => body.chat_id).length, 1);
+    assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
 });
 

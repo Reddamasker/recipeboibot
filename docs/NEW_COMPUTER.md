@@ -2,7 +2,7 @@
 
 ## Что уже работает
 
-Бот `@Recipeboibot` и база работают на отдельном сервере `72.56.97.79`, Mini App — https://recipeboibot.72-56-97-79.sslip.io/?view=dinner. Технический адрес вне `.ru` используется из-за исключения `.ru` из VPN у владельца; подробности в `NETWORK_INCIDENT_2026-09-25.md`. Старый публичный сайт https://recipes.spas-sky.ru сохранён. Выключение или переустановка старого компьютера бота не останавливает. GitHub хранит код и контекст проекта; пользовательская база и рабочие секреты остаются на сервере.
+Бот `@Recipeboibot`, актуальная база и единственный polling работают на российском Timeweb Cloud `89.223.123.75`. Mini App — https://recipeboibot.89-223-123-75.sslip.io/?view=dinner; `https://dishfinder.ru` тоже обслуживается этим сервером по бесплатному HTTPS. Старый сервер `72.56.97.79` в Амстердаме служит транзитным узлом для OpenAI и Telegram API; его production-контейнер остановлен, но исторические копии данных пока требуют очистки. [Текущий статус](DISHFINDER_DEPLOY.md). Выключение или переустановка рабочего компьютера бота не останавливает. GitHub хранит код и контекст проекта; актуальная пользовательская база и рабочие секреты находятся на российском сервере.
 
 ## Скачать доступ на новом компьютере
 
@@ -45,22 +45,22 @@ node scripts/preview.js
 Помести ключи в `%USERPROFILE%\.ssh`. Если там уже есть ключи, сохрани переносимый ключ под другим именем (например `recipeboibot_ed25519`) и укажи его в пользовательском SSH config:
 
 ```sshconfig
-Host 72.56.97.79
-    User nikita
+Host 72.56.97.79 89.223.123.75
     IdentityFile ~/.ssh/recipeboibot_ed25519
     IdentitiesOnly yes
 ```
 
-Не перезаписывай имеющиеся ключи, config или known_hosts. Запись сервера из архивного known_hosts добавь к существующему файлу. Проверенный fingerprint ED25519 сервера:
+Не перезаписывай имеющиеся ключи, config или known_hosts. Запись сервера из архивного known_hosts добавь к существующему файлу. Проверенные fingerprints ED25519:
 
 ```text
-SHA256:3AzEe68l3+T4SBdsvWrmtmSwDyPRLST3x2SUFdbaews
+72.56.97.79: SHA256:3AzEe68l3+T4SBdsvWrmtmSwDyPRLST3x2SUFdbaews
+89.223.123.75: SHA256:fR1scKkgrEYFyTYzNG5tIF2JVwiMLtAkuMEliDckz+w
 ```
 
 Проверка:
 
 ```powershell
-ssh nikita@72.56.97.79
+ssh root@89.223.123.75
 # После успешного входа: exit
 node scripts/deploy.js --check
 ```
@@ -73,7 +73,7 @@ node scripts/deploy.js --check
 
 Добавь клонированную папку как локальный проект. Начни новый чат с этим сообщением:
 
-> Продолжаем Recipeboibot. Прочитай AGENTS.md, docs/CODEX_HANDOFF.md, docs/NEW_COMPUTER.md и docs/CURRENT_DECISIONS.md. Проверь git status и тесты. Рабочий бот уже находится на nikita@72.56.97.79 в /opt/recipeboibot. Локально используй scripts/preview.js. Не сбрасывай данные пользователя и не запускай второй polling. Дальше задача: …
+> Продолжаем Recipeboibot. Прочитай AGENTS.md, docs/CODEX_HANDOFF.md, docs/NEW_COMPUTER.md и docs/CURRENT_DECISIONS.md. Проверь git status и тесты. Рабочий бот, база и единственный polling работают на российском Timeweb root@89.223.123.75 в /opt/recipeboibot; dishfinder.ru проксирует локальный backend. Старый nikita@72.56.97.79 служит транзитным узлом для OpenAI и Telegram API, его бот остановлен. Исторические данные на старом сервере пока требуют согласованной очистки; подробности в docs/DISHFINDER_DEPLOY.md. Локально используй scripts/preview.js. Не сбрасывай данные пользователя и не запускай второй polling. Региональные ограничения OpenAI и требования к трансграничной передаче остаются отдельным вопросом.
 
 Контекст и правила сохранены в репозитории; копировать всю историю или папку `.codex` для этого проекта не требуется. Сам вход в аккаунт не является доказательством переноса локальных чатов. Официальные сведения о локальном состоянии: [Config and state locations](https://learn.chatgpt.com/docs/config-file/config-advanced#config-and-state-locations); установка приложения: [Desktop app](https://learn.chatgpt.com/docs/app).
 

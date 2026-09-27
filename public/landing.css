@@ -166,7 +166,12 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-end > a { flex-shrink: 0; }
 .lp-footer { border-top: 1px solid var(--lp-rule); padding-block: 26px; display: flex; justify-content: space-between; align-items: center; gap: 25px; color: var(--muted); font-size: 12px; }
 .lp-footer .lp-brand { color: var(--ink); font-size: 24px; }
-.lp-footer > div { display: flex; gap: 25px; }
+.lp-footer-owner { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 24px; row-gap: 2px; }
+.lp-footer-owner .lp-brand { grid-row: 1 / span 2; }
+.lp-footer-owner p { margin: 0; }
+.lp-footer-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 25px; }
+.lp-footer-links a { text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color .2s; }
+.lp-footer-links a:hover { text-decoration-color: currentColor; }
 .lp-skip { position: fixed; left: 20px; top: -100px; z-index: 100; padding: 12px 20px; background: white; }
 .lp-skip:focus { top: 15px; }
 .lp-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -259,6 +264,9 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-flow-bot::after { font-size: 13px; top: 19px; }
   .lp-opened-recipe .detail-content { padding-inline: 12px; }
   .lp-opened-recipe .detail-actions { padding-inline: 12px; }
-  .lp-footer > div { gap: 15px; font-size: 11px; }
+  .lp-footer { align-items: flex-start; }
+  .lp-footer-owner { grid-template-columns: 1fr; gap: 2px; font-size: 11px; }
+  .lp-footer-owner .lp-brand { grid-row: auto; margin-bottom: 6px; }
+  .lp-footer-links { max-width: 155px; justify-content: flex-start; gap: 7px 15px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { html:has(.landing:not([hidden])) { scroll-behavior: auto; } .lp-showcase.is-playing .lp-artifacts > *, .lp-showcase.is-playing .lp-flow-bot img, .lp-showcase.is-playing .lp-flow-row { animation: none; } }

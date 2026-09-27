@@ -1,0 +1,8 @@
+[Unit]
+Description=Activate HTTPS for dishfinder.ru after DNS publication
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/recipeboibot/deploy/activate-dishfinder.sh

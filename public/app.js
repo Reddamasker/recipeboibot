@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null };
+const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card' };
 window.miniProbe?.('app-script');
 
 tg?.ready(); tg?.expand();
@@ -12,7 +12,7 @@ const toast = (message) => { toastEl.textContent = message; toastEl.classList.ad
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { authorization: `tma ${tg?.initData || ''}`, 'content-type': 'application/json', ...(options.headers || {}) } });
   const value = response.status === 204 ? null : await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(value?.error || 'Не получилось выполнить запрос');
+  if (!response.ok) throw Object.assign(new Error(value?.error || 'Не получилось выполнить запрос'), { status: response.status });
   return value;
 }
 async function publicApi(path) {
@@ -55,7 +55,16 @@ function bindCommon() {
   document.querySelector('#settings')?.addEventListener('click', settingsSheet);
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
+  document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
 }
+
+function offerBanner() {
+  const payment = state.payment;
+  if (!payment?.hasFirstRecipe || payment.active) return '';
+  return `<section class="offer-banner"><div><span class="offer-kicker">${payment.firstValue === 'cooked' ? 'Первый ужин приготовлен' : 'Первый рецепт сохранён'}</span><h2>Сохраняйте следующие рецепты</h2><p>Тестовый доступ к автоматическому импорту за <strong>${payment.offer.priceRub} ₽/мес.</strong> ${payment.firstValue === 'cooked' ? 'Добавляйте свои рецепты из текста, фото и ссылок.' : 'Ваш рецепт остаётся в коллекции.'}</p></div><button class="primary accent" type="button" data-open-offer>Посмотреть предложение →</button><small>Тестовый сценарий · деньги не списываются</small></section>`;
+}
+
+function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
 
 function home() {
   const recent = state.recipes.slice(0, 4);
@@ -71,6 +80,7 @@ function home() {
       <div class="request-examples" aria-label="Примеры коротких запросов"><span>Можно коротко:</span><button type="button" data-request-example="Суп">Суп</button><button type="button" data-request-example="Курица">Курица</button><button type="button" data-request-example="Что-нибудь быстрое">Что-нибудь быстрое</button></div>
       <p>Сначала поищу готовый рецепт. Если подходящего нет — составлю новый.</p>
     </section>
+    ${offerBanner()}
     <section class="home-library" aria-labelledby="collection-title">
       <h2 id="collection-title"><button class="collection-link" id="collection"><span>Мои рецепты <small>${state.recipes.length}</small></span><span aria-hidden="true">→</span></button></h2>
       ${recent.length ? `<div class="grid">${recent.map(card).join('')}</div>` : '<div class="empty home-empty"><p>Перешли рецепт в чат бота — так я лучше пойму, что предложить тебе на ужин.</p></div>'}
@@ -153,7 +163,6 @@ async function beginDinner(forceOnboarding = false) {
     const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
     if (forceOnboarding) await showDinnerOnboarding();
-    else if (session.needsTastePreferences) showDinnerTastePreferences();
     else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
 }
@@ -326,12 +335,11 @@ function dinnerChoiceCard(option, index) {
   const image = safeImage(recipe.thumbnailUrl);
   const minutes = totalTime(recipe);
   const pitch = option.pitch || { label: index === 0 ? 'На сегодня' : 'Ещё вариант', reason: option.reasons?.[0] || '' };
-  const ingredients = option.pantryMatch ? '' : (recipe.ingredients || []).map((item) => item.name || item.raw || item).filter(Boolean).slice(0, 3).map(esc).join(' · ');
   const discovery = option.role === 'variety' && recipe.discovery;
   const reason = [discovery || option.role === 'familiar' || option.role === 'quick' ? pitch.label : pitch.reason, minutes ? `${minutes} мин` : null].filter(Boolean).join(' · ');
   const missing = option.pantryMatch?.missing?.length ? `<p class="dinner-menu-missing">Докупить: ${esc(option.pantryMatch.missing.join(', '))}</p>` : '';
   const servingNote = state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
-  return `<li class="dinner-menu-item"><span class="dinner-menu-index" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery || ingredients ? `<p class="dinner-menu-ingredients">${discovery ? esc(pitch.reason) : ingredients}</p>` : ''}${missing}${servingNote}<div class="dinner-menu-actions"><button class="dinner-pick-button" ${state.dinner?.switching ? 'disabled' : ''} data-dinner-accept="${esc(option.id)}">Готовим <span aria-hidden="true">→</span></button><button class="dinner-recipe-link" data-dinner-full="${esc(option.id)}">Рецепт</button></div></div></li>`;
+  return `<li class="dinner-menu-item"><span class="dinner-menu-index" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}<div class="dinner-menu-actions"><button class="dinner-pick-button" ${state.dinner?.switching ? 'disabled' : ''} data-dinner-accept="${esc(option.id)}">Готовим <span aria-hidden="true">→</span></button><button class="dinner-recipe-link" data-dinner-full="${esc(option.id)}">Рецепт</button></div></div></li>`;
 }
 
 function updateDinnerIngredients() {
@@ -347,8 +355,8 @@ function dinnerView() {
   const content = dinner?.askingReason ? `<section class="dinner-decision"><div class="eyebrow">ПОМОГИ УТОЧНИТЬ ВЫБОР</div><h1>Почему не подходит?</h1><div class="dinner-options">${[['too_long','Долго'],['not_today','Не хочется'],['recently_ate','Недавно ел'],['missing_ingredients','Нет ингредиентов'],['too_hard','Слишком сложно'],['other','Другое']].map(([key, label]) => `<button class="dinner-option" data-reason="${key}">${label}</button>`).join('')}</div><button class="manual-save" id="reason-skip">Пропустить</button></section>`
     : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Отличный выбор. Рецепт под рукой, когда будешь готовить.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
-    : `<section class="dinner-decision dinner-picks"><div class="eyebrow">СЕГОДНЯ НА УЖИН</div><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
-  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${content}</main>`;
+    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${content}${dinner?.cooked ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));
@@ -388,7 +396,7 @@ async function cookFromDinnerDetail(recipe) {
 }
 
 async function markDinnerCooked(id) {
-  try { await api(`/api/dinner/recommendations/${id}/cooked`, { method: 'POST', body: '{}' }); if (state.dinner?.recommendation?.id === id) { state.dinner.cooked = true; dinnerView(); } toast('Готово! Учту этот выбор в следующих рекомендациях.'); }
+  try { await api(`/api/dinner/recommendations/${id}/cooked`, { method: 'POST', body: '{}' }); await refresh(); if (state.dinner?.recommendation?.id === id) { state.dinner.cooked = true; dinnerView(); } toast('Готово! Учту этот выбор в следующих рекомендациях.'); }
   catch (error) { toast(error.message); }
 }
 
@@ -408,7 +416,7 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
   const emptyState = state.query
     ? suggestion ? suggestionSection(suggestion) : '<div class="empty"><h2>Совпадений нет</h2><p>Мы не нашли в вашей коллекции рецепт по такому запросу. Хотите, чтобы мы предложили вам наш вариант рецепта?</p><div class="empty-search-actions"><button class="primary accent" id="generate-suggestion" type="button">Создать новый рецепт</button><button class="secondary" id="change-query" type="button">Изменить запрос</button><button class="secondary" id="show-all" type="button">Открыть всю коллекцию</button></div></div>'
     : '<div class="empty collection-empty"><div class="eyebrow">Ваша коллекция начинается здесь</div><h2>Добавьте первый рецепт</h2><p>Вставьте ссылку, напишите рецепт или загрузите фото. После обработки он появится здесь.</p><button class="primary accent" id="add" type="button">Добавить первый рецепт</button><p class="empty-hint">Голосовое можно отправить боту в чате.</p></div>';
-  root.innerHTML = `${header()}<main><button class="back-link" id="back-home">← На главную</button><div class="section-head page-title"><h1>${esc(title)}</h1><span>${recipes.length}</span></div>${state.jobs.length ? `<div class="grid jobs-grid">${state.jobs.map(jobCard).join('')}</div>` : ''}${recipes.length ? `<div class="grid">${recipes.map(card).join('')}</div>` : emptyState}${recipes.length || state.query ? '<button class="manual-save" id="add">Сохранить рецепт вручную</button>' : ''}</main>`;
+  root.innerHTML = `${header()}<main><button class="back-link" id="back-home">← На главную</button><div class="section-head page-title"><h1>${esc(title)}</h1><span>${recipes.length}</span></div>${offerBanner()}${state.jobs.length ? `<div class="grid jobs-grid">${state.jobs.map(jobCard).join('')}</div>` : ''}${recipes.length ? `<div class="grid">${recipes.map(card).join('')}</div>` : emptyState}${recipes.length || state.query ? '<button class="manual-save" id="add">Сохранить рецепт вручную</button>' : ''}</main>`;
   bindCommon(); document.querySelector('#back-home').onclick = () => { setRoute({}); render(); }; document.querySelector('#add').onclick = importSheet;
   document.querySelector('#show-all')?.addEventListener('click', () => { state.query = ''; setRoute({ view: 'collection' }); render(); });
   document.querySelector('#change-query')?.addEventListener('click', () => { setRoute({ view: 'search', q: state.query }); render(); });
@@ -430,7 +438,10 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
-  if (view === 'results') {
+  if (view === 'offer' && state.me?.testContour) offerPage();
+  else if (view === 'checkout' && state.me?.testContour) checkoutPage();
+  else if (view === 'payment-result' && state.me?.testContour) paymentResultPage();
+  else if (view === 'results') {
     let results = [];
     try { results = state.query ? await api(`/api/search?q=${encodeURIComponent(state.query)}`) : state.recipes; } catch (error) { toast(error.message); }
     collection(results, state.query ? `Результаты: ${state.query}` : 'Результаты');
@@ -442,7 +453,11 @@ async function render() {
   const recipeId = params.get('recipe'); if (recipeId) await openRecipe(recipeId, false);
 }
 
-async function refresh() { const library = await api('/api/library', { signal: AbortSignal.timeout(12000) }); state.recipes = library.recipes; state.jobs = library.jobs; }
+async function refresh() {
+  const library = await api('/api/library', { signal: AbortSignal.timeout(12000) });
+  state.recipes = library.recipes; state.jobs = library.jobs;
+  if (state.me?.testContour) state.payment = await api('/api/test/payment', { signal: AbortSignal.timeout(12000) });
+}
 async function loadAndRender() { await refresh(); await render(); }
 function closeOverlay() { document.querySelector('.overlay')?.remove(); }
 function overlay(content, sheetClass = '', dismissible = true) { const el = document.createElement('div'); el.className = 'overlay'; el.innerHTML = `<section class="sheet ${esc(sheetClass)}"><div class="sheet-handle"></div>${content}</section>`; root.append(el); if (dismissible) el.addEventListener('click', (e) => { if (e.target === el) closeDetailRoute(); }); return el; }
@@ -465,7 +480,10 @@ async function submitImport(event) {
     const outcome = await api('/api/import', { method: 'POST', body: JSON.stringify(body) }); closeOverlay(); await refresh();
     if (outcome.recipe) { toast(outcome.state === 'existing' ? 'Этот рецепт уже есть' : 'Рецепт сохранён'); await openRecipe(outcome.recipe.id, true); }
     else { toast('Источник уже обрабатывается'); await render(); }
-  } catch (error) { toast(error.message); button.disabled = false; button.textContent = 'Сохранить'; }
+  } catch (error) {
+    if (error.status === 402) { closeOverlay(); await refresh(); openOffer(); return; }
+    toast(error.message); button.disabled = false; button.textContent = 'Сохранить';
+  }
 }
 
 function closeDetailRoute() {
@@ -529,10 +547,16 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     : shared || catalog
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
-  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div>${(r.origin === 'generated' || r.imageGenerated) && image ? '<p class="generated-image-note">Изображение создано ИИ; готовое блюдо может выглядеть иначе.</p>' : ''}<div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : suggestion || r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : suggestion || r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
   if (imagePending) void waitForSuggestionImage(suggestion.id, el);
   if (shared) el.classList.add('shared-overlay');
+  if (!shared && offerBanner()) {
+    const banner = document.createElement('div');
+    banner.innerHTML = offerBanner();
+    el.querySelector('.detail-content')?.append(banner);
+    banner.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
+  }
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
   el.querySelector('#edit')?.addEventListener('click', () => { closeOverlay(); editRecipe(r); });
   el.querySelector('#save-suggestion')?.addEventListener('click', async (event) => {
@@ -564,8 +588,6 @@ async function waitForSuggestionImage(id, overlayElement) {
       media.querySelector('.recipe-image-wait')?.remove();
       const img = document.createElement('img'); img.src = url; img.alt = ''; img.referrerPolicy = 'no-referrer';
       media.prepend(img); media.classList.remove('pending-preview'); media.classList.add('has-preview');
-      const note = document.createElement('p'); note.className = 'generated-image-note'; note.textContent = 'Изображение создано ИИ; готовое блюдо может выглядеть иначе.';
-      media.after(note);
       return;
     } catch { /* The card remains usable if a poll fails. */ }
   }
@@ -614,7 +636,66 @@ async function removeRecipeFromList(id, button) {
   catch (error) { toast(error.message); button.disabled = false; }
 }
 function cookMode(r, onComplete = null) { state.cookStep = 0; const el = document.createElement('div'); el.className = 'cook'; const draw = () => { el.innerHTML = `<div class="cook-top"><span>${state.cookStep + 1} из ${r.steps.length}</span><button class="icon-btn" id="cook-close">✕</button></div><div class="cook-step">${esc(r.steps[state.cookStep].text)}</div><div class="cook-nav"><button class="secondary" id="prev" ${state.cookStep === 0 ? 'disabled' : ''}>← Назад</button><button class="primary accent" id="next">${state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →'}</button></div>`; el.querySelector('#cook-close').onclick = () => el.remove(); el.querySelector('#prev').onclick = () => { state.cookStep--; draw(); }; el.querySelector('#next').onclick = () => { if (state.cookStep === r.steps.length - 1) { el.remove(); onComplete?.(); } else { state.cookStep++; draw(); } }; }; draw(); document.body.append(el); }
-function settingsSheet() { const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button><button class="ghost" id="delete-account">Удалить мои данные</button>`); el.querySelector('[data-close]').onclick = closeOverlay; el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); }; el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); }; }
+function settingsSheet() {
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.me.testContour ? '<button class="secondary" id="test-payment">Тестовая оплата</button><button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  el.querySelector('[data-close]').onclick = closeOverlay;
+  el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
+  el.querySelector('#test-payment')?.addEventListener('click', openOffer);
+  el.querySelector('#test-reset')?.addEventListener('click', async () => {
+    if (!confirm('Сбросить тестовый профиль, рецепты, историю ужинов и результат имитации оплаты?')) return;
+    try {
+      await api('/api/test/reset', { method: 'POST', body: '{}' });
+      closeOverlay();
+      root.innerHTML = '<main class="outside"><div class="brand-mark">Р</div><h1>Тестовый профиль сброшен</h1><p>Вернитесь в чат бота и нажмите /start, чтобы пройти путь нового пользователя.</p></main>';
+    } catch (error) { toast(error.message); }
+  });
+  el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); };
+}
+
+function offerPage() {
+  const payment = state.payment;
+  const price = payment?.offer?.priceRub;
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Рецепты Плюс · тестовое предложение</span><h1>${payment?.active ? 'Доступ открыт' : payment?.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment?.active ? 'Автоматический импорт доступен в тестовом контуре.' : payment?.hasFirstRecipe ? `Сохраняйте следующие рецепты из ссылок, фото и текста.${payment.firstValue === 'saved' ? ' Первый сохранённый рецепт остаётся в коллекции.' : ' Первый ужин уже позади.'}` : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment?.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ТЕСТ</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение следующих рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Выбор оплаты картой или через СБП в макете</li></ul>${payment.active ? '<div class="offer-active">✓ Тестовый доступ активен</div>' : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Демонстрационный сценарий. Реального платежа и автоматического списания нет.</p></section>` : ''}<p class="offer-support">В тестовом контуре можно проверить успех, ошибку и отмену платежа. Для нового прохождения используйте сброс профиля в настройках.</p></main>`;
+  bindCommon();
+  document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
+  document.querySelector('#go-checkout')?.addEventListener('click', () => { setRoute({ view: 'checkout' }); checkoutPage(); });
+}
+
+function checkoutPage() {
+  const payment = state.payment;
+  if (!payment?.hasFirstRecipe || payment.active) { setRoute({ view: 'offer' }, { replace: true }); offerPage(); return; }
+  const order = state.checkoutOrder || payment.pendingOrder;
+  const price = order?.priceRub || payment.offer.priceRub;
+  const confirmStep = Boolean(order);
+  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">● pay<span>demo</span></span><span class="checkout-safe">⌁ Защищённая форма</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата заказа для</small><strong>Рецепты</strong></div></div><div class="checkout-total"><span>К оплате</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${confirmStep ? `<div class="checkout-bank-step"><span class="checkout-step-icon">${order.method === 'sbp' ? '↗' : '▣'}</span><h1>${order.method === 'sbp' ? 'Подтвердите платёж в банке' : 'Подтвердите оплату'}</h1><p>${order.method === 'sbp' ? 'В реальном сценарии здесь открылось бы приложение выбранного банка для подтверждения через СБП.' : 'В реальном сценарии здесь появилось бы подтверждение банка по карте.'}</p><div class="checkout-order-id">Заказ № ${esc(order.id.slice(0, 8).toUpperCase())}</div><div class="checkout-scenarios"><span>Выберите исход тестового платежа</span><button class="checkout-pay" data-payment-result="success">Подтвердить · ${price} ₽</button><button class="checkout-alt" data-payment-result="failure">Показать ошибку оплаты</button><button class="checkout-alt" data-payment-result="cancel">Отменить платёж</button></div></div>` : `<h1 class="checkout-title">Выберите способ оплаты</h1><div class="checkout-methods"><button type="button" class="checkout-method ${state.paymentMethod === 'card' ? 'selected' : ''}" data-method="card"><span class="checkout-method-icon">▣</span><span><strong>Банковская карта</strong><small>Мир · Visa · Mastercard</small></span><span class="checkout-radio"></span></button><button type="button" class="checkout-method ${state.paymentMethod === 'sbp' ? 'selected' : ''}" data-method="sbp"><span class="checkout-method-icon sbp">СБП</span><span><strong>Система быстрых платежей</strong><small>Подтверждение в приложении банка</small></span><span class="checkout-radio"></span></button></div>${state.paymentMethod === 'card' ? '<div class="checkout-demo-form"><div class="checkout-field"><span>Номер карты</span><strong>•••• •••• •••• 4242</strong></div><div class="checkout-field-row"><div class="checkout-field"><span>Срок действия</span><strong>•• / ••</strong></div><div class="checkout-field"><span>CVC / CVV</span><strong>•••</strong></div></div><small>Демо-поля. Номер карты и CVC вводить не нужно.</small></div>' : '<div class="checkout-demo-form"><span class="checkout-field-label">Банк для подтверждения</span><div class="checkout-bank-list"><span>Сбербанк</span><span>Т-Банк</span><span>ВТБ</span><span>Другой банк</span></div><small>В тесте приложение банка не откроется.</small></div>'}<button class="checkout-pay" id="checkout-continue">${state.paymentMethod === 'sbp' ? 'Перейти к подтверждению' : 'Оплатить'} · ${price} ₽</button>`}<p class="checkout-notice">Это макет платёжной страницы. Платёжный сервис не подключён; реквизиты карты не запрашиваются и деньги не списываются.</p></div></div></main>`;
+  document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); offerPage(); };
+  document.querySelectorAll('[data-method]').forEach((button) => button.onclick = () => { state.paymentMethod = button.dataset.method; checkoutPage(); });
+  document.querySelector('#checkout-continue')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget; button.disabled = true;
+    try {
+      state.checkoutOrder = await api('/api/test/orders', { method: 'POST', body: JSON.stringify({ method: state.paymentMethod }) });
+      checkoutPage();
+    } catch (error) { toast(error.message); button.disabled = false; }
+  });
+  document.querySelectorAll('[data-payment-result]').forEach((button) => button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const result = await api(`/api/test/orders/${encodeURIComponent(order.id)}/result`, { method: 'POST', body: JSON.stringify({ result: button.dataset.paymentResult }) });
+      state.paymentResult = result.order.status;
+      state.checkoutOrder = null;
+      await refresh();
+      setRoute({ view: 'payment-result' }); paymentResultPage();
+    } catch (error) { toast(error.message); button.disabled = false; }
+  }));
+}
+
+function paymentResultPage() {
+  const result = state.paymentResult || state.payment?.lastResult;
+  const success = result === 'success';
+  root.innerHTML = `${header()}<main class="payment-result"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : result === 'cancel' ? '↶' : '!'}</span><h1>${success ? 'Оплата прошла' : result === 'cancel' ? 'Платёж отменён' : 'Не удалось оплатить'}</h1><p>${success ? 'Тестовый доступ открыт. Теперь можно сохранять следующие рецепты автоматически.' : 'Тестовый доступ пока не открыт. Уже пройденный рецепт остаётся доступен.'}</p><div class="payment-result-price">Рецепты Плюс · ${state.payment?.offer?.priceRub || '—'} ₽ / месяц</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Повторить оплату'}</button><small>Реального списания не было.</small></main>`;
+  bindCommon();
+  document.querySelector('#result-next').onclick = () => { setRoute(success ? {} : { view: 'offer' }); void render(); };
+}
 
 window.addEventListener('popstate', async (event) => { if (!tg?.initData) return; closeOverlay(); await render(); requestAnimationFrame(() => scrollTo(0, event.state?.scrollY || 0)); });
 async function boot() {

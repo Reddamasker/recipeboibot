@@ -1,0 +1,29 @@
+﻿<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telegram bot message screenshots</title>
+<style>
+  *{box-sizing:border-box}html,body{margin:0;width:390px;height:844px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#111}
+  .screen{width:390px;height:844px;display:flex;flex-direction:column;background:#d9e5dd;position:relative;overflow:hidden}
+  .screen:before{content:"";position:absolute;inset:86px 0 0;background-image:radial-gradient(#b5cdbb 1.5px,transparent 1.5px),radial-gradient(#e9eee3 2px,transparent 2px);background-size:45px 47px,74px 69px;background-position:0 0,15px 12px;opacity:.21;pointer-events:none}
+  .status{height:25px;background:#fff;display:flex;justify-content:space-between;padding:4px 17px 0;font-size:13px;font-weight:600;z-index:2}
+  .header{height:62px;background:#fff;display:flex;align-items:center;gap:12px;padding:0 13px;box-shadow:0 1px 3px #0001;z-index:2}
+  .back{font-size:28px;color:#7d8d91;line-height:1}.avatar{height:40px;width:40px;border-radius:50%;background:#547866;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px}.title{font-weight:600;font-size:16px}.sub{font-size:13px;color:#7b8589;margin-top:3px}.menu{margin-left:auto;font-size:22px;color:#87969a}
+  .chat{z-index:1;flex:1;padding:12px 10px 8px;display:flex;flex-direction:column;justify-content:flex-end;gap:9px;min-height:0}
+  .date{align-self:center;background:#7c9a90a8;color:#fff;border-radius:12px;padding:5px 10px;font-size:12px;margin-bottom:5px}
+  .message{max-width:336px;min-width:135px;padding:8px 10px 6px;border-radius:11px;box-shadow:0 1px 2px #0002;line-height:1.32;font-size:14px;white-space:pre-line;position:relative}
+  .bot{background:#fff;align-self:flex-start;border-bottom-left-radius:4px}.user{background:#e2ffc9;align-self:flex-end;border-bottom-right-radius:4px}.message b{font-weight:700}.message i{color:#66727a}.message code{font-family:Arial,Helvetica,sans-serif;color:#3279a5}.time{color:#89969b;font-size:10px;text-align:right;margin-top:4px;white-space:nowrap}.user .time{color:#68a16d}
+  .buttons{margin-top:7px;display:flex;flex-direction:column;border-top:1px solid #edf0f2}.button{color:#2790bd;text-align:center;font-weight:600;padding:8px 5px;border-bottom:1px solid #edf0f2;line-height:1.18}.button:last-child{border-bottom:0;padding-bottom:3px}.buttons.row{flex-direction:row}.buttons.row .button{flex:1;border-right:1px solid #edf0f2;border-bottom:0}
+  .photo{height:168px;margin:-8px -10px 7px;border-radius:11px 11px 0 0;background-size:cover;background-position:center}.compact .photo{height:124px}.wide{max-width:352px}.small{font-size:13px}.input{height:58px;background:#fff;display:flex;align-items:center;gap:11px;padding:0 13px;z-index:2;color:#89969b;font-size:21px}.input .placeholder{font-size:15px;flex:1}.input .send{color:#258fbc;font-size:24px}
+  .home{height:20px;background:#fff;z-index:2;display:flex;align-items:center;justify-content:center}.home:after{content:"";width:120px;height:4px;border-radius:4px;background:#141414}
+  .label{position:absolute;top:97px;right:10px;background:#fff9;border-radius:10px;padding:4px 7px;font-size:10px;color:#667;z-index:2}
+</style>
+<div class="screen">
+ <div class="status"><span>9:41</span><span>●●●  ▰  ▰</span></div>
+ <div class="header"><div class="back">‹</div><div class="avatar">🍽</div><div><div class="title" id="chat-title">Твои рецепты</div><div class="sub">бот</div></div><div class="menu">⋮</div></div>
+ <div class="chat" id="chat"></div>
+ <div class="input"><span>☺</span><span class="placeholder">Сообщение</span><span>⌕</span><span class="send">🎙</span></div><div class="home"></div>
+</div>
+<script src="telegram-backend-shots.js"></script>
+</html>

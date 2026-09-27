@@ -1,0 +1,20 @@
+[Unit]
+Description=Allowlisted OpenAI TLS CONNECT tunnel for Russian bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nikita
+WorkingDirectory=/opt/recipeboibot
+ExecStart=/usr/bin/python3 /opt/recipeboibot/deploy/openai-connect-proxy.py --allowed-source 89.223.123.75
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+StandardOutput=null
+
+[Install]
+WantedBy=multi-user.target

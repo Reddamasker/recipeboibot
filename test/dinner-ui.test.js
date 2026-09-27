@@ -13,7 +13,7 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   const example = { textContent: 'Суп' };
   const root = { innerHTML: '' };
   const routes = [], requests = [], opened = []; let rendered; let response = { kind: 'existing', recipe: { id: 'seed:chicken-rice' } };
-  const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', card: () => '', bindCommon() {}, importSheet() {},
+  const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', offerBanner: () => '', card: () => '', bindCommon() {}, importSheet() {},
     document: { querySelector: (key) => elements[key], querySelectorAll: () => [example] }, setRoute: (value) => routes.push(value), beginDinner() {}, render() {}, loadAndRender() {},
     api: async (path, options) => { requests.push([path, options.method, JSON.parse(options.body).query]); return response; },
     openRecipe: async (id) => opened.push(id), location: { search: '' }, URLSearchParams, recipeDetail: (recipe, options) => { rendered = [recipe, options]; }, toast: assert.fail };
@@ -38,7 +38,7 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   assert.equal(rendered[1].suggestion.id, 'proposal');
 });
 
-test('dinner cards show only shopping needs and use the same time format', () => {
+test('dinner cards omit ingredient previews, keep shopping needs and use the same time format', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function dinnerChoiceCard('), source.indexOf('\nfunction updateDinnerIngredients'));
   const sandbox = {
@@ -53,12 +53,14 @@ test('dinner cards show only shopping needs and use the same time format', () =>
   assert.match(familiar, /Основа уже есть · 25 мин/);
   assert.match(familiar, /Докупить: паста/);
   assert.doesNotMatch(familiar, /говяжий фарш|<p class="dinner-menu-ingredients">/);
-  const quick = sandbox.dinnerChoiceCard({ id: 'b', role: 'quick', recipe, pitch: { label: 'Быстро', reason: '25 минут на готовку' }, pantryMatch: { missing: ['паста'] } }, 1);
+  const quick = sandbox.dinnerChoiceCard({ id: 'b', role: 'quick', recipe, pitch: { label: 'Быстро', reason: '25 минут на готовку' } }, 1);
   assert.match(quick, /Быстро · 25 мин/);
-  assert.doesNotMatch(quick, /на готовку|говяжий фарш/);
+  assert.doesNotMatch(quick, /на готовку|говяжий фарш|паста|<p class="dinner-menu-ingredients">/);
+  assert.doesNotMatch(source, /dinner-picks"><div class="eyebrow">СЕГОДНЯ НА УЖИН/);
+  assert.doesNotMatch(source, /Из того, что ты назвал/);
 });
 
-test('Mini App asks tastes once without repeating chat onboarding; full settings remain optional', async () => {
+test('first dinner never starts taste onboarding before the trial; explicit settings remain available', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
@@ -68,9 +70,9 @@ test('Mini App asks tastes once without repeating chat onboarding; full settings
     showDinnerOnboarding: async () => { questions++; }, loadDinnerRecommendation: async () => { recipes++; },
     toast: assert.fail, setRoute() {}, home() {} };
   vm.runInNewContext(handler, sandbox);
-  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(tastes, 1); assert.equal(recipes, 0);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(tastes, 0); assert.equal(recipes, 1);
   needsOnboarding = false; needsTastePreferences = false;
-  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 1); assert.equal(tastes, 1);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 2); assert.equal(tastes, 0);
   await sandbox.beginDinner(true); assert.equal(questions, 1);
 });
 
@@ -136,6 +138,11 @@ test('open full recipe keeps waiting for its image after a transient fetch failu
   vm.runInNewContext(handler, sandbox);
   await sandbox.waitForRecipeImage('dinner:image');
   assert.equal(requests, 2); assert.equal(rendered.thumbnailUrl, '/ready.jpg');
+});
+
+test('recipe details never show a generated-image disclaimer', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  assert.doesNotMatch(source, /Изображение создано ИИ|generated-image-note/);
 });
 
 test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {

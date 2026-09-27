@@ -5,10 +5,13 @@ import { gzipSync } from 'node:zlib';
 
 // Keep the same document and routes. Ship its existing startup resources in
 // one response so a stalled secondary connection cannot prevent app.js running.
-export function buildWebDocument(publicDir, { telegramSdk } = {}) {
+export function buildWebDocument(publicDir, { telegramSdk, botUsername } = {}) {
   const hashes = [];
   const deferred = [];
-  const read = (url) => fs.readFileSync(path.join(publicDir, url.split('?')[0]), 'utf8').replace(/\r\n?/g, '\n');
+  const read = (url) => {
+    const source = fs.readFileSync(path.join(publicDir, url.split('?')[0]), 'utf8').replace(/\r\n?/g, '\n');
+    return botUsername ? source.replaceAll('https://t.me/Recipeboibot', `https://t.me/${botUsername}`) : source;
+  };
   const script = (source) => {
     const text = source.replace(/<\/script/gi, '<\\/script');
     hashes.push(`'sha256-${createHash('sha256').update(text).digest('base64')}'`);

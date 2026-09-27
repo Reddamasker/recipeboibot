@@ -8,6 +8,7 @@ import { ensureRecipeImage } from './recipe-images.js';
 import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
+import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
@@ -21,6 +22,21 @@ async function telegram(method, body = {}) {
 }
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...extra });
+async function sendTestOffer(chatId, userId, force = false) {
+  if (!config.testContour) return;
+  const status = mockPaymentStatus(userId);
+  if (!status.hasFirstRecipe) {
+    if (force) await send(chatId, 'Сначала сохраните первый рецепт или приготовьте предложенный ужин. После этого откроется тестовое предложение.');
+    return;
+  }
+  if (status.active) {
+    if (force) await send(chatId, 'Тестовый доступ уже активен. Следующий рецепт можно сохранить без оплаты.');
+    return;
+  }
+  if (!force && !claimMockOffer(userId)) return;
+  const lead = status.firstValue === 'cooked' ? 'Первый ужин приготовлен — теперь можно пополнить свою коллекцию.' : 'Первый рецепт готов — он останется в вашей коллекции.';
+  await send(chatId, `<b>${lead}</b>\n\nЧтобы сохранять следующие рецепты автоматически, оформите тестовый доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. На экране оплаты можно пройти сценарии карты и СБП. Это макет: деньги не списываются.`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+}
 function currentDinnerIntake(userId) {
   const profile = getFoodProfile(userId);
   return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId) });
@@ -37,10 +53,7 @@ async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) 
     return;
   }
   if (userId) prepareDinner(userId);
-  const url = webAppUrl({ view: 'dinner', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
-  await send(chatId, '<b>Что приготовить сегодня?</b>\n\nОткройте три варианта ужина и выберите тот, который подходит сейчас.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Выбрать ужин', web_app: { url } }]] } } : {});
 }
-let dinnerLaunchId = 0;
 export async function sendDinnerProfilePrompt(chatId, userId) {
   await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true });
 }
@@ -120,7 +133,7 @@ async function skipDinnerIntake(chatId, userId, pending) {
   if (pending.profileOnly) updateDinnerProfile(userId, { onboardingCompleted: true });
   else clearDinnerContext(userId);
   clearPendingIntent(userId);
-  await sendDinnerEntry(chatId, userId, { skipOnboarding: true });
+  prepareDinner(userId);
 }
 
 export async function handleDinnerIntakeCallback(callback) {
@@ -163,7 +176,6 @@ export async function handleDinnerIntakeCallback(callback) {
   prepareDinner(user.id);
   clearPendingIntent(user.id);
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Ответы сохранены' });
-  await sendDinnerEntry(chatId, user.id);
   return true;
 }
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
@@ -250,7 +262,7 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
   const reply_markup = recipeButton(recipe, options);
   const photo = recipe.thumbnailUrl?.startsWith('/assets/dinner/') && config.appUrl ? new URL(recipe.thumbnailUrl, config.appUrl).toString() : recipe.thumbnailUrl;
   if (photo) {
-    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption: `${caption}${recipe.origin === 'generated' ? '\n<i>Изображение создано ИИ; готовое блюдо может выглядеть иначе.</i>' : ''}`, parse_mode: 'HTML', reply_markup }); return; }
+    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption, parse_mode: 'HTML', reply_markup }); return; }
     catch (error) { log('warn', 'telegram_preview_failed', { error, recipeId: recipe.id }); }
   }
   await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
@@ -340,6 +352,7 @@ export async function handleSuggestionCallback(callback) {
   const recipe = savedRecipe;
   await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
   await send(chat.id, `Сохранено: <b>${escapeHtml(recipe.title)}</b>. Рецепт теперь в ${groupMode ? 'коллекции владельца группы' : 'вашей коллекции'}.`, { reply_markup: recipeButton(recipe, { groupMode }) });
+  if (!groupMode) await sendTestOffer(chat.id, userId);
 }
 
 async function finishImport(chatId, outcome, options = {}) {
@@ -351,6 +364,7 @@ async function finishImport(chatId, outcome, options = {}) {
 
 async function saveContent(message, user, content, options = {}) {
   const chatId = message.chat.id;
+  if (config.testContour && !canUseTestImport(user.id)) { await sendTestOffer(chatId, user.id, true); return; }
   await send(chatId, 'Получено. Извлекаю рецепт — статус уже сохранён, можно закрыть чат.');
   let outcome;
   if (message.photo?.length) {
@@ -360,6 +374,7 @@ async function saveContent(message, user, content, options = {}) {
   } else if (content.url) outcome = await importUrl(user.id, content.url);
   else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Сообщение в Telegram', label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
   await finishImport(chatId, outcome, options);
+  if (!options.groupMode && outcome.state === 'created') await sendTestOffer(chatId, user.id);
 }
 
 async function handlePendingChoice(message, user, pending) {
@@ -380,6 +395,11 @@ export async function handleMessage(message) {
   const chatId = message.chat.id;
   const user = resolvePrivateTelegramUser(message.from);
   const text = message.text?.trim() || message.caption?.trim() || '';
+  if (config.testContour && text === '/test_reset' && String(message.from.id) === config.testOwnerTelegramId) {
+    await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
+    return;
+  }
+  if (config.testContour && text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;
@@ -399,6 +419,7 @@ export async function handleMessage(message) {
     const recentEntry = recentDinnerEntries.get(user.id);
     if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
     await sendDinnerEntry(chatId, user.id);
+    await sendTestOffer(chatId, user.id);
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
@@ -532,6 +553,10 @@ async function handleGroupMessage(message) {
 let running = false;
 export async function startTelegramPolling() {
   if (running || !config.telegramToken) return;
+  if (config.testContour) {
+    const bot = await telegram('getMe');
+    if (bot.username?.toLowerCase() !== config.testBotUsername.toLowerCase()) throw new Error('Unexpected bot token for test contour');
+  }
   running = true; let offset = 0;
   log('info', 'telegram_polling_started');
   while (running) {
@@ -543,7 +568,7 @@ export async function startTelegramPolling() {
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
           else if (update.callback_query) {
-            if (!await handleDinnerIntakeCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+            if (!await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
           }
           else await handleMessage(update.message);
           completeUpdate(update.update_id);
@@ -554,3 +579,15 @@ export async function startTelegramPolling() {
   }
 }
 export function stopTelegramPolling() { running = false; }
+
+export async function handleTestResetCallback(callback) {
+  if (!config.testContour || !callback.data?.startsWith('test:reset:')) return false;
+  requireTestOwner(callback.from?.id);
+  if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from.id)) return false;
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  if (callback.data === 'test:reset:confirm') {
+    resetTestUser(callback.from.id);
+    await send(callback.message.chat.id, 'Тестовый профиль сброшен. Нажмите /start, чтобы пройти путь нового пользователя.');
+  } else if (callback.data === 'test:reset:cancel') await send(callback.message.chat.id, 'Сброс отменён.');
+  return true;
+}

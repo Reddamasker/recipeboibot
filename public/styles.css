@@ -224,9 +224,6 @@ header {
 .badge.failed { background: #f7e3e8; color: #8f3151; }
 .suggestion { margin: 24px 0; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
 .suggestion-image { display: block; width: 100%; max-height: 330px; object-fit: cover; border-radius: 14px; margin: 14px 0 0; }
-.image-note, .generated-image-note { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.image-note a, .generated-image-note a { color: inherit; text-decoration: underline; }
-.generated-image-note { margin: 10px 24px; }
 .suggestion h2 { margin: 10px 0; font-size: 28px; }
 .suggestion h3 { margin: 24px 0 10px; font-size: 18px; }
 .suggestion p, .suggestion li { line-height: 1.55; }
