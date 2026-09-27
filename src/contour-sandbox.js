@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { db, deleteUserData, getUserByTelegramId } from './db.js';
 import { config } from './config.js';
+import { getSubscriptionAccess } from './subscriptions.js';
 
 const error = (message, status) => Object.assign(new Error(message), { status });
 
@@ -65,8 +66,9 @@ export function mockPaymentStatus(userId) {
   const payment = db.prepare('SELECT active,last_result,updated_at FROM mock_payments WHERE user_id=?').get(userId);
   const pending = db.prepare("SELECT id,method,amount_rub,variant,created_at FROM mock_orders WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(userId);
   const firstValue = hasRecipe(userId) ? 'saved' : hasCookedDinner(userId) ? 'cooked' : null;
+  const access = getSubscriptionAccess(userId);
   return {
-    active: Boolean(payment?.active), lastResult: payment?.last_result || null, updatedAt: payment?.updated_at || null,
+    active: access.active, expiresAt: access.expiresAt, lastResult: payment?.last_result || null, updatedAt: payment?.updated_at || null,
     hasFirstRecipe: Boolean(firstValue), firstValue, offerShown: Boolean(offer.shown_at),
     offer: { variant: offer.variant, priceRub: offer.amount_rub, currency: 'RUB', period: 'month' },
     pendingOrder: pending ? { id: pending.id, method: pending.method, priceRub: pending.amount_rub, variant: pending.variant, createdAt: pending.created_at } : null

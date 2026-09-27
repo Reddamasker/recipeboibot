@@ -1,11 +1,12 @@
 import { getDinnerRecommendation } from './dinner-store.js';
 import { decideDinner, getDinnerRecipe, prefetchDinner, resumeDinner, startDinner } from './dinner-service.js';
 import {
-  attachNotificationSession, chooseNotificationRecipe, enqueueDueNotifications, getNotificationDelivery,
+  attachNotificationSession, chooseNotificationRecipe, discardNotificationDelivery, enqueueDueNotifications, getNotificationDelivery, getNotificationSchedule,
   getNotificationDeliveryForDispatch, listPendingChoiceDeliveries, listPendingReminderDeliveries,
   markChoiceFailed, markChoiceSent, markReminderFailed, markReminderSent
 } from './notification-store.js';
 import { log } from './log.js';
+import { getSubscriptionAccess, requireNotificationSubscription } from './subscriptions.js';
 
 const notFound = () => Object.assign(new Error('Это уведомление больше недоступно'), { status: 404 });
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
@@ -24,6 +25,7 @@ function preparedDelivery(id) {
 export function openNotificationDinner(userId, id) {
   const delivery = getNotificationDelivery(userId, id);
   if (!delivery || !delivery.sessionId || !['sent', 'chosen'].includes(delivery.status)) throw notFound();
+  requireNotificationSubscription(userId);
   const acceptedOption = delivery.status === 'chosen' ? { id: delivery.recommendationId, recipe: getDinnerRecipe(userId, delivery.recipeKey) } : null;
   if (acceptedOption && !acceptedOption.recipe) throw notFound();
   return { ...resumeDinner(userId, delivery.sessionId), notificationId: delivery.id, alreadyChosen: delivery.status === 'chosen', acceptedOption };
@@ -32,6 +34,7 @@ export function openNotificationDinner(userId, id) {
 export function selectNotificationDinner(userId, id, recommendationId) {
   const delivery = getNotificationDelivery(userId, id);
   if (!delivery || !delivery.sessionId || !['sent', 'chosen'].includes(delivery.status)) throw notFound();
+  requireNotificationSubscription(userId);
   if (delivery.status === 'chosen') {
     if (delivery.recommendationId !== recommendationId) throw badRequest('Рецепт для этого уведомления уже выбран');
     const recipe = getDinnerRecipe(userId, delivery.recipeKey);
@@ -48,12 +51,17 @@ export function selectNotificationDinner(userId, id, recommendationId) {
 }
 
 let cycleRunning = false;
-export async function runNotificationCycle({ sendReminder, sendChoice }, at = new Date()) {
+export async function runNotificationCycle({ sendReminder, sendChoice }, at) {
   if (cycleRunning) return;
   cycleRunning = true;
+  const currentTime = () => at || new Date();
   try {
-    enqueueDueNotifications(at);
-    for (const pending of listPendingReminderDeliveries(at)) {
+    enqueueDueNotifications(currentTime());
+    for (const pending of listPendingReminderDeliveries(currentTime())) {
+      if (!getSubscriptionAccess(pending.userId, currentTime()).active || !getNotificationSchedule(pending.userId, currentTime()).enabled) {
+        discardNotificationDelivery(pending.id, currentTime());
+        continue;
+      }
       try {
         const delivery = preparedDelivery(pending.id);
         await sendReminder(delivery);
@@ -63,7 +71,11 @@ export async function runNotificationCycle({ sendReminder, sendChoice }, at = ne
         log('warn', 'notification_reminder_failed', { error, deliveryId: pending.id });
       }
     }
-    for (const pending of listPendingChoiceDeliveries(at)) {
+    for (const pending of listPendingChoiceDeliveries(currentTime())) {
+      if (!getSubscriptionAccess(pending.userId, currentTime()).active) {
+        discardNotificationDelivery(pending.id, currentTime());
+        continue;
+      }
       try {
         const recipe = getDinnerRecipe(pending.userId, pending.recipeKey);
         if (!recipe) throw new Error('Chosen notification recipe is unavailable');

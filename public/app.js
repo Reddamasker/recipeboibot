@@ -452,12 +452,13 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
 
 async function notificationSettingsPage() {
   const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
-  if (!state.notificationSchedule) state.notificationSchedule = await api('/api/notifications/schedule', { signal: AbortSignal.timeout(12000) });
+  state.notificationSchedule = await api('/api/notifications/schedule', { signal: AbortSignal.timeout(12000) });
   const schedule = state.notificationSchedule;
+  const hasAccess = schedule.access?.active === true;
   const timezone = schedule.timezone || deviceTimezone;
   const days = [[1, 'Пн'], [2, 'Вт'], [3, 'Ср'], [4, 'Чт'], [5, 'Пт'], [6, 'Сб'], [0, 'Вс']];
   let next = '';
-  if (schedule.enabled && schedule.nextDueAt) {
+  if (hasAccess && schedule.enabled && schedule.nextDueAt) {
     try { next = new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.nextDueAt)); } catch {}
   }
   root.innerHTML = `${header()}<main class="notification-page"><button class="back-link" id="notifications-back">← На главную</button><div class="eyebrow">УВЕДОМЛЕНИЯ В TELEGRAM</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">Сохранить расписание</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
@@ -465,11 +466,28 @@ async function notificationSettingsPage() {
   document.querySelector('#notifications-back').onclick = () => { setRoute({}); void render(); };
   const enabled = document.querySelector('#notification-enabled');
   const fields = document.querySelector('#notification-fields');
-  enabled.onchange = () => { fields.disabled = !enabled.checked; };
+  const submit = document.querySelector('#notification-form [type=submit]');
+  const syncAccess = () => {
+    fields.disabled = !hasAccess || !enabled.checked;
+    enabled.disabled = !hasAccess && !enabled.checked;
+    submit.disabled = !hasAccess && (!schedule.enabled || enabled.checked);
+    submit.textContent = hasAccess ? 'Сохранить расписание' : 'Отключить напоминания';
+  };
+  if (!hasAccess) {
+    const notice = document.createElement('div');
+    notice.className = 'notification-intro';
+    notice.setAttribute('role', 'status');
+    notice.innerHTML = `<p>${schedule.paused ? 'Напоминания приостановлены: подписка закончилась или доступ отключён. Дни и время сохранены. После продления отправка возобновится по расписанию.' : 'Подборки по расписанию доступны с активной подпиской или премиум-доступом к боту.'}</p>${state.me?.testContour ? '<button type="button" class="secondary" data-open-offer>Посмотреть тестовую подписку</button>' : '<p class="help">Оформление подписки пока недоступно.</p>'}`;
+    document.querySelector('#notification-form').before(notice);
+    notice.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
+  }
+  syncAccess();
+  enabled.onchange = syncAccess;
   document.querySelector('#notification-form').onsubmit = async (event) => {
     event.preventDefault();
     const button = event.currentTarget.querySelector('[type=submit]');
     const error = document.querySelector('#notification-error');
+    if (!hasAccess && enabled.checked) return;
     const weekdays = [...document.querySelectorAll('[name=weekday]:checked')].map((input) => Number(input.value));
     error.hidden = true;
     if (enabled.checked && !weekdays.length) { error.textContent = 'Выбери хотя бы один день.'; error.hidden = false; error.focus(); return; }
@@ -478,7 +496,7 @@ async function notificationSettingsPage() {
       state.notificationSchedule = await api('/api/notifications/schedule', { method: 'PUT', body: JSON.stringify({ enabled: enabled.checked, weekdays, time: document.querySelector('#notification-time').value, timezone: deviceTimezone }) });
       await notificationSettingsPage();
       toast(enabled.checked ? 'Расписание сохранено' : 'Уведомления выключены');
-    } catch (failure) { error.textContent = failure.message; error.hidden = false; error.focus(); button.disabled = false; button.textContent = 'Сохранить расписание'; }
+    } catch (failure) { error.textContent = failure.message; error.hidden = false; error.focus(); syncAccess(); }
   };
 }
 

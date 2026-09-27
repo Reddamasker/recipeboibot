@@ -16,6 +16,7 @@ const { db, upsertTelegramUser, allowUser, createRecipe, recordAiAttempt } = awa
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { buildWebDocument } = await import('../src/web-document.js');
+const { getSubscriptionAccess, monthAfter } = await import('../src/subscriptions.js');
 const telegramUser = { id: 6971956699, first_name: 'Тест' };
 const user = upsertTelegramUser(telegramUser);
 allowUser(user.id);
@@ -50,12 +51,20 @@ test('test contour retains current tastes, specific recipe requests and mock che
   assert.equal(result.recipe.id, recipe.id);
   const payment = await (await call('/api/test/payment')).json();
   assert.equal(payment.hasFirstRecipe, true);
+  const schedule = { enabled: true, weekdays: [1], time: '18:00', timezone: 'Europe/Moscow' };
+  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 402);
   const created = await call('/api/test/orders', 'POST', { method: 'sbp' });
   assert.equal(created.status, 201);
   const order = await created.json();
   const completed = await call(`/api/test/orders/${order.id}/result`, 'POST', { result: 'success' });
   assert.equal(completed.status, 200);
   assert.equal((await completed.json()).payment.active, true);
+  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 200);
+  const access = getSubscriptionAccess(user.id);
+  assert.equal(access.source, 'test_payment');
+  assert.equal(getSubscriptionAccess(user.id, new Date(access.expiresAt)).active, false);
+  assert.equal(monthAfter('2026-01-31T12:00:00Z'), '2026-02-28T12:00:00.000Z');
+  assert.equal(monthAfter('2028-01-31T12:00:00Z'), '2028-02-29T12:00:00.000Z');
   assert.deepEqual((await (await call('/api/dinner/profile')).json()).preferredCategories, profile.preferredCategories);
   assert.equal((await (await call('/api/recipe-request', 'POST', { query: 'Суп' })).json()).recipe.id, recipe.id);
   assert.equal(db.prepare('SELECT count(*) AS n FROM ai_reservations').get().n, 0);
@@ -70,6 +79,20 @@ test('test account data stays isolated and only the test owner can reset it', as
   assert.deepEqual((await response.json()).preferredCategories, {});
   const reset = await fetch(base + '/api/test/reset', { method: 'POST', headers: otherHeaders, body: '{}' });
   assert.equal(reset.status, 403);
+});
+
+test('expired mock subscription can be renewed and duplicate success cannot extend the period', async () => {
+  db.prepare("UPDATE mock_orders SET updated_at='2026-01-01T12:00:00.000Z' WHERE user_id=? AND status='success'").run(user.id);
+  assert.equal((await (await call('/api/test/payment')).json()).active, false);
+  const renewed = await (await call('/api/test/orders', 'POST', { method: 'card' })).json();
+  assert.ok(renewed.id);
+  const response = await call(`/api/test/orders/${renewed.id}/result`, 'POST', { result: 'success' });
+  assert.equal(response.status, 200);
+  const paid = (await response.json()).payment;
+  assert.equal(paid.active, true);
+  const repeated = await (await call(`/api/test/orders/${renewed.id}/result`, 'POST', { result: 'success' })).json();
+  assert.equal(repeated.payment.expiresAt, paid.expiresAt);
+  assert.equal((await (await call('/api/notifications/schedule')).json()).paused, false);
 });
 
 test('same shipped UI includes tastes, written and voice requests, plus test-only controls', () => {

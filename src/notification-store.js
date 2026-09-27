@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
+import { getSubscriptionAccess, requireNotificationSubscription } from './subscriptions.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS notification_schedules (
@@ -83,19 +84,22 @@ function parseSchedule(row) {
   return { enabled: Boolean(row.enabled), weekdays: parseJson(row.weekdays_json, []), time: row.local_time, timezone: row.timezone, nextDueAt: row.next_due_at };
 }
 
-export function getNotificationSchedule(userId) {
-  return parseSchedule(db.prepare('SELECT * FROM notification_schedules WHERE user_id=?').get(userId));
+export function getNotificationSchedule(userId, at = new Date()) {
+  const schedule = parseSchedule(db.prepare('SELECT * FROM notification_schedules WHERE user_id=?').get(userId));
+  const access = getSubscriptionAccess(userId, at);
+  return { ...schedule, nextDueAt: access.active ? schedule.nextDueAt : null, access, paused: schedule.enabled && !access.active };
 }
 
 export function saveNotificationSchedule(userId, input, at = new Date()) {
   const schedule = validateNotificationSchedule(input);
+  if (schedule.enabled) requireNotificationSubscription(userId, at);
   const nextDueAt = nextNotificationAt(schedule, at)?.toISOString() || null;
   const timestamp = nowIso(at);
   db.prepare(`INSERT INTO notification_schedules(user_id,enabled,weekdays_json,local_time,timezone,next_due_at,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,weekdays_json=excluded.weekdays_json,
     local_time=excluded.local_time,timezone=excluded.timezone,next_due_at=excluded.next_due_at,updated_at=excluded.updated_at`)
     .run(userId, schedule.enabled ? 1 : 0, JSON.stringify(schedule.weekdays), schedule.time, schedule.timezone, nextDueAt, timestamp, timestamp);
-  return getNotificationSchedule(userId);
+  return getNotificationSchedule(userId, at);
 }
 
 export function enqueueDueNotifications(at = new Date()) {
@@ -112,7 +116,7 @@ export function enqueueDueNotifications(at = new Date()) {
     try {
       const fresh = db.prepare('SELECT * FROM notification_schedules WHERE user_id=?').get(row.user_id);
       if (!fresh?.enabled || fresh.next_due_at !== row.next_due_at) { db.exec('COMMIT'); continue; }
-      if (at.getTime() - scheduledAt.getTime() <= 15 * 60000) {
+      if (getSubscriptionAccess(row.user_id, at).active && at.getTime() - scheduledAt.getTime() <= 15 * 60000) {
         const id = randomUUID();
         if (db.prepare(`INSERT OR IGNORE INTO notification_deliveries(id,user_id,scheduled_for,local_key,reminder_retry_at,created_at,updated_at)
           VALUES(?,?,?,?,?,?,?)`).run(id, row.user_id, row.next_due_at, localKey, timestamp, timestamp, timestamp).changes) created.push(id);
@@ -143,6 +147,12 @@ export function getNotificationDelivery(userId, id) {
 
 export function getNotificationDeliveryForDispatch(id) {
   return parseDelivery(db.prepare(`${deliverySelect} WHERE d.id=?`).get(id));
+}
+
+export function discardNotificationDelivery(id, at = new Date()) {
+  // Keep the choice/history, but never replay a stale delivery after renewal.
+  db.prepare(`UPDATE notification_deliveries SET status=CASE WHEN status='queued' THEN 'failed' ELSE status END,
+    reminder_retry_at=NULL,choice_retry_at=NULL,updated_at=? WHERE id=?`).run(nowIso(at), id);
 }
 
 export function listPendingReminderDeliveries(at = new Date()) {
