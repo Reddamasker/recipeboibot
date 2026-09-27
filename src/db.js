@@ -112,6 +112,11 @@ CREATE TABLE IF NOT EXISTS recipe_suggestions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS suggestions_owner_query ON recipe_suggestions(user_id, query, created_at DESC);
+CREATE TABLE IF NOT EXISTS recipe_suggestion_images (
+  suggestion_id TEXT PRIMARY KEY REFERENCES recipe_suggestions(id) ON DELETE CASCADE,
+  mime TEXT NOT NULL CHECK(mime IN ('image/jpeg','image/png','image/webp')),
+  bytes BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS search_offers (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -370,19 +375,30 @@ export function getSearchOffer(userId, id) {
   return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? row : null;
 }
 
-const parseSuggestion = (row) => row ? { id: row.id, query: row.query, recipe: JSON.parse(row.recipe_json), recipeId: row.recipe_id, createdAt: row.created_at } : null;
+const parseSuggestion = (row) => row ? { id: row.id, query: row.query, recipe: { ...JSON.parse(row.recipe_json), ...(row.has_image ? { thumbnailUrl: `/suggestion-images/${row.id}`, imageGenerated: true } : {}) }, recipeId: row.recipe_id, createdAt: row.created_at } : null;
 export function getRecipeSuggestion(userId, id) {
-  const row = db.prepare('SELECT * FROM recipe_suggestions WHERE id=? AND user_id=?').get(id, userId);
+  const row = db.prepare('SELECT s.*, EXISTS(SELECT 1 FROM recipe_suggestion_images i WHERE i.suggestion_id=s.id) AS has_image FROM recipe_suggestions s WHERE s.id=? AND s.user_id=?').get(id, userId);
   return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? parseSuggestion(row) : null;
 }
 export function findRecipeSuggestion(userId, query) {
-  const row = db.prepare('SELECT * FROM recipe_suggestions WHERE user_id=? AND query=? AND recipe_id IS NULL ORDER BY created_at DESC LIMIT 1').get(userId, query);
+  const row = db.prepare('SELECT s.*, EXISTS(SELECT 1 FROM recipe_suggestion_images i WHERE i.suggestion_id=s.id) AS has_image FROM recipe_suggestions s WHERE s.user_id=? AND s.query=? AND s.recipe_id IS NULL ORDER BY s.created_at DESC LIMIT 1').get(userId, query);
   return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? parseSuggestion(row) : null;
 }
 export function createRecipeSuggestion(userId, query, recipe) {
   const id = randomUUID();
   db.prepare('DELETE FROM recipe_suggestions WHERE created_at<?').run(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
   db.prepare('INSERT INTO recipe_suggestions(id,user_id,query,recipe_json,created_at) VALUES(?,?,?,?,?)').run(id, userId, query, JSON.stringify(recipe), now());
+  return getRecipeSuggestion(userId, id);
+}
+export function getSuggestionImage(id) {
+  return db.prepare('SELECT i.mime,i.bytes FROM recipe_suggestion_images i JOIN recipe_suggestions s ON s.id=i.suggestion_id WHERE s.id=? AND s.created_at>=?').get(id, new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+}
+export function saveSuggestionImage(userId, id, mime, bytes) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime) || !Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error('Некорректное изображение рецепта');
+  const suggestion = getRecipeSuggestion(userId, id);
+  if (!suggestion) return null;
+  if (suggestion.recipeId) return saveRecipeImage(userId, suggestion.recipeId, mime, bytes);
+  db.prepare('INSERT INTO recipe_suggestion_images(suggestion_id,mime,bytes) VALUES(?,?,?) ON CONFLICT(suggestion_id) DO NOTHING').run(id, mime, bytes);
   return getRecipeSuggestion(userId, id);
 }
 export function saveRecipeSuggestion(userId, id) {
@@ -392,9 +408,14 @@ export function saveRecipeSuggestion(userId, id) {
     if (!suggestion) { db.exec('COMMIT'); return null; }
     if (suggestion.recipeId) { const recipe = getRecipe(userId, suggestion.recipeId); db.exec('COMMIT'); return recipe; }
     const recipe = createRecipe(userId, { ...suggestion.recipe, origin: 'generated', status: 'ready', sourceType: 'generated', sourceName: 'Создано в «Рецептах»' });
+    const image = getSuggestionImage(id);
+    if (image) {
+      db.prepare('INSERT INTO recipe_images(recipe_id,mime,bytes) VALUES(?,?,?)').run(recipe.id, image.mime, image.bytes);
+      db.prepare('UPDATE recipes SET thumbnail_url=?,updated_at=? WHERE id=?').run(`${config.appUrl}/recipe-images/${recipe.id}`, now(), recipe.id);
+    }
     db.prepare('UPDATE recipe_suggestions SET recipe_id=? WHERE id=?').run(recipe.id, id);
     db.exec('COMMIT');
-    return recipe;
+    return getRecipe(userId, recipe.id);
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 

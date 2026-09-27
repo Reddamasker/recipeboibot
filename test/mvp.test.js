@@ -194,3 +194,31 @@ test('trusted nginx client IP keeps unrelated visitors in separate rate-limit bu
   assert.equal(serverModule.clientIp({ socket: { remoteAddress: '172.18.0.1' }, headers: { 'x-real-ip': 'not-an-ip', 'x-forwarded-for': '198.51.100.20, 172.18.0.1' } }, true), '198.51.100.20');
   assert.equal(serverModule.clientIp({ socket: { remoteAddress: '172.18.0.1' }, headers: { 'x-real-ip': 'invalid' } }, true), '172.18.0.1');
 });
+
+test('Mini App voice request transcribes a short spoken dish and allows its microphone', async () => {
+  const telegramUser = { id: 9410, first_name: 'Голос' };
+  const owner = database.upsertTelegramUser(telegramUser);
+  database.allowUser(owner.id);
+  const initData = security.makeTelegramInitData(telegramUser, process.env.TELEGRAM_BOT_TOKEN);
+  const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).startsWith(base)) return originalFetch(url, options);
+    assert.match(String(url), /audio\/transcriptions$/);
+    calls++;
+    return Response.json({ text: 'Суп' });
+  };
+  try {
+    const page = await fetch(`${base}/`);
+    assert.match(page.headers.get('permissions-policy'), /microphone=\(self\)/);
+    const response = await fetch(`${base}/api/recipe-request/transcribe`, { method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' }, body: JSON.stringify({ mime: 'audio/webm', value: Buffer.from('voice').toString('base64') }) });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { text: 'Суп' });
+    assert.equal(calls, 1);
+    const unsupported = await fetch(`${base}/api/recipe-request/transcribe`, { method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' }, body: JSON.stringify({ mime: 'text/plain', value: 'dm9pY2U=' }) });
+    assert.equal(unsupported.status, 415);
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; await new Promise((resolve) => server.close(resolve)); }
+});

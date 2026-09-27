@@ -76,6 +76,9 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   const fromBase = await suggestions.resolveRecipeRequest(owner.id, 'рис с овощами', { generate: assert.fail });
   assert.equal(fromBase.kind, 'existing');
   assert.match(fromBase.recipe.id, /^seed:/);
+  const fromOneWord = await suggestions.resolveRecipeRequest(owner.id, 'Суп', { generate: assert.fail });
+  assert.equal(fromOneWord.kind, 'existing');
+  assert.match(fromOneWord.recipe.title, /суп/iu);
 
   const recipe = { ...normalizedRecipe('Арбузный суп'), servings: 2, prepMinutes: 10, cookMinutes: 15,
     ingredients: [{ name: 'арбуз', raw: 'арбуз', quantity: 300, unit: 'г', comment: null }] };

@@ -24,9 +24,11 @@ async function publicApi(path) {
 const totalTime = (recipe) => (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0);
 const initial = () => (state.me?.displayName || 'Я').trim()[0]?.toLocaleUpperCase('ru') || 'Я';
 const ingredientText = (item) => [item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '').join(' ');
-const safeImage = (value) => /^https:\/\//i.test(value || '') || (/^\/(?:recipe|dinner)-images\/[0-9a-f-]{36}$/i.test(value || '') || /^\/assets\/dinner\/[a-z0-9-]+\.jpg$/i.test(value || '')) ? esc(value) : '';
+const safeImage = (value) => /^https:\/\//i.test(value || '') || (/^\/(?:recipe|dinner|suggestion)-images\/[0-9a-f-]{36}$/i.test(value || '') || /^\/assets\/dinner\/[a-z0-9-]+\.jpg$/i.test(value || '')) ? esc(value) : '';
+let requestRecorder = null;
 
 function setRoute(values, { replace = false, historyState = {} } = {}) {
+  if (values.view && requestRecorder?.state === 'recording') requestRecorder.stop();
   const url = new URL(location.href);
   for (const key of ['view', 'q', 'recipe']) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(values)) if (value) url.searchParams.set(key, value);
@@ -64,8 +66,10 @@ function home() {
     </section>
     <section class="home-search" aria-labelledby="home-search-title">
       <h2 id="home-search-title">Что тебе хочется?</h2>
-      <form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Опиши желаемое блюдо" placeholder="Например, курица с рисом за 30 минут" required><button class="primary accent" type="submit">Подобрать рецепт</button></form>
-      <p>Сначала поищу готовый рецепт. Если подходящего нет — составлю новый. Голосом можно рассказать боту в чате.</p>
+      <form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Что хочется приготовить" placeholder="Например, суп или курица с рисом" required><button class="voice-request" id="voice-request" type="button" aria-label="Надиктовать пожелание" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5m-3.5 0h7"/></svg></button><button class="primary accent" type="submit">Подобрать рецепт</button></form>
+      <p class="request-voice-status" id="request-voice-status" aria-live="polite"></p>
+      <div class="request-examples" aria-label="Примеры коротких запросов"><span>Можно коротко:</span><button type="button" data-request-example="Суп">Суп</button><button type="button" data-request-example="Курица">Курица</button><button type="button" data-request-example="Что-нибудь быстрое">Что-нибудь быстрое</button></div>
+      <p>Сначала поищу готовый рецепт. Если подходящего нет — составлю новый.</p>
     </section>
     <section class="home-library" aria-labelledby="collection-title">
       <h2 id="collection-title"><button class="collection-link" id="collection"><span>Мои рецепты <small>${state.recipes.length}</small></span><span aria-hidden="true">→</span></button></h2>
@@ -77,6 +81,8 @@ function home() {
   bindCommon();
   document.querySelector('#choose').onclick = () => { setRoute({ view: 'dinner' }); beginDinner(); };
   document.querySelector('#home-search-form').onsubmit = showRequestedRecipe;
+  document.querySelector('#voice-request').onclick = toggleRequestRecording;
+  document.querySelectorAll('[data-request-example]').forEach((button) => button.onclick = () => { document.querySelector('#home-search-input').value = button.textContent.trim(); return showRequestedRecipe({ preventDefault() {}, currentTarget: document.querySelector('#home-search-form') }); });
   document.querySelector('#collection').onclick = () => { setRoute({ view: 'collection' }); render(); };
   document.querySelector('#add').onclick = importSheet;
 }
@@ -96,6 +102,49 @@ async function showRequestedRecipe(event) {
     else throw new Error('Не получилось подобрать рецепт');
   } catch (error) { toast(error.message); }
   finally { button.disabled = false; button.textContent = 'Подобрать рецепт'; }
+}
+
+async function toggleRequestRecording(event) {
+  if (requestRecorder) { if (requestRecorder.state === 'recording') requestRecorder.stop(); return; }
+  const button = event.currentTarget;
+  const status = document.querySelector('#request-voice-status');
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { toast('Диктовка недоступна здесь. Можно написать запрос или отправить голосовое боту.'); return; }
+  let stream;
+  button.disabled = true;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const format = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find((type) => MediaRecorder.isTypeSupported?.(type));
+    const recorder = new MediaRecorder(stream, format ? { mimeType: format } : undefined);
+    requestRecorder = recorder;
+    const chunks = [];
+    let limitTimer;
+    recorder.ondataavailable = (part) => { if (part.data?.size) chunks.push(part.data); };
+    recorder.onerror = () => { toast('Не удалось записать голос. Попробуйте ещё раз.'); if (recorder.state === 'recording') recorder.stop(); };
+    recorder.onstop = async () => {
+      clearTimeout(limitTimer);
+      stream.getTracks().forEach((track) => track.stop());
+      requestRecorder = null;
+      button.classList.remove('recording'); button.setAttribute('aria-pressed', 'false'); button.setAttribute('aria-label', 'Надиктовать пожелание');
+      if (!document.querySelector('#home-search-form')) return;
+      const mime = (recorder.mimeType || format || '').split(';')[0];
+      const blob = new Blob(chunks, { type: mime });
+      if (!blob.size || blob.size > 2 * 1024 * 1024 || !['audio/mp4', 'audio/webm', 'audio/ogg'].includes(mime)) { status.textContent = 'Запись не получилась или слишком длинная. Попробуйте ещё раз.'; return; }
+      status.textContent = 'Расшифровываю пожелание…'; button.disabled = true;
+      try {
+        const value = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob); });
+        const result = await api('/api/recipe-request/transcribe', { method: 'POST', body: JSON.stringify({ mime, value }) });
+        const input = document.querySelector('#home-search-input');
+        const form = document.querySelector('#home-search-form');
+        if (input && form) { input.value = result.text; status.textContent = 'Пожелание записано. Подбираю рецепт…'; await showRequestedRecipe({ preventDefault() {}, currentTarget: form }); }
+      } catch (error) { status.textContent = ''; toast(error.message); }
+      finally { button.disabled = false; }
+    };
+    recorder.start();
+    button.disabled = false;
+    button.classList.add('recording'); button.setAttribute('aria-pressed', 'true'); button.setAttribute('aria-label', 'Завершить запись');
+    status.textContent = 'Записываю… Нажми на микрофон ещё раз, когда закончишь.';
+    limitTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, 45_000);
+  } catch (error) { stream?.getTracks().forEach((track) => track.stop()); requestRecorder = null; button.disabled = false; status.textContent = ''; toast(error.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону или напишите запрос.' : 'Не удалось включить микрофон. Можно написать запрос.'); }
 }
 
 async function beginDinner(forceOnboarding = false) {
@@ -405,6 +454,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
   const missing = dinnerOption?.pantryMatch?.missing || r.pantryMatch?.missing || [];
   const shopping = missing.length ? `<aside class="detail-shopping"><strong>Докупить</strong><p>${esc(missing.join(', '))}</p></aside>` : '';
   const image = safeImage(r.thumbnailUrl);
+  const imagePending = Boolean(suggestion && !image);
   const hasSource = /^https?:\/\//i.test(r.sourceUrl || '');
   const sourceName = r.origin === 'generated' ? 'Создано в «Рецептах»' : r.sourceName || (hasSource ? 'Открыть источник' : 'Личный рецепт');
   const sourceChip = hasSource
@@ -431,7 +481,9 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     : shared || catalog
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
-  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div>${(r.origin === 'generated' || r.imageGenerated) && image ? '<p class="generated-image-note">Изображение создано ИИ; готовое блюдо может выглядеть иначе.</p>' : ''}<div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : suggestion || r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div>${(r.origin === 'generated' || r.imageGenerated) && image ? '<p class="generated-image-note">Изображение создано ИИ; готовое блюдо может выглядеть иначе.</p>' : ''}<div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : suggestion || r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
+  if (imagePending) void waitForSuggestionImage(suggestion.id, el);
   if (shared) el.classList.add('shared-overlay');
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
   el.querySelector('#edit')?.addEventListener('click', () => { closeOverlay(); editRecipe(r); });
@@ -449,6 +501,27 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     catch { window.open(r.sourceUrl, '_blank', 'noopener,noreferrer'); }
   });
   el.querySelectorAll('[data-tag]').forEach((button) => button.onclick = () => { closeOverlay(); state.query = button.dataset.tag; setRoute({ view: 'results', q: state.query }, { replace: true }); loadAndRender(); });
+}
+
+async function waitForSuggestionImage(id, overlayElement) {
+  for (let attempt = 0; attempt < 72; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    if (!overlayElement.isConnected) return;
+    try {
+      const result = await api(`/api/suggestions/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(12000) });
+      const url = safeImage(result.recipe?.thumbnailUrl);
+      if (!url) continue;
+      const media = overlayElement.querySelector('.detail-media');
+      if (!media || !overlayElement.isConnected) return;
+      media.querySelector('.recipe-image-wait')?.remove();
+      const img = document.createElement('img'); img.src = url; img.alt = ''; img.referrerPolicy = 'no-referrer';
+      media.prepend(img); media.classList.remove('pending-preview'); media.classList.add('has-preview');
+      const note = document.createElement('p'); note.className = 'generated-image-note'; note.textContent = 'Изображение создано ИИ; готовое блюдо может выглядеть иначе.';
+      media.after(note);
+      return;
+    } catch { /* The card remains usable if a poll fails. */ }
+  }
+  overlayElement.querySelector('.recipe-image-wait p')?.replaceChildren('Фото пока не получилось. Рецепт уже готов.');
 }
 
 async function shareRecipe(recipe, button) {

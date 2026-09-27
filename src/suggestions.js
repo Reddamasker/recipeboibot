@@ -2,6 +2,7 @@ import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, matchRecipes
 import { getFoodProfile } from './dinner-store.js';
 import { hasExcludedIngredient, SEED_RECIPES, totalMinutes } from './dinner.js';
 import { generateRecipe, generateRequestedRecipe } from './openai.js';
+import { ensureSuggestionImage } from './recipe-images.js';
 
 const inFlight = new Map();
 
@@ -52,7 +53,7 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
   const { normalized, profile, excluded, maxMinutes } = requestContext(userId, query);
   const suggestionKey = `request:${normalized}`;
   const cached = findRecipeSuggestion(userId, suggestionKey);
-  if (cached) return { kind: 'generated', suggestion: cached };
+  if (cached) { if (!cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached); return { kind: 'generated', suggestion: cached }; }
   const key = JSON.stringify(['request', userId, normalized]);
   if (inFlight.has(key)) return inFlight.get(key);
   const task = (async () => {
@@ -73,7 +74,9 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
       recentTitles.some((title) => title.toLocaleLowerCase('ru') === recipe.title.trim().toLocaleLowerCase('ru'))) {
       throw Object.assign(new Error('Рецепт не прошёл проверку предпочтений. Уточните запрос и попробуйте ещё раз.'), { status: 422 });
     }
-    return { kind: 'generated', suggestion: createRecipeSuggestion(userId, suggestionKey, recipe) };
+    const suggestion = createRecipeSuggestion(userId, suggestionKey, recipe);
+    void ensureSuggestionImage(userId, suggestion);
+    return { kind: 'generated', suggestion };
   })();
   inFlight.set(key, task);
   try { return await task; } finally { inFlight.delete(key); }

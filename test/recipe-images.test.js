@@ -65,3 +65,23 @@ test('image generation prompt describes the specific dish and records provider u
     assert.equal(database.db.prepare("SELECT total_units FROM provider_requests WHERE operation='recipe_image' ORDER BY created_at DESC LIMIT 1").get().total_units, 30);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('an unsaved requested recipe shows its image and keeps it when saved', async () => {
+  const owner = database.upsertTelegramUser({ id: 7404, first_name: 'Запрос' });
+  const stranger = database.upsertTelegramUser({ id: 7405, first_name: 'Чужой' });
+  const proposal = database.createRecipeSuggestion(owner.id, 'request:суп', { title: 'Грибной суп', ingredients: [{ name: 'грибы' }], steps: [{ text: 'Сварить' }] });
+  const bytes = Buffer.from('suggestion photo');
+  assert.equal(database.saveSuggestionImage(stranger.id, proposal.id, 'image/jpeg', bytes), null);
+  const withImage = await images.ensureSuggestionImage(owner.id, proposal, { generate: async () => ({ mime: 'image/jpeg', bytes }) });
+  assert.equal(withImage.recipe.thumbnailUrl, `/suggestion-images/${proposal.id}`);
+  const server = createServer().listen(0, '127.0.0.1');
+  try {
+    await new Promise((resolve) => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/suggestion-images/${proposal.id}`);
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), 'suggestion photo');
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+  const saved = database.saveRecipeSuggestion(owner.id, proposal.id);
+  assert.equal(saved.thumbnailUrl, `https://recipes.example.test/recipe-images/${saved.id}`);
+  assert.deepEqual(Buffer.from(database.getRecipeImage(saved.id).bytes), bytes);
+});

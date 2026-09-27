@@ -7,17 +7,21 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function home()'), source.indexOf('\nasync function beginDinner'));
   const submit = { innerHTML: '', textContent: '', disabled: false };
-  const elements = Object.fromEntries(['#choose','#home-search-form','#home-search-input','#collection','#add'].map((key) => [key, { value: '', innerHTML: '', disabled: false }]));
+  const elements = Object.fromEntries(['#choose','#home-search-form','#home-search-input','#voice-request','#collection','#add'].map((key) => [key, { value: '', innerHTML: '', disabled: false }]));
   elements['#home-search-form'].querySelector = () => submit;
+  elements['#home-search-form'].requestSubmit = () => elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
+  const example = { textContent: 'Суп' };
   const root = { innerHTML: '' };
   const routes = [], requests = [], opened = []; let rendered; let response = { kind: 'existing', recipe: { id: 'seed:chicken-rice' } };
   const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', card: () => '', bindCommon() {}, importSheet() {},
-    document: { querySelector: (key) => elements[key] }, setRoute: (value) => routes.push(value), beginDinner() {}, render() {}, loadAndRender() {},
+    document: { querySelector: (key) => elements[key], querySelectorAll: () => [example] }, setRoute: (value) => routes.push(value), beginDinner() {}, render() {}, loadAndRender() {},
     api: async (path, options) => { requests.push([path, options.method, JSON.parse(options.body).query]); return response; },
     openRecipe: async (id) => opened.push(id), location: { search: '' }, URLSearchParams, recipeDetail: (recipe, options) => { rendered = [recipe, options]; }, toast: assert.fail };
   vm.runInNewContext(handler, sandbox);
   sandbox.home();
   assert.match(root.innerHTML, /Что тебе хочется/);
+  assert.match(root.innerHTML, /Надиктовать пожелание/);
+  assert.match(root.innerHTML, /Можно коротко/);
   assert.match(root.innerHTML, /Сначала поищу готовый рецепт/);
   elements['#choose'].onclick();
   assert.equal(routes.at(-1).view, 'dinner');
@@ -25,6 +29,8 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
   assert.deepEqual(requests, [['/api/recipe-request', 'POST', 'курица с рисом']]);
   assert.deepEqual(opened, ['seed:chicken-rice']);
+  await example.onclick();
+  assert.deepEqual(requests.at(-1), ['/api/recipe-request', 'POST', 'Суп']);
   response = { kind: 'generated', suggestion: { id: 'proposal', recipe: { title: 'Новое блюдо' } } };
   elements['#home-search-input'].value = 'паста с грушей';
   await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
@@ -99,8 +105,8 @@ test('open full recipe keeps waiting for its image after a transient fetch failu
 
 test('Mini App hides the landing and exposes the app shell before signaling readiness', () => {
   const index = fs.readFileSync('public/index.html', 'utf8');
-  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.3'));
-  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.6'));
+  assert.ok(index.indexOf('/mini-boot.js?v=3') < index.indexOf('/styles.css?v=8.5'));
+  assert.ok(index.indexOf('/vendor/telegram-web-app.js?v=20260714') < index.indexOf('/app.js?v=dinner-10.9'));
   const stages = [];
   let poll;
   let nativeReadyCalls = 0;

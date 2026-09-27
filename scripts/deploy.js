@@ -6,8 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const target = process.env.DEPLOY_TARGET || 'nikita@72.56.97.79';
-const healthUrl = process.env.DEPLOY_URL || 'https://recipeboibot.72-56-97-79.sslip.io';
+const target = process.env.DEPLOY_TARGET || 'root@89.223.123.75';
+const healthUrl = process.env.DEPLOY_URL || 'https://dishfinder.ru';
 const mode = process.argv[2];
 if (!['--check', '--apply'].includes(mode) || process.argv.length !== 3) {
   console.error('Usage: node scripts/deploy.js --check | --apply'); process.exit(2);

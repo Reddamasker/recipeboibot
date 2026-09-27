@@ -4,12 +4,13 @@ import path from 'node:path';
 import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
-import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getSharedRecipe, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
+import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importText, importUrl } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
-import { ensureRecipeImage } from './recipe-images.js';
+import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
+import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
@@ -22,7 +23,7 @@ let webDocument;
 function securityHeaders(response, scriptHashes = '') {
   response.setHeader('x-content-type-options', 'nosniff');
   response.setHeader('referrer-policy', 'no-referrer');
-  response.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  response.setHeader('permissions-policy', 'camera=(), microphone=(self), geolocation=()');
   response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' https://telegram.org ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org`);
 }
 function json(response, status, value) {
@@ -124,15 +125,35 @@ async function api(request, response, url) {
     const input = await bodyJson(request, 2000);
     return json(response, 200, await resolveRecipeRequest(user.id, input.query));
   }
+  if (request.method === 'POST' && url.pathname === '/api/recipe-request/transcribe') {
+    rateLimit(`ai:${user.id}`, 8, 60_000);
+    const input = await bodyJson(request, 2_900_000);
+    const mime = String(input.mime || '').split(';')[0].toLowerCase();
+    if (!['audio/webm', 'audio/mp4', 'audio/ogg'].includes(mime)) throw Object.assign(new Error('Этот формат записи не поддерживается'), { status: 415 });
+    if (typeof input.value !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(input.value)) throw Object.assign(new Error('Запись не получена'), { status: 400 });
+    const buffer = Buffer.from(input.value, 'base64');
+    if (!buffer.length || buffer.length > 2 * 1024 * 1024) throw Object.assign(new Error('Запись должна быть короче или меньше 2 МБ'), { status: 413 });
+    const filename = `request.${mime === 'audio/mp4' ? 'm4a' : mime === 'audio/ogg' ? 'ogg' : 'webm'}`;
+    const text = String(await transcribeAudio({ userId: user.id, buffer, mime, filename }) || '').trim();
+    if (!text) throw Object.assign(new Error('Не расслышал пожелание. Попробуйте ещё раз или напишите его.'), { status: 422 });
+    return json(response, 200, { text: text.slice(0, 500) });
+  }
+  if (request.method === 'GET' && /^\/api\/suggestions\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+    const suggestion = getRecipeSuggestion(user.id, url.pathname.split('/').at(-1));
+    return json(response, suggestion ? 200 : 404, suggestion || { error: 'Рецепт не найден' });
+  }
   if (request.method === 'POST' && url.pathname === '/api/suggestions') {
     rateLimit(`ai:${user.id}`, 8, 60_000);
     const input = await bodyJson(request, 2000);
     return json(response, 200, await suggestForEmptySearch(user.id, input.query));
   }
   if (request.method === 'POST' && /^\/api\/suggestions\/[0-9a-f-]{36}\/save$/i.test(url.pathname)) {
-    const recipe = saveRecipeSuggestion(user.id, url.pathname.split('/').at(-2));
+    const suggestionId = url.pathname.split('/').at(-2);
+    const suggestion = getRecipeSuggestion(user.id, suggestionId);
+    const recipe = saveRecipeSuggestion(user.id, suggestionId);
     if (!recipe) return json(response, 404, { error: 'Предложение больше недоступно' });
-    void ensureRecipeImage(user.id, recipe);
+    if (suggestion?.query.startsWith('request:')) void ensureSuggestionImage(user.id, suggestion).then(() => ensureRecipeImage(user.id, getRecipe(user.id, recipe.id)));
+    else void ensureRecipeImage(user.id, recipe);
     return json(response, 200, recipe);
   }
   if (request.method === 'GET' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
@@ -201,6 +222,13 @@ export function createServer() {
         if (!image) return json(response, 404, { error: 'Изображение недоступно' });
         securityHeaders(response);
         response.writeHead(200, { 'content-type': image.mime, 'content-length': image.bytes.length, 'cache-control': 'public, max-age=86400' });
+        return response.end(image.bytes);
+      }
+      if (request.method === 'GET' && /^\/suggestion-images\/[0-9a-f-]{36}$/i.test(url.pathname)) {
+        const image = getSuggestionImage(url.pathname.split('/').at(-1));
+        if (!image) return json(response, 404, { error: 'Изображение недоступно' });
+        securityHeaders(response);
+        response.writeHead(200, { 'content-type': image.mime, 'content-length': image.bytes.length, 'cache-control': 'public, max-age=3600' });
         return response.end(image.bytes);
       }
       if (request.method === 'GET' && /^\/api\/shares\/[A-Za-z0-9_-]{32}$/.test(url.pathname)) {

@@ -24,7 +24,12 @@
   .muted { color: #756b7d; font-size: 13px; line-height: 1.5; }
   .search { background: #fff; border: 1px solid #ded5e5; border-radius: 17px; padding: 15px; margin-bottom: 18px; }
   .search label { display: block; font-weight: 800; font-size: 13px; margin-bottom: 11px; }
-  .search .input { border: 1px solid #ded5e5; border-radius: 10px; color: #756b7d; padding: 12px; font-size: 12px; }
+  .search .input-row { display: flex; gap: 8px; }
+  .search .input { flex: 1; border: 1px solid #ded5e5; border-radius: 10px; color: #756b7d; padding: 12px; font-size: 12px; }
+  .search .mic { width: 42px; display: grid; place-items: center; border: 1px solid #ded5e5; border-radius: 10px; color: #a4415c; font-size: 19px; }
+  .search .mic.live { background: #a4415c; color: white; }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; font-size: 10px; color: #756b7d; }
+  .chips span { border: 1px solid #ded5e5; border-radius: 20px; padding: 5px 8px; }
   .button { display: block; text-align: center; border-radius: 11px; padding: 12px; font-size: 13px; font-weight: 800; margin-top: 10px; }
   .button.primary { background: #a4415c; color: #fff; }
   .button.secondary { background: #e7def0; }
@@ -36,7 +41,8 @@
   .status { margin: 95px 0; text-align: center; }
   .status .dot { display: block; width: 62px; height: 62px; margin: 0 auto 18px; border-radius: 21px; background: #ddf18a; }
   .card { background: #fff; border-radius: 22px; overflow: hidden; }
-  .card .art { height: 120px; background: #e7def0; display: grid; place-items: center; color: #756b7d; font-size: 12px; }
+  .card .art { height: 150px; background: #e7def0; display: grid; place-items: center; color: #756b7d; font-size: 12px; }
+  .card .art img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .card .body { padding: 18px; }
   .card h2 { font-size: 29px; margin: 4px 0 7px; }
   .card h3 { font-size: 19px; margin: 20px 0 8px; }
@@ -48,7 +54,7 @@
 <main>
   <div class="intro">
     <h1>Клиентский путь: рецепт по желанию</h1>
-    <p>Отдельный от ужина сценарий. Текст в Mini App или голосовое в чате сначала сопоставляются с готовыми рецептами. Если подходящего нет, создаётся один новый рецепт.</p>
+    <p>Отдельный от ужина сценарий. Можно написать одно слово, фразу или надиктовать пожелание прямо в Mini App. Сначала ищем готовый рецепт; только если его нет, создаём новый с фотографией блюда.</p>
   </div>
   <div class="flow">
     <section class="step">
@@ -56,16 +62,25 @@
       <div class="phone">
         <div class="brand">Твои рецепты <span class="avatar">Я</span></div>
         <div class="hero"><span class="eyebrow">Подбор ужина</span><h2>Что приготовить <em>сегодня?</em> ↗</h2><p class="muted">Три идеи для ужина с учётом предпочтений.</p></div>
-        <div class="search"><label>Что тебе хочется?</label><div class="input">Например, курица с рисом за 30 минут</div><div class="button primary">Подобрать рецепт</div></div>
-        <p class="muted">Сначала поищу готовый рецепт. Если подходящего нет — составлю новый. Голосом можно рассказать боту в чате.</p>
+        <div class="search"><label>Что тебе хочется?</label><div class="input-row"><div class="input">Например, суп или курица с рисом</div><div class="mic">🎙</div></div><div class="button primary">Подобрать рецепт</div><div class="chips">Можно коротко: <span>Суп</span><span>Курица</span><span>Что-нибудь быстрое</span></div></div>
+        <p class="muted">Сначала поищу готовый рецепт. Если подходящего нет — составлю новый.</p>
         <div class="link">Мои рецепты →</div>
+      </div>
+    </section>
+    <section class="step">
+      <p class="caption">01Б · Диктовка в Mini App</p>
+      <div class="phone">
+        <div class="brand">Твои рецепты <span class="avatar">Я</span></div>
+        <div class="hero"><span class="eyebrow">Подбор ужина</span><h2>Что приготовить <em>сегодня?</em> ↗</h2></div>
+        <div class="search"><label>Что тебе хочется?</label><div class="input-row"><div class="input">Суп с овощами</div><div class="mic live">🎙</div></div><p class="muted">Записываю… Нажми ещё раз, когда закончишь.</p><div class="button primary">Подобрать рецепт</div></div>
+        <p class="muted">После остановки запись превращается в текст. Его сразу используем для подбора.</p>
       </div>
     </section>
     <section class="step">
       <p class="caption">02А · Подходящий готовый рецепт</p>
       <div class="phone">
         <div class="back">← На главную</div>
-        <div class="card"><div class="art">Фото готового блюда</div><div class="body">
+        <div class="card"><div class="art"><img src="../public/assets/dinner/chicken-rice.jpg" alt="Курица с рисом"></div><div class="body">
           <span class="eyebrow">Из готовых рецептов</span><h2>Курица с рисом и овощами</h2><p class="muted">30 минут · 2 порции · пример</p>
           <h3>Ингредиенты</h3><ul><li>Курица — 350 г</li><li>Рис — 160 г</li><li>Овощи — 250 г</li></ul>
           <h3>Как готовить</h3><ol><li>Подготовить продукты.</li><li>Сварить рис.</li><li>Приготовить курицу с овощами.</li></ol>
@@ -85,7 +100,7 @@
       <p class="caption">03Б · Новый рецепт · полная карточка</p>
       <div class="phone">
         <div class="back">← На главную</div>
-        <div class="card"><div class="art">Фото готовится · рецепт доступен сразу</div><div class="body">
+        <div class="card"><div class="art"><img src="../public/assets/dinner/pasta-tomato.jpg" alt="Паста с томатами"></div><div class="body">
           <span class="eyebrow">Создано для тебя</span><h2>Овощная паста с сыром</h2><p class="muted">25 минут · 2 порции · пример</p>
           <h3>Ингредиенты</h3><ul><li>Паста — 180 г</li><li>Томаты — 300 г</li><li>Сыр — 40 г</li></ul>
           <h3>Как готовить</h3><ol><li>Подготовить продукты.</li><li>Сварить пасту.</li><li>Приготовить соус и соединить.</li></ol>
@@ -94,6 +109,6 @@
       </div>
     </section>
   </div>
-  <p class="footnote">Переходы: главная → ужин (три варианта); главная → запрос о блюде → подходящий рецепт из личной коллекции или готовой базы → полная карточка; если подходящего нет → генерация одного рецепта → полная карточка → добровольное сохранение. Голосовой запрос в личном чате проходит тот же порядок.</p>
+  <p class="footnote">Переходы: главная → короткий текст или микрофон → подходящий рецепт из личной коллекции или готовой базы → полная карточка; если подходящего нет → генерация одного рецепта → карточка с фотографией, которая появляется в фоне → добровольное сохранение. Голосовой запрос в чате проходит тот же порядок. Фотографии в макете показывают ожидаемый вид карточки; в рабочем приложении изображение нового блюда создаётся для конкретного рецепта.</p>
 </main>
 </html>

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
-import { getRecipeImage, recordAiAttempt, recordProviderRequest, saveRecipeImage } from './db.js';
+import { getRecipeImage, getRecipeSuggestion, getSuggestionImage, recordAiAttempt, recordProviderRequest, saveRecipeImage, saveSuggestionImage } from './db.js';
 import { log } from './log.js';
 import { openaiFetch } from './openai-fetch.js';
 
@@ -55,4 +55,23 @@ export async function ensureRecipeImage(userId, recipe, { generate = generateRec
   })();
   inFlight.set(recipe.id, task);
   try { return await task; } finally { inFlight.delete(recipe.id); }
+}
+
+export async function ensureSuggestionImage(userId, suggestion, { generate = generateRecipeImage } = {}) {
+  if (!suggestion) return null;
+  if (getSuggestionImage(suggestion.id)) return getRecipeSuggestion(userId, suggestion.id);
+  if (!config.imageModel && generate === generateRecipeImage) return suggestion;
+  const key = `suggestion:${suggestion.id}`;
+  if (inFlight.has(key)) return inFlight.get(key);
+  const task = (async () => {
+    try {
+      const image = await generate(userId, suggestion.recipe);
+      return image ? saveSuggestionImage(userId, suggestion.id, image.mime, image.bytes) : suggestion;
+    } catch (error) {
+      log('warn', 'suggestion_image_failed', { suggestionId: suggestion.id, error });
+      return suggestion;
+    }
+  })();
+  inFlight.set(key, task);
+  try { return await task; } finally { inFlight.delete(key); }
 }

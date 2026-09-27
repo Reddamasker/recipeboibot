@@ -99,9 +99,21 @@ header {
 .home-choice p { margin: 0; color: var(--muted); font-size: 14px; }
 .home-search { margin-bottom: 52px; }
 .home-search h2 { font-size: 28px; line-height: 1.1; }
-.home-search .search-wrap { display: grid; grid-template-columns: 1fr; margin: 16px 0 12px; }
+.home-search .search-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 52px; margin: 16px 0 8px; }
 .home-search .search { min-width: 0; }
+.home-search .search-wrap > .primary { grid-column: 1 / -1; }
 .home-search > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.home-search .request-voice-status:empty { display: none; }
+.home-search .request-voice-status { margin: 0 0 10px; color: var(--berry); }
+.voice-request { min-width: 52px; border: 1px solid rgba(118,97,139,.2); border-radius: 16px; background: var(--paper); color: var(--berry); font-size: 22px; cursor: pointer; }
+.voice-request svg { width: 24px; height: 24px; display: block; margin: auto; }
+.voice-request.recording { background: var(--berry); color: white; box-shadow: 0 0 0 5px rgba(164,65,92,.16); }
+.voice-request:disabled { opacity: .65; cursor: default; }
+.request-examples { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 6px 0 14px; color: var(--muted); font-size: 12px; }
+.request-examples button { border: 1px solid rgba(118,97,139,.18); border-radius: 999px; padding: 6px 10px; background: rgba(255,255,255,.7); color: var(--ink); font: inherit; cursor: pointer; }
+.recipe-image-wait { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center; background: radial-gradient(circle at 72% 28%, #f8e7d9 0, transparent 36%), linear-gradient(145deg, #e5dceb, #f1dfe1 60%, #e7d8c7); color: #624b69; }
+.recipe-image-wait span { font: 54px Georgia, serif; }
+.recipe-image-wait p { margin: 0; font-size: 14px; }
 .collection-link { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; margin-bottom: 26px; border: 0; padding: 0; background: transparent; text-align: left; cursor: pointer; font: 400 30px/1.2 Georgia, serif; }
 .collection-link small { margin-left: 8px; color: var(--muted); font: 400 12px system-ui, sans-serif; vertical-align: middle; }
 .collection-link > span:last-child { font: 400 24px system-ui, sans-serif; color: var(--muted); }
