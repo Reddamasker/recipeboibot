@@ -54,6 +54,11 @@ async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) 
   }
   if (userId) prepareDinner(userId);
 }
+let dinnerLaunchId = 0;
+function dinnerWebAppMarkup() {
+  const url = webAppUrl({ view: 'dinner', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
+  return url ? { inline_keyboard: [[{ text: 'Открыть варианты ужина', web_app: { url } }]] } : { inline_keyboard: [] };
+}
 export async function sendDinnerProfilePrompt(chatId, userId) {
   await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true });
 }
@@ -176,6 +181,13 @@ export async function handleDinnerIntakeCallback(callback) {
   prepareDinner(user.id);
   clearPendingIntent(user.id);
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Ответы сохранены' });
+  const replyMarkup = dinnerWebAppMarkup();
+  try {
+    await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: callback.message.message_id, reply_markup: replyMarkup });
+  } catch (error) {
+    log('warn', 'telegram_dinner_open_button_edit_failed', { error: error.message, userId: user.id });
+    await send(chatId, 'Ответы сохранены. Варианты ужина уже готовятся.', { reply_markup: replyMarkup });
+  }
   return true;
 }
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
