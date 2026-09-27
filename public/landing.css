@@ -16,7 +16,7 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-brand { display: inline-flex; align-items: center; gap: 11px; font: 30px Georgia, serif; white-space: nowrap; }
 .lp-brand img, .lp-flow-bot img { border-radius: 50%; mix-blend-mode: multiply; }
 .lp-nav { display: flex; gap: 30px; font-size: 14px; }
-.lp-header-cta { font-size: 14px; border-bottom: 1px solid var(--lp-olive); padding: 9px 0; white-space: nowrap; }
+.lp-header-cta { min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; border-bottom: 1px solid var(--lp-olive); padding: 9px 0; white-space: nowrap; }
 .lp-header-cta span { margin-left: 12px; }
 .lp-nav a:hover, .lp-header-cta:hover { color: var(--lp-olive); }
 .lp-hero { display: grid; grid-template-columns: minmax(0,.88fr) minmax(0,1.12fr); gap: 46px; align-items: center; padding-block: 56px 26px; }
@@ -31,8 +31,8 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-paper { position: absolute; top: 8px; left: 0; width: 235px; aspect-ratio: 1; transform: rotate(-7deg); background: url('/assets/recipe-paper-v1.webp') center / contain no-repeat; filter: drop-shadow(2px 8px 5px #34291d24); }
 .lp-paper-writing { position: absolute; inset: 28px 25px 24px 63px; color: #383735; font-family: 'Segoe Print', 'Bradley Hand', cursive; transform: rotate(-1deg); }
 .lp-paper-writing > span { font-size: 8px; }
-.lp-paper-writing h3 { margin: 7px 0 0; font: 17px/1.25 'Segoe Print', 'Bradley Hand', cursive; }
 .lp-paper-writing p { margin: 8px 0 0; font: 11px/1.9 'Segoe Print', 'Bradley Hand', cursive; }
+.lp-paper-writing .lp-paper-title { margin: 7px 0 0; font: 17px/1.25 'Segoe Print', 'Bradley Hand', cursive; }
 .lp-paper-writing > small { display: block; margin-top: 5px; font-size: 9px; }
 .lp-chat-scrap { position: absolute; z-index: 2; top: 4px; right: 13px; width: 250px; height: 210px; transform: rotate(4deg); background: #dce7ed; border: 1px solid #ccd7df; border-radius: 9px; box-shadow: 0 9px 22px #1f344a20; font-family: Arial, sans-serif; font-size: 11px; color: #17212b; overflow: hidden; }
 .lp-chat-bar { display: flex; align-items: center; gap: 6px; height: 44px; padding: 5px 9px; background: #fff; box-shadow: 0 1px 3px #17212b19; }
@@ -78,7 +78,7 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-flow-list-heading span { color: var(--muted); font-size: 9px; font-weight: 400; }
 .lp-flow-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid #e8eae2; font-size: 12px; }
 .lp-flow-row small { color: var(--muted); font-size: 8px; white-space: nowrap; }
-.lp-flow-replay { grid-column: 2; justify-self: end; margin-top: 5px; padding: 5px 0; border: 0; border-bottom: 1px solid #9ba394; background: none; color: var(--muted); font-size: 11px; }
+.lp-flow-replay { grid-column: 2; justify-self: end; min-height: 44px; margin-top: 5px; padding: 5px 0; border: 0; border-bottom: 1px solid #9ba394; background: none; color: var(--muted); font-size: 12px; }
 .lp-showcase.is-ready:not(.is-complete) .lp-flow-row { opacity: 0; }
 .lp-showcase.is-playing .lp-artifacts > * { animation: lp-into-bot .85s cubic-bezier(.46,.04,.75,.45) var(--delay) both; }
 .lp-showcase.is-playing .lp-flow-bot img { animation: lp-bot-receives .5s ease-in-out 1.35s 2; }
@@ -123,33 +123,8 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-opened-recipe .step-card p { line-height: 1.35; }
 .lp-opened-recipe .step-number { top: 5px; width: 20px; height: 20px; font-size: 10px; }
 .lp-opened-recipe .detail-actions { position: static; width: 100%; padding: 8px 13px 11px; transform: none; background: var(--bg); backdrop-filter: none; }
-.lp-opened-recipe .detail-actions button { min-height: 34px; border-radius: 9px; font-size: 10px; }
+.lp-opened-recipe .detail-actions button { min-height: 44px; border-radius: 9px; font-size: 11px; }
 .lp-opened-recipe button:disabled { cursor: default; opacity: .45; }
-.lp-quiz { display: grid; grid-template-columns: .78fr 1.22fr; gap: 60px; align-items: start; margin-top: 54px; padding-top: 54px; border-top: 1px solid var(--lp-rule); }
-.lp-quiz-intro h3 { max-width: 390px; font-size: 34px; line-height: 1.12; letter-spacing: -.03em; }
-.lp-quiz-card { min-height: 360px; display: flex; flex-direction: column; padding: 28px 30px 25px; border: 1px solid #d9d4df; border-radius: 18px; background: #f4eff6; box-shadow: 0 16px 42px #3025370d; }
-.lp-quiz-progress { display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #796d80; font-size: 11px; }
-.lp-quiz-progress > div { display: flex; gap: 6px; }
-.lp-quiz-progress i { width: 28px; height: 3px; border-radius: 5px; background: #d8cfde; }
-.lp-quiz-progress i.is-active { background: var(--lp-purple); }
-.lp-quiz-question { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 13px; margin: 38px 0 34px; }
-.lp-quiz-question > span { padding-top: 4px; color: var(--lp-purple); font: italic 22px/1 Georgia,serif; }
-.lp-quiz-question h4 { font: 400 27px/1.18 Georgia,serif; letter-spacing: -.025em; }
-.lp-quiz-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: auto; }
-.lp-quiz-actions button { min-height: 48px; padding: 10px 16px; border: 1px solid #cfc5d6; border-radius: 10px; background: #fff; color: var(--ink); font-size: 13px; }
-.lp-quiz-actions button:first-child { border-color: #36283d; background: #36283d; color: white; }
-.lp-quiz-actions button:hover { border-color: var(--lp-purple); }
-.lp-quiz-back { align-self: flex-start; margin-top: 14px; padding: 3px 0; border: 0; border-bottom: 1px solid #b7acbd; background: transparent; color: var(--muted); font-size: 11px; }
-.lp-quiz-result { justify-content: center; }
-.lp-quiz-result .lp-quiz-progress { display: none; }
-.lp-quiz-result .lp-quiz-question { display: block; margin: 0 0 26px; }
-.lp-quiz-result .lp-quiz-question > span { display: block; margin-bottom: 13px; padding: 0; font-size: 13px; font-family: Arial,sans-serif; font-style: normal; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.lp-quiz-result .lp-quiz-question h4 { font-size: 32px; }
-.lp-quiz-result-copy { margin: 14px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
-.lp-quiz-result-stat { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid #ded5e5; color: #796d80; font-size: 11px; line-height: 1.6; }
-.lp-quiz-result-stat a { border-bottom: 1px solid #b7acbd; }
-.lp-quiz-result .lp-quiz-actions { display: flex; margin-top: 0; }
-.lp-quiz-result .lp-quiz-actions a { min-height: 48px; display: inline-flex; align-items: center; padding: 10px 18px; border-radius: 10px; background: #36283d; color: white; font-size: 13px; }
 .lp-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 60px; padding-block: 70px; }
 .lp-faq h2 { font-size: 41px; padding-top: 8px; }
 .lp-questions details { border-top: 1px solid var(--lp-rule); }
@@ -181,8 +156,8 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-artifacts { height: 385px; }
   .lp-paper { width: 208px; left: 0; }
   .lp-paper-writing { inset: 26px 23px 22px 56px; }
-  .lp-paper-writing h3 { font-size: 15px; }
   .lp-paper-writing p { font-size: 10px; }
+  .lp-paper-writing .lp-paper-title { font-size: 15px; }
   .lp-chat-scrap { width: 225px; }
   .lp-video-scrap { left: 104px; top: 180px; width: 210px; }
   .lp-video-still { height: 110px; }
@@ -195,7 +170,7 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 @media (max-width: 760px) {
   .lp-wrap { width: calc(100% - 40px); }
   .lp-header { min-height: 82px; padding-block: 17px; gap: 12px; }
-  .lp-brand { font-size: 25px; gap: 8px; }
+  .lp-brand { font-size: clamp(18px, 4.8vw, 25px); gap: 8px; }
   .lp-brand img { width: 33px; height: 33px; }
   .lp-nav { display: none; }
   .lp-header-cta { font-size: 12px; }
@@ -225,13 +200,6 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-opened-recipe .detail-content { padding: 18px 14px 0; }
   .lp-opened-recipe .detail-heading h2 { font-size: 27px; }
   .lp-opened-recipe .detail-actions { padding-inline: 14px; }
-  .lp-quiz { grid-template-columns: 1fr; gap: 24px; margin-top: 38px; padding-top: 38px; }
-  .lp-quiz-intro h3 { font-size: 31px; }
-  .lp-quiz-card { min-height: 390px; padding: 23px 20px 21px; }
-  .lp-quiz-question { grid-template-columns: 34px minmax(0,1fr); gap: 9px; margin-block: 30px; }
-  .lp-quiz-question > span { font-size: 19px; }
-  .lp-quiz-question h4 { font-size: 25px; }
-  .lp-quiz-result .lp-quiz-question h4 { font-size: 29px; }
   .lp-faq { grid-template-columns: 1fr; gap: 25px; padding-block: 44px; }
   .lp-faq h2 { font-size: 36px; }
   .lp-faq h2 br { display: none; }
@@ -240,14 +208,20 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-end h2 { font-size: 36px; }
   .lp-end p br { display: none; }
   .lp-end > a { margin-top: 23px; }
+  .lp-footer { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .lp-footer-owner { grid-template-columns: 1fr; gap: 2px; }
+  .lp-footer-owner .lp-brand { grid-row: auto; margin-bottom: 6px; }
+  .lp-footer-links { justify-content: flex-start; }
+  .lp-footer-links a { min-height: 44px; display: inline-flex; align-items: center; }
 }
 @media (max-width: 380px) {
+  .lp-header { flex-wrap: wrap; justify-content: space-between; }
   .lp-header-cta { font-size: 11px; }
   .lp-artifacts { height: 345px; }
   .lp-paper { width: 177px; }
   .lp-paper-writing { inset: 22px 18px 16px 47px; }
-  .lp-paper-writing h3 { font-size: 13px; margin-top: 4px; }
   .lp-paper-writing p { font-size: 8px; margin-top: 5px; }
+  .lp-paper-writing .lp-paper-title { font-size: 13px; margin-top: 4px; }
   .lp-paper-writing > small, .lp-paper-writing > span { font-size: 7px; }
   .lp-chat-scrap { width: 160px; height: 179px; top: 42px; right: 0; }
   .lp-chat-bubble { height: 40px; }
@@ -264,9 +238,7 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-flow-bot::after { font-size: 13px; top: 19px; }
   .lp-opened-recipe .detail-content { padding-inline: 12px; }
   .lp-opened-recipe .detail-actions { padding-inline: 12px; }
-  .lp-footer { align-items: flex-start; }
-  .lp-footer-owner { grid-template-columns: 1fr; gap: 2px; font-size: 11px; }
-  .lp-footer-owner .lp-brand { grid-row: auto; margin-bottom: 6px; }
+  .lp-footer-owner { font-size: 11px; }
   .lp-footer-links { max-width: 155px; justify-content: flex-start; gap: 7px 15px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { html:has(.landing:not([hidden])) { scroll-behavior: auto; } .lp-showcase.is-playing .lp-artifacts > *, .lp-showcase.is-playing .lp-flow-bot img, .lp-showcase.is-playing .lp-flow-row { animation: none; } }

@@ -3,7 +3,7 @@
   --bg: #f3f0f7;
   --paper: #ffffff;
   --ink: #302537;
-  --muted: #756b7d;
+  --muted: #685e70;
   --berry: #a4415c;
   --berry-dark: #7f2f49;
   --lilac: #e7def0;
@@ -30,10 +30,15 @@ body {
 body:has(.overlay), body:has(.cook) { overflow: hidden; }
 button, input, textarea { font: inherit; color: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible {
   outline: 3px solid var(--berry);
   outline-offset: 3px;
 }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+/* Comfortable touch targets without enlarging the visible icon glyphs. */
+.avatar, .card-remove { min-width: 44px; min-height: 44px; }
+.request-examples button, .dinner-pick-button, .dinner-recipe-link,
+.text-button, .back-link, .manual-save, .brand, .source-tabs button { min-height: 44px; }
 h1, h2, h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; }
 p { text-wrap: pretty; }
 
@@ -155,10 +160,10 @@ header {
 .dinner-menu-ingredients { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-actions { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
-.dinner-pick-button { min-height: 42px; border: 1px solid var(--berry); border-radius: 11px; padding: 8px 13px; background: transparent; color: var(--berry-dark); font-size: 12px; font-weight: 800; cursor: pointer; }
+.dinner-pick-button { min-height: 44px; border: 1px solid var(--berry); border-radius: 11px; padding: 8px 13px; background: transparent; color: var(--berry-dark); font-size: 12px; font-weight: 800; cursor: pointer; }
 .dinner-pick-button:hover { background: var(--lilac-soft); }
 .dinner-pick-button span { margin-left: 7px; }
-.dinner-recipe-link { min-height: 42px; border: 0; padding: 8px 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
+.dinner-recipe-link { min-height: 44px; border: 0; padding: 8px 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
 .dinner-picks .dinner-actions { margin-top: 14px; }
 .dinner-picks .dinner-actions .secondary { min-height: 44px; border: 0; background: transparent; color: var(--berry-dark); font-size: 12px; }
 
@@ -235,7 +240,7 @@ header {
 .card h3 { margin-bottom: 10px; font-weight: 400; font-size: 22px; line-height: 1.08; letter-spacing: -0.02em; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 9px; color: var(--muted); font-size: 10px; line-height: 1.3; }
 .card-remove { position: absolute; top: 8px; right: 8px; z-index: 3; width: 30px; height: 30px; display: grid; place-items: center; border: 0; padding: 0 0 2px; background: transparent; color: #b52f4f; font-size: 24px; font-weight: 700; line-height: 1; cursor: pointer; }
-.card-remove:focus-visible { outline: 3px solid rgba(181,47,79,.28); outline-offset: 2px; }
+.card-remove:focus-visible { outline: 3px solid var(--berry); outline-offset: 2px; }
 .card-remove:disabled { cursor: wait; opacity: .45; }
 .status-card { cursor: default; }
 .status-copy { margin: 5px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }

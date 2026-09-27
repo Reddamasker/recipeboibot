@@ -13,7 +13,7 @@
 .detail-heading-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .detail-edit {
   flex: 0 0 auto;
-  min-height: 36px;
+  min-height: 44px;
   border: 0;
   padding: 0 0 0 12px;
   background: transparent;
@@ -39,6 +39,7 @@
   font-weight: 800;
 }
 .source-chip > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.source-chip { min-height: 44px; }
 .source-chip-icon { display: none; }
 .source-chip-arrow { margin-left: 1px; font-size: 14px; }
 .detail-back {
@@ -46,7 +47,7 @@
   top: 14px;
   left: 14px;
   z-index: 2;
-  min-height: 40px;
+  min-height: 44px;
   border: 0;
   border-radius: 999px;
   padding: 0 14px;
@@ -90,6 +91,8 @@
 .recipe-tags { margin-top: 17px; display: flex; flex-wrap: wrap; gap: 7px; }
 .recipe-tag { border: 0; border-radius: 999px; padding: 8px 11px; background: var(--lilac); color: var(--ink); font-size: 10px; font-weight: 800; cursor: pointer; }
 .recipe-tag:active { background: transparent; }
+button.recipe-tag { min-height: 44px; }
+span.recipe-tag { cursor: default; }
 
 .quality-card { margin: 24px 0 4px; overflow: hidden; border: 0; border-radius: 22px; background: var(--lilac); }
 .quality-card summary { min-height: 64px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; cursor: pointer; }
@@ -174,7 +177,7 @@
 .checkout-shell { max-width: 510px; margin: 0 auto; overflow: hidden; border: 1px solid #e4e8ef; border-radius: 21px; background: #fff; box-shadow: 0 20px 65px rgba(23,43,69,.12); }
 .checkout-test-strip { padding: 10px 13px; background: #ffedb5; color: #634600; text-align: center; font-size: 10px; font-weight: 850; letter-spacing: .06em; }
 .checkout-header { padding: 18px 23px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid #eef0f4; }
-.checkout-header button { padding: 0; border: 0; background: transparent; color: #566377; font-size: 23px; cursor: pointer; }
+.checkout-header button { min-width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; color: #566377; font-size: 23px; cursor: pointer; }
 .checkout-provider { font-size: 22px; font-weight: 850; letter-spacing: -.07em; color: #313bdd; }
 .checkout-provider span { color: #20304a; }
 .checkout-safe { margin-left: auto; color: #799085; font-size: 10px; }

@@ -36,7 +36,7 @@ function setRoute(values, { replace = false, historyState = {} } = {}) {
 }
 
 function header() {
-  return `<header><button class="brand plain" data-home aria-label="На главную"><span class="brand-dot">Р</span><span>Рецепты</span></button><button class="avatar" id="settings">${esc(initial())}</button></header>`;
+  return `<header><button class="brand plain" data-home aria-label="На главную"><span class="brand-dot">Р</span><span>Твои рецепты</span></button><button class="avatar" id="settings" aria-label="Настройки профиля">${esc(initial())}</button></header>`;
 }
 
 function card(recipe) {
@@ -309,25 +309,26 @@ async function showNextDinner() {
 function onboardingView() {
   if (state.onboarding.tasteOnly) return tastePreferencesView();
   const data = state.onboarding, step = data.step;
-  const choices = (items, selected, field) => `<div class="dinner-options">${items.map(([value, label]) => `<button type="button" class="dinner-option ${selected === value ? 'selected' : ''}" data-${field}="${value}">${label}</button>`).join('')}</div>`;
+  const choices = (items, selected, field) => `<div class="dinner-options">${items.map(([value, label]) => `<button type="button" class="dinner-option ${selected === value ? 'selected' : ''}" data-${field}="${value}" aria-pressed="${selected === value}">${label}</button>`).join('')}</div>`;
   const content = [
     `<h1>Для кого обычно готовишь?</h1>${choices([['self', 'Для себя'], ['couple', 'Для двоих'], ['family', 'Для семьи']], data.householdType, 'household')}<label class="dinner-help" for="dinner-household-size">Сколько человек за столом?</label><input class="field" id="dinner-household-size" type="number" min="1" max="10" inputmode="numeric" value="${data.householdSize || ''}" placeholder="Например, 3"><p class="dinner-help">Есть дети?</p>${choices([['yes','Да'],['no','Нет']], data.hasChildren === null ? null : data.hasChildren ? 'yes' : 'no', 'children')}`,
     `<h1>Сколько времени есть на ужин?</h1>${choices([['15', 'До 15 минут'], ['30', 'До 30 минут'], ['60', 'До 60 минут'], ['any', 'Неважно']], data.preferredMaxCookingTime === null ? 'any' : String(data.preferredMaxCookingTime), 'time')}`,
-    `<h1>Есть ли аллергия?</h1><p>Назови аллергены и другие продукты, которые нужно исключить.</p><input class="field" id="dinner-excluded" value="${esc(data.excludedIngredients)}" placeholder="Например: грибы, арахис"><p class="dinner-help">Разделяй продукты запятыми. Если аллергии и исключений нет, оставь поле пустым.</p>`,
+    `<h1>Есть ли аллергия?</h1><p>Назови аллергены и другие продукты, которые нужно исключить.</p><label class="label" for="dinner-excluded">Аллергены и исключённые продукты</label><input class="field" id="dinner-excluded" value="${esc(data.excludedIngredients)}" placeholder="Например: грибы, арахис" aria-describedby="dinner-excluded-help"><p class="dinner-help" id="dinner-excluded-help">Разделяй продукты запятыми. Если аллергии и исключений нет, оставь поле пустым.</p>`,
     tasteChoices(data.preferredCategories)
   ][step];
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button><div class="eyebrow">БЫСТРАЯ НАСТРОЙКА · ${step + 1} ИЗ 4</div><section class="dinner-onboarding">${content}<div class="dinner-actions"><button class="primary accent" id="onboarding-next">${step === 3 ? 'Показать ужин' : 'Дальше'}</button>${step !== 2 ? '<button class="secondary" id="onboarding-skip">Пропустить</button>' : ''}</div></section></main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { state.onboarding = null; setRoute({}); render(); };
-  document.querySelectorAll('[data-household]').forEach((button) => button.onclick = () => { data.householdType = button.dataset.household; data.householdSize = button.dataset.household === 'self' ? 1 : button.dataset.household === 'couple' ? 2 : data.householdSize > 2 ? data.householdSize : null; onboardingView(); });
+  const redrawChoice = (field, value) => { onboardingView(); document.querySelector(`[data-${field}="${value}"]`)?.focus(); };
+  document.querySelectorAll('[data-household]').forEach((button) => button.onclick = () => { data.householdType = button.dataset.household; data.householdSize = button.dataset.household === 'self' ? 1 : button.dataset.household === 'couple' ? 2 : data.householdSize > 2 ? data.householdSize : null; redrawChoice('household', button.dataset.household); });
   document.querySelector('#dinner-household-size')?.addEventListener('input', (event) => { const value = Number(event.target.value); data.householdSize = Number.isInteger(value) && value >= 1 && value <= 10 ? value : null; });
-  document.querySelectorAll('[data-children]').forEach((button) => button.onclick = () => { data.hasChildren = button.dataset.children === 'yes'; onboardingView(); });
-  document.querySelectorAll('[data-time]').forEach((button) => button.onclick = () => { data.preferredMaxCookingTime = button.dataset.time === 'any' ? null : Number(button.dataset.time); onboardingView(); });
+  document.querySelectorAll('[data-children]').forEach((button) => button.onclick = () => { data.hasChildren = button.dataset.children === 'yes'; redrawChoice('children', button.dataset.children); });
+  document.querySelectorAll('[data-time]').forEach((button) => button.onclick = () => { data.preferredMaxCookingTime = button.dataset.time === 'any' ? null : Number(button.dataset.time); redrawChoice('time', button.dataset.time); });
   bindTasteChoices(data, onboardingView);
   const advance = async (skip = false) => {
     if (data.saving) return;
     if (step === 2) data.excludedIngredients = document.querySelector('#dinner-excluded').value;
-    if (step < 3) { data.step += 1; onboardingView(); return; }
+    if (step < 3) { data.step += 1; onboardingView(); const heading = root.querySelector('h1'); heading.tabIndex = -1; heading.focus(); return; }
     data.saving = true;
     document.querySelector('#onboarding-next').disabled = true;
     document.querySelector('#onboarding-skip').disabled = true;
@@ -412,7 +413,7 @@ async function markDinnerCooked(id) {
 
 
 function searchView() {
-  root.innerHTML = `${header()}<main><button class="back-link" id="back-home">← На главную</button><section class="search-page"><div class="eyebrow">Что приготовить?</div><h1>Найдём в вашей коллекции</h1><p>Напишите продукты, блюдо или ограничение по времени.</p><form class="search-wrap" id="search-form"><input class="search" id="search" value="${esc(state.query)}" placeholder="Курица, крылышки с мёдом…" autofocus><button class="primary accent" aria-label="Найти">Найти</button></form></section>${!state.recipes.length ? '<div class="empty"><h2>Коллекция пока пуста</h2><p>Попробуйте поиск. Если совпадений нет, вы сами решите, создавать ли новый рецепт.</p></div>' : ''}</main>`;
+  root.innerHTML = `${header()}<main><button class="back-link" id="back-home">← На главную</button><section class="search-page"><div class="eyebrow">Что приготовить?</div><h1>Найдём в вашей коллекции</h1><p>Напишите продукты, блюдо или ограничение по времени.</p><form class="search-wrap" id="search-form"><input class="search" id="search" aria-label="Поиск по коллекции рецептов" value="${esc(state.query)}" placeholder="Курица, крылышки с мёдом…" autofocus><button class="primary accent" aria-label="Найти">Найти</button></form></section>${!state.recipes.length ? '<div class="empty"><h2>Коллекция пока пуста</h2><p>Попробуйте поиск. Если совпадений нет, вы сами решите, создавать ли новый рецепт.</p></div>' : ''}</main>`;
   bindCommon(); document.querySelector('#back-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#search-form').onsubmit = (event) => { event.preventDefault(); const query = document.querySelector('#search').value.trim(); if (!query) return; state.query = query; setRoute({ view: 'results', q: query }); loadAndRender(); };
 }
@@ -469,15 +470,105 @@ async function refresh() {
   if (state.me?.testContour) state.payment = await api('/api/test/payment', { signal: AbortSignal.timeout(12000) });
 }
 async function loadAndRender() { await refresh(); await render(); }
-function closeOverlay() { document.querySelector('.overlay')?.remove(); }
-function overlay(content, sheetClass = '', dismissible = true) { const el = document.createElement('div'); el.className = 'overlay'; el.innerHTML = `<section class="sheet ${esc(sheetClass)}"><div class="sheet-handle"></div>${content}</section>`; root.append(el); if (dismissible) el.addEventListener('click', (e) => { if (e.target === el) closeDetailRoute(); }); return el; }
+const modalStack = [];
+let modalTitleId = 0;
+let pendingRouteFocus = null;
+const modalFocusable = 'button, a[href], input, textarea, select, summary, [tabindex]';
+function modalTabStops(dialog) {
+  return [...dialog.querySelectorAll(modalFocusable)].filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[inert], [hidden]') && el.getClientRects().length);
+}
+function mountModal(element, dialog, onDismiss, initialFocus = null) {
+  const opener = document.activeElement;
+  // Remember an equivalent control too: dinner polling can repaint the page behind a dialog.
+  const openerKey = ['id', 'data-recipe', 'data-dinner-full', 'data-home'].find((key) => opener?.hasAttribute(key));
+  const openerValue = openerKey ? opener.getAttribute(openerKey) : null;
+  const record = { element, dialog, opener, openerKey, openerValue, background: [] };
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.tabIndex = -1;
+  const heading = dialog.querySelector('h1, h2');
+  if (heading) {
+    if (!heading.id) heading.id = `modal-title-${++modalTitleId}`;
+    heading.tabIndex = -1;
+    dialog.setAttribute('aria-labelledby', heading.id);
+  }
+  document.body.append(element);
+  modalStack.push(record);
+  const focusInitial = () => (initialFocus || heading || dialog).focus({ preventScroll: true });
+  record.keydown = (event) => {
+    if (modalStack.at(-1) !== record) return;
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onDismiss(); return; }
+    if (event.key !== 'Tab') return;
+    const stops = modalTabStops(dialog), first = stops[0], last = stops.at(-1);
+    const current = document.activeElement;
+    if (!first) { event.preventDefault(); dialog.focus(); }
+    else if (!stops.includes(current) || (event.shiftKey && current === first) || (!event.shiftKey && current === last)) {
+      event.preventDefault(); (event.shiftKey ? last : first).focus();
+    }
+  };
+  record.focusin = (event) => { if (modalStack.at(-1) === record && !dialog.contains(event.target)) focusInitial(); };
+  document.addEventListener('keydown', record.keydown, true);
+  document.addEventListener('focusin', record.focusin, true);
+  focusInitial();
+  for (const sibling of document.body.children) {
+    // Keep the live error/status region available to assistive technology.
+    if (sibling === element || sibling === toastEl || ['SCRIPT', 'STYLE', 'LINK'].includes(sibling.tagName)) continue;
+    record.background.push([sibling, sibling.inert]);
+    sibling.inert = true;
+  }
+}
+function unmountModal(element) {
+  const index = modalStack.findIndex((record) => record.element === element);
+  if (index < 0) { element?.remove(); return; }
+  while (modalStack.length > index) {
+    const record = modalStack.pop();
+    document.removeEventListener('keydown', record.keydown, true);
+    document.removeEventListener('focusin', record.focusin, true);
+    record.element.remove();
+    for (const [sibling, wasInert] of record.background) sibling.inert = wasInert;
+    restoreModalFocus(record);
+  }
+}
+function restoreModalFocus(record) {
+  const equivalent = record.openerKey ? [...document.querySelectorAll(`[${record.openerKey}]`)].find((el) => el.getAttribute(record.openerKey) === record.openerValue) : null;
+  const target = record.opener?.isConnected ? record.opener : equivalent;
+  if (target && !target.disabled && !target.closest('[inert], [hidden]')) target.focus({ preventScroll: true });
+  else if (modalStack.length) modalStack.at(-1).dialog.focus({ preventScroll: true });
+  else {
+    const fallback = root.querySelector('h1, [data-home]');
+    if (fallback) { if (fallback.tagName === 'H1') fallback.tabIndex = -1; fallback.focus({ preventScroll: true }); }
+  }
+}
+function closeOverlay() {
+  // A route change also dismisses cooking mode when it is the only active dialog.
+  const element = document.querySelector('.overlay') || modalStack[0]?.element;
+  if (element) unmountModal(element);
+}
+function overlay(content, sheetClass = '', dismissible = true) {
+  const el = document.createElement('div'); el.className = 'overlay';
+  el.innerHTML = `<section class="sheet ${esc(sheetClass)}"><div class="sheet-handle" aria-hidden="true"></div>${content}</section>`;
+  const closeButton = el.querySelector('[data-close]');
+  if (closeButton && !closeButton.hasAttribute('aria-label')) closeButton.setAttribute('aria-label', 'Закрыть');
+  const dismiss = () => closeButton ? closeButton.click() : closeDetailRoute();
+  // Public shared recipes are a standalone page, not a dismissible dialog.
+  if (dismissible || closeButton) mountModal(el, el.querySelector('.sheet'), dismiss);
+  else root.append(el);
+  if (dismissible) el.addEventListener('click', (event) => { if (event.target === el) dismiss(); });
+  return el;
+}
 
 function importSheet() {
   state.tab = 'text';
   const firstRecipe = state.recipes.length === 0;
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs"><button data-tab="text" class="active">Текст</button><button data-tab="url">Ссылка</button><button data-tab="image">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs" role="group" aria-label="Источник рецепта"><button data-tab="text" class="active" aria-pressed="true">Текст</button><button data-tab="url" aria-pressed="false">Ссылка</button><button data-tab="image" aria-pressed="false">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
-  el.querySelectorAll('[data-tab]').forEach((button) => button.onclick = () => { state.tab = button.dataset.tab; el.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('active', x === button)); const field = el.querySelector('#import-field'); field.innerHTML = state.tab === 'image' ? '<input class="field" id="source-file" type="file" accept="image/jpeg,image/png,image/webp"><input class="field" id="source-caption" placeholder="Подпись к фото (необязательно)">' : `<textarea class="field" id="source-value" placeholder="${state.tab === 'url' ? 'https://сайт/рецепт' : 'Вставьте ингредиенты и шаги…'}"></textarea>`; });
+  el.querySelectorAll('[data-tab]').forEach((button) => button.onclick = () => {
+    state.tab = button.dataset.tab;
+    el.querySelectorAll('[data-tab]').forEach((tab) => { tab.classList.toggle('active', tab === button); tab.setAttribute('aria-pressed', String(tab === button)); });
+    el.querySelector('#import-field').innerHTML = state.tab === 'image'
+      ? '<label class="label" for="source-file">Фото рецепта</label><input class="field" id="source-file" type="file" accept="image/jpeg,image/png,image/webp"><label class="label" for="source-caption">Подпись к фото (необязательно)</label><input class="field" id="source-caption" placeholder="Например, название блюда">'
+      : `<label class="label" for="source-value">${state.tab === 'url' ? 'Ссылка на рецепт' : 'Текст рецепта'}</label><textarea class="field" id="source-value" placeholder="${state.tab === 'url' ? 'https://сайт/рецепт' : 'Вставьте ингредиенты и шаги…'}"></textarea>`;
+  });
   el.querySelector('#import-form').onsubmit = submitImport;
 }
 
@@ -497,6 +588,7 @@ async function submitImport(event) {
 }
 
 function closeDetailRoute() {
+  if (history.state?.recipeOverlay) pendingRouteFocus = modalStack[0] || null;
   closeOverlay();
   if (history.state?.recipeOverlay) history.back();
   else { const url = new URL(location.href); url.searchParams.delete('recipe'); history.replaceState({}, '', url); }
@@ -645,7 +737,28 @@ async function removeRecipeFromList(id, button) {
   try { await api(`/api/recipes/${encodeURIComponent(id)}`, { method: 'DELETE' }); await refresh(); await render(); toast('Рецепт удалён'); }
   catch (error) { toast(error.message); button.disabled = false; }
 }
-function cookMode(r, onComplete = null) { state.cookStep = 0; const el = document.createElement('div'); el.className = 'cook'; const draw = () => { el.innerHTML = `<div class="cook-top"><span>${state.cookStep + 1} из ${r.steps.length}</span><button class="icon-btn" id="cook-close">✕</button></div><div class="cook-step">${esc(r.steps[state.cookStep].text)}</div><div class="cook-nav"><button class="secondary" id="prev" ${state.cookStep === 0 ? 'disabled' : ''}>← Назад</button><button class="primary accent" id="next">${state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →'}</button></div>`; el.querySelector('#cook-close').onclick = () => el.remove(); el.querySelector('#prev').onclick = () => { state.cookStep--; draw(); }; el.querySelector('#next').onclick = () => { if (state.cookStep === r.steps.length - 1) { el.remove(); onComplete?.(); } else { state.cookStep++; draw(); } }; }; draw(); document.body.append(el); }
+function cookMode(r, onComplete = null) {
+  if (!r.steps?.length) return;
+  state.cookStep = 0;
+  const el = document.createElement('div'); el.className = 'cook';
+  el.setAttribute('aria-label', `Готовим: ${r.title}`);
+  el.innerHTML = '<div class="cook-top"><span id="cook-progress"></span><button class="icon-btn" id="cook-close" aria-label="Закрыть режим готовки">✕</button></div><div class="cook-step" tabindex="-1" aria-live="polite" aria-atomic="true" aria-describedby="cook-progress"></div><div class="cook-nav"><button class="secondary" id="prev">← Назад</button><button class="primary accent" id="next"></button></div>';
+  const step = el.querySelector('.cook-step'), previous = el.querySelector('#prev'), next = el.querySelector('#next');
+  const draw = () => {
+    el.querySelector('#cook-progress').textContent = `Шаг ${state.cookStep + 1} из ${r.steps.length}`;
+    step.textContent = r.steps[state.cookStep].text;
+    previous.disabled = state.cookStep === 0;
+    next.textContent = state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →';
+    // Keep focus on a usable control when Back becomes disabled at the first step.
+    if (previous.disabled && document.activeElement === previous) next.focus();
+  };
+  const close = () => unmountModal(el);
+  el.querySelector('#cook-close').onclick = close;
+  previous.onclick = () => { state.cookStep--; draw(); };
+  next.onclick = () => { if (state.cookStep === r.steps.length - 1) { close(); onComplete?.(); } else { state.cookStep++; draw(); } };
+  draw();
+  mountModal(el, el, close, step);
+}
 function settingsSheet() {
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.me.testContour ? '<button class="secondary" id="test-payment">Тестовая оплата</button><button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
@@ -712,7 +825,12 @@ function paymentResultPage() {
   document.querySelector('#result-next').onclick = () => { setRoute(success ? {} : { view: 'offer' }); void render(); };
 }
 
-window.addEventListener('popstate', async (event) => { if (!tg?.initData) return; closeOverlay(); await render(); requestAnimationFrame(() => scrollTo(0, event.state?.scrollY || 0)); });
+window.addEventListener('popstate', async (event) => {
+  if (!tg?.initData) return;
+  const returnFocus = pendingRouteFocus || modalStack[0]; pendingRouteFocus = null;
+  closeOverlay(); await render();
+  requestAnimationFrame(() => { scrollTo(0, event.state?.scrollY || 0); if (returnFocus && !modalStack.length) restoreModalFocus(returnFocus); });
+});
 async function boot() {
   const sharedMatch = location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
   if (!sharedMatch && !tg?.initData) {

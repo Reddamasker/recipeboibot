@@ -387,6 +387,12 @@ async function saveContent(message, user, content, options = {}) {
   else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Сообщение в Telegram', label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
   await finishImport(chatId, outcome, options);
   if (!options.groupMode && outcome.state === 'created') await sendTestOffer(chatId, user.id);
+  return true;
+}
+
+function restoreAfterRecipeSave(userId, pending) {
+  if (pending.resumeIntent) setPendingIntent(userId, pending.resumeIntent);
+  else clearPendingIntent(userId);
 }
 
 async function handlePendingChoice(message, user, pending) {
@@ -415,7 +421,17 @@ export async function handleMessage(message) {
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;
-    const pending = getPendingIntent(user.id);
+    let pending = getPendingIntent(user.id);
+    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+save(?:\s|$)/i.test(text)) {
+      if (isFirstStart) allowUser(user.id);
+      if (pending?.kind !== 'recipe-save') setPendingIntent(user.id, { kind: 'recipe-save', resumeIntent: pending });
+      await send(chatId, '<b>Сохранить рецепт</b>\n\nПришлите ссылку, фото, текст рецепта или продиктуйте его голосом. Я добавлю его в вашу коллекцию.\n\n/cancel — отменить и вернуться к предыдущему действию.');
+      return;
+    }
+    if (pending?.kind === 'recipe-save') {
+      restoreAfterRecipeSave(user.id, pending);
+      pending = getPendingIntent(user.id);
+    }
     const resumeOnboarding = ['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind);
     if (isFirstStart) allowUser(user.id);
     if (/^\/start(?:@[A-Za-z0-9_]+)?\s+group_access(?:\s|$)/i.test(text)) {
@@ -435,6 +451,13 @@ export async function handleMessage(message) {
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
+  const saveEntry = getPendingIntent(user.id);
+  if (saveEntry?.kind === 'recipe-save' && text === '/cancel') {
+    restoreAfterRecipeSave(user.id, saveEntry);
+    await send(chatId, 'Сохранение отменено. Предыдущие ответы сохранены.');
+    return;
+  }
+  if (saveEntry?.kind === 'recipe-save' && (text === '/dinner' || text === '/ingredients')) restoreAfterRecipeSave(user.id, saveEntry);
   if (text === '/ingredients') { await sendDinnerIntakePrompt(chatId, user.id); return; }
   if (text === '/dinner') { await sendDinnerEntry(chatId, user.id); return; }
   if (text === '/help') { await send(chatId, 'Короткий текст ищу в вашей коллекции. Подробный текст с ингредиентами и шагами, ссылку или фото сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …». Если в сообщении есть и просьба найти, и просьба сохранить, я уточню цель.'); return; }
@@ -443,9 +466,10 @@ export async function handleMessage(message) {
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }
 
   const pending = getPendingIntent(user.id);
+  const savingRecipe = pending?.kind === 'recipe-save';
   if (pending && ['dinner-intake', 'dinner-confirm'].includes(pending.kind) && await handleDinnerIntakeMessage(message, user, pending)) return;
-  if (pending && await handlePendingChoice(message, user, pending)) return;
-  if (pending) clearPendingIntent(user.id);
+  if (pending && !savingRecipe && await handlePendingChoice(message, user, pending)) return;
+  if (pending && !savingRecipe) clearPendingIntent(user.id);
 
   let content = { text, sourceType: 'text', sourceKey: undefined, url: extractSharedUrl(text) };
   if (message.voice || message.audio) {
@@ -459,14 +483,15 @@ export async function handleMessage(message) {
     }
   }
   const isDinnerFollowup = /^(?:кстати\b|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$)/iu.test(content.text.trim());
-  if (!message.photo?.length && !content.url && isDinnerFollowup && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
+  if (!savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
     await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: !getDinnerContext(user.id).length });
     return;
   }
-  const intent = detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
+  if (savingRecipe && !content.text && !message.photo?.length) { await send(chatId, 'Пришлите ссылку, фото, текст или голосовое с рецептом. Для отмены — /cancel.'); return; }
+  const intent = savingRecipe ? 'save' : detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
   if (intent === 'search') { await sendSearchResults(chatId, user, content.text); return; }
   if (intent === 'save') {
-    try { await saveContent(message, user, content); }
+    try { if (await saveContent(message, user, content) && savingRecipe) restoreAfterRecipeSave(user.id, pending); }
     catch (error) { log('error', 'telegram_import_failed', { error, userId: user.id }); await send(chatId, `Не получилось сохранить: ${escapeHtml(error.message)}\n\nМожно прислать текст или скриншот рецепта.`); }
     return;
   }

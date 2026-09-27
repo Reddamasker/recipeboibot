@@ -352,6 +352,93 @@ test('Mini App deep links retain exact recipe or result query', () => {
   assert.equal(results.searchParams.get('q'), 'крылышки с мёдом');
 });
 
+test('save deep link imports short text without dinner onboarding or recipe generation', async () => {
+  const originalFetch = globalThis.fetch, sent = []; let extractionCalls = 0;
+  const from = { id: 6580, first_name: 'Сохранение' }, chat = { id: from.id, type: 'private' };
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('api.openai.com')) {
+      extractionCalls += 1;
+      assert.equal(JSON.parse(options.body).text.format.name, 'recipe_extraction');
+      return Response.json({ status: 'completed', model: 'test-model', output_text: JSON.stringify(normalizedRecipe('Рецепт по ссылке с лендинга')), usage: { input_tokens: 10, output_tokens: 20 } });
+    }
+    sent.push(JSON.parse(options.body));
+    return { json: async () => ({ ok: true, result: {} }) };
+  };
+  try {
+    await telegramModule.handleMessage({ chat, from, text: '/start save' });
+    const user = database.getUserByTelegramId(from.id);
+    assert.equal(user.is_allowed, 1);
+    assert.equal(database.getPendingIntent(user.id).kind, 'recipe-save');
+    assert.match(sent.at(-1).text, /Сохранить рецепт/);
+    await telegramModule.handleMessage({ chat, from, text: 'Крылышки с мёдом' });
+    assert.equal(extractionCalls, 1);
+    assert.equal(database.listRecipes(user.id).length, 1);
+    assert.equal(database.getPendingIntent(user.id), null);
+    assert.equal(dinnerStore.getFoodProfile(user.id).onboardingCompleted, false);
+    assert.match(sent.at(-1).text, /Сохранено/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('save entry retains dinner draft across repeated entry, unsupported input and cancellation', async () => {
+  const originalFetch = globalThis.fetch, sent = [];
+  const from = { id: 6581, first_name: 'Черновик' }, chat = { id: from.id, type: 'private' };
+  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const draft = { kind: 'dinner-intake', profileOnly: true, intake: { householdSize: 3, excludedIngredients: ['орехи'] } };
+  database.setPendingIntent(user.id, draft);
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  try {
+    await telegramModule.handleMessage({ chat, from, text: '/start save' });
+    await telegramModule.handleMessage({ chat, from, text: '/start@Recipeboibot save' });
+    assert.deepEqual(database.getPendingIntent(user.id).resumeIntent, draft);
+    await telegramModule.handleMessage({ chat, from, sticker: { file_id: 'unsupported' } });
+    assert.equal(database.getPendingIntent(user.id).kind, 'recipe-save');
+    await telegramModule.handleMessage({ chat, from, text: '/cancel' });
+    assert.deepEqual(database.getPendingIntent(user.id), draft);
+    assert.match(sent.at(-1).text, /отменено/);
+    await telegramModule.handleMessage({ chat, from, text: '/start save' });
+    await telegramModule.handleMessage({ chat, from, text: '/start' });
+    assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
+    assert.equal(database.getPendingIntent(user.id).intake.householdSize, 3);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('save entry survives extraction failure and restores the previous draft after retry', async () => {
+  const originalFetch = globalThis.fetch;
+  const from = { id: 6582, first_name: 'Повтор' }, chat = { id: from.id, type: 'private' };
+  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const draft = { kind: 'dinner-intake', profileOnly: true, intake: { householdSize: 2 } };
+  database.setPendingIntent(user.id, draft);
+  let fail = true;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('api.openai.com')) {
+      assert.equal(JSON.parse(options.body).text.format.name, 'recipe_extraction');
+      if (fail) return Response.json({ error: { code: 'server_is_overloaded', message: 'Test failure' } }, { status: 503 });
+      return Response.json({ status: 'completed', model: 'test-model', output_text: JSON.stringify(normalizedRecipe('Рецепт после повторной попытки')), usage: { input_tokens: 10, output_tokens: 20 } });
+    }
+    return { json: async () => ({ ok: true, result: {} }) };
+  };
+  try {
+    await telegramModule.handleMessage({ chat, from, text: '/start save' });
+    await telegramModule.handleMessage({ chat, from, text: 'Крылышки с мёдом для двоих' });
+    assert.equal(database.getPendingIntent(user.id).kind, 'recipe-save');
+    assert.equal(database.listRecipes(user.id).length, 0);
+    fail = false;
+    await telegramModule.handleMessage({ chat, from, text: 'Крылышки с мёдом для двоих' });
+    assert.equal(database.listRecipes(user.id).length, 1);
+    assert.deepEqual(database.getPendingIntent(user.id), draft);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('landing save promises use the dedicated entry and the quiz is removed', () => {
+  const html = fs.readFileSync('public/index.html', 'utf8');
+  const script = fs.readFileSync('public/landing.js', 'utf8');
+  const links = [...html.matchAll(/href="(https:\/\/t\.me\/Recipeboibot[^\"]*)"/g)];
+  assert.ok(links.length >= 3);
+  assert.ok(links.every((match) => new URL(match[1]).searchParams.get('start') === 'save'));
+  assert.match(html, /Твои рецепты — главная/);
+  assert.doesNotMatch(html + script, /lp-quiz/);
+});
+
 test('first Start restores chat introduction without requiring ingredients; skip is remembered', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };

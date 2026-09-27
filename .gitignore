@@ -18,6 +18,7 @@ uploads/
 node_modules/
 .DS_Store
 .tmp/
+.impeccable/
 backups/
 transfer-private/
 *.sqlite
