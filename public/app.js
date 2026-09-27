@@ -70,11 +70,12 @@ function home() {
   const recent = state.recipes.slice(0, 4);
   root.innerHTML = `${header()}<main class="home-page">
     <section class="home-choice" aria-label="Выбор блюда">
-      <h1><button id="choose" class="choose-link"><span>Что приготовить<br><em>сегодня?</em></span><span class="choose-arrow" aria-hidden="true">↗</span></button></h1>
+      <h1>Что приготовить <em>сегодня?</em></h1>
       <p>Три идеи для ужина — из твоих рецептов или нашей подборки.</p>
+      <button id="choose" class="primary accent" type="button">Предложить три блюда <span aria-hidden="true">→</span></button>
     </section>
     <section class="home-search" aria-labelledby="home-search-title">
-      <h2 id="home-search-title">Что тебе хочется?</h2>
+      <h2 id="home-search-title">Найти конкретный рецепт</h2>
       <form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Что хочется приготовить" placeholder="Например, суп или курица с рисом" required><button class="voice-request" id="voice-request" type="button" aria-label="Надиктовать пожелание" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5m-3.5 0h7"/></svg></button><button class="primary accent" type="submit">Подобрать рецепт</button></form>
       <p class="request-voice-status" id="request-voice-status" aria-live="polite"></p>
       <div class="request-examples" aria-label="Примеры коротких запросов"><span>Можно коротко:</span><button type="button" data-request-example="Суп">Суп</button><button type="button" data-request-example="Курица">Курица</button><button type="button" data-request-example="Что-нибудь быстрое">Что-нибудь быстрое</button></div>
@@ -490,6 +491,7 @@ function mountModal(element, dialog, onDismiss, initialFocus = null) {
   if (heading) {
     if (!heading.id) heading.id = `modal-title-${++modalTitleId}`;
     heading.tabIndex = -1;
+    heading.setAttribute('data-modal-heading', '');
     dialog.setAttribute('aria-labelledby', heading.id);
   }
   document.body.append(element);
@@ -562,7 +564,14 @@ function importSheet() {
   const firstRecipe = state.recipes.length === 0;
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs" role="group" aria-label="Источник рецепта"><button data-tab="text" class="active" aria-pressed="true">Текст</button><button data-tab="url" aria-pressed="false">Ссылка</button><button data-tab="image" aria-pressed="false">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
+  const form = el.querySelector('#import-form');
+  el.querySelector('#import-field').insertAdjacentHTML('afterend', '<p class="form-error" id="import-error" role="alert" tabindex="-1" hidden></p>');
+  form.addEventListener('input', () => {
+    // A field correction clears validation, but a server error stays until retry.
+    if (form.querySelector('[aria-invalid="true"]')) clearImportError(form);
+  });
   el.querySelectorAll('[data-tab]').forEach((button) => button.onclick = () => {
+    clearImportError(form);
     state.tab = button.dataset.tab;
     el.querySelectorAll('[data-tab]').forEach((tab) => { tab.classList.toggle('active', tab === button); tab.setAttribute('aria-pressed', String(tab === button)); });
     el.querySelector('#import-field').innerHTML = state.tab === 'image'
@@ -572,18 +581,65 @@ function importSheet() {
   el.querySelector('#import-form').onsubmit = submitImport;
 }
 
+function clearImportError(form) {
+  const message = form.querySelector('#import-error');
+  message.hidden = true; message.textContent = '';
+  form.querySelector('button[type=submit]').textContent = 'Сохранить';
+  form.querySelectorAll('[aria-invalid="true"]').forEach((field) => {
+    field.removeAttribute('aria-invalid'); field.removeAttribute('aria-describedby');
+  });
+}
+
 async function submitImport(event) {
-  event.preventDefault(); const button = event.currentTarget.querySelector('button[type=submit]'); button.disabled = true; button.innerHTML = '<span class="loader"></span>Обрабатываю…';
+  event.preventDefault();
+  const form = event.currentTarget, button = form.querySelector('button[type=submit]');
+  if (button.disabled) return;
+  const tab = state.tab, field = form.querySelector(tab === 'image' ? '#source-file' : '#source-value');
+  const tabs = form.closest('.sheet').querySelectorAll('[data-tab]');
+  clearImportError(form);
+  button.disabled = true; button.innerHTML = '<span class="loader"></span>Обрабатываю…';
+  form.setAttribute('aria-busy', 'true');
+  tabs.forEach((control) => { control.disabled = true; });
   try {
     let body;
-    if (state.tab === 'image') { const file = document.querySelector('#source-file').files[0]; if (!file) throw new Error('Выберите фото'); if (file.size > 6 * 1024 * 1024) throw new Error('Файл больше 6 МБ'); const value = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); }); body = { kind: 'image', value, mime: file.type, caption: document.querySelector('#source-caption').value }; }
-    else { const value = document.querySelector('#source-value').value.trim(); if (!value) throw new Error('Добавьте источник'); body = { kind: state.tab, value }; }
-    const outcome = await api('/api/import', { method: 'POST', body: JSON.stringify(body) }); closeOverlay(); await refresh();
-    if (outcome.recipe) { toast(outcome.state === 'existing' ? 'Этот рецепт уже есть' : 'Рецепт сохранён'); await openRecipe(outcome.recipe.id, true); }
-    else { toast('Источник уже обрабатывается'); await render(); }
+    if (tab === 'image') {
+      const file = field.files[0];
+      if (!file) throw Object.assign(new Error('Выберите фото рецепта.'), { invalidField: true });
+      if (file.size > 6 * 1024 * 1024) throw Object.assign(new Error('Фото больше 6 МБ. Выберите файл поменьше.'), { invalidField: true });
+      const value = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Не удалось прочитать фото. Выберите его ещё раз.')); reader.readAsDataURL(file); });
+      body = { kind: 'image', value, mime: file.type, caption: form.querySelector('#source-caption').value };
+    } else {
+      const value = field.value.trim();
+      if (!value) throw Object.assign(new Error(tab === 'url' ? 'Вставьте ссылку на рецепт.' : 'Вставьте текст рецепта.'), { invalidField: true });
+      if (tab === 'url') {
+        let url; try { url = new URL(value); } catch { /* Report an inline validation error below. */ }
+        if (!url || !['http:', 'https:'].includes(url.protocol)) throw Object.assign(new Error('Проверьте ссылку: она должна начинаться с https:// или http://.'), { invalidField: true });
+      }
+      body = { kind: tab, value };
+    }
+    const outcome = await api('/api/import', { method: 'POST', body: JSON.stringify(body) });
+    // A dismissed request must not close a newer modal when it completes.
+    if (!form.isConnected) return;
+    closeOverlay();
+    try {
+      await refresh();
+      if (outcome.recipe) { toast(outcome.state === 'existing' ? 'Этот рецепт уже есть' : 'Рецепт сохранён'); await openRecipe(outcome.recipe.id, true); }
+      else { toast('Источник уже обрабатывается'); await render(); }
+    } catch { toast('Источник получен, но обновить коллекцию не удалось. Откройте её снова.'); }
   } catch (error) {
+    if (!form.isConnected) return;
     if (error.status === 402) { closeOverlay(); await refresh(); openOffer(); return; }
-    toast(error.message); button.disabled = false; button.textContent = 'Сохранить';
+    const message = form.querySelector('#import-error');
+    message.textContent = error.invalidField ? error.message : `Не удалось сохранить рецепт. ${error instanceof TypeError ? 'Проверьте соединение.' : error.message} Данные остались в форме. Нажмите «Повторить сохранение».`;
+    message.hidden = false;
+    if (error.invalidField) {
+      field.setAttribute('aria-invalid', 'true'); field.setAttribute('aria-describedby', message.id); field.focus();
+    } else { message.focus(); }
+    button.textContent = error.invalidField ? 'Сохранить' : 'Повторить сохранение';
+  } finally {
+    form.removeAttribute('aria-busy');
+    button.disabled = false;
+    tabs.forEach((control) => { control.disabled = false; });
   }
 }
 

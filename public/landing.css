@@ -12,7 +12,7 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .landing :is(a, button, input, summary):focus-visible { outline: 3px solid var(--lp-olive); outline-offset: 4px; }
 .lp-wrap { width: min(1200px, calc(100% - 112px)); margin-inline: auto; }
 .lp-wrap * { min-width: 0; }
-.lp-header { position: sticky; top: 0; z-index: 30; min-height: 100px; padding: 22px 0; border-bottom: 1px solid var(--lp-rule); gap: 24px; background: var(--lp-paper); box-shadow: 0 0 0 60px var(--lp-paper); clip-path: inset(0 -60px); }
+.lp-header { position: sticky; top: 0; z-index: 30; min-height: 80px; padding: 16px 0; border-bottom: 1px solid var(--lp-rule); gap: 24px; background: var(--lp-paper); box-shadow: 0 0 0 60px var(--lp-paper); clip-path: inset(0 -60px); }
 .lp-brand { display: inline-flex; align-items: center; gap: 11px; font: 30px Georgia, serif; white-space: nowrap; }
 .lp-brand img, .lp-flow-bot img { border-radius: 50%; mix-blend-mode: multiply; }
 .lp-nav { display: flex; gap: 30px; font-size: 14px; }
@@ -175,10 +175,12 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-nav { display: none; }
   .lp-header-cta { font-size: 12px; }
   .lp-header-cta span { margin-left: 5px; }
-  .lp-hero { grid-template-columns: 1fr; padding-block: 42px 18px; gap: 35px; }
+  .lp-hero { grid-template-columns: 1fr; padding-block: 28px 18px; gap: 24px; }
   .landing h1 { font-size: clamp(45px, 10.5vw, 70px); }
   .lp-lead { font-size: 16px; max-width: 480px; margin-block: 23px; }
-  .lp-showcase { max-width: 510px; }
+  /* Show the saved result before the decorative sources on a small screen. */
+  .lp-showcase { max-width: 510px; display: flex; flex-direction: column; gap: 24px; }
+  .lp-conversion { order: -1; }
   .lp-artifacts { width: min(100%, 510px); margin-inline: auto; height: 385px; }
   .lp-paper { left: 8px; top: 8px; }
   .lp-chat-scrap { top: 32px; right: 3px; }
@@ -189,13 +191,16 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-flow-bot::after { top: 22px; right: -14px; font-size: 17px; }
   .lp-flow-bot img { width: 42px; height: 42px; }
   .lp-flow-list { padding: 9px; }
-  .lp-flow-list-heading { font-size: 11px; }
-  .lp-flow-list-heading span { font-size: 8px; }
-  .lp-flow-row { display: block; padding-block: 5px; line-height: 1.25; font-size: 10px; }
-  .lp-flow-row small { display: block; margin-top: 2px; }
+  .lp-flow-list-heading { font-size: 13px; }
+  .lp-flow-list-heading span { font-size: 10px; }
+  .lp-flow-row { display: block; padding-block: 6px; line-height: 1.35; font-size: 13px; }
+  .lp-flow-row small { display: block; margin-top: 2px; font-size: 11px; }
+  .lp-showcase.is-ready:not(.is-complete) .lp-flow-row { opacity: 1; }
+  .lp-showcase.is-playing .lp-artifacts > *, .lp-showcase.is-playing .lp-flow-bot img, .lp-showcase.is-playing .lp-flow-row { animation: none; }
+  .lp-flow-replay { display: none; }
   .lp-product { padding-block: 16px 32px; }
   .lp-product-title { margin-bottom: 25px; text-align: left; font-size: clamp(26px, 6.7vw, 36px); }
-  .lp-product-title em { white-space: nowrap; }
+  .lp-product-title em { white-space: normal; }
   .lp-product-journey { width: min(450px,100%); }
   .lp-opened-recipe .detail-content { padding: 18px 14px 0; }
   .lp-opened-recipe .detail-heading h2 { font-size: 27px; }

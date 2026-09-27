@@ -14,7 +14,8 @@
   const showcase = root.querySelector('.lp-showcase');
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   const replay = el('lp-flow-replay');
-  if (motionPreference.matches) replay.hidden = true;
+  // Mobile shows the result first, with no animation hiding its contents.
+  if (motionPreference.matches || window.matchMedia('(max-width: 760px)').matches) replay.hidden = true;
   else {
     const sources = [...showcase.querySelectorAll('.lp-artifacts > *')];
     const lastRow = showcase.querySelector('.lp-flow-row:last-child');

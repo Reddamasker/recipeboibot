@@ -6,6 +6,10 @@
   --muted: #685e70;
   --berry: #a4415c;
   --berry-dark: #7f2f49;
+  /* Mini App: filled actions share one color; secondary actions use lilac. */
+  --action-bg: #a4415c;
+  --action-hover: #7f2f49;
+  --action-text: #fff;
   --lilac: #e7def0;
   --lilac-soft: #f8f5fa;
   --lime: #ddf18a;
@@ -94,20 +98,18 @@ header {
   text-transform: uppercase;
 }
 
-.home-page { padding-top: 34px; }
-.home-choice { margin: 0 0 38px; }
-.choose-link { width: 100%; display: flex; align-items: end; justify-content: space-between; gap: 10px; border: 0; padding: 0 0 16px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
-.choose-link > span:first-child { font: 400 clamp(48px, 8vw, 78px)/1.04 Georgia, serif; letter-spacing: -.055em; }
-.choose-link em { color: #76618b; font-weight: 400; }
-.choose-arrow { padding-bottom: 5px; color: #76618b; font: 300 42px/1 system-ui, sans-serif; transition: transform .2s; }
-.choose-link:hover .choose-arrow { transform: translate(3px, -3px); }
-.home-choice p { margin: 0; color: var(--muted); font-size: 14px; }
-.home-search { margin-bottom: 52px; }
-.home-search h2 { font-size: 28px; line-height: 1.1; }
+.home-page { padding-top: 24px; }
+.home-choice { margin: 0 0 30px; }
+.home-choice h1 { max-width: 540px; font: 400 clamp(36px, 7vw, 52px)/1.1 Georgia, serif; letter-spacing: -.04em; text-wrap: balance; }
+.home-choice h1 em { color: #76618b; font-weight: 400; }
+.home-choice p { margin: 16px 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.home-choice .primary { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.home-search { margin-bottom: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+.home-search h2 { font-size: 24px; font-weight: 400; line-height: 1.2; }
 .home-search .search-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 52px; margin: 16px 0 8px; }
 .home-search .search { min-width: 0; }
 .home-search .search-wrap > .primary { grid-column: 1 / -1; }
-.home-search > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.home-search > p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .home-search .request-voice-status:empty { display: none; }
 .home-search .request-voice-status { margin: 0 0 10px; color: var(--berry); }
 .voice-request { min-width: 52px; border: 1px solid rgba(118,97,139,.2); border-radius: 16px; background: var(--paper); color: var(--berry); font-size: 22px; cursor: pointer; }
@@ -285,11 +287,13 @@ textarea.field { min-height: 140px; resize: vertical; }
   border: 0;
   border-radius: 16px;
   padding: 13px 17px;
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
 }
-.primary { background: var(--ink); color: #fff; }
-.primary.accent { background: var(--berry); color: #fff; }
+.primary, .primary.accent { background: var(--action-bg); color: var(--action-text); }
+.primary { transition: background-color .18s, transform .18s; }
+@media (hover: hover) { .primary:not(:disabled):hover { background: var(--action-hover); } }
+.primary:not(:disabled):active { background: var(--action-hover); transform: translateY(1px); }
 .secondary { background: var(--lilac); color: var(--ink); }
 .ghost, .icon-btn { border: 1px solid var(--line); background: var(--paper); }
 button:disabled { cursor: wait; opacity: .5; }
@@ -315,14 +319,21 @@ button:disabled { cursor: wait; opacity: .5; }
 }
 .sheet-handle { width: 46px; height: 5px; margin: 0 auto 18px; border-radius: 10px; background: var(--line); }
 .sheet-head { margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.sheet h2 { font-size: 30px; }
+.sheet h2 { font-size: 26px; font-weight: 400; line-height: 1.2; }
+/* Static headings receive initial focus for reading, not a browser's control box.
+   Interactive controls keep their visible outline; forced colors retain an outline too. */
+[data-modal-heading]:focus { outline: none; text-decoration: underline; text-decoration-color: var(--berry); text-decoration-thickness: 2px; text-underline-offset: 6px; }
+@media (forced-colors: active) { [data-modal-heading]:focus { outline: 2px solid Highlight; outline-offset: 4px; } }
 .source-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin: 16px 0; border-radius: 17px; padding: 5px; background: var(--lilac-soft); }
-.source-tabs button { border: 0; border-radius: 13px; padding: 10px 4px; background: transparent; font-size: 12px; font-weight: 800; }
+.source-tabs button { border: 0; border-radius: 13px; padding: 10px 4px; background: transparent; font-size: 14px; font-weight: 600; }
 .source-tabs button.active { background: var(--paper); box-shadow: 0 4px 12px rgba(48,37,55,.08); }
 .form-stack { display: grid; gap: 13px; }
 .form-row { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
-.label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 800; }
-.help { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.label { display: block; margin-bottom: 8px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.help { color: var(--muted); font-size: 14px; line-height: 1.5; }
+.form-error { margin: 0; padding: 12px 14px; border-left: 3px solid var(--berry); background: var(--lilac-soft); color: var(--berry-dark); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.form-error:focus { outline: 2px solid var(--berry); outline-offset: 3px; }
+.field[aria-invalid="true"] { border-color: var(--berry); }
 .help a { color: var(--berry); }
 .actions { display: flex; gap: 9px; margin-top: 18px; }
 .actions > * { flex: 1; }
@@ -377,10 +388,7 @@ button:disabled { cursor: wait; opacity: .5; }
 }
 @media (max-width: 480px) {
   .app-shell { padding-left: 24px; padding-right: 24px; }
-  .home-page { padding-top: 30px; }
-  .home-choice { margin-bottom: 34px; }
-  .choose-link > span:first-child { font-size: clamp(32px, 10.8vw, 52px); }
-  .choose-arrow { font-size: 32px; }
+  .home-page { padding-top: 22px; }
   .home-library .grid { gap: 24px 16px; }
   header { min-height: 72px; }
   .card-art { height: 124px; }
