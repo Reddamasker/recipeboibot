@@ -157,14 +157,24 @@ async function toggleRequestRecording(event) {
   } catch (error) { stream?.getTracks().forEach((track) => track.stop()); requestRecorder = null; button.disabled = false; status.textContent = ''; toast(error.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону или напишите запрос.' : 'Не удалось включить микрофон. Можно написать запрос.'); }
 }
 
-async function beginDinner(forceOnboarding = false) {
+async function beginDinner(forceOnboarding = false, startTrialTastePreferences = false) {
   clearTimeout(dinnerPollTimer);
   try {
     const session = await api('/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: [], reserve: [], recommendation: null, accepted: false, retryCount: 0, askingReason: false, loading: false };
-    if (forceOnboarding) await showDinnerOnboarding();
+    if (startTrialTastePreferences && session.needsTastePreferences) showDinnerTastePreferences();
+    else if (forceOnboarding) await showDinnerOnboarding();
     else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
+}
+
+async function resumePendingTrialTastePreferences() {
+  if (!state.me?.testContour || !state.payment?.active) return false;
+  const profile = await api('/api/dinner/profile', { signal: AbortSignal.timeout(12000) });
+  if (profile.tastePreferencesStatus !== 'pending') return false;
+  setRoute({ view: 'dinner' }, { replace: true });
+  await beginDinner(false, true);
+  return true;
 }
 
 async function showDinnerOnboarding() {
@@ -684,6 +694,11 @@ function checkoutPage() {
       state.paymentResult = result.order.status;
       state.checkoutOrder = null;
       await refresh();
+      if (result.order.status === 'success') {
+        setRoute({ view: 'dinner' });
+        await beginDinner(false, true);
+        return;
+      }
       setRoute({ view: 'payment-result' }); paymentResultPage();
     } catch (error) { toast(error.message); button.disabled = false; }
   }));
@@ -721,7 +736,7 @@ async function boot() {
     await refresh();
     window.miniProbe?.('library-loaded');
     window.__miniRendered = true;
-    await render();
+    if (!await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;
