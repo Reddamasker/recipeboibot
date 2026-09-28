@@ -107,7 +107,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.27/);
+  assert.match(document, /app\.js\?v=dinner-10\.28/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -314,6 +314,29 @@ test('public landing is not replaced by a Telegram timeout in a normal browser',
   timers.forEach((callback) => callback());
   assert.equal(window.__miniLaunch, undefined);
   assert.deepEqual(stages, ['/healthz?mini=boot-script']);
+});
+
+test('shared recipe settles the Mini App watchdog after success or a handled error', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('async function openSharedRecipe('), source.indexOf('\nfunction editRecipe'));
+  for (const failure of [null, new Error('Ссылка недоступна')]) {
+    const window = {};
+    const root = { innerHTML: 'loading' };
+    const document = { title: '' };
+    let rendered = false;
+    const sandbox = {
+      window, root, document,
+      publicApi: async () => { if (failure) throw failure; return { title: 'Сырники' }; },
+      closeOverlay() {}, recipeDetail() { rendered = true; },
+      esc: (value) => String(value)
+    };
+    vm.runInNewContext(handler, sandbox);
+    await sandbox.openSharedRecipe('x'.repeat(32));
+    assert.equal(window.__miniRendered, true);
+    assert.equal(rendered, !failure);
+    if (failure) assert.match(root.innerHTML, /Рецепт недоступен/);
+    else assert.equal(document.title, 'Сырники — Рецепты');
+  }
 });
 
 test('More renders cached reserve before its HTTP request completes and recovers on network failure', async () => {

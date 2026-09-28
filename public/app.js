@@ -926,6 +926,11 @@ async function openSharedRecipe(token) {
     document.title = `${recipe.title} — Рецепты`;
   } catch (error) {
     root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="https://t.me/Recipeboibot?start=dinner" style="text-decoration:none">Открыть сервис ↗</a></main>`;
+  } finally {
+    // Telegram's in-app browser exposes its WebView bridge even for public links.
+    // Mark this route as rendered so the Mini App startup watchdog does not
+    // replace a successfully opened shared recipe with its timeout screen.
+    window.__miniRendered = true;
   }
 }
 

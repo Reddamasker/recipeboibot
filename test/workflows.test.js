@@ -921,6 +921,7 @@ test('recipe detail exposes sharing to the owner and a read-only public view', (
   assert.match(app, /\/api\/recipes\/\$\{encodeURIComponent\(recipe\.id\)\}\/share/);
   assert.match(app, /\/api\/shares\/\$\{encodeURIComponent\(token\)\}/);
   assert.match(app, /sharedBy/);
+  assert.match(app, /async function openSharedRecipe[\s\S]*?finally \{[\s\S]*?window\.__miniRendered = true;/);
   assert.match(css, /\.shared-intro \{/);
   assert.match(css, /\.detail-actions\.shared-actions \{ grid-template-columns: 1fr; \}/);
 });
