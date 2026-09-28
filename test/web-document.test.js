@@ -50,8 +50,7 @@ test('landing exposes the public offer and entrepreneur details', () => {
   const tariffs = fs.readFileSync('public/tariffs.html', 'utf8');
   const footer = landing.match(/<footer class="lp-footer[\s\S]*?<\/footer>/)?.[0] ?? '';
   assert.match(landing, /href="\/offer\.html"/);
-  assert.match(landing, /href="\/tariffs\.html"/);
-  assert.match(footer, />Тарифы</);
+  assert.doesNotMatch(landing, /href="\/tariffs\.html"/);
   assert.match(footer, /href="\/privacy\.html"/);
   assert.doesNotMatch(footer, /terms\.html/);
   assert.match(landing, /ИП Спасский Никита Алексеевич/);
@@ -65,10 +64,9 @@ test('landing exposes the public offer and entrepreneur details', () => {
   assert.match(offer, /Досудебный порядок является обязательным только в случаях/);
   assert.doesNotMatch(offer, /бесплатного закрытого теста/);
   assert.doesNotMatch(offer, /Telegram Stars/i);
-  assert.match(offer, /href="\/tariffs\.html"/);
-  assert.match(tariffs, /Полный доступ на 1 месяц/);
-  assert.match(tariffs, /199 <span>рублей<\/span>/);
-  assert.match(tariffs, /Индивидуальная скидка, если она предоставляется/);
-  assert.doesNotMatch(tariffs, /129/);
+  assert.match(offer, /href="\/#pricing"/);
+  assert.match(landing, /<details id="pricing" open>/);
+  assert.match(landing, /Первые 7 дней — бесплатно\. Затем полный доступ стоит 199 рублей в месяц/);
+  assert.match(tariffs, /http-equiv="refresh" content="0;url=\/#pricing"/);
   assert.doesNotMatch(tariffs, /Telegram Stars/i);
 });
