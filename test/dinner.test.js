@@ -97,9 +97,9 @@ test('dinner trio gives a saved, quick and different option', () => {
   assert.equal(choices[2].candidate.recipe.id, 'new');
 });
 
-test('voice intake separates pantry, people, children, food exclusions and time', () => {
-  const parsed = parseDinnerIntakeFallback('Есть курица, рис, лук и морковь. На троих, с ребёнком, без грибов, до 30 минут.');
-  assert.deepEqual(parsed, { availableIngredients: ['курица', 'рис', 'лук', 'морковь'], excludedIngredients: ['грибов'], householdSize: 3, householdType: 'family', hasChildren: true, maxMinutes: 30 });
+test('voice intake separates pantry, people, children, food exclusions, time and tastes', () => {
+  const parsed = parseDinnerIntakeFallback('Есть курица, рис, лук и морковь. На троих, с ребёнком, без грибов, до 30 минут. Люблю пасту и курицу. Не люблю рыбу и супы.');
+  assert.deepEqual(parsed, { availableIngredients: ['курица', 'рис', 'лук', 'морковь'], excludedIngredients: ['грибов'], householdSize: 3, householdType: 'family', hasChildren: true, maxMinutes: 30, preferredCategories: { pasta: 1, chicken: 1, fish: -1, soup: -1 } });
   const noKids = parseDinnerIntakeFallback('Есть яйца, помидоры. На двоих, без детей.');
   assert.equal(noKids.hasChildren, false);
   assert.deepEqual(noKids.excludedIngredients, []);
@@ -131,17 +131,19 @@ test('confirmed pantry changes candidate filtering, ranking and the dinner sessi
 
 test('intake patches preserve prior fields, append products, and respect explicit corrections', () => {
   const initial = parseDinnerIntakeFallback('Есть курица, рис. На троих, до 30 минут, аллергия на орехи.');
-  const children = mergeDinnerIntake(initial, parseDinnerIntakeFallback('Забыл сказать, у нас есть ребёнок.'));
+  const children = mergeDinnerIntake(initial, parseDinnerIntakeFallback('Забыл сказать, у нас есть ребёнок. Люблю пасту, не люблю рыбу.'));
   assert.deepEqual(children.availableIngredients, ['курица', 'рис']);
   assert.equal(children.hasChildren, true);
   assert.equal(children.householdSize, 3);
   assert.equal(children.maxMinutes, 30);
   assert.deepEqual(children.excludedIngredients, ['орехи']);
-  const correction = mergeDinnerIntake(children, parseDinnerIntakeFallback('На двоих, без детей. Ещё есть сыр. Рис закончился.'));
+  assert.deepEqual(children.preferredCategories, { pasta: 1, fish: -1 });
+  const correction = mergeDinnerIntake(children, parseDinnerIntakeFallback('На двоих, без детей. Ещё есть сыр. Рис закончился. Теперь люблю рыбу.'));
   assert.equal(correction.householdSize, 2);
   assert.equal(correction.hasChildren, false);
   assert.deepEqual(correction.availableIngredients, ['курица', 'сыр']);
   assert.deepEqual(correction.excludedIngredients, ['орехи']);
+  assert.deepEqual(correction.preferredCategories, { pasta: 1, fish: 1 });
   assert.deepEqual(mergeDinnerIntake(correction, parseDinnerIntakeFallback('Теперь только курица.')).availableIngredients, ['курица']);
   assert.deepEqual(parseDinnerIntakeFallback('Аллергии нет').availableIngredients, []);
 });

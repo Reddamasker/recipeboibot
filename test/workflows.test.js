@@ -466,6 +466,7 @@ test('first Start restores chat introduction without requiring ingredients; skip
     assert.equal(sent.length, 2);
     assert.match(sent[0].text, /<b>Запишите голосовое сообщение<\/b>/);
     assert.match(sent[0].text, /микрофон справа от поля ввода/);
+    assert.match(sent[0].text, /какие блюда вы любите и не любите/);
     assert.equal(sent[0].reply_markup, undefined);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
     assert.match(sent[1].text, /Давай подберём ужин специально для тебя/);
@@ -492,12 +493,14 @@ test('profile introduction accepts partial text, missing size, correction and co
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     const user = database.getUserByTelegramId(from.id);
     assert.equal(getFoodProfile(user.id).onboardingCompleted, false);
-    await telegramModule.handleMessage({ chat, from, text: 'С ребёнком, без орехов, до 30 минут.' });
+    await telegramModule.handleMessage({ chat, from, text: 'С ребёнком, без орехов, до 30 минут. Люблю пасту и курицу. Не люблю рыбу.' });
     assert.match(sent.at(-1).text, /На сколько человек/);
     assert.doesNotMatch(sent.at(-1).text, /продукты/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'profile-size', data: 'dinner:size:3', message: { chat }, from });
     assert.match(sent.at(-1).text, /Готовим на: 3/);
     assert.match(sent.at(-1).text, /Дети: да/);
+    assert.match(sent.at(-1).text, /Любим: паста, курица/);
+    assert.match(sent.at(-1).text, /Не любим: рыба/);
     assert.doesNotMatch(sent.at(-1).text, /Есть дома/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'profile-redo', data: 'dinner:redo', message: { chat }, from });
     await telegramModule.handleMessage({ chat, from, text: 'До 60 минут.' });
@@ -508,6 +511,7 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.equal(pending.intake.maxMinutes, 60);
     assert.deepEqual(pending.intake.excludedIngredients, ['орехов']);
     assert.deepEqual(pending.intake.availableIngredients, []);
+    assert.deepEqual(pending.intake.preferredCategories, { pasta: 1, chicken: 1, fish: -1 });
     assert.match(sent.at(-1).text, /Проверьте/);
     assert.equal(getFoodProfile(user.id).onboardingCompleted, false);
     const messagesBeforeConfirm = sent.filter((body) => body.chat_id && !body.message_id).length;
@@ -515,6 +519,8 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.equal(getFoodProfile(user.id).onboardingCompleted, true);
     assert.equal(getFoodProfile(user.id).preferredMaxCookingTime, 60);
     assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['орехов']);
+    assert.deepEqual(getFoodProfile(user.id).preferredCategories, { pasta: 1, chicken: 1, fish: -1 });
+    assert.equal(getFoodProfile(user.id).tastePreferencesStatus, 'completed');
     assert.deepEqual(getDinnerContext(user.id), []);
     assert.equal(database.getPendingIntent(user.id), null);
     assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm);
@@ -566,7 +572,7 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
   globalThis.fetch = async (url, options) => {
     const address = String(url);
     if (address.includes('/file/bot')) return new Response(Buffer.from('voice'), { status: 200 });
-    if (address.includes('/v1/audio/transcriptions')) return new Response(JSON.stringify({ text: 'Есть курица, рис, лук и морковь. На троих, с ребёнком, без грибов, до 30 минут.' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (address.includes('/v1/audio/transcriptions')) return new Response(JSON.stringify({ text: 'Есть курица, рис, лук и морковь. На троих, с ребёнком, без грибов, до 30 минут. Люблю домашнюю еду и супы. Не люблю салаты.' }), { status: 200, headers: { 'content-type': 'application/json' } });
     const body = JSON.parse(options.body);
     if (address.endsWith('/getFile')) return { json: async () => ({ ok: true, result: { file_path: 'voice.ogg', file_size: 5 } }) };
     sent.push(body);
@@ -585,7 +591,10 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
     assert.equal(pending.intake.householdSize, 3);
     assert.equal(pending.intake.hasChildren, true);
     assert.equal(pending.intake.maxMinutes, 30);
+    assert.deepEqual(pending.intake.preferredCategories, { soup: 1, salad: -1, home: 1 });
     assert.match(sent.at(-1).text, /Проверьте/);
+    assert.match(sent.at(-1).text, /Любим: супы, домашняя еда/);
+    assert.match(sent.at(-1).text, /Не любим: салаты/);
     assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'dinner:confirm');
     const messagesBeforeConfirm = sent.filter((body) => body.chat_id && !body.message_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6403', data: 'dinner:confirm', message: { chat, message_id: 403 }, from });
@@ -599,6 +608,8 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
     assert.equal(getFoodProfile(user.id).householdSize, 3);
     assert.equal(getFoodProfile(user.id).hasChildren, true);
     assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['грибов']);
+    assert.deepEqual(getFoodProfile(user.id).preferredCategories, { soup: 1, salad: -1, home: 1 });
+    assert.equal(getFoodProfile(user.id).tastePreferencesStatus, 'completed');
     await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-6403', data: 'dinner:skip', message: { chat }, from });
     assert.deepEqual(getDinnerContext(user.id), []);
@@ -637,13 +648,14 @@ test('multi-message onboarding and the correction button retain earlier answers'
     const user = database.getUserByTelegramId(from.id);
     await telegramModule.handleDinnerIntakeCallback({ id: 'redo-6409', data: 'dinner:redo', message: { chat }, from });
     assert.deepEqual(database.getPendingIntent(user.id).intake.availableIngredients, ['курица', 'рис']);
-    await telegramModule.handleMessage({ chat, from, text: 'Забыл сказать, есть ребёнок. Аллергия на орехи.' });
+    await telegramModule.handleMessage({ chat, from, text: 'Забыл сказать, есть ребёнок. Аллергия на орехи. Люблю азиатскую еду, не люблю рыбу.' });
     const intake = database.getPendingIntent(user.id).intake;
     assert.deepEqual(intake.availableIngredients, ['курица', 'рис']);
     assert.equal(intake.householdSize, 3);
     assert.equal(intake.hasChildren, true);
     assert.equal(intake.maxMinutes, 30);
     assert.deepEqual(intake.excludedIngredients, ['орехи']);
+    assert.deepEqual(intake.preferredCategories, { asian: 1, fish: -1 });
     assert.match(sent.at(-1).text, /Аллергия и исключения/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6409', data: 'dinner:confirm', message: { chat }, from });
     const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');

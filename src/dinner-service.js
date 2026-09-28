@@ -37,12 +37,15 @@ export function confirmDinnerIntake(userId, input) {
   const intake = normalizeDinnerIntake(input);
   if (!intake.availableIngredients.length) throw badRequest('Назовите хотя бы один продукт');
   const current = getFoodProfile(userId);
+  const hasTasteAnswers = Object.keys(intake.preferredCategories).length > 0;
   const profile = updateDinnerProfile(userId, {
     householdType: intake.householdType || current.householdType,
     householdSize: intake.householdSize ?? current.householdSize,
     hasChildren: intake.hasChildren ?? current.hasChildren,
     preferredMaxCookingTime: intake.maxMinutes ?? current.preferredMaxCookingTime,
     excludedIngredients: [...new Set([...current.excludedIngredients, ...intake.excludedIngredients])],
+    preferredCategories: { ...current.preferredCategories, ...intake.preferredCategories },
+    tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus,
     onboardingCompleted: true
   });
   setDinnerContext(userId, intake.availableIngredients);

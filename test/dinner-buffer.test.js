@@ -14,7 +14,7 @@ const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerI
 const { SEED_RECIPES, hasExcludedIngredient } = await import('../src/dinner.js');
 const { listDinnerOptions, setDinnerOptionImage } = await import('../src/dinner-store.js');
 const { validateGeneratedDinner } = await import('../src/dinner-buffer.js');
-const { generateDinnerRecipes } = await import('../src/openai.js');
+const { extractDinnerIntake, generateDinnerRecipes } = await import('../src/openai.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const tick = () => new Promise(setImmediate);
@@ -232,4 +232,25 @@ test('generation abstraction sends constraints and six recipes using strict JSON
     }
   }
   finally { globalThis.fetch = original; }
+});
+
+test('AI dinner intake extracts explicit likes and dislikes separately from exclusions', async () => {
+  const user = upsertTelegramUser({ id: 621, first_name: 'Вкусы голосом' }), original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.text.format.name, 'dinner_intake');
+    assert.ok(body.text.format.schema.required.includes('likedCategories'));
+    assert.ok(body.text.format.schema.required.includes('dislikedCategories'));
+    assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);
+    return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({
+      availableIngredients: [], excludedIngredients: ['орехи'], removedIngredients: [], replaceIngredients: false,
+      householdSize: 3, hasChildren: true, maxMinutes: 30, likedCategories: ['pasta','chicken'], dislikedCategories: ['fish']
+    }), usage: { input_tokens: 20, output_tokens: 30 } }), { status: 200 });
+  };
+  try {
+    const result = await extractDinnerIntake({ userId: user.id, transcript: 'Люблю пасту и курицу, не люблю рыбу. Аллергия на орехи.' });
+    assert.deepEqual(result.likedCategories, ['pasta','chicken']);
+    assert.deepEqual(result.dislikedCategories, ['fish']);
+    assert.deepEqual(result.excludedIngredients, ['орехи']);
+  } finally { globalThis.fetch = original; }
 });
