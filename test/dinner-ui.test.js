@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
+test('offer banner leads with the free week and three product benefits', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer'));
+  const sandbox = { state: { payment: { hasFirstRecipe: true, active: false, firstValue: 'cooked', offer: { priceRub: 129 } } } };
+  vm.runInNewContext(handler, sandbox);
+  const html = sandbox.offerBanner();
+  assert.match(html, /Мы умеем ещё много полезного/);
+  assert.match(html, /7 дней бесплатно · затем от 129 ₽\/мес\./);
+  assert.equal((html.match(/class="offer-feature"/g) || []).length, 3);
+  assert.match(html, /Сохраняем за тебя/);
+  assert.match(html, /Подбираем на вечер/);
+  assert.match(html, /Напоминаем вовремя/);
+  assert.match(html, /Попробовать бесплатно/);
+  assert.doesNotMatch(html, /Тестовый доступ к автоматическому импорту/);
+});
+
 test('home keeps dinner separate and resolves a written recipe request', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function home()'), source.indexOf('\nasync function beginDinner'));
@@ -69,7 +85,7 @@ test('first dinner waits until trial success before starting taste onboarding; e
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.20/);
+  assert.match(document, /app\.js\?v=dinner-10\.21/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),

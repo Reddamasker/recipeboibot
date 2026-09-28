@@ -82,7 +82,21 @@ function bindCommon() {
 function offerBanner() {
   const payment = state.payment;
   if (!payment?.hasFirstRecipe || payment.active) return '';
-  return `<section class="offer-banner"><div><span class="offer-kicker">${payment.firstValue === 'cooked' ? 'Первый ужин приготовлен' : 'Первый рецепт сохранён'}</span><h2>Сохраняйте следующие рецепты</h2><p>Тестовый доступ к автоматическому импорту за <strong>${payment.offer.priceRub} ₽/мес.</strong> ${payment.firstValue === 'cooked' ? 'Добавляйте свои рецепты из текста, фото и ссылок.' : 'Ваш рецепт остаётся в коллекции.'}</p></div><button class="primary accent" type="button" data-open-offer>Посмотреть предложение →</button><small>Тестовый сценарий · деньги не списываются</small></section>`;
+  return `<section class="offer-banner">
+    <div class="offer-banner-lead">
+      <span class="offer-kicker">${payment.firstValue === 'cooked' ? 'Первый ужин готов' : 'Первый рецепт сохранён'}</span>
+      <h2>Мы умеем ещё много полезного</h2>
+      <p>Посмотри дальше — покажем, как бот поможет с рецептами и ужинами.</p>
+      <small class="offer-trial-price">7 дней бесплатно · затем от ${payment.offer.priceRub} ₽/мес.</small>
+    </div>
+    <div class="offer-feature-grid" aria-label="Возможности подписки">
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true">↗</span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true">3</span><div><h3>Подбираем на вечер</h3><p>Три идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true">◷</span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
+    </div>
+    <button class="primary accent" type="button" data-open-offer>Попробовать бесплатно <span aria-hidden="true">→</span></button>
+    <small class="offer-disclaimer">Тестовый сценарий · деньги не списываются</small>
+  </section>`;
 }
 
 function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
