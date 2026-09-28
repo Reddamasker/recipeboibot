@@ -8,9 +8,29 @@ export const DINNER_WEIGHTS = Object.freeze({
 export const DINNER_LIMITS = Object.freeze({ maxShoppingIngredients: 5 });
 
 export const DINNER_CATEGORIES = Object.freeze([
+  ['burger', 'Бургеры', /бургер|гамбургер|чизбургер/iu],
+  ['pizza', 'Пицца', /пицц/iu],
+  ['sushi', 'Суши', /суши|ролл/iu],
+  ['shawarma', 'Шаурма', /шаурм|шаверм|донер/iu],
+  ['wok', 'Вок', /вок/iu],
   ['pasta', 'Паста', /паст|макарон|спагетт|лапш/iu],
+  ['barbecue', 'Шашлык', /шашлык|люля|кебаб/iu],
+  ['dessert', 'Десерты', /десерт|торт|пирожн|чизкейк|морожен|печень|кекс/iu],
+  ['fastfood', 'Фастфуд', /фастфуд|бургер|гамбургер|чизбургер|пицц|шаурм|шаверм|донер|хот[ -]?дог|картоф[а-яё]* фри/iu],
+  ['breakfast', 'Завтраки', /завтрак|омлет|каша|сырник|блин|яичниц/iu],
+  ['lunch', 'Обеды', /обед/iu],
+  ['coffee', 'Кофе', /кофе|капучин|латте|эспресс/iu],
+  ['georgian', 'Грузия', /грузин|хачап|хинкал|лобио|чахох|сацив|оджах|чкмер/iu],
+  ['russian', 'Русская', /русск|борщ|щи(?:\s|$)|рассольник|драник|окрошк|солянк|пельмен/iu],
+  ['eastern', 'Восток', /восточ|шакшук|хумус|фалаф|кускус/iu],
+  ['chinese', 'Китай', /китай|гунбао|димсам|по-пекин/iu],
+  ['japanese', 'Япония', /япон|суши|ролл|рамен|соборо|донбур|терияки/iu],
+  ['caucasian', 'Кавказ', /кавказ|грузин|хачап|хинкал|лобио|чахох|сацив|шашлык|люля/iu],
+  ['uzbek', 'Узбекская', /узбек|плов|лагман|мант/iu],
+  ['italian', 'Италия', /итал|пицц|лазан|ризотт|равиол|фокач|ньокк|карбонар|болоньез/iu],
+  ['european', 'Европа', /европ|итал|пицц|лазан|ризотт|равиол|фокач|ньокк|карбонар|болоньез|греческ|кефтедес|гуляш/iu],
   ['rice', 'Рис', /рис/iu],
-  ['asian', 'Азиатское', /азиат|терияки|вок|карри|соев|фунчоз|япон|китай|коре|тайск/iu],
+  ['asian', 'Азия', /азиат|терияки|вок|карри|соев|фунчоз|япон|китай|коре|тайск|суши|ролл|рамен|соборо|узбек|плов|лагман/iu],
   ['chicken', 'Курица', /куриц|курин|бедр|филе птиц/iu],
   ['meat', 'Мясо', /говяд|говяж|свинин|мяс|фарш|индейк/iu],
   ['fish', 'Рыба', /рыб|лосос|треск|тунц|форел|минта|хек|скумбр|сельд/iu],
@@ -158,6 +178,18 @@ const preferenceFit = (candidate, preferredCategories = {}) => candidate.categor
 const preferenceChoice = (candidates, preferredCategories = {}) => candidates
   .filter((candidate) => preferenceFit(candidate, preferredCategories) > 0)
   .sort((a, b) => preferenceFit(b, preferredCategories) - preferenceFit(a, preferredCategories) || b.score - a.score)[0];
+const positivePreferenceKeys = (preferredCategories = {}) => Object.entries(preferredCategories)
+  .filter(([, value]) => value > 0).map(([key]) => key);
+const uncoveredPreferenceFit = (candidate, preferredCategories = {}, selected = []) => {
+  const covered = new Set(selected.flatMap((item) => item.categories));
+  return positivePreferenceKeys(preferredCategories)
+    .filter((key) => !covered.has(key) && candidate.categories.includes(key))
+    .reduce((sum, key) => sum + preferredCategories[key], 0);
+};
+const preferenceRepresentatives = (candidates, preferredCategories = {}) => positivePreferenceKeys(preferredCategories)
+  .map((key) => candidates.filter((candidate) => candidate.categories.includes(key))
+    .sort((a, b) => preferenceFit(b, preferredCategories) - preferenceFit(a, preferredCategories) || b.score - a.score)[0])
+  .filter(Boolean);
 
 // An editorial discovery is a real recipe with a plain-language explanation.
 // Reserve it for slot three; every candidate has already passed hard filters.
@@ -174,7 +206,8 @@ export function shortlistDinnerCandidates(ranked, history = [], limit = 8, prefe
   const seen = new Set();
   const discovery = discoveryChoice(ranked, history, [ranked[0], fastest].filter(Boolean));
   const preferred = preferenceChoice(ranked.filter((item) => item !== discovery), preferredCategories);
-  return [preferred, ranked[0], fastest, discovery, variety, ...ranked].filter((item) => item && !seen.has(item.recipe.id) && seen.add(item.recipe.id)).slice(0, limit);
+  const representatives = preferenceRepresentatives(ranked.filter((item) => item !== discovery), preferredCategories);
+  return [preferred, ...representatives, ranked[0], fastest, discovery, variety, ...ranked].filter((item) => item && !seen.has(item.recipe.id) && seen.add(item.recipe.id)).slice(0, limit);
 }
 
 export function selectDinnerChoices(candidates, history = [], { preferTop = false, preferredCategories = {} } = {}) {
@@ -187,10 +220,13 @@ export function selectDinnerChoices(candidates, history = [], { preferTop = fals
   add(preferred || (preferTop ? everyday.find((item) => item.pantryMatch?.missing.length === 0) || everyday[0] : everyday.find((item) => item.recipe.userSaved) || everyday[0]), 'familiar');
   const remaining = () => candidates.filter((item) => !chosen.some((choice) => choice.candidate.recipe.id === item.recipe.id));
   const quick = remaining().filter((item) => item !== discovery);
-  add(quick.filter((item) => item.minutes !== null).sort((a, b) => a.minutes - b.minutes || b.score - a.score)[0] || quick[0], 'quick');
+  add(quick.sort((a, b) => uncoveredPreferenceFit(b, preferredCategories, chosen.map((item) => item.candidate)) - uncoveredPreferenceFit(a, preferredCategories, chosen.map((item) => item.candidate))
+    || (a.minutes ?? Infinity) - (b.minutes ?? Infinity) || b.score - a.score)[0], 'quick');
   const variety = remaining().filter((item) => !item.recipe.userSaved && uncooked(item, history))
-    .sort((a, b) => categoryDistance(b, chosen.map((item) => item.candidate)) - categoryDistance(a, chosen.map((item) => item.candidate)) || b.score - a.score)[0];
-  add(discovery || variety || remaining()[0], 'variety');
+    .sort((a, b) => uncoveredPreferenceFit(b, preferredCategories, chosen.map((item) => item.candidate)) - uncoveredPreferenceFit(a, preferredCategories, chosen.map((item) => item.candidate))
+      || categoryDistance(b, chosen.map((item) => item.candidate)) - categoryDistance(a, chosen.map((item) => item.candidate)) || b.score - a.score)[0];
+  const uncovered = remaining().sort((a, b) => uncoveredPreferenceFit(b, preferredCategories, chosen.map((item) => item.candidate)) - uncoveredPreferenceFit(a, preferredCategories, chosen.map((item) => item.candidate)) || b.score - a.score)[0];
+  add(uncoveredPreferenceFit(uncovered || { categories: [] }, preferredCategories, chosen.map((item) => item.candidate)) > 0 ? uncovered : discovery || variety || remaining()[0], 'variety');
   for (const candidate of remaining()) { if (chosen.length >= 3) break; add(candidate, 'other'); }
   return chosen;
 }

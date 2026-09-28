@@ -125,8 +125,8 @@ test('rice is a saved taste while a wish for today is an imperative request', ()
 });
 
 test('a bare cuisine reply in the profile dialog is kept even when AI extraction is empty', () => {
-  const fallback = parseDinnerIntakeFallback('Итальянская кухня', { bareCategoriesAsLikes: true });
-  assert.deepEqual(fallback.preferredCategories, { pasta: 1 });
+  const fallback = parseDinnerIntakeFallback('Итальянская кухня и грузинская кухня', { bareCategoriesAsLikes: true });
+  assert.deepEqual(fallback.preferredCategories, { georgian: 1, italian: 1 });
   assert.deepEqual(fallback.availableIngredients, []);
 
   const emptyExtraction = {
@@ -135,11 +135,30 @@ test('a bare cuisine reply in the profile dialog is kept even when AI extraction
     requestedCategories: [], replaceRequestedCategories: false
   };
   const combined = combineDinnerIntakeExtraction(emptyExtraction, fallback);
-  assert.deepEqual(normalizeDinnerIntake(combined).preferredCategories, { pasta: 1 });
+  assert.deepEqual(normalizeDinnerIntake(combined).preferredCategories, { georgian: 1, italian: 1 });
 
   const today = parseDinnerIntakeFallback('Сегодня хочу азиатское с рисом', { bareCategoriesAsLikes: true });
   assert.deepEqual(today.preferredCategories, {});
   assert.deepEqual(new Set(today.requestedCategories), new Set(['asian', 'rice']));
+});
+
+test('dish and cuisine tags overlap without replacing one another', () => {
+  const pizza = SEED_RECIPES.find((recipe) => recipe.id === 'seed:pizza-margherita-family');
+  assert.ok(pizza);
+  assert.ok(fs.existsSync(path.join('public', pizza.thumbnailUrl)));
+  const pizzaTags = recipeCategories(pizza);
+  for (const key of ['pizza', 'fastfood', 'italian', 'european']) assert.ok(pizzaTags.includes(key), key);
+
+  const georgian = SEED_RECIPES.find((recipe) => recipe.id === 'seed:chakhokhbili');
+  const georgianTags = recipeCategories(georgian);
+  assert.ok(georgianTags.includes('georgian'));
+  assert.ok(georgianTags.includes('caucasian'));
+
+  const sushiTags = recipeCategories({ title: 'Суши-роллы', tags: ['японское'], ingredients: [{ name: 'рис' }] });
+  for (const key of ['sushi', 'japanese', 'asian']) assert.ok(sushiTags.includes(key), key);
+  const greekTags = recipeCategories(SEED_RECIPES.find((recipe) => recipe.id === 'seed:keftedes'));
+  assert.ok(!greekTags.includes('sushi'), 'сушёная мята не означает суши');
+  assert.ok(!greekTags.includes('japanese'), 'сушёная мята не означает японскую кухню');
 });
 
 test('confirmed pantry changes candidate filtering, ranking and the dinner session', async () => {
@@ -255,6 +274,16 @@ test('visible trio includes the strongest explicit taste match instead of leavin
   assert.ok(!recipeCategories(SEED_RECIPES.find((recipe) => recipe.id === 'seed:egg-salad')).includes('meat'), 'тег «без мяса» не является категорией блюда «мясо»');
   assert.ok(choices[0].candidate.categories.includes('pasta'));
   assert.ok(choices[0].candidate.categories.includes('meat'));
+});
+
+test('visible trio represents separate cuisine preferences when matching recipes exist', () => {
+  const preferredCategories = { italian: 1, georgian: 1 };
+  const ranked = rankCandidates(SEED_RECIPES, { profile: { preferredCategories } });
+  const shortlist = shortlistDinnerCandidates(ranked, [], 8, preferredCategories);
+  const choices = selectDinnerChoices(shortlist, [], { preferredCategories });
+  const visible = new Set(choices.flatMap(({ candidate }) => candidate.categories));
+  assert.ok(visible.has('italian'));
+  assert.ok(visible.has('georgian'));
 });
 
 test('real mince, potato, rice and pasta intake gives three different trios with a discovery in each', async () => {

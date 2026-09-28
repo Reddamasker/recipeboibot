@@ -554,9 +554,9 @@ test('profile correction accepts a bare cuisine name as a preference', async () 
     await telegramModule.handleMessage({ chat, from, text: 'Итальянская кухня' });
     const user = database.getUserByTelegramId(from.id);
     const pending = database.getPendingIntent(user.id);
-    assert.deepEqual(pending.intake.preferredCategories, { pasta: 1 });
+    assert.deepEqual(pending.intake.preferredCategories, { italian: 1 });
     assert.deepEqual(pending.intake.availableIngredients, []);
-    assert.match(sent.at(-1).text, /Любим: паста/);
+    assert.match(sent.at(-1).text, /Любим: италия/);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -583,7 +583,7 @@ test('first profile voice message goes to confirmation without asking for produc
     assert.deepEqual(pending.intake.preferredCategories, { pasta: 1, rice: 1 });
     assert.deepEqual(new Set(pending.intake.requestedCategories), new Set(['asian', 'rice']));
     assert.match(sent.at(-1).text, /Проверьте/);
-    assert.match(sent.at(-1).text, /Сегодня обязательно: рис, азиатское/);
+    assert.match(sent.at(-1).text, /Сегодня обязательно: рис, азия/);
     assert.doesNotMatch(sent.at(-1).text, /назовите продукты/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-profile-voice', data: 'dinner:confirm', message: { chat, message_id: 492 }, from });
     const user = database.getUserByTelegramId(from.id);

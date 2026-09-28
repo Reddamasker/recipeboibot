@@ -6,7 +6,7 @@ import { generateRecipeImage } from './recipe-images.js';
 import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 4, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 5, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const MAX_GENERATION_ATTEMPTS = 3;
 const fills = new Map(), imageTasks = new Map();
 let activeImages = 0;

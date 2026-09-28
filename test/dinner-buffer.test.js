@@ -253,6 +253,7 @@ test('generation abstraction sends constraints and six recipes using strict JSON
     assert.deepEqual(input.profile.preferredCategories, { fish: 1, pasta: -1 });
     assert.deepEqual(input.requestedCategories, ['asian', 'rice']);
     assert.match(body.instructions, /КАЖДЫЙ рецепт должен одновременно соответствовать всем перечисленным категориям/);
+    assert.match(body.instructions, /pizza означает пиццу, italian — итальянскую кухню, georgian — грузинскую/);
     if (input.pantry.length) assert.match(body.instructions, /Используй названные продукты как основу/);
     else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное из имеющихся продуктов/); }
     return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ recipes: batch() }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 });
@@ -275,8 +276,10 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.ok(body.text.format.schema.required.includes('dislikedCategories'));
     assert.ok(body.text.format.schema.required.includes('requestedCategories'));
     assert.ok(body.text.format.schema.required.includes('replaceRequestedCategories'));
+    const categories = body.text.format.schema.properties.likedCategories.items.enum;
+    for (const key of ['pizza','georgian','italian','european','asian']) assert.ok(categories.includes(key), key);
     assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);
-    assert.match(body.instructions, /«Итальянская кухня».*pasta/u);
+    assert.match(body.instructions, /«Итальянская кухня» даёт italian.*«Грузинская» даёт georgian/u);
     return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({
       availableIngredients: [], excludedIngredients: ['орехи'], removedIngredients: [], replaceIngredients: false,
       householdSize: 3, hasChildren: true, maxMinutes: 30, likedCategories: ['pasta','rice','chicken'], dislikedCategories: ['fish'],

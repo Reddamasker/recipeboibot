@@ -146,6 +146,7 @@ header {
 .taste-group { min-width: 0; margin: 22px 0; padding: 0; border: 0; }
 .taste-group legend { font-weight: 700; }
 .taste-group .dinner-options { margin: 10px 0 0; }
+.taste-subtitle { margin: 18px 0 0; font-size: .82rem; line-height: 1.2; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .taste-group [data-value="-1"].selected { background: #fce8e5; border-color: #aa483d; color: #7a3028; }
 .taste-group button:focus-visible { outline: 2px solid var(--berry); outline-offset: 3px; }
 .trial-onboarding { max-width: 640px; margin: 0 auto; padding-bottom: 42px; }

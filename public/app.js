@@ -246,8 +246,13 @@ async function showDinnerOnboarding() {
 }
 
 function tasteChoices(categories, { title = 'Что ты любишь есть?', copy = 'Отметь любимые блюда и те, которые не по вкусу. Так подбор станет точнее.' } = {}) {
-  const tags = [['pasta','Паста'],['rice','Рис'],['asian','Азиатское'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']];
-  return `<h1>${esc(title)}</h1><p>${esc(copy)}</p>${[[1, 'Нравится'], [-1, 'Не нравится']].map(([value, groupTitle]) => `<fieldset class="taste-group"><legend>${groupTitle}</legend><div class="dinner-options">${tags.map(([key, label]) => `<button type="button" class="dinner-option ${Math.sign(categories[key] || 0) === value ? 'selected' : ''}" data-taste="${key}" data-value="${value}" aria-pressed="${Math.sign(categories[key] || 0) === value}">${label}</button>`).join('')}</div></fieldset>`).join('')}<p class="dinner-help">Можно выбрать несколько тегов. Повторное нажатие снимает выбор. Нелюбимые блюда будем предлагать реже. Аллергию и продукты, которые нельзя, укажи отдельно в настройках.</p>`;
+  const groups = [
+    ['Блюда', [['burger','Бургеры'],['pizza','Пицца'],['sushi','Суши'],['shawarma','Шаурма'],['wok','Вок'],['pasta','Паста'],['barbecue','Шашлык'],['dessert','Десерты'],['fastfood','Фастфуд'],['breakfast','Завтраки'],['lunch','Обеды'],['coffee','Кофе']]],
+    ['Кухни', [['georgian','Грузия'],['russian','Русская'],['eastern','Восток'],['chinese','Китай'],['japanese','Япония'],['caucasian','Кавказ'],['uzbek','Узбекская'],['italian','Италия'],['european','Европа'],['asian','Азия']]],
+    ['Другие предпочтения', [['rice','Рис'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']]]
+  ];
+  const tagButtons = (tags, value) => tags.map(([key, label]) => `<button type="button" class="dinner-option ${Math.sign(categories[key] || 0) === value ? 'selected' : ''}" data-taste="${key}" data-value="${value}" aria-pressed="${Math.sign(categories[key] || 0) === value}">${label}</button>`).join('');
+  return `<h1>${esc(title)}</h1><p>${esc(copy)}</p>${[[1, 'Нравится'], [-1, 'Не нравится']].map(([value, groupTitle]) => `<fieldset class="taste-group"><legend>${groupTitle}</legend>${groups.map(([sectionTitle, tags]) => `<h3 class="taste-subtitle">${sectionTitle}</h3><div class="dinner-options">${tagButtons(tags, value)}</div>`).join('')}</fieldset>`).join('')}<p class="dinner-help">Можно выбрать несколько тегов. Повторное нажатие снимает выбор. Нелюбимые блюда будем предлагать реже. Аллергию и продукты, которые нельзя, укажи отдельно в настройках.</p>`;
 }
 
 function bindTasteChoices(data, redraw) {

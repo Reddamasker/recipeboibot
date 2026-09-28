@@ -157,6 +157,12 @@
       "source": "C:\\Users\\spass\\.codex\\generated_images\\01a0cf99-4fc2-73d0-a594-e4d97b6ded0a\\exec-acbcdc0b-68c6-4b28-ae49-0ce935867229.png",
       "file": "public/assets/dinner/beef-peppers.jpg",
       "prompt": "Use case: photorealistic-natural. One appetizing editorial photograph, square composition, of quick stir-fried thin beef strips with sliced sweet red bell peppers and onion. Only beef, bell pepper, onion, vegetable oil and salt. Home-cooked finished dish on a simple cream ceramic plate filling 80% of frame, warm neutral linen, natural window light, close-up three-quarter overhead angle, premium cookbook style. No text, no collage, no hands, no extra garnish or ingredients."
+    },
+    {
+      "id": "pizza-margherita-family",
+      "source": "C:\\Users\\user\\.codex\\generated_images\\01a0e81a-82c3-7dd3-8cf2-f1861976c3c1\\exec-2d0e6974-bf76-41fc-8c3a-dd73a8da2a93.png",
+      "file": "public/assets/dinner/pizza-margherita-family.jpg",
+      "prompt": "Use case: photorealistic-natural. Square dinner recipe catalog card image of a realistic homemade Italian Margherita-style pizza. Warm neutral tabletop with restrained linen detail; one round freshly baked pizza with a moderately thick hand-shaped crust, tomato sauce, melted mozzarella, fresh tomatoes and basil. Natural editorial food photography, close three-quarter overhead view, whole pizza mostly visible and centered, soft warm window light, realistic baked textures. No text, logo, watermark, people, blocking cutlery, excessive garnish or impossible ingredients. Existing pasta and chakhokhbili catalog images were style references only."
     }
   ]
 }
