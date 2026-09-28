@@ -7,6 +7,7 @@ import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates,
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 
 export const DINNER_BUFFER = Object.freeze({ version: 4, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+const MAX_GENERATION_ATTEMPTS = 3;
 const fills = new Map(), imageTasks = new Map();
 let activeImages = 0;
 const imageQueue = [];
@@ -134,22 +135,31 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
   const task = (async () => {
     try {
       const prior = listDinnerOptions(userId, sessionId);
-      const result = await generate({ userId, count, profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
-        requestedCategories: context.requestedCategories, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20), rejectedTitles: prior.map((o) => o.recipe.title) });
-      if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
-      let added = 0;
-      for (const item of (Array.isArray(result?.recipes) ? result.recipes : []).slice(0, count)) {
-        if (activeCount(userId, sessionId) >= DINNER_BUFFER.total) break;
-        const valid = validateGeneratedDinner(item, context);
-        if (!valid || duplicateDinner(valid.recipe, existing)) continue;
-        if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === valid.role).length >= DINNER_BUFFER.total / DINNER_BUFFER.visible) continue;
-        const id = randomUUID(); valid.recipe.id = `dinner:${id}`;
-        if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }
+      const attemptedTitles = [];
+      const maxAttempts = context.requestedCategories.length ? MAX_GENERATION_ATTEMPTS : 1;
+      let added = 0, attempts = 0;
+      while (added < count && attempts < maxAttempts) {
+        attempts++;
+        const needed = count - added;
+        const result = await generate({ userId, count: needed, profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
+          requestedCategories: context.requestedCategories, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20),
+          rejectedTitles: [...prior.map((o) => o.recipe.title), ...attemptedTitles].slice(-40) });
+        if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
+        const generated = Array.isArray(result?.recipes) ? result.recipes : [];
+        attemptedTitles.push(...generated.map((item) => item?.recipe?.title).filter(Boolean));
+        for (const item of generated.slice(0, needed)) {
+          if (activeCount(userId, sessionId) >= DINNER_BUFFER.total) break;
+          const valid = validateGeneratedDinner(item, context);
+          if (!valid || duplicateDinner(valid.recipe, existing)) continue;
+          if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === valid.role).length >= DINNER_BUFFER.total / DINNER_BUFFER.visible) continue;
+          const id = randomUUID(); valid.recipe.id = `dinner:${id}`;
+          if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }
+        }
       }
       if (added < count) setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
       fallbackFill(userId, sessionId, context, active + count);
-      addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added } });
+      addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added, attempts } });
     } catch (error) {
       if (getDinnerSession(userId, sessionId) && dinnerContextKey(getContext()) === key) {
         setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);

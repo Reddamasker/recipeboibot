@@ -219,21 +219,24 @@ test('a request for today is mandatory for every visible dinner option', async (
   updateDinnerProfile(user.id, { householdSize: 2, onboardingCompleted: true });
   setDinnerContext(user.id, [], ['asian', 'rice']);
   const session = startDinner(user.id);
-  let generatedFor;
+  const generationCounts = [], generatedFor = [];
+  const exact = batch().slice(0, 3).map((item, index) => ({
+    ...item,
+    recipe: {
+      ...item.recipe,
+      title: `Азиатский рис ${index + 1}`,
+      tags: [...(item.recipe.tags || []), 'азиатское'],
+      ingredients: [...item.recipe.ingredients, { name: 'рис', raw: 'рис', quantity: 100, unit: 'г', comment: null }]
+    }
+  }));
   const generate = async (input) => {
-    generatedFor = input.requestedCategories;
-    return { recipes: batch().map((item, index) => ({
-      ...item,
-      recipe: {
-        ...item.recipe,
-        title: `Азиатский рис ${index + 1}`,
-        tags: [...(item.recipe.tags || []), 'азиатское'],
-        ingredients: [...item.recipe.ingredients, { name: 'рис', raw: 'рис', quantity: 100, unit: 'г', comment: null }]
-      }
-    })) };
+    generationCounts.push(input.count);
+    generatedFor.push(input.requestedCategories);
+    return generationCounts.length === 1 ? { recipes: [exact[0], ...batch().slice(1, 3)] } : { recipes: exact.slice(1) };
   };
   const dinner = await recommendDinner(user.id, session.sessionId, { generate });
-  assert.deepEqual(generatedFor, ['asian', 'rice']);
+  assert.deepEqual(generationCounts.slice(0, 2), [3, 2]);
+  assert.deepEqual(generatedFor.slice(0, 2), [['asian', 'rice'], ['asian', 'rice']]);
   assert.equal(dinner.recommendations.length, 3);
   assert.ok(dinner.recommendations.every(({ recipe }) => {
     const categories = recipeCategories(recipe);
