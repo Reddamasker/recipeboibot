@@ -216,6 +216,7 @@ test('visible trio includes the strongest explicit taste match instead of leavin
   const shortlist = shortlistDinnerCandidates(ranked, [], 8, profile.preferredCategories);
   const choices = selectDinnerChoices(shortlist, [], { preferredCategories: profile.preferredCategories });
   assert.ok(!recipeCategories(SEED_RECIPES.find((recipe) => recipe.id === 'seed:beef-goulash-mash')).includes('pasta'), 'томатная паста не является категорией блюда «паста»');
+  assert.ok(!recipeCategories(SEED_RECIPES.find((recipe) => recipe.id === 'seed:egg-salad')).includes('meat'), 'тег «без мяса» не является категорией блюда «мясо»');
   assert.ok(choices[0].candidate.categories.includes('pasta'));
   assert.ok(choices[0].candidate.categories.includes('meat'));
 });

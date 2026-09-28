@@ -84,7 +84,9 @@ export function pantryCoverage(recipe, available = []) {
 
 export function recipeCategories(recipe) {
   const text = [recipe.title, ...(recipe.tags || []), ...(recipe.ingredients || []).map((item) => item.name || item.raw || item)].join(' ');
-  return DINNER_CATEGORIES.filter(([key, , pattern]) => pattern.test(key === 'pasta' ? text.replace(/томатн\p{L}*\s+паст\p{L}*/giu, '') : text)).map(([key]) => key);
+  const categoryText = (key) => key === 'pasta' ? text.replace(/томатн\p{L}*\s+паст\p{L}*/giu, '')
+    : key === 'meat' ? text.replace(/без\s+мяс\p{L}*/giu, '') : text;
+  return DINNER_CATEGORIES.filter(([key, , pattern]) => pattern.test(categoryText(key))).map(([key]) => key);
 }
 
 export function isDinnerCandidate(recipe) {
