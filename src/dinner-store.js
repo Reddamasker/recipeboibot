@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS dinner_sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   pantry_json TEXT NOT NULL DEFAULT '[]',
+  requested_categories_json TEXT NOT NULL DEFAULT '[]',
   opened_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS dinner_sessions_user ON dinner_sessions(user_id, opened_at DESC);
@@ -44,6 +45,7 @@ CREATE INDEX IF NOT EXISTS dinner_events_user_time ON dinner_events(user_id, cre
 CREATE TABLE IF NOT EXISTS dinner_contexts (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   pantry_json TEXT NOT NULL,
+  requested_categories_json TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS dinner_options (
@@ -71,6 +73,8 @@ ensureColumn('food_profiles', 'household_size', 'INTEGER');
 ensureColumn('food_profiles', 'has_children', 'INTEGER');
 ensureColumn('food_profiles', 'taste_preferences_status', "TEXT NOT NULL DEFAULT 'pending'");
 ensureColumn('dinner_sessions', 'pantry_json', "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('dinner_sessions', 'requested_categories_json', "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('dinner_contexts', 'requested_categories_json', "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn('dinner_sessions', 'buffer_context', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('dinner_sessions', 'buffer_retry_at', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('dinner_sessions', 'viewed_at', 'TEXT');
@@ -101,19 +105,21 @@ export function saveFoodProfile(userId, profile) {
   return getFoodProfile(userId);
 }
 
-export function setDinnerContext(userId, availableIngredients) {
-  db.prepare(`INSERT INTO dinner_contexts(user_id,pantry_json,updated_at) VALUES(?,?,?)
-    ON CONFLICT(user_id) DO UPDATE SET pantry_json=excluded.pantry_json,updated_at=excluded.updated_at`)
-    .run(userId, JSON.stringify(availableIngredients), now());
+export function setDinnerContext(userId, availableIngredients, requestedCategories = []) {
+  db.prepare(`INSERT INTO dinner_contexts(user_id,pantry_json,requested_categories_json,updated_at) VALUES(?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET pantry_json=excluded.pantry_json,requested_categories_json=excluded.requested_categories_json,updated_at=excluded.updated_at`)
+    .run(userId, JSON.stringify(availableIngredients), JSON.stringify(requestedCategories), now());
 }
 
-export function getDinnerContext(userId) {
-  const row = db.prepare('SELECT pantry_json,updated_at FROM dinner_contexts WHERE user_id=?').get(userId);
-  if (!row) return [];
-  if (Date.now() - Date.parse(row.updated_at) < 6 * 60 * 60 * 1000) return parseJson(row.pantry_json, []);
+function activeDinnerContext(userId) {
+  const row = db.prepare('SELECT pantry_json,requested_categories_json,updated_at FROM dinner_contexts WHERE user_id=?').get(userId);
+  if (!row) return null;
+  if (Date.now() - Date.parse(row.updated_at) < 6 * 60 * 60 * 1000) return row;
   clearDinnerContext(userId);
-  return [];
+  return null;
 }
+export function getDinnerContext(userId) { const row = activeDinnerContext(userId); return row ? parseJson(row.pantry_json, []) : []; }
+export function getDinnerRequestCategories(userId) { const row = activeDinnerContext(userId); return row ? parseJson(row.requested_categories_json, []) : []; }
 
 export function clearDinnerContext(userId) { db.prepare('DELETE FROM dinner_contexts WHERE user_id=?').run(userId); }
 
@@ -124,7 +130,8 @@ export function addDinnerEvent(userId, event, { sessionId = null, recommendation
 
 export function openDinnerSession(userId, { prefetchOnly = false } = {}) {
   const id = randomUUID();
-  db.prepare('INSERT INTO dinner_sessions(id,user_id,pantry_json,opened_at) VALUES(?,?,?,?)').run(id, userId, JSON.stringify(getDinnerContext(userId)), now());
+  db.prepare('INSERT INTO dinner_sessions(id,user_id,pantry_json,requested_categories_json,opened_at) VALUES(?,?,?,?,?)')
+    .run(id, userId, JSON.stringify(getDinnerContext(userId)), JSON.stringify(getDinnerRequestCategories(userId)), now());
   if (!prefetchOnly) markDinnerSessionOpened(userId, id);
   return id;
 }

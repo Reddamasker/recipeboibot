@@ -11,8 +11,8 @@ process.env.DINNER_LLM_ENABLED = 'true';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser, listRecipes, allowUser } = await import('../src/db.js');
 const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner } = await import('../src/dinner-service.js');
-const { SEED_RECIPES, hasExcludedIngredient } = await import('../src/dinner.js');
-const { listDinnerOptions, setDinnerOptionImage } = await import('../src/dinner-store.js');
+const { SEED_RECIPES, hasExcludedIngredient, recipeCategories } = await import('../src/dinner.js');
+const { listDinnerOptions, setDinnerContext, setDinnerOptionImage } = await import('../src/dinner-store.js');
 const { validateGeneratedDinner } = await import('../src/dinner-buffer.js');
 const { extractDinnerIntake, generateDinnerRecipes } = await import('../src/openai.js');
 const { createServer } = await import('../src/server.js');
@@ -214,6 +214,33 @@ test('duplicate recipes are filtered and changed hard constraints invalidate the
   assert.ok(listDinnerOptions(user.id, session.sessionId).some((o) => o.state === 'discarded'));
 });
 
+test('a request for today is mandatory for every visible dinner option', async () => {
+  const user = upsertTelegramUser({ id: 607, first_name: 'Запрос на сегодня' });
+  updateDinnerProfile(user.id, { householdSize: 2, onboardingCompleted: true });
+  setDinnerContext(user.id, [], ['asian', 'rice']);
+  const session = startDinner(user.id);
+  let generatedFor;
+  const generate = async (input) => {
+    generatedFor = input.requestedCategories;
+    return { recipes: batch().map((item, index) => ({
+      ...item,
+      recipe: {
+        ...item.recipe,
+        title: `Азиатский рис ${index + 1}`,
+        tags: [...(item.recipe.tags || []), 'азиатское'],
+        ingredients: [...item.recipe.ingredients, { name: 'рис', raw: 'рис', quantity: 100, unit: 'г', comment: null }]
+      }
+    })) };
+  };
+  const dinner = await recommendDinner(user.id, session.sessionId, { generate });
+  assert.deepEqual(generatedFor, ['asian', 'rice']);
+  assert.equal(dinner.recommendations.length, 3);
+  assert.ok(dinner.recommendations.every(({ recipe }) => {
+    const categories = recipeCategories(recipe);
+    return categories.includes('asian') && categories.includes('rice');
+  }));
+});
+
 test('generation abstraction sends constraints and six recipes using strict JSON', async () => {
   const user = fixture(606), original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -221,13 +248,15 @@ test('generation abstraction sends constraints and six recipes using strict JSON
     const body = JSON.parse(init.body); assert.equal(body.model, 'test-model'); assert.equal(body.text.format.strict, true); assert.equal(body.text.format.name, 'dinner_generation');
     const input = JSON.parse(body.input[0].content[0].text); assert.equal(input.count, 6); assert.deepEqual(input.profile.excludedIngredients, ['орехи']);
     assert.deepEqual(input.profile.preferredCategories, { fish: 1, pasta: -1 });
+    assert.deepEqual(input.requestedCategories, ['asian', 'rice']);
+    assert.match(body.instructions, /КАЖДЫЙ рецепт должен одновременно соответствовать всем перечисленным категориям/);
     if (input.pantry.length) assert.match(body.instructions, /Используй названные продукты как основу/);
     else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное из имеющихся продуктов/); }
     return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ recipes: batch() }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 });
   };
   try {
     for (const pantry of [['фарш'], []]) {
-      const result = await generateDinnerRecipes({ userId: user.id, count: 6, profile: { excludedIngredients: ['орехи'], preferredCategories: { fish: 1, pasta: -1 } }, pantry, signals: {}, recentRecipes: [], rejectedTitles: [] });
+      const result = await generateDinnerRecipes({ userId: user.id, count: 6, profile: { excludedIngredients: ['орехи'], preferredCategories: { fish: 1, pasta: -1 } }, pantry, requestedCategories: ['asian', 'rice'], signals: {}, recentRecipes: [], rejectedTitles: [] });
       assert.equal(result.recipes.length, 6);
     }
   }
@@ -241,16 +270,21 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.equal(body.text.format.name, 'dinner_intake');
     assert.ok(body.text.format.schema.required.includes('likedCategories'));
     assert.ok(body.text.format.schema.required.includes('dislikedCategories'));
+    assert.ok(body.text.format.schema.required.includes('requestedCategories'));
+    assert.ok(body.text.format.schema.required.includes('replaceRequestedCategories'));
     assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);
     return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({
       availableIngredients: [], excludedIngredients: ['орехи'], removedIngredients: [], replaceIngredients: false,
-      householdSize: 3, hasChildren: true, maxMinutes: 30, likedCategories: ['pasta','chicken'], dislikedCategories: ['fish']
+      householdSize: 3, hasChildren: true, maxMinutes: 30, likedCategories: ['pasta','rice','chicken'], dislikedCategories: ['fish'],
+      requestedCategories: ['asian','rice'], replaceRequestedCategories: true
     }), usage: { input_tokens: 20, output_tokens: 30 } }), { status: 200 });
   };
   try {
-    const result = await extractDinnerIntake({ userId: user.id, transcript: 'Люблю пасту и курицу, не люблю рыбу. Аллергия на орехи.' });
-    assert.deepEqual(result.likedCategories, ['pasta','chicken']);
+    const result = await extractDinnerIntake({ userId: user.id, transcript: 'Люблю пасту, рис и курицу, не люблю рыбу. Сегодня хочу азиатское с рисом. Аллергия на орехи.' });
+    assert.deepEqual(result.likedCategories, ['pasta','rice','chicken']);
     assert.deepEqual(result.dislikedCategories, ['fish']);
+    assert.deepEqual(result.requestedCategories, ['asian','rice']);
+    assert.equal(result.replaceRequestedCategories, true);
     assert.deepEqual(result.excludedIngredients, ['орехи']);
   } finally { globalThis.fetch = original; }
 });

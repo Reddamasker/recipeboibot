@@ -99,11 +99,29 @@ test('dinner trio gives a saved, quick and different option', () => {
 
 test('voice intake separates pantry, people, children, food exclusions, time and tastes', () => {
   const parsed = parseDinnerIntakeFallback('Есть курица, рис, лук и морковь. На троих, с ребёнком, без грибов, до 30 минут. Люблю пасту и курицу. Не люблю рыбу и супы.');
-  assert.deepEqual(parsed, { availableIngredients: ['курица', 'рис', 'лук', 'морковь'], excludedIngredients: ['грибов'], householdSize: 3, householdType: 'family', hasChildren: true, maxMinutes: 30, preferredCategories: { pasta: 1, chicken: 1, fish: -1, soup: -1 } });
+  assert.deepEqual(parsed, { availableIngredients: ['курица', 'рис', 'лук', 'морковь'], excludedIngredients: ['грибов'], householdSize: 3, householdType: 'family', hasChildren: true, maxMinutes: 30, preferredCategories: { pasta: 1, chicken: 1, fish: -1, soup: -1 }, requestedCategories: [] });
   const noKids = parseDinnerIntakeFallback('Есть яйца, помидоры. На двоих, без детей.');
   assert.equal(noKids.hasChildren, false);
   assert.deepEqual(noKids.excludedIngredients, []);
   assert.deepEqual(normalizeDinnerIntake({ availableIngredients: [' рис ', 'рис', 'грибы'], excludedIngredients: ['грибы'] }).availableIngredients, ['рис']);
+});
+
+test('rice is a saved taste while a wish for today is an imperative request', () => {
+  const tastes = parseDinnerIntakeFallback('Люблю пасту и рис.');
+  assert.deepEqual(tastes.preferredCategories, { pasta: 1, rice: 1 });
+  assert.deepEqual(tastes.requestedCategories, []);
+
+  const today = parseDinnerIntakeFallback('Сегодня хочу азиатское с рисом.');
+  assert.deepEqual(new Set(today.requestedCategories), new Set(['asian', 'rice']));
+  assert.deepEqual(today.preferredCategories, {});
+  assert.deepEqual(today.availableIngredients, []);
+  assert.equal(today.replaceRequestedCategories, true);
+
+  const exact = rankCandidates(SEED_RECIPES, { requestedCategories: today.requestedCategories });
+  assert.ok(exact.length >= 1);
+  assert.ok(exact.every((candidate) => candidate.categories.includes('asian') && candidate.categories.includes('rice')));
+  assert.ok(!exact.some((candidate) => candidate.recipe.id === 'seed:keema-potato'));
+  assert.deepEqual(recipeCategories({ title: 'Салат с рисовым уксусом', ingredients: [{ name: 'рисовый уксус' }] }), ['salad']);
 });
 
 test('confirmed pantry changes candidate filtering, ranking and the dinner session', async () => {

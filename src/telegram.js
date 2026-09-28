@@ -7,7 +7,7 @@ import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
-import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
+import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, getBillingOffer, recordBillingExposure } from './billing.js';
@@ -49,7 +49,7 @@ function canUsePaidImport(userId) {
 }
 function currentDinnerIntake(userId) {
   const profile = getFoodProfile(userId);
-  return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId) });
+  return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId) });
 }
 function prepareDinner(userId) {
   try { const session = startDinner(userId, { prefetchOnly: true }); if (!session.needsOnboarding) prefetchDinner(userId, session.sessionId); }
@@ -78,10 +78,10 @@ async function sendDinnerIntakePrompt(chatId, userId, { profileOnly = false } = 
   setPendingIntent(userId, { kind: 'dinner-intake', intake, profileOnly });
   addDinnerEvent(userId, 'onboarding_started');
   if (profileOnly) {
-    await send(chatId, '<b>Давай подберём ужин специально для тебя.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд расскажите, на сколько человек готовим, есть ли дети, аллергия, сколько времени есть, а ещё какие блюда вы любите и не любите. Продукты можно назвать, если хотите.\n\nНапример: «На троих, с ребёнком, аллергия на орехи, до 30 минут. Любим пасту и курицу, не любим рыбу».\n\nМожно ответить и текстом.');
+    await send(chatId, '<b>Давай подберём ужин специально для тебя.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд расскажите, на сколько человек готовим, есть ли дети, аллергия, сколько времени есть, какие блюда вы обычно любите и что хотите именно сегодня. Продукты дома можно назвать, если хотите.\n\nНапример: «На троих, с ребёнком, аллергия на орехи, до 30 минут. Любим пасту, не любим рыбу. Сегодня хотим азиатское с рисом».\n\nМожно ответить и текстом.');
     return;
   }
-  await send(chatId, '<b>Подберём ужин из того, что есть дома.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд назовите продукты. Добавьте, на сколько человек готовите, есть ли дети, есть ли аллергия, сколько времени есть и какие блюда вы любите или не любите. Можно написать это текстом.\n\nНапример: «Есть курица, рис, лук и морковь. На троих, с ребёнком, аллергия на орехи, до 30 минут. Любим супы, не любим рыбу».\n\nМожно дополнять по частям — я запомню сказанное раньше.');
+  await send(chatId, '<b>Подберём ужин из того, что есть дома.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд назовите продукты. Добавьте, на сколько человек готовите, есть ли дети, аллергия, сколько времени есть, какие блюда обычно любите и что хотите именно сегодня.\n\nНапример: «Есть курица, рис, лук и морковь. На троих, с ребёнком, аллергия на орехи, до 30 минут. Сегодня хотим азиатское с рисом».\n\nМожно дополнять по частям — я запомню сказанное раньше.');
 }
 
 // Telegram may deliver both an unblock event and /start for the same tap.
@@ -114,6 +114,7 @@ async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = f
   const categoryNames = Object.fromEntries(DINNER_CATEGORIES.map(([key, label]) => [key, label.toLocaleLowerCase('ru')]));
   const liked = Object.entries(intake.preferredCategories || {}).filter(([, value]) => value > 0).map(([key]) => categoryNames[key]).filter(Boolean);
   const disliked = Object.entries(intake.preferredCategories || {}).filter(([, value]) => value < 0).map(([key]) => categoryNames[key]).filter(Boolean);
+  const requested = (intake.requestedCategories || []).map((key) => categoryNames[key]).filter(Boolean);
   const lines = [
     '<b>Проверьте, правильно ли я понял</b>',
     ...(intake.availableIngredients.length ? [`Есть дома: ${escapeHtml(intake.availableIngredients.join(', '))}`] : []),
@@ -121,6 +122,7 @@ async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = f
     `Дети: ${intake.hasChildren === null ? 'не указано' : intake.hasChildren ? 'да' : 'нет'}`,
     `Аллергия и исключения: ${intake.excludedIngredients.length ? escapeHtml(intake.excludedIngredients.join(', ')) : 'не указаны'}`,
     `Время: ${intake.maxMinutes ? `до ${intake.maxMinutes} минут` : 'не указано'}`,
+    `Сегодня обязательно: ${requested.length ? escapeHtml(requested.join(', ')) : 'не указано'}`,
     `Любим: ${liked.length ? escapeHtml(liked.join(', ')) : 'не указано'}`,
     `Не любим: ${disliked.length ? escapeHtml(disliked.join(', ')) : 'не указано'}`
   ];
@@ -193,6 +195,7 @@ export async function handleDinnerIntakeCallback(callback) {
     const intake = pending.intake;
     const current = getFoodProfile(user.id), hasTasteAnswers = Object.keys(intake.preferredCategories || {}).length > 0;
     updateDinnerProfile(user.id, { householdType: intake.householdType, householdSize: intake.householdSize, hasChildren: intake.hasChildren, preferredMaxCookingTime: intake.maxMinutes, excludedIngredients: intake.excludedIngredients, preferredCategories: { ...current.preferredCategories, ...(intake.preferredCategories || {}) }, tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus, onboardingCompleted: true });
+    setDinnerContext(user.id, [], intake.requestedCategories || []);
   } else confirmDinnerIntake(user.id, pending.intake);
   prepareDinner(user.id);
   clearPendingIntent(user.id);
@@ -514,7 +517,7 @@ export async function handleMessage(message) {
       return;
     }
   }
-  const isDinnerFollowup = /^(?:кстати\b|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$)/iu.test(content.text.trim());
+  const isDinnerFollowup = /^(?:кстати\b|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$|(?:сегодня|на\s+сегодня|на\s+ужин)\b|хоч(?:у|ем|ется)\b|давай(?:те)?\s+приготов)/iu.test(content.text.trim());
   if (!savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
     await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: !getDinnerContext(user.id).length });
     return;

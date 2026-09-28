@@ -6,11 +6,11 @@ import { generateRecipeImage } from './recipe-images.js';
 import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 3, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 4, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const fills = new Map(), imageTasks = new Map();
 let activeImages = 0;
 const imageQueue = [];
-export const dinnerContextKey = ({ profile, pantry }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry })).digest('hex');
+export const dinnerContextKey = ({ profile, pantry, requestedCategories = [] }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories })).digest('hex');
 const titleKey = (recipe) => String(recipe.title || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 export function duplicateDinner(recipe, existing) {
   const title = titleKey(recipe), words = new Set(title.split(' ').filter((w) => w.length > 3));
@@ -135,7 +135,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
     try {
       const prior = listDinnerOptions(userId, sessionId);
       const result = await generate({ userId, count, profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
-        recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20), rejectedTitles: prior.map((o) => o.recipe.title) });
+        requestedCategories: context.requestedCategories, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20), rejectedTitles: prior.map((o) => o.recipe.title) });
       if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
       let added = 0;

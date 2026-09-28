@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
-import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, getDinnerContext, getDinnerHistory, getDinnerRecommendation, getDinnerSession, getFoodProfile, markDinnerCooked, openDinnerSession, rejectDinnerRecommendations, rejectedInSession, retryCountInSession, saveFoodProfile, setDinnerContext } from './dinner-store.js';
+import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, getDinnerContext, getDinnerHistory, getDinnerRecommendation, getDinnerRequestCategories, getDinnerSession, getFoodProfile, markDinnerCooked, openDinnerSession, rejectDinnerRecommendations, rejectedInSession, retryCountInSession, saveFoodProfile, setDinnerContext } from './dinner-store.js';
 import { normalizeDinnerIntake } from './dinner-intake.js';
 
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
@@ -48,24 +48,25 @@ export function confirmDinnerIntake(userId, input) {
     tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus,
     onboardingCompleted: true
   });
-  setDinnerContext(userId, intake.availableIngredients);
-  addDinnerEvent(userId, 'dinner_intake_confirmed', { detail: { pantryCount: intake.availableIngredients.length, householdSize: intake.householdSize, hasChildren: intake.hasChildren } });
-  return { profile, pantry: getDinnerContext(userId) };
+  setDinnerContext(userId, intake.availableIngredients, intake.requestedCategories);
+  addDinnerEvent(userId, 'dinner_intake_confirmed', { detail: { pantryCount: intake.availableIngredients.length, requestedCategories: intake.requestedCategories, householdSize: intake.householdSize, hasChildren: intake.hasChildren } });
+  return { profile, pantry: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId) };
 }
 
 export function startDinner(userId, { prefetchOnly = false } = {}) {
   const profile = getFoodProfile(userId);
-  const sessionId = findReusableDinnerSession(userId, dinnerContextKey({ profile, pantry: getDinnerContext(userId) })) || openDinnerSession(userId, { prefetchOnly });
+  const pantry = getDinnerContext(userId), requestedCategories = getDinnerRequestCategories(userId);
+  const sessionId = findReusableDinnerSession(userId, dinnerContextKey({ profile, pantry, requestedCategories })) || openDinnerSession(userId, { prefetchOnly });
   if (!prefetchOnly) markDinnerSessionOpened(userId, sessionId);
   const needsOnboarding = !profile.onboardingCompleted && listRecipes(userId).filter((recipe) => recipe.status === 'ready').length < 3;
-  return { sessionId, profile, pantry: getDinnerContext(userId), needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
+  return { sessionId, profile, pantry, requestedCategories, needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
 }
 
 export function resumeDinner(userId, sessionId) {
   if (!getDinnerSession(userId, sessionId)) throw notFound();
   markDinnerSessionOpened(userId, sessionId);
   const profile = getFoodProfile(userId);
-  return { sessionId, profile, pantry: getDinnerContext(userId), needsOnboarding: false, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
+  return { sessionId, profile, pantry: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), needsOnboarding: false, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
 }
 
 export function startDinnerOnboarding(userId, sessionId) {
@@ -106,7 +107,7 @@ function recommendationPitch({ candidate, role }, choices) {
     const otherCategories = new Set(choices.filter((choice) => choice.role !== 'variety').flatMap((choice) => choice.candidate.categories));
     const differentCategory = candidate.categories.find((key) => !otherCategories.has(key));
     const categoryName = DINNER_CATEGORIES.find(([key]) => key === differentCategory)?.[1];
-    const categoryCopy = { pasta: 'Паста для разнообразия', asian: 'Азиатское для разнообразия', chicken: 'Курица для разнообразия', meat: 'Мясное для разнообразия', fish: 'Рыба для разнообразия', soup: 'Суп для разнообразия', salad: 'Салат для разнообразия', home: 'Домашнее для разнообразия' };
+    const categoryCopy = { pasta: 'Паста для разнообразия', rice: 'Блюдо с рисом для разнообразия', asian: 'Азиатское для разнообразия', chicken: 'Курица для разнообразия', meat: 'Мясное для разнообразия', fish: 'Рыба для разнообразия', soup: 'Суп для разнообразия', salad: 'Салат для разнообразия', home: 'Домашнее для разнообразия' };
     const steps = (candidate.recipe.steps || []).map((step) => step.text || step).join(' ');
     if (!differentCategory && /обжар|сковород/iu.test(steps)) return { label: 'Другой способ', reason: 'Можно приготовить на сковороде' };
     if (!differentCategory && /запек|духовк/iu.test(steps)) return { label: 'Другой способ', reason: 'Можно запечь в духовке' };
@@ -119,7 +120,8 @@ export function dinnerContext(userId, sessionId) {
   const session = getDinnerSession(userId, sessionId);
   if (!session) throw notFound();
   const pantry = JSON.parse(session.pantry_json || '[]');
-  if (JSON.stringify(pantry) !== JSON.stringify(getDinnerContext(userId))) throw Object.assign(new Error('Продукты обновились. Открой подбор ужина заново.'), { status: 409 });
+  const requestedCategories = JSON.parse(session.requested_categories_json || '[]');
+  if (JSON.stringify(pantry) !== JSON.stringify(getDinnerContext(userId)) || JSON.stringify(requestedCategories) !== JSON.stringify(getDinnerRequestCategories(userId))) throw Object.assign(new Error('Пожелания к ужину обновились. Открой подбор заново.'), { status: 409 });
   const profile = getFoodProfile(userId);
   const library = listRecipes(userId).filter((recipe) => recipe.status === 'ready').map((recipe) => ({ ...recipe, userSaved: true }));
   const saved = library.filter(isDinnerCandidate), history = getDinnerHistory(userId);
@@ -129,7 +131,7 @@ export function dinnerContext(userId, sessionId) {
   const recentRecipes = history.filter((event) => ['recipe_cooked','recommendation_accepted'].includes(event.event) && Date.now() - Date.parse(event.createdAt) < 7 * 86400000)
     .slice(0, 20).map((event) => recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean);
   return { profile: sessionMax ? { ...profile, preferredMaxCookingTime: Math.min(profile.preferredMaxCookingTime || Infinity, sessionMax) } : profile,
-    pantry, library, saved, history, recentRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
+    pantry, requestedCategories, library, saved, history, recentRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
 }
 
 function bufferResponse(userId, sessionId, buffer) {
@@ -152,12 +154,16 @@ function bufferResponse(userId, sessionId, buffer) {
 }
 
 export async function recommendDinner(userId, sessionId, options) {
-  const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), options);
+  const context = dinnerContext(userId, sessionId);
+  const effectiveOptions = context.requestedCategories.length ? { ...options, catalogFirst: false } : options;
+  const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
   return bufferResponse(userId, sessionId, buffer);
 }
 
 export function prefetchDinner(userId, sessionId, options) {
-  return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), options));
+  const context = dinnerContext(userId, sessionId);
+  const effectiveOptions = context.requestedCategories.length ? { ...options, catalogFirst: false } : options;
+  return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions));
 }
 
 export async function nextDinner(userId, ids, options) {

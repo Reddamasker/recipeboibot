@@ -9,7 +9,8 @@ export const DINNER_LIMITS = Object.freeze({ maxShoppingIngredients: 5 });
 
 export const DINNER_CATEGORIES = Object.freeze([
   ['pasta', 'Паста', /паст|макарон|спагетт|лапш/iu],
-  ['asian', 'Азиатское', /азиат|терияки|вок|карри|соев|рисов|фунчоз/iu],
+  ['rice', 'Рис', /рис/iu],
+  ['asian', 'Азиатское', /азиат|терияки|вок|карри|соев|фунчоз|япон|китай|коре|тайск/iu],
   ['chicken', 'Курица', /куриц|курин|бедр|филе птиц/iu],
   ['meat', 'Мясо', /говяд|говяж|свинин|мяс|фарш|индейк/iu],
   ['fish', 'Рыба', /рыб|лосос|треск|тунц|форел|минта|хек|скумбр|сельд/iu],
@@ -85,7 +86,8 @@ export function pantryCoverage(recipe, available = []) {
 export function recipeCategories(recipe) {
   const text = [recipe.title, ...(recipe.tags || []), ...(recipe.ingredients || []).map((item) => item.name || item.raw || item)].join(' ');
   const categoryText = (key) => key === 'pasta' ? text.replace(/томатн\p{L}*\s+паст\p{L}*/giu, '')
-    : key === 'meat' ? text.replace(/без\s+мяс\p{L}*/giu, '') : text;
+    : key === 'rice' ? text.replace(/рисов\p{L}*\s+(?:уксус|бумаг|лапш|мук)\p{L}*/giu, '')
+      : key === 'meat' ? text.replace(/без\s+мяс\p{L}*/giu, '') : text;
   return DINNER_CATEGORIES.filter(([key, , pattern]) => pattern.test(categoryText(key))).map(([key]) => key);
 }
 
@@ -112,11 +114,12 @@ export const totalMinutes = (recipe) => {
   return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
 };
 
-export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], now = Date.now() } = {}) {
+export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], now = Date.now() } = {}) {
   if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, profile.excludedIngredients || [])) return null;
   const minutes = totalMinutes(recipe);
   if (profile.preferredMaxCookingTime && minutes !== null && minutes > profile.preferredMaxCookingTime) return null;
   const categories = recipeCategories(recipe);
+  if (requestedCategories.some((key) => !categories.includes(key))) return null;
   let score = recipe.userSaved ? DINNER_WEIGHTS.saved : 0;
   const pantryMatch = pantryCoverage(recipe, pantry);
   if (pantryMatch) {

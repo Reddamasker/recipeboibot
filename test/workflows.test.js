@@ -466,7 +466,7 @@ test('first Start restores chat introduction without requiring ingredients; skip
     assert.equal(sent.length, 2);
     assert.match(sent[0].text, /<b>Запишите голосовое сообщение<\/b>/);
     assert.match(sent[0].text, /микрофон справа от поля ввода/);
-    assert.match(sent[0].text, /какие блюда вы любите и не любите/);
+    assert.match(sent[0].text, /какие блюда вы обычно любите и что хотите именно сегодня/);
     assert.equal(sent[0].reply_markup, undefined);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
     assert.match(sent[1].text, /Давай подберём ужин специально для тебя/);
@@ -547,7 +547,7 @@ test('first profile voice message goes to confirmation without asking for produc
   globalThis.fetch = async (url, options) => {
     const address = String(url);
     if (address.includes('/file/bot')) return new Response(Buffer.from('voice'));
-    if (address.includes('/v1/audio/transcriptions')) return Response.json({ text: 'На двоих, без детей, аллергия на орехи, до 30 минут.' });
+    if (address.includes('/v1/audio/transcriptions')) return Response.json({ text: 'На двоих, без детей, аллергия на орехи, до 30 минут. Люблю пасту и рис. Сегодня хочу азиатское с рисом.' });
     if (address.endsWith('/getFile')) return { json: async () => ({ ok: true, result: { file_path: 'voice.ogg', file_size: 5 } }) };
     sent.push(JSON.parse(options.body));
     return { json: async () => ({ ok: true, result: {} }) };
@@ -562,8 +562,17 @@ test('first profile voice message goes to confirmation without asking for produc
     assert.equal(pending.intake.householdSize, 2);
     assert.equal(pending.intake.hasChildren, false);
     assert.deepEqual(pending.intake.excludedIngredients, ['орехи']);
+    assert.deepEqual(pending.intake.preferredCategories, { pasta: 1, rice: 1 });
+    assert.deepEqual(new Set(pending.intake.requestedCategories), new Set(['asian', 'rice']));
     assert.match(sent.at(-1).text, /Проверьте/);
+    assert.match(sent.at(-1).text, /Сегодня обязательно: рис, азиатское/);
     assert.doesNotMatch(sent.at(-1).text, /назовите продукты/);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-profile-voice', data: 'dinner:confirm', message: { chat, message_id: 492 }, from });
+    const user = database.getUserByTelegramId(from.id);
+    const { getDinnerContext, getDinnerRequestCategories, getFoodProfile } = await import('../src/dinner-store.js');
+    assert.deepEqual(getDinnerContext(user.id), []);
+    assert.deepEqual(new Set(getDinnerRequestCategories(user.id)), new Set(['asian', 'rice']));
+    assert.deepEqual(getFoodProfile(user.id).preferredCategories, { pasta: 1, rice: 1 });
   } finally { globalThis.fetch = originalFetch; }
 });
 

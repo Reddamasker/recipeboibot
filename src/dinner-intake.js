@@ -6,6 +6,7 @@ const uniqueItems = (items) => [...new Set((Array.isArray(items) ? items : []).m
 
 const TASTE_CATEGORIES = Object.freeze([
   ['pasta', /паст|макарон|спагетт|лапш|итал/iu],
+  ['rice', /рис/iu],
   ['asian', /азиат|китай|япон|коре|тайск|вок|карри|суш|ролл/iu],
   ['chicken', /куриц|курин|бедр|филе птиц/iu],
   ['meat', /мяс|говяд|свинин|фарш|индейк/iu],
@@ -39,7 +40,8 @@ export function mergeDinnerIntake(previous = {}, patch = {}) {
     hasChildren: next.hasChildren ?? before.hasChildren,
     maxMinutes: next.maxMinutes ?? before.maxMinutes,
     householdType: next.householdType ?? before.householdType,
-    preferredCategories: { ...before.preferredCategories, ...next.preferredCategories }
+    preferredCategories: { ...before.preferredCategories, ...next.preferredCategories },
+    requestedCategories: [...(patch.replaceRequestedCategories === true ? [] : before.requestedCategories), ...next.requestedCategories]
   });
 }
 
@@ -53,7 +55,8 @@ export function normalizeDinnerIntake(raw = {}) {
   const maxMinutes = Number.isInteger(minutes) && minutes >= 10 && minutes <= 120 ? minutes : null;
   const hasChildren = typeof raw.hasChildren === 'boolean' ? raw.hasChildren : null;
   const householdType = hasChildren ? 'family' : householdSize === 1 ? 'self' : householdSize === 2 ? 'couple' : householdSize >= 3 ? 'family' : ['self', 'couple', 'family'].includes(raw.householdType) ? raw.householdType : null;
-  return { availableIngredients, excludedIngredients, householdSize, householdType, hasChildren, maxMinutes, preferredCategories: normalizedPreferences(raw) };
+  const requestedCategories = [...new Set((Array.isArray(raw.requestedCategories) ? raw.requestedCategories : []).filter((key) => TASTE_KEYS.has(key)))];
+  return { availableIngredients, excludedIngredients, householdSize, householdType, hasChildren, maxMinutes, preferredCategories: normalizedPreferences(raw), requestedCategories };
 }
 
 const sizeWords = { одного: 1, двоих: 2, троих: 3, трое: 3, трех: 3, четырех: 4, четверых: 4, пятерых: 5, шестерых: 6 };
@@ -61,7 +64,7 @@ const sizeWords = { одного: 1, двоих: 2, троих: 3, трое: 3, 
 export function parseDinnerIntakeFallback(text) {
   const source = String(text || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').slice(0, 3000);
   const parts = source.split(/[,.!?;\n]+/u).map((part) => part.trim()).filter(Boolean);
-  const availableIngredients = [], excludedIngredients = [], removedIngredients = [], preferredCategories = {};
+  const availableIngredients = [], excludedIngredients = [], removedIngredients = [], preferredCategories = {}, requestedCategories = [];
   let householdSize = null, hasChildren = null, maxMinutes = null, family = false, excluding = false;
   for (const part of parts) {
     if (/^(?:кстати|нет|да|забыл(?:а)?(?:\s+сказать)?|добавлю|уточнение)$/u.test(part)) continue;
@@ -69,10 +72,15 @@ export function parseDinnerIntakeFallback(text) {
     if (removal) { removedIngredients.push(...removal[1].split(/\s+и\s+/u)); continue; }
     if (/^(?:аллерги[ияй]\s+нет|нет\s+аллерги[ий]|без\s+аллерги[ий])$/u.test(part)) { excluding = false; continue; }
     const taste = /(?:не\s+люб(?:лю|им|ит|ят)|не\s+нрав|ненавиж|не\s+хочу|не\s+предпочита)/u.test(part) ? -1
-      : /(?:люб(?:лю|им|ит|ят)|нрав|обож|предпочита|хочу\s+есть)/u.test(part) ? 1 : 0;
+      : /(?:люб(?:лю|им|ит|ят)|нрав|обож|предпочита)/u.test(part) ? 1 : 0;
     if (taste) {
       for (const [key, pattern] of TASTE_CATEGORIES) if (pattern.test(part)) preferredCategories[key] = taste;
       if (Object.keys(preferredCategories).length) { excluding = false; continue; }
+    }
+    const todayRequest = /(?:сегодня|на\s+сегодня|на\s+ужин|хоч(?:у|ем|ется)|приготов(?:ить|им)|давай(?:те)?)/u.test(part);
+    if (todayRequest) {
+      for (const [key, pattern] of TASTE_CATEGORIES) if (pattern.test(part)) requestedCategories.push(key);
+      if (requestedCategories.length) { excluding = false; continue; }
     }
     const sizeMatch = part.match(/(?:на|для|нас)\s+(\d{1,2}|одного|двоих|троих|трое|трех|четырех|четверых|пятерых|шестерых)(?:\s+(?:человек|людей|персон|порции?))?/u);
     if (sizeMatch) householdSize = Number(sizeMatch[1]) || sizeWords[sizeMatch[1]] || householdSize;
@@ -92,9 +100,10 @@ export function parseDinnerIntakeFallback(text) {
     const cleaned = part.replace(/^(?:(?:а\s+)?еще\s+|добавь\s+|добавить\s+)?(?:у\s+меня\s+есть\s+|есть\s+|в\s+холодильнике\s+|дома\s+|из\s+продуктов\s+|остались?\s+|имеются?\s+|теперь\s+только\s+|только\s+)?/u, '');
     availableIngredients.push(...cleaned.split(/\s+и\s+/u));
   }
-  const parsed = normalizeDinnerIntake({ availableIngredients, excludedIngredients, householdSize, hasChildren, maxMinutes, preferredCategories });
+  const parsed = normalizeDinnerIntake({ availableIngredients, excludedIngredients, householdSize, hasChildren, maxMinutes, preferredCategories, requestedCategories });
   if (family && !parsed.householdType) parsed.householdType = 'family';
   if (removedIngredients.length) parsed.removedIngredients = uniqueItems(removedIngredients);
   if (/теперь\s+(?:есть\s+)?только|замени\s+(?:весь\s+)?список/u.test(source)) parsed.replaceIngredients = true;
+  if (requestedCategories.length && /(?:сегодня|на\s+сегодня|на\s+ужин|хоч(?:у|ем|ется)|приготов(?:ить|им)|давай(?:те)?)/u.test(source)) parsed.replaceRequestedCategories = true;
   return parsed;
 }
