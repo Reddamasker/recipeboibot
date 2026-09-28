@@ -67,8 +67,8 @@ test('landing exposes the public offer and entrepreneur details', () => {
   assert.doesNotMatch(offer, /Telegram Stars/i);
   assert.match(offer, /href="\/tariffs\.html"/);
   assert.match(tariffs, /Полный доступ на 1 месяц/);
-  assert.match(tariffs, /129 <span>рублей<\/span>/);
   assert.match(tariffs, /199 <span>рублей<\/span>/);
-  assert.match(tariffs, /Оба варианта включают одинаковый состав услуг/);
+  assert.match(tariffs, /Индивидуальная скидка, если она предоставляется/);
+  assert.doesNotMatch(tariffs, /129/);
   assert.doesNotMatch(tariffs, /Telegram Stars/i);
 });
