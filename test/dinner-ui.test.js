@@ -30,6 +30,7 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   const root = { innerHTML: '' };
   const routes = [], requests = [], opened = []; let rendered; let response = { kind: 'existing', recipe: { id: 'seed:chicken-rice' } };
   const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', offerBanner: () => '', card: () => '', bindCommon() {}, importSheet() {},
+    notificationEntry: () => '',
     document: { querySelector: (key) => elements[key], querySelectorAll: () => [example] }, setRoute: (value) => routes.push(value), beginDinner() {}, render() {}, loadAndRender() {},
     api: async (path, options) => { requests.push([path, options.method, JSON.parse(options.body).query]); return response; },
     openRecipe: async (id) => opened.push(id), location: { search: '' }, URLSearchParams, recipeDetail: (recipe, options) => { rendered = [recipe, options]; }, toast: assert.fail };
@@ -41,6 +42,7 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   assert.match(root.innerHTML, /Надиктовать пожелание/);
   assert.match(root.innerHTML, /Можно коротко/);
   assert.match(root.innerHTML, /Сначала поищу готовый рецепт/);
+  assert.doesNotMatch(root.innerHTML, /Напоминания об ужине/);
   elements['#choose'].onclick();
   assert.equal(routes.at(-1).view, 'dinner');
   elements['#home-search-input'].value = 'курица с рисом';
@@ -54,6 +56,17 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
   assert.equal(rendered[0].title, 'Новое блюдо');
   assert.equal(rendered[1].suggestion.id, 'proposal');
+});
+
+test('top reminder entries stay hidden until access is active', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function notificationEntry()'), source.indexOf('\nfunction offerBanner'));
+  const sandbox = { state: { payment: { active: false } } };
+  vm.runInNewContext(handler, sandbox);
+  assert.equal(sandbox.notificationEntry(), '');
+  sandbox.state.payment.active = true;
+  assert.match(sandbox.notificationEntry(), /Напоминания об ужине/);
+  assert.equal((source.match(/\$\{notificationEntry\(\)\}/g) || []).length, 2);
 });
 
 test('dinner cards are single recipe links without numbers or competing actions', () => {
@@ -85,7 +98,7 @@ test('first dinner waits until trial success before starting taste onboarding; e
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.22/);
+  assert.match(document, /app\.js\?v=dinner-10\.23/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
