@@ -330,7 +330,7 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
     try {
       const result = await resolveRecipeRequest(user.id, normalizedQuery);
       if (result.kind === 'existing') { await sendRecipeCard(chatId, result.recipe); return [result.recipe]; }
-      await sendSuggestion(chatId, result.suggestion);
+      await sendSuggestion(chatId, result.suggestion, { userId: user.id });
     } catch (error) {
       log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
       await send(chatId, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
@@ -349,13 +349,28 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
   return results;
 }
 
-async function sendSuggestion(chatId, suggestion, { groupMode = false } = {}) {
+async function sendSuggestion(chatId, suggestion, { groupMode = false, userId = null } = {}) {
   const recipe = suggestion.recipe;
   const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
   const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
   const detail = `${recipe.title}\nСоздано в «Рецептах»${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
   const buttons = { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
-  await send(chatId, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
+  const sent = await send(chatId, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
+  if (!groupMode && userId) setPendingIntent(userId, { kind: 'recipe-suggestion', suggestionId: suggestion.id, messageId: sent?.message_id || null });
+}
+
+function clearMatchingSuggestionIntent(userId, suggestionId) {
+  const pending = getPendingIntent(userId);
+  if (pending?.kind === 'recipe-suggestion' && pending.suggestionId === suggestionId) clearPendingIntent(userId);
+}
+
+async function removeSuggestionButtons(chatId, messageId, userId) {
+  if (!messageId) return;
+  try {
+    await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
+  } catch (error) {
+    log('warn', 'telegram_suggestion_buttons_remove_failed', { error: error.message, userId, chatId, messageId });
+  }
 }
 
 export async function handleSuggestionCallback(callback) {
@@ -375,6 +390,7 @@ export async function handleSuggestionCallback(callback) {
     return;
   }
   if (match[2] === 'skip') {
+    clearMatchingSuggestionIntent(userId, match[3]);
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт не добавлен' });
     await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
     if (match[1] === 'offer') await send(chat.id, 'Напишите другой запрос — поищу ещё в коллекции.');
@@ -386,7 +402,7 @@ export async function handleSuggestionCallback(callback) {
     await send(chat.id, 'Составляю рецепт по вашему запросу…');
     try {
       const suggestion = await suggestForEmptySearch(userId, proposal.query);
-      await sendSuggestion(chat.id, suggestion, { groupMode });
+      await sendSuggestion(chat.id, suggestion, { groupMode, userId });
     } catch (error) {
       log('error', 'telegram_suggestion_failed', { error, userId });
       await send(chat.id, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
@@ -395,6 +411,7 @@ export async function handleSuggestionCallback(callback) {
   }
   const savedRecipe = saveRecipeSuggestion(userId, match[3]);
   if (!savedRecipe) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true }); return; }
+  clearMatchingSuggestionIntent(userId, match[3]);
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт добавлен' });
   void ensureRecipeImage(userId, savedRecipe);
   const recipe = savedRecipe;
@@ -431,7 +448,40 @@ function restoreAfterRecipeSave(userId, pending) {
   else clearPendingIntent(userId);
 }
 
+function suggestionTextDecision(text) {
+  const answer = String(text || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru').replace(/[.!?]+$/, '');
+  if (/^(?:да|ага|угу|давай|добавь|добавить|сохрани|сохранить|да,? (?:добавь|добавить|сохрани|сохранить))$/iu.test(answer)) return 'save';
+  if (/^(?:нет|не надо|не нужно|не хочу|не добавляй|не добавлять|не сохраняй|не сохранять|нет,? (?:не надо|не добавляй|не добавлять|не сохраняй|не сохранять)|отмена|отменить|пропусти)$/iu.test(answer)) return 'skip';
+  return null;
+}
+
+async function handleSuggestionTextChoice(message, user, pending) {
+  const decision = suggestionTextDecision(message.text);
+  if (!decision) return false;
+  const suggestion = getRecipeSuggestion(user.id, pending.suggestionId);
+  clearPendingIntent(user.id);
+  await removeSuggestionButtons(message.chat.id, pending.messageId, user.id);
+  if (!suggestion) {
+    await send(message.chat.id, 'Предложение больше недоступно. Напишите, какой рецепт хотите найти.');
+    return true;
+  }
+  if (decision === 'skip') {
+    await send(message.chat.id, 'Рецепт не добавлен.');
+    return true;
+  }
+  const savedRecipe = saveRecipeSuggestion(user.id, pending.suggestionId);
+  if (!savedRecipe) {
+    await send(message.chat.id, 'Предложение больше недоступно. Напишите, какой рецепт хотите найти.');
+    return true;
+  }
+  void ensureRecipeImage(user.id, savedRecipe);
+  await send(message.chat.id, `Сохранено: <b>${escapeHtml(savedRecipe.title)}</b>. Рецепт теперь в вашей коллекции.`, { reply_markup: recipeButton(savedRecipe) });
+  await sendTestOffer(message.chat.id, user.id);
+  return true;
+}
+
 async function handlePendingChoice(message, user, pending) {
+  if (pending.kind === 'recipe-suggestion') return handleSuggestionTextChoice(message, user, pending);
   const answer = String(message.text || '').trim();
   if (/^(?:найти|ищи|поиск|в коллекции)[.!]?$/iu.test(answer)) {
     clearPendingIntent(user.id); await sendSearchResults(message.chat.id, user, pending.text); return true;

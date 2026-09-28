@@ -175,9 +175,32 @@ test('private Telegram request generates only after no ready recipe and waits fo
     assert.match(suggestionMessage.text, /Создано в «Рецептах»/);
     const callbackData = suggestionMessage.reply_markup.inline_keyboard[0][0].callback_data;
     assert.match(callbackData, /^suggest:save:/);
+    assert.deepEqual(database.getPendingIntent(owner.id), { kind: 'recipe-suggestion', suggestionId: callbackData.split(':').at(-1), messageId: 12 });
     await telegramModule.handleSuggestionCallback({ ...callback, data: callbackData });
     assert.equal(database.listRecipes(owner.id).length, 1);
     assert.equal(database.listRecipes(owner.id)[0].sourceName, 'Создано в «Рецептах»');
+    assert.equal(database.getPendingIntent(owner.id), null);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('plain Нет declines the pending suggestion instead of becoming a recipe request', async () => {
+  const telegramUser = { id: 6190, first_name: 'Отказ текстом' };
+  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const proposal = database.createRecipeSuggestion(owner.id, 'request:пирог', normalizedRecipe('Пирог с грушей'));
+  database.setPendingIntent(owner.id, { kind: 'recipe-suggestion', suggestionId: proposal.id, messageId: 41 });
+  const originalFetch = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (url, options) => {
+    assert.doesNotMatch(String(url), /api\.openai\.com/);
+    calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) });
+    return { json: async () => ({ ok: true, result: { message_id: 42 } }) };
+  };
+  try {
+    await telegramModule.handleMessage({ chat: { id: 6190, type: 'private' }, from: telegramUser, text: 'Нет' });
+    assert.equal(database.listRecipes(owner.id).length, 0);
+    assert.equal(database.getPendingIntent(owner.id), null);
+    assert.deepEqual(calls.map((call) => call.method), ['editMessageReplyMarkup', 'sendMessage']);
+    assert.equal(calls[0].body.message_id, 41);
+    assert.equal(calls[1].body.text, 'Рецепт не добавлен.');
   } finally { globalThis.fetch = originalFetch; }
 });
 
