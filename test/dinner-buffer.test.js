@@ -51,13 +51,29 @@ test('fresh client gets catalog recipes with existing images and no provider req
 });
 
 test('all house recipes have a complete recipe and a reusable local JPEG', () => {
-  assert.ok(SEED_RECIPES.length >= 32);
+  assert.ok(SEED_RECIPES.length >= 56);
+  assert.equal(new Set(SEED_RECIPES.map((recipe) => recipe.id)).size, SEED_RECIPES.length);
   for (const recipe of SEED_RECIPES) {
     assert.ok(recipe.ingredients.length >= 2);
     assert.ok(recipe.steps.length >= 4);
+    assert.ok(Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 5);
+    assert.ok(Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 5);
+    assert.ok(recipe.mainIngredients.length >= 1);
     const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
     assert.equal(bytes.readUInt16BE(0), 0xffd8);
   }
+});
+
+test('house catalog covers families, fish, meatless meals, soups and varied discoveries', () => {
+  const text = (recipe) => [recipe.title, ...recipe.tags, ...recipe.ingredients.map((item) => item.name)].join(' ');
+  const meat = /куриц|индейк|говяд|свинин|фарш|рыб|тунц|минта/iu;
+  assert.ok(SEED_RECIPES.filter((recipe) => recipe.servings >= 4).length >= 24);
+  assert.ok(SEED_RECIPES.filter((recipe) => /рыб|тунц|минта/iu.test(text(recipe))).length >= 6);
+  assert.ok(SEED_RECIPES.filter((recipe) => !meat.test(text(recipe))).length >= 14);
+  assert.ok(SEED_RECIPES.filter((recipe) => /суп|борщ|щи\b|рассольник/iu.test(text(recipe))).length >= 8);
+  const discoveries = SEED_RECIPES.filter((recipe) => recipe.discovery);
+  assert.ok(discoveries.length >= 8);
+  assert.ok(discoveries.some((recipe) => !/говяд|говяж/iu.test(text(recipe))));
 });
 
 test('visible trio returns before reserve generation and reserve promotion does not wait for refill', async () => {

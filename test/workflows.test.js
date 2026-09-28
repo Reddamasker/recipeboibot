@@ -79,6 +79,17 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   const fromOneWord = await suggestions.resolveRecipeRequest(owner.id, 'Суп', { generate: assert.fail });
   assert.equal(fromOneWord.kind, 'existing');
   assert.match(fromOneWord.recipe.title, /суп/iu);
+  const light = await suggestions.resolveRecipeRequest(owner.id, 'лёгкий ужин', { generate: assert.fail });
+  assert.equal(light.kind, 'existing');
+  assert.ok(light.recipe.tags.some((tag) => /л[её]гк/iu.test(tag)));
+
+  const familyOwner = database.upsertTelegramUser({ id: 6173, first_name: 'Семья' });
+  dinnerStore.saveFoodProfile(familyOwner.id, { householdType: 'family', householdSize: 4, hasChildren: true,
+    preferredMaxCookingTime: 120, excludedIngredients: [], preferredCategories: {}, onboardingCompleted: true });
+  const borscht = await suggestions.resolveRecipeRequest(familyOwner.id, 'борщ', { generate: assert.fail });
+  assert.equal(borscht.kind, 'existing');
+  assert.equal(borscht.recipe.id, 'seed:borscht-beef');
+  assert.ok(borscht.recipe.servings >= 4);
 
   const recipe = { ...normalizedRecipe('Арбузный суп'), servings: 2, prepMinutes: 10, cookMinutes: 15,
     ingredients: [{ name: 'арбуз', raw: 'арбуз', quantity: 300, unit: 'г', comment: null }] };

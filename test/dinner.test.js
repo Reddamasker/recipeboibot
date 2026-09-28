@@ -186,6 +186,14 @@ test('pantry matches potato synonyms and distinguishes mince from meat cuts and 
   assert.equal(hasExcludedIngredient(SEED_RECIPES.find((r) => r.id === 'seed:keftedes'), ['глютен']), true);
 });
 
+test('expanded catalog treats legumes, mushrooms, cabbage and potato as real pantry bases', () => {
+  for (const pantry of ['нут', 'фасоль', 'грибы', 'капуста', 'картошка']) {
+    const candidates = rankCandidates(SEED_RECIPES, { pantry: [pantry], profile: { preferredMaxCookingTime: 90 } });
+    assert.ok(candidates.length >= 1, pantry);
+    assert.ok(candidates.every((candidate) => candidate.pantryMatch.missingMainIngredients.length === 0), pantry);
+  }
+});
+
 test('editorial discovery survives the shortlist and keeps the third slot even when it is fastest', () => {
   const candidates = Array.from({ length: 12 }, (_, i) => ({ recipe: { id: `ordinary-${i}` }, categories: ['meat'], minutes: 25, score: 20 - i }));
   const discovery = { recipe: { id: 'discovery', discovery: 'Понятное описание блюда' }, categories: ['asian'], minutes: 15, score: -2 };
@@ -226,7 +234,8 @@ test('real mince, potato, rice and pasta intake gives three different trios with
   assert.equal(empty.recommendations.length, 0);
   assert.match(empty.message, /готовый запас закончился/);
   const noBeef = rankCandidates(SEED_RECIPES, { pantry: session.pantry, profile: { excludedIngredients: ['говядина'] } });
-  assert.ok(noBeef.every((c) => !c.recipe.discovery));
+  assert.ok(noBeef.every((c) => !/говяд|говяж/iu.test(c.recipe.ingredients.map((item) => item.name).join(' '))));
+  assert.ok(SEED_RECIPES.some((recipe) => recipe.discovery && !/говяд|говяж/iu.test(recipe.ingredients.map((item) => item.name).join(' '))));
 });
 
 test('cold start, profile, recommendation, retry, reason and cooked decision work through HTTP', async () => {

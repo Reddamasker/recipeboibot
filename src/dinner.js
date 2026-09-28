@@ -12,7 +12,7 @@ export const DINNER_CATEGORIES = Object.freeze([
   ['asian', 'Азиатское', /азиат|терияки|вок|карри|соев|рисов|фунчоз/iu],
   ['chicken', 'Курица', /куриц|курин|бедр|филе птиц/iu],
   ['meat', 'Мясо', /говяд|говяж|свинин|мяс|фарш|индейк/iu],
-  ['fish', 'Рыба', /рыб|лосос|треск|тунц|форел/iu],
+  ['fish', 'Рыба', /рыб|лосос|треск|тунц|форел|минта|хек|скумбр|сельд/iu],
   ['soup', 'Супы', /суп|борщ|похлеб|щи\b/iu],
   ['salad', 'Салаты', /салат/iu],
   ['home', 'Домашняя еда', /запеканк|котлет|картоф|гречк|домашн/iu]
@@ -26,7 +26,7 @@ const aliases = {
   куриц: /куриц|курин|chicken/iu,
   свинин: /свин|pork/iu,
   говяд: /говяд|говяж|телят|beef/iu,
-  рыба: /рыб|лосос|треск|форел|тунц|fish|salmon/iu,
+  рыба: /рыб|лосос|треск|форел|тунц|минта|хек|скумбр|сельд|fish|salmon/iu,
   яйц: /яйц|яиц|egg/iu,
   глютен: /глютен|пшениц|паст|макарон|спагетт|лапш|мук|хлеб|сухар|wheat|gluten|pasta|flour/iu,
   соя: /соев|соя|soy/iu,
@@ -40,9 +40,10 @@ const pantryAliases = [
   ['onion', /лук|луков/iu], ['carrot', /морков/iu], ['potato', /картоф|картош/iu],
   ['egg', /яйц|яиц/iu], ['cheese', /сыр/iu], ['oil', /масл/iu], ['cabbage', /капуст/iu],
   ['pasta', /паст|макарон|спагетт/iu], ['buckwheat', /греч/iu], ['mushroom', /гриб|шампиньон|вешенк/iu],
-  ['fish', /рыб|лосос|треск|форел/iu], ['tuna', /тунц/iu], ['bean', /фасол/iu],
+  ['fish', /рыб|лосос|треск|форел|минта|хек|скумбр|сельд/iu], ['tuna', /тунц/iu], ['bean', /фасол/iu],
   ['cucumber', /огур/iu], ['pepper', /перец|паприк/iu], ['zucchini', /кабач/iu],
-  ['lentil', /чечевиц|чечевич/iu], ['couscous', /кускус/iu], ['turkey', /индейк/iu], ['peas', /горош/iu]
+  ['lentil', /чечевиц|чечевич/iu], ['chickpea', /нут|турецк\p{L}* горох/iu], ['peas', /горох|горош/iu],
+  ['barley', /перлов|ячмен/iu], ['couscous', /кускус/iu], ['turkey', /индейк/iu]
 ];
 export const pantryKey = (value) => {
   const normalized = ingredient(value);
@@ -65,7 +66,7 @@ export function recipeMainIngredients(recipe) {
   if (recipe.mainIngredients?.length) return recipe.mainIngredients;
   const names = (recipe.ingredients || []).map((item) => item.name || item.raw || item);
   // Infer the dish's base from its composition, including generic titles such as cutlets.
-  const groups = [['chicken', 'pork', 'beef', 'mince', 'turkey', 'fish', 'tuna'], ['lentil', 'bean'], ['egg'], ['pasta', 'buckwheat', 'rice', 'couscous', 'potato'], ['zucchini', 'cabbage', 'mushroom']];
+  const groups = [['chicken', 'pork', 'beef', 'mince', 'turkey', 'fish', 'tuna'], ['lentil', 'bean', 'chickpea', 'peas'], ['egg'], ['pasta', 'buckwheat', 'rice', 'barley', 'couscous', 'potato'], ['zucchini', 'cabbage', 'mushroom']];
   for (const keys of groups) { const base = names.filter((name) => keys.includes(pantryKey(name))); if (base.length) return base; }
   return [];
 }

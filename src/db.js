@@ -515,8 +515,8 @@ function sameSearchWord(left, right) {
 
 export function matchRecipes(recipes, query, { allowAll = true } = {}) {
   const quick = /(быстр|скор)/iu.test(query);
-  const light = /(низкокалор|не\s+слишком\s+калор|легк)/iu.test(query);
-  const words = searchTokens(query).filter((word) => word.length > 2 && !/^\d+$/u.test(word) && !searchStopWords.has(word) && !/^(быстр|скор|низкокалор|калор|легк)/u.test(word));
+  const light = /(низкокалор|не\s+слишком\s+калор|л[её]гк)/iu.test(query);
+  const words = searchTokens(query).filter((word) => word.length > 2 && !/^\d+$/u.test(word) && !searchStopWords.has(word) && !/^(быстр|скор|низкокалор|калор|л[её]гк)/u.test(word));
   const maxMinutes = Number.parseInt(String(query).match(/(?:за|до|<|max|maximum|максимум)\s*(\d{1,3})/i)?.[1] || '', 10);
   return recipes.map((recipe) => {
     const fields = [recipe.title, recipe.description, recipe.notes, ...recipe.tags, ...recipe.ingredients.map((x) => x.name || x.raw || x)];
@@ -529,7 +529,7 @@ export function matchRecipes(recipes, query, { allowAll = true } = {}) {
     const totalMinutes = recipe.prepMinutes != null || recipe.cookMinutes != null ? (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0) : null;
     if (quick && totalMinutes !== null && totalMinutes <= 30) score += 2;
     if (maxMinutes && totalMinutes !== null && totalMinutes <= maxMinutes) score += 3;
-    if (light && recipe.tags.some((t) => /(легк|низкокалор)/i.test(t))) score += 3;
+    if (light && recipe.tags.some((t) => /(л[её]гк|низкокалор)/iu.test(t))) score += 3;
     return { recipe, score };
   }).filter((x) => x.score > 0 || (allowAll && words.length === 0 && !quick && !light && !maxMinutes)).sort((a, b) => b.score - a.score).map((x) => x.recipe);
 }
