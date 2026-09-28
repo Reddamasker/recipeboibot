@@ -53,6 +53,11 @@ function jobCard(job) {
 function bindCommon() {
   document.querySelector('[data-home]')?.addEventListener('click', () => { setRoute({}, {}); render(); });
   document.querySelector('#settings')?.addEventListener('click', settingsSheet);
+  document.querySelectorAll('[data-open-notifications]').forEach((el) => el.addEventListener('click', () => {
+    clearTimeout(dinnerPollTimer);
+    setRoute({ view: 'notifications' });
+    void render().catch((error) => toast(error.message));
+  }));
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
   document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
@@ -73,6 +78,7 @@ function home() {
       <h1>Что приготовить <em>сегодня?</em></h1>
       <p>Три идеи для ужина — из твоих рецептов или нашей подборки.</p>
       <button id="choose" class="primary accent" type="button">Предложить три блюда <span aria-hidden="true">→</span></button>
+      <button class="notification-entry" type="button" data-open-notifications><span>Напоминания об ужине</span><span aria-hidden="true">→</span></button>
     </section>
     <section class="home-search" aria-labelledby="home-search-title">
       <h2 id="home-search-title">Найти конкретный рецепт</h2>
@@ -370,7 +376,7 @@ function dinnerView() {
     : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Отличный выбор. Рецепт под рукой, когда будешь готовить.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
     : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
-  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${content}${dinner?.cooked ? offerBanner() : ''}</main>`;
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button><button class="notification-entry" type="button" data-open-notifications><span>Напоминания об ужине</span><span aria-hidden="true">→</span></button>${content}${dinner?.cooked ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));
