@@ -14,10 +14,11 @@ import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
-import { canUseTestImport, createMockOrder, finishMockOrder, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
+import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
+import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -37,6 +38,18 @@ async function bodyJson(request, maxBytes = Math.ceil(config.maxUploadBytes * 4 
   const chunks = []; let size = 0;
   for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw Object.assign(new Error('Запрос слишком большой'), { status: 413 }); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw Object.assign(new Error('Неверный JSON'), { status: 400 }); }
+}
+async function bodyForm(request, maxBytes = 16_000) {
+  const chunks = []; let size = 0;
+  for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw Object.assign(new Error('Запрос слишком большой'), { status: 413 }); chunks.push(chunk); }
+  return Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString('utf8')));
+}
+function htmlResponse(response, status, document, { paymentForm = false } = {}) {
+  securityHeaders(response);
+  if (paymentForm) response.setHeader('content-security-policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action https://auth.robokassa.ru; base-uri 'none'");
+  else response.setHeader('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'");
+  response.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  response.end(document);
 }
 function rateLimit(key, limit = 90, windowMs = 60_000) {
   const current = rate.get(key), now = Date.now();
@@ -79,6 +92,30 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  if (request.method === 'GET' && url.pathname === '/api/billing/offer') {
+    if (config.testContour && !billingAvailable()) return json(response, 200, mockPaymentStatus(user.id));
+    return json(response, 200, getBillingOffer(user.id));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/billing/exposure') {
+    if (config.testContour && !billingAvailable()) return json(response, 200, { recorded: claimMockOffer(user.id) });
+    return json(response, 200, { recorded: recordBillingExposure(user.id) });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/billing/orders') {
+    const input = await bodyJson(request, 1000);
+    if (config.testContour && !billingAvailable()) return json(response, 201, { ...createMockOrder(user.id, input.method || 'card', Boolean(input.autoRenew)), mode: 'mock' });
+    return json(response, 201, { ...createPaymentOrder(user.id, { autoRenew: Boolean(input.autoRenew) }), mode: 'provider' });
+  }
+  const billingOrder = url.pathname.match(/^\/api\/billing\/orders\/([0-9a-f-]{36})$/i);
+  if (request.method === 'GET' && billingOrder) return json(response, 200, getPaymentOrder(user.id, billingOrder[1]));
+  const billingResult = url.pathname.match(/^\/api\/billing\/orders\/([0-9a-f-]{36})\/result$/i);
+  if (request.method === 'POST' && billingResult && config.testContour && !billingAvailable()) {
+    const input = await bodyJson(request, 1000);
+    return json(response, 200, finishMockOrder(user.id, billingResult[1], input.result));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/billing/auto-renew/cancel') {
+    if (config.testContour && !billingAvailable()) return json(response, 200, cancelMockAutoRenew(user.id));
+    return json(response, 200, cancelAutoRenew(user.id));
+  }
   if (url.pathname.startsWith('/api/test/')) {
     if (!config.testContour) return json(response, 404, { error: 'Не найдено' });
     if (request.method === 'GET' && url.pathname === '/api/test/payment') return json(response, 200, mockPaymentStatus(user.id));
@@ -210,7 +247,9 @@ async function api(request, response, url) {
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && url.pathname === '/api/import') {
-    if (!canUseTestImport(user.id)) return json(response, 402, { error: `Для следующего автоматического импорта откройте тестовое предложение за ${mockPaymentStatus(user.id).offer.priceRub} ₽`, offerPath: '/?view=offer' });
+    const billing = config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id);
+    const canImport = config.testContour && !billingAvailable() ? canUseTestImport(user.id) : !billing.available || !billing.hasFirstRecipe || billing.active;
+    if (!canImport) return json(response, 402, { error: `Для следующего автоматического импорта откройте предложение за ${billing.offer.priceRub} ₽`, offerPath: '/?view=offer' });
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
     if (input.kind === 'url') outcome = await importUrl(user.id, String(input.value || ''));
@@ -253,8 +292,20 @@ export function createServer() {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
     try {
-      rateLimit(`ip:${clientIp(request)}`);
+      const robokassaResult = url.pathname === '/api/payments/robokassa/result' && ['GET', 'POST'].includes(request.method);
+      rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (robokassaResult) {
+        const params = request.method === 'POST' ? await bodyForm(request) : Object.fromEntries(url.searchParams);
+        const acknowledgement = processRobokassaResult(params);
+        securityHeaders(response);
+        response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        return response.end(acknowledgement);
+      }
+      const paymentStart = url.pathname.match(/^\/payment\/start\/([0-9a-f-]{36})$/i);
+      if (request.method === 'GET' && paymentStart) return htmlResponse(response, 200, paymentRedirectDocument(paymentStart[1]), { paymentForm: true });
+      if (request.method === 'GET' && url.pathname === '/payment/success') return htmlResponse(response, 200, paymentReturnDocument('success'));
+      if (request.method === 'GET' && url.pathname === '/payment/fail') return htmlResponse(response, 200, paymentReturnDocument('fail'));
       if (request.method === 'GET' && /^\/dinner-images\/[0-9a-f-]{36}$/i.test(url.pathname)) {
         const image = getDinnerOptionImage(url.pathname.split('/').at(-1));
         if (!image) return json(response, 404, { error: 'Изображение недоступно' });

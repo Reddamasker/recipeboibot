@@ -9,10 +9,10 @@
   <meta name="description" content="Перешлите рецепт в Telegram — ссылкой, фото, текстом или голосовым. Сохраните в личную коллекцию, найдите по названию или ингредиенту и готовьте по шагам.">
   <link rel="icon" href="/assets/recipe-bot-avatar-v3.webp" type="image/webp">
   <link rel="stylesheet" href="/styles.css?v=8.12">
-  <link rel="stylesheet" href="/refinements.css?v=dinner-9.4">
+  <link rel="stylesheet" href="/refinements.css?v=dinner-9.5">
   <link rel="stylesheet" href="/landing.css?v=26">
   <script defer src="/vendor/telegram-web-app.js?v=20260714"></script>
-  <script defer src="/app.js?v=dinner-10.21"></script>
+  <script defer src="/app.js?v=dinner-10.22"></script>
   <script defer src="/landing.js?v=entry-8.4"></script>
 </head>
 <body>
@@ -29,7 +29,7 @@
         <h1 id="lp-title">Все <em>те самые</em> <br>рецепты — <br>в одном месте.</h1>
         <p class="lp-lead">Перешлите ссылку, фото, текст или голосовое в Telegram. Получите рецепт с ингредиентами и шагами в личной коллекции.</p>
         <a class="lp-button" href="https://t.me/Recipeboibot?start=save">Сохранить рецепт <span aria-hidden="true">↗</span></a>
-        <p class="lp-caption">Нажмите Start и пришлите рецепт. Тест без оплаты.</p>
+        <p class="lp-caption">Нажмите Start и пришлите первый рецепт без оплаты.</p>
       </div>
       <div class="lp-showcase" id="how-it-works">
         <div class="lp-artifacts" aria-hidden="true">
@@ -66,7 +66,7 @@
       <details><summary>Что делать при ошибке распознавания?<span aria-hidden="true">+</span></summary><p>Карточку можно исправить. Перед готовкой проверьте ингредиенты и шаги, а для рецепта из ссылки — сверьтесь с оригиналом.</p></details>
       <details><summary>Кто видит мою коллекцию?<span aria-hidden="true">+</span></summary><p>Коллекция привязана к вашему Telegram. Если поделитесь рецептом, его увидит любой обладатель ссылки. Остальная коллекция по ней не видна.</p></details>
       <details><summary>Как обрабатываются присланные материалы?<span aria-hidden="true">+</span></summary><p>Присланные материалы передаются OpenAI для распознавания и разбора рецепта. Подробнее об обработке и хранении — <a href="/privacy.html">на странице «Ваши данные»</a>.</p></details>
-      <details><summary>Сколько стоит?<span aria-hidden="true">+</span></summary><p>Сейчас это закрытый тест без оплаты и подписок. <a href="/terms.html">Условия теста</a>.</p></details>
+      <details><summary>Сколько стоит?<span aria-hidden="true">+</span></summary><p>Первый сохранённый рецепт доступен без оплаты. Если для аккаунта открыто платное предложение, точная цена за месяц показывается в приложении до оформления; автопродление включается только отдельно. Пока оформление недоступно, тест остаётся бесплатным. <a href="/offer.html">Условия платного доступа</a>.</p></details>
       <details><summary>В коллекции уже есть рецепты?<span aria-hidden="true">+</span></summary><p>Нет, поиск работает по добавленным вами рецептам. Начните с одного блюда и пополняйте коллекцию постепенно. Если поиск ничего не найдёт, бот сообщит об этом.</p></details>
     </div></section>
     <section class="lp-end lp-wrap"><div><h2>Сохраните первый рецепт</h2><p>Перешлите ссылку, фото или сообщение — <br>«Твои рецепты» соберут ингредиенты и шаги.</p></div><a class="lp-button" href="https://t.me/Recipeboibot?start=save">Сохранить рецепт <span aria-hidden="true">↗</span></a></section>
@@ -79,6 +79,7 @@
     </div>
     <nav class="lp-footer-links" aria-label="Правовая информация">
       <a href="/offer.html">Публичная оферта</a>
+      <a href="/privacy.html">Обработка данных</a>
     </nav>
   </footer>
 </div>

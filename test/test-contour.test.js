@@ -84,14 +84,16 @@ test('test account data stays isolated and only the test owner can reset it', as
 test('expired mock subscription can be renewed and duplicate success cannot extend the period', async () => {
   db.prepare("UPDATE mock_orders SET updated_at='2026-01-01T12:00:00.000Z' WHERE user_id=? AND status='success'").run(user.id);
   assert.equal((await (await call('/api/test/payment')).json()).active, false);
-  const renewed = await (await call('/api/test/orders', 'POST', { method: 'card' })).json();
+  const renewed = await (await call('/api/billing/orders', 'POST', { method: 'card', autoRenew: true })).json();
   assert.ok(renewed.id);
-  const response = await call(`/api/test/orders/${renewed.id}/result`, 'POST', { result: 'success' });
+  const response = await call(`/api/billing/orders/${renewed.id}/result`, 'POST', { result: 'success' });
   assert.equal(response.status, 200);
   const paid = (await response.json()).payment;
   assert.equal(paid.active, true);
+  assert.equal(paid.recurring.enabled, true);
   const repeated = await (await call(`/api/test/orders/${renewed.id}/result`, 'POST', { result: 'success' })).json();
   assert.equal(repeated.payment.expiresAt, paid.expiresAt);
+  assert.equal((await (await call('/api/billing/auto-renew/cancel', 'POST', {})).json()).enabled, false);
   assert.equal((await (await call('/api/notifications/schedule')).json()).paused, false);
 });
 

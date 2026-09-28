@@ -2,6 +2,7 @@ const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
 const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card', trialOnboarding: null };
+let paymentPollTimer = null;
 window.miniProbe?.('app-script');
 
 tg?.ready(); tg?.expand();
@@ -77,25 +78,27 @@ function bindCommon() {
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
   document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
+  if (document.querySelector('[data-open-offer]')) void api('/api/billing/exposure', { method: 'POST', body: '{}' }).catch(() => {});
 }
 
 function offerBanner() {
   const payment = state.payment;
-  if (!payment?.hasFirstRecipe || payment.active) return '';
+  if (!payment?.available || !payment?.hasFirstRecipe || payment.active) return '';
+  const mock = payment.mode === 'mock';
   return `<section class="offer-banner">
     <div class="offer-banner-lead">
       <span class="offer-kicker">${payment.firstValue === 'cooked' ? 'Первый ужин готов' : 'Первый рецепт сохранён'}</span>
       <h2>Мы умеем ещё много полезного</h2>
       <p>Посмотри дальше — покажем, как бот поможет с рецептами и ужинами.</p>
-      <small class="offer-trial-price">7 дней бесплатно · затем от ${payment.offer.priceRub} ₽/мес.</small>
+      <small class="offer-trial-price">Месячный доступ · ${payment.offer.priceRub} ₽</small>
     </div>
     <div class="offer-feature-grid" aria-label="Возможности подписки">
       <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true">↗</span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
       <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true">3</span><div><h3>Подбираем на вечер</h3><p>Три идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
       <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true">◷</span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
     </div>
-    <button class="primary accent" type="button" data-open-offer>Попробовать бесплатно <span aria-hidden="true">→</span></button>
-    <small class="offer-disclaimer">Тестовый сценарий · деньги не списываются</small>
+    <button class="primary accent" type="button" data-open-offer>Посмотреть предложение <span aria-hidden="true">→</span></button>
+    <small class="offer-disclaimer">${mock ? 'Тестовый сценарий · деньги не списываются' : 'Оплата на защищённой странице Robokassa'}</small>
   </section>`;
 }
 
@@ -208,7 +211,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
 }
 
 async function resumePendingTrialTastePreferences() {
-  if (!state.me?.testContour || !state.payment?.active) return false;
+  if (!state.payment?.active) return false;
   const savedStep = savedTrialOnboardingStep();
   if (savedStep && savedStep !== 'taste') {
     state.trialOnboarding = savedStep;
@@ -554,7 +557,7 @@ async function notificationSettingsPage() {
     const notice = document.createElement('div');
     notice.className = 'notification-intro';
     notice.setAttribute('role', 'status');
-    notice.innerHTML = `<p>${schedule.paused ? 'Напоминания приостановлены: подписка закончилась или доступ отключён. Дни и время сохранены. После продления отправка возобновится по расписанию.' : 'Подборки по расписанию доступны с активной подпиской или премиум-доступом к боту.'}</p>${state.me?.testContour ? '<button type="button" class="secondary" data-open-offer>Посмотреть тестовую подписку</button>' : '<p class="help">Оформление подписки пока недоступно.</p>'}`;
+    notice.innerHTML = `<p>${schedule.paused ? 'Напоминания приостановлены: подписка закончилась или доступ отключён. Дни и время сохранены. После продления отправка возобновится по расписанию.' : 'Подборки по расписанию доступны с активной подпиской или премиум-доступом к боту.'}</p>${state.payment?.available ? '<button type="button" class="secondary" data-open-offer>Оформить доступ</button>' : '<p class="help">Оформление подписки пока недоступно.</p>'}`;
     document.querySelector('#notification-form').before(notice);
     notice.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
   }
@@ -583,10 +586,10 @@ async function notificationSettingsPage() {
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
-  if (view === 'offer' && state.me?.testContour) offerPage();
-  else if (view === 'checkout' && state.me?.testContour) checkoutPage();
-  else if (view === 'payment-result' && state.me?.testContour) paymentResultPage();
-  else if (view === 'trial-onboarding' && state.me?.testContour && state.trialOnboarding) trialOnboardingPage();
+  if (view === 'offer' && state.payment?.available) offerPage();
+  else if (view === 'checkout' && state.payment?.available) checkoutPage();
+  else if (view === 'payment-result' && state.payment?.available) paymentResultPage();
+  else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
   else if (view === 'results') {
     let results = [];
     try { results = state.query ? await api(`/api/search?q=${encodeURIComponent(state.query)}`) : state.recipes; } catch (error) { toast(error.message); }
@@ -603,7 +606,8 @@ async function render() {
 async function refresh() {
   const library = await api('/api/library', { signal: AbortSignal.timeout(12000) });
   state.recipes = library.recipes; state.jobs = library.jobs;
-  if (state.me?.testContour) state.payment = await api('/api/test/payment', { signal: AbortSignal.timeout(12000) });
+  state.payment = await api('/api/billing/offer', { signal: AbortSignal.timeout(12000) });
+  if (!state.checkoutOrder && state.payment?.mode === 'provider' && state.payment.pendingOrder) state.checkoutOrder = state.payment.pendingOrder;
 }
 async function loadAndRender() { await refresh(); await render(); }
 const modalStack = [];
@@ -951,11 +955,11 @@ function cookMode(r, onComplete = null) {
   mountModal(el, el, close, step);
 }
 function settingsSheet() {
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.me.testContour ? '<button class="secondary" id="test-payment">Тестовая оплата</button><button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.payment?.available ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
   el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
   el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
-  el.querySelector('#test-payment')?.addEventListener('click', openOffer);
+  el.querySelector('#subscription-settings')?.addEventListener('click', openOffer);
   el.querySelector('#test-reset')?.addEventListener('click', async () => {
     if (!confirm('Сбросить тестовый профиль, рецепты, историю ужинов и результат имитации оплаты?')) return;
     try {
@@ -970,33 +974,40 @@ function settingsSheet() {
 
 function offerPage() {
   const payment = state.payment;
+  if (payment?.mode === 'provider') { providerOfferPage(); return; }
   const price = payment?.offer?.priceRub;
-  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Рецепты Плюс · тестовое предложение</span><h1>${payment?.active ? 'Доступ открыт' : payment?.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment?.active ? 'Автоматический импорт доступен в тестовом контуре.' : payment?.hasFirstRecipe ? `Сохраняйте следующие рецепты из ссылок, фото и текста.${payment.firstValue === 'saved' ? ' Первый сохранённый рецепт остаётся в коллекции.' : ' Первый ужин уже позади.'}` : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment?.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ТЕСТ</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение следующих рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Выбор оплаты картой или через СБП в макете</li></ul>${payment.active ? '<div class="offer-active">✓ Тестовый доступ активен</div>' : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Демонстрационный сценарий. Реального платежа и автоматического списания нет.</p></section>` : ''}<p class="offer-support">В тестовом контуре можно проверить успех, ошибку и отмену платежа. Для нового прохождения используйте сброс профиля в настройках.</p></main>`;
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Рецепты Плюс · тестовое предложение</span><h1>${payment?.active ? 'Доступ открыт' : payment?.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment?.active ? `Автоматический импорт доступен в тестовом контуре. Автопродление ${payment.recurring?.enabled ? 'включено' : 'выключено'}.` : payment?.hasFirstRecipe ? `Сохраняйте следующие рецепты из ссылок, фото и текста.${payment.firstValue === 'saved' ? ' Первый сохранённый рецепт остаётся в коллекции.' : ' Первый ужин уже позади.'}` : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment?.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ТЕСТ</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение следующих рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Выбор оплаты картой или через СБП в макете</li></ul>${payment.active ? `<div class="offer-active">✓ Тестовый доступ активен</div>${payment.recurring?.enabled ? '<button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>' : ''}` : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Демонстрационный сценарий. Реального платежа и автоматического списания нет.</p></section>` : ''}<p class="offer-support">В тестовом контуре можно проверить успех, ошибку и отмену платежа. Для нового прохождения используйте сброс профиля в настройках.</p></main>`;
   bindCommon();
   document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
   document.querySelector('#go-checkout')?.addEventListener('click', () => { setRoute({ view: 'checkout' }); checkoutPage(); });
+  document.querySelector('#cancel-auto-renew')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try { await api('/api/billing/auto-renew/cancel', { method: 'POST', body: '{}' }); await refresh(); offerPage(); toast('Автопродление отключено'); }
+    catch (failure) { toast(failure.message); event.currentTarget.disabled = false; }
+  });
 }
 
 function checkoutPage() {
   const payment = state.payment;
+  if (payment?.mode === 'provider') { providerCheckoutPage(); return; }
   if (!payment?.hasFirstRecipe || payment.active) { setRoute({ view: 'offer' }, { replace: true }); offerPage(); return; }
   const order = state.checkoutOrder || payment.pendingOrder;
   const price = order?.priceRub || payment.offer.priceRub;
   const confirmStep = Boolean(order);
-  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">● pay<span>demo</span></span><span class="checkout-safe">⌁ Защищённая форма</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата заказа для</small><strong>Рецепты</strong></div></div><div class="checkout-total"><span>К оплате</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${confirmStep ? `<div class="checkout-bank-step"><span class="checkout-step-icon">${order.method === 'sbp' ? '↗' : '▣'}</span><h1>${order.method === 'sbp' ? 'Подтвердите платёж в банке' : 'Подтвердите оплату'}</h1><p>${order.method === 'sbp' ? 'В реальном сценарии здесь открылось бы приложение выбранного банка для подтверждения через СБП.' : 'В реальном сценарии здесь появилось бы подтверждение банка по карте.'}</p><div class="checkout-order-id">Заказ № ${esc(order.id.slice(0, 8).toUpperCase())}</div><div class="checkout-scenarios"><span>Выберите исход тестового платежа</span><button class="checkout-pay" data-payment-result="success">Подтвердить · ${price} ₽</button><button class="checkout-alt" data-payment-result="failure">Показать ошибку оплаты</button><button class="checkout-alt" data-payment-result="cancel">Отменить платёж</button></div></div>` : `<h1 class="checkout-title">Выберите способ оплаты</h1><div class="checkout-methods"><button type="button" class="checkout-method ${state.paymentMethod === 'card' ? 'selected' : ''}" data-method="card"><span class="checkout-method-icon">▣</span><span><strong>Банковская карта</strong><small>Мир · Visa · Mastercard</small></span><span class="checkout-radio"></span></button><button type="button" class="checkout-method ${state.paymentMethod === 'sbp' ? 'selected' : ''}" data-method="sbp"><span class="checkout-method-icon sbp">СБП</span><span><strong>Система быстрых платежей</strong><small>Подтверждение в приложении банка</small></span><span class="checkout-radio"></span></button></div>${state.paymentMethod === 'card' ? '<div class="checkout-demo-form"><div class="checkout-field"><span>Номер карты</span><strong>•••• •••• •••• 4242</strong></div><div class="checkout-field-row"><div class="checkout-field"><span>Срок действия</span><strong>•• / ••</strong></div><div class="checkout-field"><span>CVC / CVV</span><strong>•••</strong></div></div><small>Демо-поля. Номер карты и CVC вводить не нужно.</small></div>' : '<div class="checkout-demo-form"><span class="checkout-field-label">Банк для подтверждения</span><div class="checkout-bank-list"><span>Сбербанк</span><span>Т-Банк</span><span>ВТБ</span><span>Другой банк</span></div><small>В тесте приложение банка не откроется.</small></div>'}<button class="checkout-pay" id="checkout-continue">${state.paymentMethod === 'sbp' ? 'Перейти к подтверждению' : 'Оплатить'} · ${price} ₽</button>`}<p class="checkout-notice">Это макет платёжной страницы. Платёжный сервис не подключён; реквизиты карты не запрашиваются и деньги не списываются.</p></div></div></main>`;
+  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">● pay<span>demo</span></span><span class="checkout-safe">⌁ Защищённая форма</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата заказа для</small><strong>Рецепты</strong></div></div><div class="checkout-total"><span>К оплате</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${confirmStep ? `<div class="checkout-bank-step"><span class="checkout-step-icon">${order.method === 'sbp' ? '↗' : '▣'}</span><h1>${order.method === 'sbp' ? 'Подтвердите платёж в банке' : 'Подтвердите оплату'}</h1><p>${order.method === 'sbp' ? 'В реальном сценарии здесь открылось бы приложение выбранного банка для подтверждения через СБП.' : 'В реальном сценарии здесь появилось бы подтверждение банка по карте.'}</p><div class="checkout-order-id">Заказ № ${esc(order.id.slice(0, 8).toUpperCase())}</div><div class="checkout-scenarios"><span>Выберите исход тестового платежа</span><button class="checkout-pay" data-payment-result="success">Подтвердить · ${price} ₽</button><button class="checkout-alt" data-payment-result="failure">Показать ошибку оплаты</button><button class="checkout-alt" data-payment-result="cancel">Отменить платёж</button></div></div>` : `<h1 class="checkout-title">Выберите способ оплаты</h1><div class="checkout-methods"><button type="button" class="checkout-method ${state.paymentMethod === 'card' ? 'selected' : ''}" data-method="card"><span class="checkout-method-icon">▣</span><span><strong>Банковская карта</strong><small>Мир · Visa · Mastercard</small></span><span class="checkout-radio"></span></button><button type="button" class="checkout-method ${state.paymentMethod === 'sbp' ? 'selected' : ''}" data-method="sbp"><span class="checkout-method-icon sbp">СБП</span><span><strong>Система быстрых платежей</strong><small>Подтверждение в приложении банка</small></span><span class="checkout-radio"></span></button></div>${state.paymentMethod === 'card' ? '<div class="checkout-demo-form"><div class="checkout-field"><span>Номер карты</span><strong>•••• •••• •••• 4242</strong></div><div class="checkout-field-row"><div class="checkout-field"><span>Срок действия</span><strong>•• / ••</strong></div><div class="checkout-field"><span>CVC / CVV</span><strong>•••</strong></div></div><small>Демо-поля. Номер карты и CVC вводить не нужно.</small></div><label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление каждый месяц</strong><small>Тест согласия без реального списания. Отключается в профиле.</small></span></label>' : '<div class="checkout-demo-form"><span class="checkout-field-label">Банк для подтверждения</span><div class="checkout-bank-list"><span>Сбербанк</span><span>Т-Банк</span><span>ВТБ</span><span>Другой банк</span></div><small>В тесте приложение банка не откроется.</small></div>'}<button class="checkout-pay" id="checkout-continue">${state.paymentMethod === 'sbp' ? 'Перейти к подтверждению' : 'Оплатить'} · ${price} ₽</button>`}<p class="checkout-notice">Это макет платёжной страницы. Платёжный сервис не подключён; реквизиты карты не запрашиваются и деньги не списываются.</p></div></div></main>`;
   document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); offerPage(); };
   document.querySelectorAll('[data-method]').forEach((button) => button.onclick = () => { state.paymentMethod = button.dataset.method; checkoutPage(); });
   document.querySelector('#checkout-continue')?.addEventListener('click', async (event) => {
     const button = event.currentTarget; button.disabled = true;
     try {
-      state.checkoutOrder = await api('/api/test/orders', { method: 'POST', body: JSON.stringify({ method: state.paymentMethod }) });
+      state.checkoutOrder = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ method: state.paymentMethod, autoRenew: Boolean(document.querySelector('#auto-renew')?.checked) }) });
       checkoutPage();
     } catch (error) { toast(error.message); button.disabled = false; }
   });
   document.querySelectorAll('[data-payment-result]').forEach((button) => button.addEventListener('click', async () => {
     button.disabled = true;
     try {
-      const result = await api(`/api/test/orders/${encodeURIComponent(order.id)}/result`, { method: 'POST', body: JSON.stringify({ result: button.dataset.paymentResult }) });
+      const result = await api(`/api/billing/orders/${encodeURIComponent(order.id)}/result`, { method: 'POST', body: JSON.stringify({ result: button.dataset.paymentResult }) });
       state.paymentResult = result.order.status;
       state.checkoutOrder = null;
       await refresh();
@@ -1012,11 +1023,95 @@ function checkoutPage() {
 }
 
 function paymentResultPage() {
+  if (state.payment?.mode === 'provider') { providerPaymentResultPage(); return; }
   const result = state.paymentResult || state.payment?.lastResult;
   const success = result === 'success';
   root.innerHTML = `${header()}<main class="payment-result"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : result === 'cancel' ? '↶' : '!'}</span><h1>${success ? 'Оплата прошла' : result === 'cancel' ? 'Платёж отменён' : 'Не удалось оплатить'}</h1><p>${success ? 'Тестовый доступ открыт. Теперь можно сохранять следующие рецепты автоматически.' : 'Тестовый доступ пока не открыт. Уже пройденный рецепт остаётся доступен.'}</p><div class="payment-result-price">Рецепты Плюс · ${state.payment?.offer?.priceRub || '—'} ₽ / месяц</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Повторить оплату'}</button><small>Реального списания не было.</small></main>`;
   bindCommon();
   document.querySelector('#result-next').onclick = () => { setRoute(success ? {} : { view: 'offer' }); void render(); };
+}
+
+function providerOfferPage() {
+  const payment = state.payment;
+  const price = payment?.offer?.priceRub;
+  const recurring = payment?.recurring;
+  const activeCopy = recurring?.enabled ? `Автопродление включено. Следующее списание — ${recurring.nextChargeAt ? new Date(recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.` : 'Автопродление выключено.';
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${payment.active ? 'Доступ открыт' : payment.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}. ${activeCopy}` : payment.hasFirstRecipe ? 'Сохраняйте следующие рецепты из ссылок, фото, текста и голосовых. Настройте напоминания об ужине и получайте готовые подборки.' : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ПЛЮС</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Напоминания об ужине по вашему расписанию</li></ul>${payment.active ? `<div class="offer-active">✓ Доступ активен</div>${recurring?.enabled ? '<button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>' : '<button class="primary accent" id="go-checkout">Продлить доступ</button>'}` : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Оплата проходит на защищённой странице Robokassa. Автопродление подключается только с отдельного согласия и отключается здесь в любой момент.</p></section>` : ''}<p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  bindCommon();
+  document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
+  document.querySelector('#go-checkout')?.addEventListener('click', () => { setRoute({ view: 'checkout' }); providerCheckoutPage(); });
+  document.querySelector('#cancel-auto-renew')?.addEventListener('click', async (event) => {
+    if (!confirm('Отключить автопродление? Уже оплаченный доступ сохранится до конца периода.')) return;
+    event.currentTarget.disabled = true;
+    try { await api('/api/billing/auto-renew/cancel', { method: 'POST', body: '{}' }); await refresh(); providerOfferPage(); toast('Автопродление отключено'); }
+    catch (failure) { toast(failure.message); event.currentTarget.disabled = false; }
+  });
+}
+
+function providerCheckoutPage() {
+  const payment = state.payment;
+  if (!payment?.hasFirstRecipe) { setRoute({ view: 'offer' }, { replace: true }); providerOfferPage(); return; }
+  const price = payment.offer.priceRub;
+  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">Robokassa</span><span class="checkout-safe">Защищённая оплата</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата для</small><strong>Твои рецепты</strong></div></div><div class="checkout-total"><span>К оплате сейчас</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Твои рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${payment.recurringSupported ? `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление каждый месяц</strong><small>${price} ₽ раз в месяц. Первое продление — после окончания оплаченного периода. Отключить можно в профиле.</small></span></label>` : '<p class="checkout-notice">Сейчас оформляется доступ на один месяц без автоматического продления.</p>'}<button class="checkout-pay" id="checkout-continue">Оплатить ${price} ₽</button><p class="checkout-notice">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Реквизиты карты вводятся только на стороне Robokassa.</p></div></div></main>`;
+  document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); providerOfferPage(); };
+  document.querySelector('#checkout-continue').onclick = async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true; button.textContent = 'Создаём заказ…';
+    try {
+      const autoRenew = Boolean(document.querySelector('#auto-renew')?.checked);
+      const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ autoRenew }) });
+      state.checkoutOrder = order;
+      state.paymentResult = 'pending';
+      if (tg?.openLink) tg.openLink(order.paymentUrl);
+      else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
+      setRoute({ view: 'payment-result' });
+      providerPaymentResultPage();
+    } catch (failure) { toast(failure.message); button.disabled = false; button.textContent = `Оплатить ${price} ₽`; }
+  };
+}
+
+async function completeProviderPayment(order) {
+  clearTimeout(paymentPollTimer);
+  state.paymentResult = 'paid';
+  state.checkoutOrder = null;
+  await refresh();
+  setTrialOnboardingStep('taste');
+  setRoute({ view: 'dinner' });
+  await beginDinner(false, true);
+}
+
+function pollProviderPayment() {
+  clearTimeout(paymentPollTimer);
+  const id = state.checkoutOrder?.id;
+  if (!id) return;
+  paymentPollTimer = setTimeout(async () => {
+    try {
+      const order = await api(`/api/billing/orders/${encodeURIComponent(id)}`);
+      state.checkoutOrder = order;
+      if (order.status === 'paid') { await completeProviderPayment(order); return; }
+      if (new URLSearchParams(location.search).get('view') === 'payment-result') { providerPaymentResultPage(); pollProviderPayment(); }
+    } catch { pollProviderPayment(); }
+  }, 3000);
+}
+
+function providerPaymentResultPage() {
+  const order = state.checkoutOrder || state.payment?.pendingOrder;
+  const status = order?.status || state.paymentResult || 'pending';
+  const success = status === 'paid';
+  root.innerHTML = `${header()}<main class="payment-result"><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : '…'}</span><h1>${success ? 'Оплата подтверждена' : 'Ожидаем подтверждение'}</h1><p>${success ? 'Доступ открыт. Теперь можно сохранять следующие рецепты и включить напоминания.' : 'Завершите оплату в открывшемся окне и вернитесь сюда. Доступ появится только после серверного подтверждения Robokassa.'}</p><div class="payment-result-price">Твои рецепты Плюс · ${order?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / месяц</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Проверить оплату'}</button><small>${order?.autoRenew ? 'Автопродление включится после успешной оплаты.' : 'Автопродление не подключено.'}</small></main>`;
+  bindCommon();
+  document.querySelector('#result-next').onclick = async (event) => {
+    if (success) { setRoute({}); await render(); return; }
+    if (!order?.id) { setRoute({ view: 'checkout' }); providerCheckoutPage(); return; }
+    event.currentTarget.disabled = true;
+    try {
+      const fresh = await api(`/api/billing/orders/${encodeURIComponent(order.id)}`);
+      state.checkoutOrder = fresh;
+      if (fresh.status === 'paid') await completeProviderPayment(fresh);
+      else { toast('Подтверждение пока не пришло'); providerPaymentResultPage(); }
+    } catch (failure) { toast(failure.message); event.currentTarget.disabled = false; }
+  };
+  if (!success) pollProviderPayment();
 }
 
 window.addEventListener('popstate', async (event) => {

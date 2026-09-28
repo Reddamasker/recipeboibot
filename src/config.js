@@ -20,6 +20,17 @@ const integer = (name, fallback) => {
   return Number.isFinite(value) ? value : fallback;
 };
 
+const csvIntegers = (name, fallback) => (process.env[name] || fallback)
+  .split(',').map((value) => Number(value.trim()));
+
+const robokassaHash = String(process.env.ROBOKASSA_HASH_ALGORITHM || 'md5').toLowerCase();
+const paymentPriceVariants = csvIntegers('PAYMENT_PRICE_VARIANTS', '129,199');
+const robokassaCredentials = {
+  merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN || '',
+  password1: process.env.ROBOKASSA_PASSWORD1 || '',
+  password2: process.env.ROBOKASSA_PASSWORD2 || ''
+};
+
 export const config = Object.freeze({
   port: integer('PORT', 3087),
   appUrl: (process.env.APP_URL || '').replace(/\/$/, ''),
@@ -29,7 +40,19 @@ export const config = Object.freeze({
   testContour: process.env.TEST_CONTOUR === 'true',
   testOwnerTelegramId: process.env.TEST_OWNER_TELEGRAM_ID || '',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
-  testPriceVariants: (process.env.TEST_PRICE_VARIANTS || '129').split(',').map((value) => Number(value.trim())),
+  testPriceVariants: csvIntegers('TEST_PRICE_VARIANTS', '129'),
+  paymentPriceVariants,
+  paymentExperimentKey: process.env.PAYMENT_EXPERIMENT_KEY || 'monthly-price-v1',
+  paymentTax: process.env.PAYMENT_TAX || '',
+  paymentSno: process.env.PAYMENT_SNO || '',
+  paymentMethod: process.env.PAYMENT_METHOD || 'full_payment',
+  robokassaMerchantLogin: robokassaCredentials.merchantLogin,
+  robokassaPassword1: robokassaCredentials.password1,
+  robokassaPassword2: robokassaCredentials.password2,
+  robokassaHash,
+  robokassaTest: process.env.ROBOKASSA_TEST === 'true',
+  robokassaRecurring: process.env.ROBOKASSA_RECURRING_ENABLED === 'true',
+  robokassaConfigured: Object.values(robokassaCredentials).every(Boolean) && Boolean(process.env.PAYMENT_TAX),
   openaiKey: process.env.OPENAI_API_KEY || '',
   textModel: process.env.OPENAI_TEXT_MODEL || '',
   dinnerTextModel: process.env.DINNER_TEXT_MODEL || process.env.OPENAI_TEXT_MODEL || '',
@@ -55,4 +78,11 @@ export function assertConfig() {
   if (config.testContour && !/^[1-9][0-9]*$/.test(config.testOwnerTelegramId)) throw new Error('Не настроен TEST_OWNER_TELEGRAM_ID');
   if (config.testContour && !/^[A-Za-z0-9_]{5,32}$/.test(config.testBotUsername)) throw new Error('Не настроен TEST_BOT_USERNAME');
   if (config.testContour && (config.testPriceVariants.length === 0 || config.testPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.testPriceVariants).size !== config.testPriceVariants.length)) throw new Error('Неверный TEST_PRICE_VARIANTS');
+  if (config.paymentPriceVariants.length === 0 || config.paymentPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.paymentPriceVariants).size !== config.paymentPriceVariants.length) throw new Error('Неверный PAYMENT_PRICE_VARIANTS');
+  if (!['md5', 'ripemd160', 'sha1', 'sha256', 'sha384', 'sha512'].includes(config.robokassaHash)) throw new Error('Неверный ROBOKASSA_HASH_ALGORITHM');
+  const robokassaValues = [config.robokassaMerchantLogin, config.robokassaPassword1, config.robokassaPassword2];
+  if (robokassaValues.some(Boolean) && !robokassaValues.every(Boolean)) throw new Error('ROBOKASSA_MERCHANT_LOGIN, ROBOKASSA_PASSWORD1 и ROBOKASSA_PASSWORD2 должны быть заданы вместе');
+  if (robokassaValues.every(Boolean) && !config.paymentTax) throw new Error('Для Robokassa необходимо настроить PAYMENT_TAX');
+  if (!config.testContour && config.robokassaTest) throw new Error('ROBOKASSA_TEST нельзя включать в основном контуре');
+  if (config.robokassaRecurring && !config.robokassaConfigured) throw new Error('Автопродление требует полной настройки Robokassa');
 }

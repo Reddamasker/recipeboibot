@@ -9,6 +9,7 @@ import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } f
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getFoodProfile } from './dinner-store.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
+import { billingAvailable, getBillingOffer, recordBillingExposure } from './billing.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
@@ -23,19 +24,27 @@ async function telegram(method, body = {}) {
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...extra });
 async function sendTestOffer(chatId, userId, force = false) {
-  if (!config.testContour) return;
-  const status = mockPaymentStatus(userId);
+  const mock = config.testContour && !billingAvailable();
+  const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
+  if (!status.available) return;
   if (!status.hasFirstRecipe) {
-    if (force) await send(chatId, 'Сначала сохраните первый рецепт или приготовьте предложенный ужин. После этого откроется тестовое предложение.');
+    if (force) await send(chatId, `Сначала сохраните первый рецепт или приготовьте предложенный ужин. После этого откроется ${mock ? 'тестовое ' : ''}предложение.`);
     return;
   }
   if (status.active) {
-    if (force) await send(chatId, 'Тестовый доступ уже активен. Следующий рецепт можно сохранить без оплаты.');
+    if (force) await send(chatId, `${mock ? 'Тестовый д' : 'Д'}оступ уже активен. Следующий рецепт можно сохранить без оплаты.`);
     return;
   }
-  if (!force && !claimMockOffer(userId)) return;
+  if (!force && !(mock ? claimMockOffer(userId) : recordBillingExposure(userId))) return;
+  if (force) mock ? claimMockOffer(userId) : recordBillingExposure(userId);
   const lead = status.firstValue === 'cooked' ? 'Первый ужин приготовлен — теперь можно пополнить свою коллекцию.' : 'Первый рецепт готов — он останется в вашей коллекции.';
-  await send(chatId, `<b>${lead}</b>\n\nЧтобы сохранять следующие рецепты автоматически, оформите тестовый доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. На экране оплаты можно пройти сценарии карты и СБП. Это макет: деньги не списываются.`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+  const details = mock ? 'Это тестовый сценарий: деньги не списываются.' : `Оплата проходит на защищённой странице Robokassa.${status.recurringSupported ? ' Автопродление подключается только с отдельного согласия.' : ''}`;
+  await send(chatId, `<b>${lead}</b>\n\nЧтобы сохранять следующие рецепты автоматически и пользоваться напоминаниями, оформите доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. ${details}`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+}
+function canUsePaidImport(userId) {
+  if (config.testContour && !billingAvailable()) return canUseTestImport(userId);
+  const billing = getBillingOffer(userId);
+  return !billing.available || !billing.hasFirstRecipe || billing.active;
 }
 function currentDinnerIntake(userId) {
   const profile = getFoodProfile(userId);
@@ -392,7 +401,7 @@ async function finishImport(chatId, outcome, options = {}) {
 
 async function saveContent(message, user, content, options = {}) {
   const chatId = message.chat.id;
-  if (config.testContour && !canUseTestImport(user.id)) { await sendTestOffer(chatId, user.id, true); return; }
+  if (!canUsePaidImport(user.id)) { await sendTestOffer(chatId, user.id, true); return; }
   await send(chatId, 'Получено. Извлекаю рецепт — статус уже сохранён, можно закрыть чат.');
   let outcome;
   if (message.photo?.length) {
@@ -433,7 +442,7 @@ export async function handleMessage(message) {
     await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;
   }
-  if (config.testContour && text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
+  if (text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;

@@ -49,7 +49,8 @@ test('landing exposes the public offer and entrepreneur details', () => {
   const offer = fs.readFileSync('public/offer.html', 'utf8');
   const footer = landing.match(/<footer class="lp-footer[\s\S]*?<\/footer>/)?.[0] ?? '';
   assert.match(landing, /href="\/offer\.html"/);
-  assert.doesNotMatch(footer, /privacy\.html|terms\.html/);
+  assert.match(footer, /href="\/privacy\.html"/);
+  assert.doesNotMatch(footer, /terms\.html/);
   assert.match(landing, /ИП Спасский Никита Алексеевич/);
   assert.match(landing, /ИНН 500912857935/);
   assert.match(landing, /ОГРНИП 319502700028548/);

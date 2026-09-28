@@ -209,6 +209,11 @@ span.recipe-tag { cursor: default; }
 .checkout-total strong { font-size: 35px; letter-spacing: -.04em; }
 .checkout-order-lines { padding: 10px 0; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #e9edf2; font-size: 12px; }
 .checkout-order-lines.muted { color: #7c8796; }
+.checkout-renew { margin: 22px 0; padding: 15px; border: 1px solid #dce3ec; border-radius: 13px; background: #f8f9fc; }
+.checkout-renew span { min-width: 0; }
+.checkout-renew strong,.checkout-renew small { display: block; }
+.checkout-renew strong { color: #252c39; font-size: 13px; }
+.checkout-renew small { margin-top: 4px; color: #727e91; font-size: 10px; line-height: 1.45; }
 .checkout-title { margin: 30px 0 15px; font-size: 17px; }
 .checkout-methods { display: grid; gap: 9px; }
 .checkout-method { width: 100%; padding: 14px; display: flex; align-items: center; gap: 12px; border: 1px solid #dce3ec; border-radius: 13px; background: #fff; color: inherit; text-align: left; cursor: pointer; }

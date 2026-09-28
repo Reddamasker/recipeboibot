@@ -30,11 +30,13 @@ function ensureMockTables() {
     variant TEXT NOT NULL,
     amount_rub INTEGER NOT NULL,
     method TEXT NOT NULL CHECK(method IN ('card','sbp')),
+    auto_renew INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK(status IN ('pending','success','failure','cancel')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS mock_orders_user_created ON mock_orders(user_id,created_at DESC);`);
+  if (!db.prepare('PRAGMA table_info(mock_orders)').all().some((column) => column.name === 'auto_renew')) db.exec('ALTER TABLE mock_orders ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0');
 }
 
 function offerFor(userId) {
@@ -64,14 +66,17 @@ export function mockPaymentStatus(userId) {
   if (!config.testContour) throw error('Не найдено', 404);
   const offer = offerFor(userId);
   const payment = db.prepare('SELECT active,last_result,updated_at FROM mock_payments WHERE user_id=?').get(userId);
-  const pending = db.prepare("SELECT id,method,amount_rub,variant,created_at FROM mock_orders WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(userId);
+  const pending = db.prepare("SELECT id,method,amount_rub,variant,auto_renew,created_at FROM mock_orders WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(userId);
+  const recurring = db.prepare("SELECT auto_renew,updated_at FROM mock_orders WHERE user_id=? AND status='success' ORDER BY updated_at DESC LIMIT 1").get(userId);
   const firstValue = hasRecipe(userId) ? 'saved' : hasCookedDinner(userId) ? 'cooked' : null;
   const access = getSubscriptionAccess(userId);
   return {
     active: access.active, expiresAt: access.expiresAt, lastResult: payment?.last_result || null, updatedAt: payment?.updated_at || null,
     hasFirstRecipe: Boolean(firstValue), firstValue, offerShown: Boolean(offer.shown_at),
+    mode: 'mock', available: true, recurringSupported: true,
+    recurring: { enabled: Boolean(recurring?.auto_renew), nextChargeAt: recurring?.auto_renew && access.expiresAt ? new Date(Date.parse(access.expiresAt) - 24 * 60 * 60 * 1000).toISOString() : null },
     offer: { variant: offer.variant, priceRub: offer.amount_rub, currency: 'RUB', period: 'month' },
-    pendingOrder: pending ? { id: pending.id, method: pending.method, priceRub: pending.amount_rub, variant: pending.variant, createdAt: pending.created_at } : null
+    pendingOrder: pending ? { id: pending.id, method: pending.method, autoRenew: Boolean(pending.auto_renew), priceRub: pending.amount_rub, variant: pending.variant, createdAt: pending.created_at } : null
   };
 }
 
@@ -88,17 +93,18 @@ export function canUseTestImport(userId) {
   return !status.hasFirstRecipe || status.active;
 }
 
-export function createMockOrder(userId, method) {
+export function createMockOrder(userId, method, autoRenew = false) {
   const status = mockPaymentStatus(userId);
   if (!status.hasFirstRecipe) throw error('Сначала сохраните первый рецепт', 409);
   if (status.active) throw error('Тестовый доступ уже активен', 409);
   if (!['card', 'sbp'].includes(method)) throw error('Неверный способ оплаты', 400);
+  if (autoRenew && method !== 'card') throw error('Автопродление доступно только при оплате картой', 400);
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare("UPDATE mock_orders SET status='cancel',updated_at=? WHERE user_id=? AND status='pending'").run(now, userId);
-  db.prepare('INSERT INTO mock_orders(id,user_id,variant,amount_rub,method,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)')
-    .run(id, userId, status.offer.variant, status.offer.priceRub, method, 'pending', now, now);
-  return { id, method, priceRub: status.offer.priceRub, variant: status.offer.variant, status: 'pending', createdAt: now };
+  db.prepare('INSERT INTO mock_orders(id,user_id,variant,amount_rub,method,auto_renew,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, status.offer.variant, status.offer.priceRub, method, autoRenew ? 1 : 0, 'pending', now, now);
+  return { id, method, autoRenew: Boolean(autoRenew), priceRub: status.offer.priceRub, variant: status.offer.variant, status: 'pending', createdAt: now };
 }
 
 export function finishMockOrder(userId, orderId, result) {
@@ -120,7 +126,12 @@ export function finishMockOrder(userId, orderId, result) {
       db.exec('COMMIT');
     } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   }
-  return { order: { id: orderId, method: order.method, priceRub: order.amount_rub, variant: order.variant, status: result }, payment: mockPaymentStatus(userId) };
+  return { order: { id: orderId, method: order.method, autoRenew: Boolean(order.auto_renew), priceRub: order.amount_rub, variant: order.variant, status: result }, payment: mockPaymentStatus(userId) };
+}
+
+export function cancelMockAutoRenew(userId) {
+  db.prepare("UPDATE mock_orders SET auto_renew=0,updated_at=? WHERE user_id=? AND status='success'").run(new Date().toISOString(), userId);
+  return mockPaymentStatus(userId).recurring;
 }
 
 export function resetTestUser(telegramId) {
