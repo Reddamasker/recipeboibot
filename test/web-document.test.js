@@ -47,8 +47,11 @@ test('gzip is sent only when the client accepts it', () => {
 test('landing exposes the public offer and entrepreneur details', () => {
   const landing = fs.readFileSync('public/index.html', 'utf8');
   const offer = fs.readFileSync('public/offer.html', 'utf8');
+  const tariffs = fs.readFileSync('public/tariffs.html', 'utf8');
   const footer = landing.match(/<footer class="lp-footer[\s\S]*?<\/footer>/)?.[0] ?? '';
   assert.match(landing, /href="\/offer\.html"/);
+  assert.match(landing, /href="\/tariffs\.html"/);
+  assert.match(footer, />Тарифы</);
   assert.match(footer, /href="\/privacy\.html"/);
   assert.doesNotMatch(footer, /terms\.html/);
   assert.match(landing, /ИП Спасский Никита Алексеевич/);
@@ -62,4 +65,10 @@ test('landing exposes the public offer and entrepreneur details', () => {
   assert.match(offer, /Досудебный порядок является обязательным только в случаях/);
   assert.doesNotMatch(offer, /бесплатного закрытого теста/);
   assert.doesNotMatch(offer, /Telegram Stars/i);
+  assert.match(offer, /href="\/tariffs\.html"/);
+  assert.match(tariffs, /Полный доступ на 1 месяц/);
+  assert.match(tariffs, /129 <span>рублей<\/span>/);
+  assert.match(tariffs, /199 <span>рублей<\/span>/);
+  assert.match(tariffs, /Оба варианта включают одинаковый состав услуг/);
+  assert.doesNotMatch(tariffs, /Telegram Stars/i);
 });
