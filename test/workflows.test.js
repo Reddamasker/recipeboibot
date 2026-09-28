@@ -33,9 +33,11 @@ const normalizedRecipe = (title = 'Крылышки с мёдом') => ({
 test('empty search proposes a recipe and saves it only after owner confirmation', async () => {
   const owner = database.upsertTelegramUser({ id: 6160, first_name: 'Автор' });
   const other = database.upsertTelegramUser({ id: 6161, first_name: 'Другой' });
-  let calls = 0;
-  const generate = async () => { calls += 1; return normalizedRecipe('Новый ужин с фасолью'); };
+  dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { home: 1, asian: -1 }, tastePreferencesStatus: 'completed' });
+  let calls = 0, generationInput;
+  const generate = async (input) => { calls += 1; generationInput = input; return normalizedRecipe('Новый ужин с фасолью'); };
   const proposal = await suggestions.suggestForEmptySearch(owner.id, 'ужин с фасолью', { generate });
+  assert.deepEqual(generationInput.profile.preferredCategories, { home: 1, asian: -1 });
   assert.equal(database.listRecipes(owner.id).length, 0);
   assert.equal((await suggestions.suggestForEmptySearch(owner.id, 'ужин с фасолью', { generate })).id, proposal.id);
   assert.equal(calls, 1);
@@ -149,11 +151,15 @@ test('group search offer rejects a non-owner before generation', async () => {
 test('private Telegram request generates only after no ready recipe and waits for save', async () => {
   const telegramUser = { id: 6165, first_name: 'Поиск' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { soup: 1, fish: -1 }, tastePreferencesStatus: 'completed' });
   const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('api.openai.com')) {
       aiCalls += 1;
-      assert.equal(JSON.parse(options.body).text.format.name, 'requested_recipe_generation');
+      const body = JSON.parse(options.body);
+      assert.equal(body.text.format.name, 'requested_recipe_generation');
+      assert.match(body.instructions, /preferredCategories/);
+      assert.deepEqual(JSON.parse(body.input[0].content[0].text).profile.preferredCategories, { soup: 1, fish: -1 });
       return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20 }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
     }
     sent.push(JSON.parse(options.body));

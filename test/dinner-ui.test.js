@@ -103,23 +103,24 @@ test('dinner cards are single recipe links without numbers or competing actions'
   assert.doesNotMatch(source, /Из того, что ты назвал/);
 });
 
-test('first dinner waits until trial success before starting taste onboarding; explicit settings remain available', async () => {
+test('first dinner asks pending taste preferences before composing recipes; explicit settings remain available', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.24/);
-  let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
+  assert.match(document, /app\.js\?v=dinner-10\.25/);
+  let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
     showDinnerTastePreferences: () => { tastes++; },
     showDinnerOnboarding: async () => { questions++; }, loadDinnerRecommendation: async () => { recipes++; },
+    setTrialOnboardingStep(value) { trialStep = value; }, trialOnboardingPage() { trialPages++; },
     toast: assert.fail, setRoute() {}, home() {} };
   vm.runInNewContext(handler, sandbox);
-  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(tastes, 0); assert.equal(recipes, 1);
-  await sandbox.beginDinner(false, true); assert.equal(questions, 0); assert.equal(tastes, 1); assert.equal(recipes, 1);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(tastes, 1); assert.equal(recipes, 0);
+  await sandbox.beginDinner(false, true); assert.equal(questions, 0); assert.equal(tastes, 2); assert.equal(recipes, 0);
   needsOnboarding = false; needsTastePreferences = false;
-  await sandbox.beginDinner(false, true); assert.equal(questions, 0); assert.equal(recipes, 2); assert.equal(tastes, 1);
-  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 3); assert.equal(tastes, 1);
+  await sandbox.beginDinner(false, true); assert.equal(trialStep, 'notifications'); assert.equal(trialPages, 1); assert.equal(recipes, 0);
+  await sandbox.beginDinner(); assert.equal(questions, 0); assert.equal(recipes, 1); assert.equal(tastes, 2);
   await sandbox.beginDinner(true); assert.equal(questions, 1);
 });
 

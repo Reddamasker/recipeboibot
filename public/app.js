@@ -208,9 +208,13 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
     const session = await api(notificationId ? `/api/notifications/${encodeURIComponent(notificationId)}/open` : '/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, askingReason: false, loading: false };
     if (session.acceptedOption) { dinnerView(); return; }
-    if (startTrialTastePreferences && session.needsTastePreferences) showDinnerTastePreferences();
-    else if (forceOnboarding) await showDinnerOnboarding();
-    else await loadDinnerRecommendation();
+    if (forceOnboarding) await showDinnerOnboarding();
+    else if (session.needsTastePreferences) showDinnerTastePreferences();
+    else if (startTrialTastePreferences) {
+      setTrialOnboardingStep('notifications');
+      setRoute({ view: 'trial-onboarding' });
+      trialOnboardingPage();
+    } else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
 }
 

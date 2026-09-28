@@ -40,7 +40,8 @@ export async function suggestForEmptySearch(userId, query, { generate = generate
   const key = JSON.stringify([userId, normalized]);
   if (inFlight.has(key)) return inFlight.get(key);
   const task = (async () => {
-    const recipe = await generate({ userId, query: normalized });
+    const profile = getFoodProfile(userId);
+    const recipe = await generate({ userId, query: normalized, profile });
     return createRecipeSuggestion(userId, normalized, recipe);
   })();
   inFlight.set(key, task);
