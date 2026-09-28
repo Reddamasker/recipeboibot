@@ -135,6 +135,11 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-questions details[open] summary span { transform: rotate(45deg); }
 .lp-questions details p { margin: 0 30px 20px 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
 .lp-questions details p a { text-decoration: underline; text-underline-offset: 3px; }
+.lp-pricing { padding-block: 0 65px; }
+.lp-pricing h2 { font-size: clamp(32px, 3.4vw, 46px); }
+.lp-pricing p { margin: 12px 0; color: var(--muted); font-size: 15px; }
+.lp-pricing .lp-pricing-price { color: var(--ink); font-size: 22px; }
+.lp-pricing > a { font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .lp-end { display: flex; justify-content: space-between; align-items: center; gap: 30px; padding-block: 5px 65px; }
 .lp-end h2 { font-size: clamp(32px, 3.4vw, 46px); }
 .lp-end p { margin: 16px 0 0; color: var(--muted); font-size: 15px; }

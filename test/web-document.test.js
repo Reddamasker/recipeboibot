@@ -65,8 +65,11 @@ test('landing exposes the public offer and entrepreneur details', () => {
   assert.doesNotMatch(offer, /бесплатного закрытого теста/);
   assert.doesNotMatch(offer, /Telegram Stars/i);
   assert.match(offer, /href="\/#pricing"/);
-  assert.match(landing, /<details id="pricing" open>/);
-  assert.match(landing, /Первые 7 дней — бесплатно\. Затем полный доступ стоит 199 рублей в месяц/);
+  const faq = landing.match(/<section class="lp-faq[\s\S]*?<\/section>/)[0];
+  assert.doesNotMatch(faq, /199|id="pricing"/);
+  assert.ok(landing.indexOf('id="pricing"') > landing.indexOf(faq) + faq.length);
+  assert.match(landing, /7 дней бесплатно/);
+  assert.match(landing, /Затем 199 рублей в месяц/);
   assert.match(tariffs, /http-equiv="refresh" content="0;url=\/#pricing"/);
   assert.doesNotMatch(tariffs, /Telegram Stars/i);
 });
