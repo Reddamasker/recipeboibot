@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card' };
+const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card', trialOnboarding: null };
 window.miniProbe?.('app-script');
 
 tg?.ready(); tg?.expand();
@@ -9,6 +9,7 @@ if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }
 
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
 const toast = (message) => { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => toastEl.classList.remove('show'), 3500); };
+const resetPageScroll = () => globalThis.requestAnimationFrame?.(() => globalThis.scrollTo?.(0, 0));
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { authorization: `tma ${tg?.initData || ''}`, 'content-type': 'application/json', ...(options.headers || {}) } });
   const value = response.status === 204 ? null : await response.json().catch(() => ({}));
@@ -33,6 +34,21 @@ function setRoute(values, { replace = false, historyState = {} } = {}) {
   for (const key of ['view', 'q', 'recipe', 'notification']) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(values)) if (value) url.searchParams.set(key, value);
   history[replace ? 'replaceState' : 'pushState'](historyState, '', url);
+}
+
+const trialOnboardingKey = () => `recipeboibot-trial-onboarding-v1:${state.me?.id || 'unknown'}`;
+function savedTrialOnboardingStep() {
+  try {
+    const value = window.localStorage?.getItem(trialOnboardingKey());
+    return ['taste', 'notifications', 'notifications-settings', 'collection'].includes(value) ? value : null;
+  } catch { return null; }
+}
+function setTrialOnboardingStep(step) {
+  state.trialOnboarding = step;
+  try {
+    if (step) window.localStorage?.setItem(trialOnboardingKey(), step);
+    else window.localStorage?.removeItem(trialOnboardingKey());
+  } catch {}
 }
 
 function header() {
@@ -179,8 +195,16 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
 
 async function resumePendingTrialTastePreferences() {
   if (!state.me?.testContour || !state.payment?.active) return false;
+  const savedStep = savedTrialOnboardingStep();
+  if (savedStep && savedStep !== 'taste') {
+    state.trialOnboarding = savedStep;
+    setRoute({ view: savedStep === 'notifications-settings' ? 'notifications' : 'trial-onboarding' }, { replace: true });
+    await render();
+    return true;
+  }
   const profile = await api('/api/dinner/profile', { signal: AbortSignal.timeout(12000) });
   if (profile.tastePreferencesStatus !== 'pending') return false;
+  setTrialOnboardingStep('taste');
   setRoute({ view: 'dinner' }, { replace: true });
   await beginDinner(false, true);
   return true;
@@ -196,9 +220,9 @@ async function showDinnerOnboarding() {
   } catch (error) { toast(error.message); }
 }
 
-function tasteChoices(categories) {
+function tasteChoices(categories, { title = 'Что ты любишь есть?', copy = 'Отметь любимые блюда и те, которые не по вкусу. Так подбор станет точнее.' } = {}) {
   const tags = [['pasta','Паста'],['asian','Азиатское'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']];
-  return `<h1>Что ты любишь есть?</h1><p>Отметь любимые блюда и те, которые не по вкусу. Так подбор станет точнее.</p>${[[1, 'Нравится'], [-1, 'Не нравится']].map(([value, title]) => `<fieldset class="taste-group"><legend>${title}</legend><div class="dinner-options">${tags.map(([key, label]) => `<button type="button" class="dinner-option ${Math.sign(categories[key] || 0) === value ? 'selected' : ''}" data-taste="${key}" data-value="${value}" aria-pressed="${Math.sign(categories[key] || 0) === value}">${label}</button>`).join('')}</div></fieldset>`).join('')}<p class="dinner-help">Можно выбрать несколько тегов. Повторное нажатие снимает выбор. Нелюбимые блюда будем предлагать реже. Аллергию и продукты, которые нельзя, укажи отдельно в настройках.</p>`;
+  return `<h1>${esc(title)}</h1><p>${esc(copy)}</p>${[[1, 'Нравится'], [-1, 'Не нравится']].map(([value, groupTitle]) => `<fieldset class="taste-group"><legend>${groupTitle}</legend><div class="dinner-options">${tags.map(([key, label]) => `<button type="button" class="dinner-option ${Math.sign(categories[key] || 0) === value ? 'selected' : ''}" data-taste="${key}" data-value="${value}" aria-pressed="${Math.sign(categories[key] || 0) === value}">${label}</button>`).join('')}</div></fieldset>`).join('')}<p class="dinner-help">Можно выбрать несколько тегов. Повторное нажатие снимает выбор. Нелюбимые блюда будем предлагать реже. Аллергию и продукты, которые нельзя, укажи отдельно в настройках.</p>`;
 }
 
 function bindTasteChoices(data, redraw) {
@@ -216,11 +240,13 @@ function showDinnerTastePreferences() {
   clearTimeout(dinnerPollTimer);
   state.onboarding = { tasteOnly: true, preferredCategories: { ...state.dinner.profile.preferredCategories }, saving: false };
   dinnerView();
+  if (state.trialOnboarding === 'taste') resetPageScroll();
 }
 
 function tastePreferencesView() {
   const data = state.onboarding;
-  root.innerHTML = `${header()}<main class="dinner-page"><div class="eyebrow">ТВОИ ВКУСЫ</div><section class="dinner-onboarding">${tasteChoices(data.preferredCategories)}<div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>Пока пропустить</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
+  const trial = state.trialOnboarding === 'taste';
+  root.innerHTML = `${header()}<main class="dinner-page ${trial ? 'trial-onboarding' : ''}">${trial ? '<div class="trial-progress" aria-label="Шаг 1 из 3"><span class="active"></span><span></span><span></span></div><section class="trial-welcome"><div class="trial-icon" aria-hidden="true">✓</div><div><div class="eyebrow">ПРОБНЫЙ ПЕРИОД НАЧАЛСЯ</div><h2>Спасибо, что пробуешь «Твои рецепты»</h2><p>Настроим всё за пару минут, чтобы бот лучше понимал твои вкусы и помогал каждый день.</p></div></section>' : '<div class="eyebrow">ТВОИ ВКУСЫ</div>'}<section class="dinner-onboarding">${tasteChoices(data.preferredCategories, trial ? { title: 'Что ты любишь есть?', copy: 'Выбери любимые направления и то, что тебе не по вкусу. Это улучшит качество определения и подбора рецептов.' } : {})}<div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : trial ? 'Сохранить и продолжить' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>${trial ? 'Пропустить этот шаг' : 'Пока пропустить'}</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
   bindCommon();
   bindTasteChoices(data, tastePreferencesView);
   const finish = async (skip) => {
@@ -230,11 +256,36 @@ function tastePreferencesView() {
       const input = skip ? { tastePreferencesStatus: 'skipped' } : { preferredCategories: data.preferredCategories, tastePreferencesStatus: 'completed' };
       await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify(input) });
       state.onboarding = null;
-      await beginDinner();
+      if (trial) {
+        setTrialOnboardingStep('notifications');
+        setRoute({ view: 'trial-onboarding' });
+        trialOnboardingPage();
+      } else await beginDinner();
     } catch (error) { data.saving = false; tastePreferencesView(); toast(error.message); }
   };
   document.querySelector('#taste-save').onclick = () => finish(false);
   document.querySelector('#taste-skip').onclick = () => finish(true);
+}
+
+function trialOnboardingPage() {
+  const step = state.trialOnboarding === 'collection' ? 'collection' : 'notifications';
+  resetPageScroll();
+  if (step === 'notifications') {
+    root.innerHTML = `${header()}<main class="trial-onboarding"><div class="trial-progress" aria-label="Шаг 2 из 3"><span></span><span class="active"></span><span></span></div><section class="trial-feature"><div class="trial-feature-art trial-bell" aria-hidden="true"><span></span></div><div class="eyebrow">ШАГ 2 · НАПОМИНАНИЯ</div><h1>Не думай об ужине заранее</h1><p>Выбери удобные дни и время. Бот сам пришлёт три варианта — останется только выбрать.</p><ul class="trial-benefits"><li><span>1</span> Подборка приходит прямо в Telegram</li><li><span>2</span> Расписание можно изменить в любой момент</li></ul><div class="trial-actions"><button class="primary accent" id="trial-notifications">Настроить напоминания</button><button class="secondary" id="trial-notifications-skip">Не сейчас</button></div></section></main>`;
+    bindCommon();
+    document.querySelector('#trial-notifications').onclick = () => { setTrialOnboardingStep('notifications-settings'); setRoute({ view: 'notifications' }); void render(); };
+    document.querySelector('#trial-notifications-skip').onclick = () => { setTrialOnboardingStep('collection'); trialOnboardingPage(); };
+    return;
+  }
+  root.innerHTML = `${header()}<main class="trial-onboarding"><div class="trial-progress" aria-label="Шаг 3 из 3"><span></span><span></span><span class="active"></span></div><section class="trial-feature"><div class="trial-feature-art trial-stack" aria-hidden="true"><span>▤</span><i>♥</i></div><div class="eyebrow">ШАГ 3 · ТВОЯ КОЛЛЕКЦИЯ</div><h1>Собери рецепты, которые хочется повторить</h1><p>Накидай боту любимые рецепты — так личная коллекция быстро станет твоей, а подборы будут точнее.</p><ol class="trial-instructions"><li><span>1</span><div><strong>Вернись в чат с ботом</strong><small>Можно отправлять рецепты по одному.</small></div></li><li><span>2</span><div><strong>Пришли ссылку, фото, текст или голосовое</strong><small>Бот сам разберёт ингредиенты и шаги.</small></div></li><li><span>3</span><div><strong>Рецепт появится в «Моих рецептах»</strong><small>Сохранённое можно искать и использовать в подборках.</small></div></li></ol><div class="trial-actions"><button class="primary accent" id="trial-open-chat">Открыть чат и добавить рецепт</button><button class="secondary" id="trial-finish">Перейти к приложению</button></div></section></main>`;
+  bindCommon();
+  const finish = (closeChat = false) => {
+    setTrialOnboardingStep(null);
+    if (closeChat && typeof tg?.close === 'function') tg.close();
+    else { setRoute({}, { replace: true }); void render(); }
+  };
+  document.querySelector('#trial-open-chat').onclick = () => finish(true);
+  document.querySelector('#trial-finish').onclick = () => finish(false);
 }
 
 async function loadDinnerRecommendation() {
@@ -457,6 +508,7 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
 }
 
 async function notificationSettingsPage() {
+  const trial = state.trialOnboarding === 'notifications-settings';
   const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
   state.notificationSchedule = await api('/api/notifications/schedule', { signal: AbortSignal.timeout(12000) });
   const schedule = state.notificationSchedule;
@@ -467,9 +519,14 @@ async function notificationSettingsPage() {
   if (hasAccess && schedule.enabled && schedule.nextDueAt) {
     try { next = new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.nextDueAt)); } catch {}
   }
-  root.innerHTML = `${header()}<main class="notification-page"><button class="back-link" id="notifications-back">← На главную</button><div class="eyebrow">УВЕДОМЛЕНИЯ В TELEGRAM</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">Сохранить расписание</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
+  root.innerHTML = `${header()}<main class="notification-page ${trial ? 'trial-notification-settings' : ''}">${trial ? '<div class="trial-progress" aria-label="Настройка шага 2 из 3"><span></span><span class="active"></span><span></span></div>' : ''}<button class="back-link" id="notifications-back">← ${trial ? 'Назад' : 'На главную'}</button><div class="eyebrow">УВЕДОМЛЕНИЯ В TELEGRAM</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">${trial ? 'Сохранить и продолжить' : 'Сохранить расписание'}</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
+  if (trial) resetPageScroll();
   bindCommon();
-  document.querySelector('#notifications-back').onclick = () => { setRoute({}); void render(); };
+  document.querySelector('#notifications-back').onclick = () => {
+    if (trial) { setTrialOnboardingStep('notifications'); setRoute({ view: 'trial-onboarding' }); }
+    else setRoute({});
+    void render();
+  };
   const enabled = document.querySelector('#notification-enabled');
   const fields = document.querySelector('#notification-fields');
   const submit = document.querySelector('#notification-form [type=submit]');
@@ -477,7 +534,7 @@ async function notificationSettingsPage() {
     fields.disabled = !hasAccess || !enabled.checked;
     enabled.disabled = !hasAccess && !enabled.checked;
     submit.disabled = !hasAccess && (!schedule.enabled || enabled.checked);
-    submit.textContent = hasAccess ? 'Сохранить расписание' : 'Отключить напоминания';
+    submit.textContent = hasAccess ? (trial ? 'Сохранить и продолжить' : 'Сохранить расписание') : 'Отключить напоминания';
   };
   if (!hasAccess) {
     const notice = document.createElement('div');
@@ -500,7 +557,11 @@ async function notificationSettingsPage() {
     button.disabled = true; button.textContent = 'Сохраняю…';
     try {
       state.notificationSchedule = await api('/api/notifications/schedule', { method: 'PUT', body: JSON.stringify({ enabled: enabled.checked, weekdays, time: document.querySelector('#notification-time').value, timezone: deviceTimezone }) });
-      await notificationSettingsPage();
+      if (trial) {
+        setTrialOnboardingStep('collection');
+        setRoute({ view: 'trial-onboarding' }, { replace: true });
+        trialOnboardingPage();
+      } else await notificationSettingsPage();
       toast(enabled.checked ? 'Расписание сохранено' : 'Уведомления выключены');
     } catch (failure) { error.textContent = failure.message; error.hidden = false; error.focus(); syncAccess(); }
   };
@@ -511,6 +572,7 @@ async function render() {
   if (view === 'offer' && state.me?.testContour) offerPage();
   else if (view === 'checkout' && state.me?.testContour) checkoutPage();
   else if (view === 'payment-result' && state.me?.testContour) paymentResultPage();
+  else if (view === 'trial-onboarding' && state.me?.testContour && state.trialOnboarding) trialOnboardingPage();
   else if (view === 'results') {
     let results = [];
     try { results = state.query ? await api(`/api/search?q=${encodeURIComponent(state.query)}`) : state.recipes; } catch (error) { toast(error.message); }
@@ -883,6 +945,7 @@ function settingsSheet() {
   el.querySelector('#test-reset')?.addEventListener('click', async () => {
     if (!confirm('Сбросить тестовый профиль, рецепты, историю ужинов и результат имитации оплаты?')) return;
     try {
+      setTrialOnboardingStep(null);
       await api('/api/test/reset', { method: 'POST', body: '{}' });
       closeOverlay();
       root.innerHTML = '<main class="outside"><div class="brand-mark">Р</div><h1>Тестовый профиль сброшен</h1><p>Вернитесь в чат бота и нажмите /start, чтобы пройти путь нового пользователя.</p></main>';
@@ -924,6 +987,7 @@ function checkoutPage() {
       state.checkoutOrder = null;
       await refresh();
       if (result.order.status === 'success') {
+        setTrialOnboardingStep('taste');
         setRoute({ view: 'dinner' });
         await beginDinner(false, true);
         return;

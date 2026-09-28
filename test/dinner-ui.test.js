@@ -69,7 +69,7 @@ test('first dinner waits until trial success before starting taste onboarding; e
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.19/);
+  assert.match(document, /app\.js\?v=dinner-10\.20/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -85,42 +85,53 @@ test('first dinner waits until trial success before starting taste onboarding; e
   await sandbox.beginDinner(true); assert.equal(questions, 1);
 });
 
-test('successful test payment routes pending users into taste preferences', async () => {
+test('successful test payment starts the three-step trial onboarding with taste preferences', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function checkoutPage()'), source.indexOf('\nfunction paymentResultPage'));
-  let paymentHandler, route, dinnerArgs, resultPageCalls = 0;
+  let paymentHandler, route, dinnerArgs, trialStep, resultPageCalls = 0;
   const resultButton = { dataset: { paymentResult: 'success' }, addEventListener(_name, fn) { paymentHandler = fn; } };
   const checkoutBack = {};
   const state = { payment: { hasFirstRecipe: true, active: false, offer: { priceRub: 199 } }, checkoutOrder: { id: '11111111-1111-4111-8111-111111111111', method: 'card', priceRub: 199 }, paymentMethod: 'card' };
   const sandbox = { root: { innerHTML: '' }, state, esc: String,
     document: { querySelector: (selector) => selector === '#checkout-back' ? checkoutBack : null, querySelectorAll: (selector) => selector === '[data-payment-result]' ? [resultButton] : [] },
     api: async () => ({ order: { status: 'success' } }), refresh: async () => {}, toast: assert.fail,
+    setTrialOnboardingStep: (value) => { trialStep = value; },
     setRoute: (value) => { route = value; }, beginDinner: async (...args) => { dinnerArgs = args; }, paymentResultPage: () => { resultPageCalls++; } };
   vm.runInNewContext(handler, sandbox);
   sandbox.checkoutPage();
   await paymentHandler();
   assert.equal(route.view, 'dinner');
+  assert.equal(trialStep, 'taste');
   assert.deepEqual(dinnerArgs, [false, true]);
   assert.equal(resultPageCalls, 0);
   assert.equal(state.checkoutOrder, null);
 });
 
-test('an already successful test payment resumes pending taste preferences on the next launch', async () => {
+test('an already successful test payment resumes pending trial onboarding on the next launch', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('async function resumePendingTrialTastePreferences()'), source.indexOf('\nasync function showDinnerOnboarding'));
   let route, dinnerArgs, profileStatus = 'pending';
+  let savedStep = null, rendered = 0;
   const sandbox = { state: { me: { testContour: true }, payment: { active: true } }, AbortSignal,
     api: async () => ({ tastePreferencesStatus: profileStatus }),
+    savedTrialOnboardingStep: () => savedStep,
+    setTrialOnboardingStep: (value) => { sandbox.state.trialOnboarding = value; },
+    render: async () => { rendered++; },
     setRoute: (value, options) => { route = { value, options }; }, beginDinner: async (...args) => { dinnerArgs = args; } };
   vm.runInNewContext(handler, sandbox);
   assert.equal(await sandbox.resumePendingTrialTastePreferences(), true);
   assert.equal(route.value.view, 'dinner');
   assert.equal(route.options.replace, true);
   assert.deepEqual(dinnerArgs, [false, true]);
+  assert.equal(sandbox.state.trialOnboarding, 'taste');
   profileStatus = 'completed'; route = null; dinnerArgs = null;
   assert.equal(await sandbox.resumePendingTrialTastePreferences(), false);
   assert.equal(route, null);
   assert.equal(dinnerArgs, null);
+  savedStep = 'collection';
+  assert.equal(await sandbox.resumePendingTrialTastePreferences(), true);
+  assert.equal(route.value.view, 'trial-onboarding');
+  assert.equal(rendered, 1);
 });
 
 test('taste tags switch between like, dislike and neutral; failed saves retain draft, skip omits it', async () => {
@@ -131,7 +142,7 @@ test('taste tags switch between like, dislike and neutral; failed saves retain d
   const root = { innerHTML: '' }, requests = [], errors = [];
   let fail = true, dinners = 0;
   const state = { dinner: { profile: { preferredCategories: { pasta: 0.8 } } } };
-  const sandbox = { root, state, clearTimeout() {}, dinnerPollTimer: null, header: () => '', bindCommon() {},
+  const sandbox = { root, state, clearTimeout() {}, dinnerPollTimer: null, header: () => '', bindCommon() {}, esc: String,
     document: { querySelectorAll: () => buttons, querySelector: (key) => elements[key] || { focus() {} } },
     dinnerView: () => sandbox.tastePreferencesView(),
     beginDinner: async () => { dinners++; }, toast: (message) => errors.push(message),
@@ -155,6 +166,33 @@ test('taste tags switch between like, dislike and neutral; failed saves retain d
   await elements['#taste-skip'].onclick();
   assert.deepEqual(requests.at(-1), { tastePreferencesStatus: 'skipped' });
   assert.equal(dinners, 2);
+});
+
+test('trial onboarding continues from tastes to notifications and collection instructions', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function trialOnboardingPage()'), source.indexOf('\nasync function loadDinnerRecommendation'));
+  const elements = {};
+  const root = { innerHTML: '' };
+  const routes = [];
+  const state = { trialOnboarding: 'notifications' };
+  const sandbox = {
+    root, state, header: () => '<header></header>', bindCommon() {}, resetPageScroll() {}, tg: { close: assert.fail },
+    document: { querySelector: (selector) => (elements[selector] ||= {}) },
+    setTrialOnboardingStep: (step) => { state.trialOnboarding = step; },
+    setRoute: (route, options) => routes.push([route, options]), render() {},
+  };
+  vm.runInNewContext(handler, sandbox);
+  sandbox.trialOnboardingPage();
+  assert.match(root.innerHTML, /Шаг 2 из 3/);
+  assert.match(root.innerHTML, /Настроить напоминания/);
+  elements['#trial-notifications-skip'].onclick();
+  assert.equal(state.trialOnboarding, 'collection');
+  assert.match(root.innerHTML, /Шаг 3 из 3/);
+  assert.match(root.innerHTML, /ссылку, фото, текст или голосовое/);
+  assert.match(root.innerHTML, /Рецепт появится в «Моих рецептах»/);
+  elements['#trial-finish'].onclick();
+  assert.equal(state.trialOnboarding, null);
+  assert.equal(JSON.stringify(routes.at(-1)), JSON.stringify([{}, { replace: true }]));
 });
 
 test('dinner image polling recovers after a network failure', async () => {
