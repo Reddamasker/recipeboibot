@@ -447,7 +447,7 @@ test('first Start restores chat introduction without requiring ingredients; skip
     await telegramModule.handleMessage(message); await telegramModule.handleMessage(message);
     assert.equal(database.getUserByTelegramId(6401).is_allowed, 1);
     assert.equal(sent.length, 2);
-    assert.match(sent[0].text, /🎙 <b>Запишите голосовое сообщение<\/b>/);
+    assert.match(sent[0].text, /<b>Запишите голосовое сообщение<\/b>/);
     assert.match(sent[0].text, /микрофон справа от поля ввода/);
     assert.equal(sent[0].reply_markup, undefined);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
@@ -459,7 +459,7 @@ test('first Start restores chat introduction without requiring ingredients; skip
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /назовите продукты/);
-    assert.match(sent.at(-1).text, /🎙 <b>Запишите голосовое сообщение<\/b>/);
+    assert.match(sent.at(-1).text, /<b>Запишите голосовое сообщение<\/b>/);
     assert.equal(sent.at(-1).reply_markup, undefined);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, false);
     assert.ok(sent.every((body) => !/код приглашения/i.test(body.text || '')));
@@ -653,7 +653,7 @@ test('onboarding restart marker keeps account access and opens intake on the nex
       await telegramModule.handleMessage({ chat, from, text });
       assert.equal(database.getUserByTelegramId(from.id).is_allowed, 1);
       assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
-      assert.match(sent.at(-1).text, /🎙 <b>Запишите голосовое сообщение<\/b>/);
+      assert.match(sent.at(-1).text, /<b>Запишите голосовое сообщение<\/b>/);
       assert.equal(sent.at(-1).reply_markup, undefined);
     }
   } finally { globalThis.fetch = originalFetch; }

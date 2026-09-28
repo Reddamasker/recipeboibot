@@ -3,20 +3,29 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-test('offer banner leads with the monthly price and three product benefits', () => {
+test('offer banner names the next action directly and uses no emoji', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer'));
-  const sandbox = { state: { payment: { available: true, mode: 'provider', hasFirstRecipe: true, active: false, firstValue: 'cooked', offer: { priceRub: 129 } } } };
+  const sandbox = { state: { payment: { available: true, mode: 'mock', hasFirstRecipe: true, active: false, firstValue: 'cooked', offer: { priceRub: 129 } } } };
   vm.runInNewContext(handler, sandbox);
   const html = sandbox.offerBanner();
   assert.match(html, /Мы умеем ещё много полезного/);
+  assert.match(html, /Попробуй бесплатно/);
   assert.match(html, /Месячный доступ · 129 ₽/);
   assert.equal((html.match(/class="offer-feature"/g) || []).length, 3);
   assert.match(html, /Сохраняем за тебя/);
   assert.match(html, /Подбираем на вечер/);
   assert.match(html, /Напоминаем вовремя/);
-  assert.match(html, /Посмотреть предложение/);
+  assert.match(html, /Попробовать бесплатно/);
+  assert.doesNotMatch(html, /Посмотри дальше|Посмотреть предложение|↗|◷/);
+  assert.match(html, />1<.*>2<.*>3</s);
   assert.doesNotMatch(html, /Тестовый доступ к автоматическому импорту/);
+
+  sandbox.state.payment.mode = 'provider';
+  const providerHtml = sandbox.offerBanner();
+  assert.match(providerHtml, /Оформи месячный доступ/);
+  assert.match(providerHtml, />Оформить доступ</);
+  assert.doesNotMatch(providerHtml, /бесплатно/i);
 });
 
 test('home keeps dinner separate and resolves a written recipe request', async () => {
@@ -98,7 +107,7 @@ test('first dinner waits until trial success before starting taste onboarding; e
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.23/);
+  assert.match(document, /app\.js\?v=dinner-10\.24/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
