@@ -210,6 +210,16 @@ test('editorial discovery survives the shortlist and keeps the third slot even w
   assert.equal(selectDinnerChoices([discovery, candidates[0]]).length, 2);
 });
 
+test('visible trio includes the strongest explicit taste match instead of leaving it in reserve', () => {
+  const profile = { householdSize: 4, preferredCategories: { pasta: 1, meat: 1 } };
+  const ranked = rankCandidates(SEED_RECIPES, { profile });
+  const shortlist = shortlistDinnerCandidates(ranked, [], 8, profile.preferredCategories);
+  const choices = selectDinnerChoices(shortlist, [], { preferredCategories: profile.preferredCategories });
+  assert.ok(!recipeCategories(SEED_RECIPES.find((recipe) => recipe.id === 'seed:beef-goulash-mash')).includes('pasta'), 'томатная паста не является категорией блюда «паста»');
+  assert.ok(choices[0].candidate.categories.includes('pasta'));
+  assert.ok(choices[0].candidate.categories.includes('meat'));
+});
+
 test('real mince, potato, rice and pasta intake gives three different trios with a discovery in each', async () => {
   const user = upsertTelegramUser({ id: 606, first_name: 'Фарш' });
   confirmDinnerIntake(user.id, { availableIngredients: ['говяжий фарш', 'картошка', 'рис', 'паста'], householdSize: 4, hasChildren: true, maxMinutes: 30 });

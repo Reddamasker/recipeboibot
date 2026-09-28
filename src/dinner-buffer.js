@@ -6,7 +6,7 @@ import { generateRecipeImage } from './recipe-images.js';
 import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 2, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 3, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const fills = new Map(), imageTasks = new Map();
 let activeImages = 0;
 const imageQueue = [];
@@ -77,7 +77,8 @@ function fallbackFill(userId, sessionId, context, target = DINNER_BUFFER.total) 
   let ranked = rankCandidates(candidates, { ...context, rejected: excluded });
   if (!context.pantry.length) ranked.sort((a, b) => Number(b.recipe.userSaved) - Number(a.recipe.userSaved) || b.score - a.score);
   while (ranked.length && activeCount(userId, sessionId) < target) {
-    const choices = selectDinnerChoices(shortlistDinnerCandidates(ranked, context.history), context.history, { preferTop: context.pantry.length > 0 });
+    const preferredCategories = context.profile.preferredCategories || {};
+    const choices = selectDinnerChoices(shortlistDinnerCandidates(ranked, context.history, 8, preferredCategories), context.history, { preferTop: context.pantry.length > 0, preferredCategories });
     for (const { candidate, role } of choices) {
       if (activeCount(userId, sessionId) >= target) break;
       const roleCount = [...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === role).length;

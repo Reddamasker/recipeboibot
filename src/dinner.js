@@ -84,7 +84,7 @@ export function pantryCoverage(recipe, available = []) {
 
 export function recipeCategories(recipe) {
   const text = [recipe.title, ...(recipe.tags || []), ...(recipe.ingredients || []).map((item) => item.name || item.raw || item)].join(' ');
-  return DINNER_CATEGORIES.filter(([, , pattern]) => pattern.test(text)).map(([key]) => key);
+  return DINNER_CATEGORIES.filter(([key, , pattern]) => pattern.test(key === 'pasta' ? text.replace(/томатн\p{L}*\s+паст\p{L}*/giu, '') : text)).map(([key]) => key);
 }
 
 export function isDinnerCandidate(recipe) {
@@ -149,6 +149,10 @@ const uncooked = (candidate, history) => !history.some((event) => event.recipeKe
 const sideKeys = (candidate) => (candidate.recipe.ingredients || []).map((item) => pantryKey(item.name || item.raw || item)).filter((key) => ['rice', 'pasta', 'buckwheat', 'potato', 'couscous', 'cabbage'].includes(key));
 const categoryDistance = (candidate, selected) => candidate.categories.filter((key) => !selected.some((item) => item.categories.includes(key))).length
   + sideKeys(candidate).filter((key) => !selected.some((item) => sideKeys(item).includes(key))).length * DINNER_WEIGHTS.newSideVariety;
+const preferenceFit = (candidate, preferredCategories = {}) => candidate.categories.reduce((sum, key) => sum + (preferredCategories[key] || 0), 0);
+const preferenceChoice = (candidates, preferredCategories = {}) => candidates
+  .filter((candidate) => preferenceFit(candidate, preferredCategories) > 0)
+  .sort((a, b) => preferenceFit(b, preferredCategories) - preferenceFit(a, preferredCategories) || b.score - a.score)[0];
 
 // An editorial discovery is a real recipe with a plain-language explanation.
 // Reserve it for slot three; every candidate has already passed hard filters.
@@ -156,7 +160,7 @@ const discoveryChoice = (candidates, history, selected = []) => candidates.filte
   .sort((a, b) => Number(uncooked(b, history)) - Number(uncooked(a, history))
     || categoryDistance(b, selected) - categoryDistance(a, selected) || b.score - a.score)[0];
 
-export function shortlistDinnerCandidates(ranked, history = [], limit = 8) {
+export function shortlistDinnerCandidates(ranked, history = [], limit = 8, preferredCategories = {}) {
   if (!ranked.length) return [];
   const fastest = ranked.filter((item) => item.minutes !== null)
     .sort((a, b) => a.minutes - b.minutes || b.score - a.score)[0];
@@ -164,16 +168,18 @@ export function shortlistDinnerCandidates(ranked, history = [], limit = 8) {
     .sort((a, b) => categoryDistance(b, [ranked[0], fastest].filter(Boolean)) - categoryDistance(a, [ranked[0], fastest].filter(Boolean)) || b.score - a.score)[0];
   const seen = new Set();
   const discovery = discoveryChoice(ranked, history, [ranked[0], fastest].filter(Boolean));
-  return [ranked[0], fastest, discovery, variety, ...ranked].filter((item) => item && !seen.has(item.recipe.id) && seen.add(item.recipe.id)).slice(0, limit);
+  const preferred = preferenceChoice(ranked.filter((item) => item !== discovery), preferredCategories);
+  return [preferred, ranked[0], fastest, discovery, variety, ...ranked].filter((item) => item && !seen.has(item.recipe.id) && seen.add(item.recipe.id)).slice(0, limit);
 }
 
-export function selectDinnerChoices(candidates, history = [], { preferTop = false } = {}) {
+export function selectDinnerChoices(candidates, history = [], { preferTop = false, preferredCategories = {} } = {}) {
   if (!candidates.length) return [];
   const chosen = [];
   const add = (candidate, role) => { if (candidate && !chosen.some((item) => item.candidate.recipe.id === candidate.recipe.id)) chosen.push({ candidate, role }); };
   const discovery = candidates.length >= 3 ? discoveryChoice(candidates, history) : null;
   const everyday = candidates.filter((item) => item !== discovery);
-  add(preferTop ? everyday.find((item) => item.pantryMatch?.missing.length === 0) || everyday[0] : everyday.find((item) => item.recipe.userSaved) || everyday[0], 'familiar');
+  const preferred = preferenceChoice(everyday, preferredCategories);
+  add(preferred || (preferTop ? everyday.find((item) => item.pantryMatch?.missing.length === 0) || everyday[0] : everyday.find((item) => item.recipe.userSaved) || everyday[0]), 'familiar');
   const remaining = () => candidates.filter((item) => !chosen.some((choice) => choice.candidate.recipe.id === item.recipe.id));
   const quick = remaining().filter((item) => item !== discovery);
   add(quick.filter((item) => item.minutes !== null).sort((a, b) => a.minutes - b.minutes || b.score - a.score)[0] || quick[0], 'quick');
