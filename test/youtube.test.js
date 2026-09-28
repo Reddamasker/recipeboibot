@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isPrivateIp, assertSafeRemoteUrl } from '../src/security.js';
-import { youtubeVideo, parseYoutubePlayer, parseYoutubeCaptions, extractYoutubeSource } from '../src/youtube.js';
+import { youtubePlaylist, youtubeVideo, parseYoutubePlaylist, parseYoutubePlaylistInfo, parseYoutubePlayer, parseYoutubeCaptions, extractYoutubePlaylist, extractYoutubeSource } from '../src/youtube.js';
+import { importYoutubePlaylist } from '../src/importer.js';
 
 const id = '79aqvX4RnEU';
 const makePlayer = (description = '#wings #chilioil', tracks = []) => ({
@@ -27,6 +28,87 @@ test('YouTube URL formats canonicalize without tracking params', () => {
   }
   assert.equal(youtubeVideo(`https://youtube.com.attacker.example/watch?v=${id}`), null);
   for (const input of ['https://youtube.com/@channel', 'https://youtube.com/watch?v=bad', `https://user:pass@youtube.com/watch?v=${id}`, `https://youtube.com:8443/watch?v=${id}`]) assert.throws(() => youtubeVideo(input));
+});
+
+test('YouTube playlist URLs are recognized without turning a video shared from a playlist into a batch', () => {
+  const playlist = youtubePlaylist('https://youtube.com/playlist?list=PLMKH9rJBrNkyqFQ9BoHhivNs8A4FvRiX0&si=tracking');
+  assert.deepEqual(playlist, { id: 'PLMKH9rJBrNkyqFQ9BoHhivNs8A4FvRiX0', url: 'https://www.youtube.com/playlist?list=PLMKH9rJBrNkyqFQ9BoHhivNs8A4FvRiX0' });
+  assert.equal(youtubePlaylist(`https://www.youtube.com/watch?v=${id}&list=${playlist.id}`), null);
+  assert.throws(() => youtubePlaylist('https://youtube.com/playlist?list='), error => error.code === 'INVALID_YOUTUBE_PLAYLIST_URL');
+});
+
+test('playlist page extracts unique public videos and enforces the batch limit', () => {
+  const contents = Array.from({ length: 32 }, (_, index) => ({ playlistVideoRenderer: {
+    videoId: `${String(index).padStart(11, '0')}`,
+    title: { runs: [{ text: `Рецепт ${index + 1}` }] }
+  } }));
+  contents.push({ playlistVideoRenderer: { videoId: '00000000000', title: { simpleText: 'Дубль' } } });
+  const page = `<script>var ytInitialData = ${JSON.stringify({ metadata: { playlistMetadataRenderer: { title: 'Ужины' } }, contents })};</script>`;
+  const parsed = parseYoutubePlaylist(page);
+  assert.equal(parsed.title, 'Ужины');
+  assert.equal(parsed.videos.length, 30);
+  assert.equal(parsed.discovered, 32);
+  assert.equal(parsed.truncated, true);
+  assert.deepEqual(parsed.videos[0], { id: '00000000000', title: 'Рецепт 1', url: 'https://www.youtube.com/watch?v=00000000000' });
+});
+
+test('flat playlist metadata is bounded and canonicalized without downloading videos', () => {
+  const parsed = parseYoutubePlaylistInfo({ title: 'Подборка', playlist_count: 44, entries: [
+    { id: 'abcdefghijk', title: 'Первый' }, { id: 'abcdefghijk', title: 'Дубль' }, { id: 'lmnopqrstuv', title: 'Второй' }, { id: 'bad', title: 'Некорректный' }
+  ] }, 2);
+  assert.equal(parsed.title, 'Подборка');
+  assert.equal(parsed.videos.length, 2);
+  assert.equal(parsed.discovered, 44);
+  assert.equal(parsed.truncated, true);
+  assert.equal(parsed.videos[1].url, 'https://www.youtube.com/watch?v=lmnopqrstuv');
+});
+
+test('playlist extraction falls back to flat metadata when YouTube serves an empty page', async () => {
+  let fallbackCalls = 0;
+  const result = await extractYoutubePlaylist('https://youtube.com/playlist?list=PL1234567890',
+    async () => ({ text: '<script>var ytInitialData = {"contents":[]};</script>' }), 30,
+    async (playlist, limit) => {
+      fallbackCalls++;
+      assert.equal(playlist.id, 'PL1234567890'); assert.equal(limit, 30);
+      return { ...playlist, title: 'Резервный список', videos: [{ id: 'abcdefghijk', title: 'Рецепт', url: 'https://www.youtube.com/watch?v=abcdefghijk' }], discovered: 1, truncated: false };
+    });
+  assert.equal(fallbackCalls, 1);
+  assert.equal(result.videos[0].id, 'abcdefghijk');
+});
+
+test('playlist import uses at most two workers and reports created, existing and failed videos', async () => {
+  let active = 0, maxActive = 0;
+  const videos = ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'ddddddddddd'].map((videoId, index) => ({ id: videoId, title: `Видео ${index + 1}`, url: `https://www.youtube.com/watch?v=${videoId}` }));
+  const importOne = async (_userId, url) => {
+    active++; maxActive = Math.max(maxActive, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active--;
+    if (url.includes('cccc')) throw Object.assign(new Error('Нет текста рецепта'), { code: 'YOUTUBE_TEXT_UNAVAILABLE' });
+    return { state: url.includes('bbbb') ? 'existing' : 'created', recipe: { id: url } };
+  };
+  const outcome = await importYoutubePlaylist('user', 'https://youtube.com/playlist?list=PL1234567890', {
+    extractPlaylist: async () => ({ title: 'Тест', videos, discovered: videos.length, truncated: false }), importOne, concurrency: 2
+  });
+  assert.equal(maxActive, 2);
+  assert.equal(outcome.created, 2);
+  assert.equal(outcome.existing, 1);
+  assert.equal(outcome.failed.length, 1);
+  assert.equal(outcome.failed[0].code, 'YOUTUBE_TEXT_UNAVAILABLE');
+});
+
+test('repeated concurrent playlist import shares one batch', async () => {
+  let extractCalls = 0, importCalls = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const options = {
+    extractPlaylist: async () => { extractCalls++; return { title: 'Один раз', videos: [{ id: 'abcdefghijk', title: 'Видео', url: 'https://www.youtube.com/watch?v=abcdefghijk' }], discovered: 1, truncated: false }; },
+    importOne: async () => { importCalls++; await gate; return { state: 'created', recipe: { id: 'recipe' } }; }
+  };
+  const first = importYoutubePlaylist('same-user', 'https://youtube.com/playlist?list=PL1234567890', options);
+  const second = importYoutubePlaylist('same-user', 'https://youtube.com/playlist?list=PL1234567890', options);
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(extractCalls, 1); assert.equal(importCalls, 1);
+  assert.deepEqual(a, b);
 });
 
 test('embedded player is parsed without evaluating JS and tolerates braces in strings', () => {

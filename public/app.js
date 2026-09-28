@@ -775,7 +775,8 @@ async function submitImport(event) {
     closeOverlay();
     try {
       await refresh();
-      if (outcome.recipe) { toast(outcome.state === 'existing' ? 'Этот рецепт уже есть' : 'Рецепт сохранён'); await openRecipe(outcome.recipe.id, true); }
+      if (outcome.state === 'playlist') { toast('Плейлист принят. Рецепты будут появляться в коллекции по мере обработки.'); await render(); }
+      else if (outcome.recipe) { toast(outcome.state === 'existing' ? 'Этот рецепт уже есть' : 'Рецепт сохранён'); await openRecipe(outcome.recipe.id, true); }
       else { toast('Источник уже обрабатывается'); await render(); }
     } catch { toast('Источник получен, но обновить коллекцию не удалось. Откройте её снова.'); }
   } catch (error) {

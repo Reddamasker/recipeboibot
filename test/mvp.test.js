@@ -120,6 +120,23 @@ test('HTTP API requires signed Telegram auth and an allowed user', async () => {
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('playlist import API requires active paid access before fetching YouTube', async () => {
+  const telegramUser = { id: 409, first_name: 'Плейлист' };
+  const user = database.upsertTelegramUser(telegramUser); database.allowUser(user.id);
+  const initData = security.makeTelegramInitData(telegramUser, process.env.TELEGRAM_BOT_TOKEN);
+  const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(`${base}/api/import`, {
+      method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'url', value: 'https://www.youtube.com/playlist?list=PLMKH9rJBrNkyqFQ9BoHhivNs8A4FvRiX0' })
+    });
+    assert.equal(response.status, 402);
+    assert.match((await response.json()).error, /активной подпиской/);
+    assert.equal(database.listRecipes(user.id).length, 0);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('existing document routes serve a compressed startup with CSP and keep API authentication', async () => {
   const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;

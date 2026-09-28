@@ -3,11 +3,12 @@ import { config } from './config.js';
 import { claimImport, createRecipe, updateJob } from './db.js';
 import { normalizeRecipe } from './openai.js';
 import { safeFetchText } from './security.js';
-import { youtubeVideo, extractYoutubeSource } from './youtube.js';
+import { youtubePlaylist, youtubeVideo, extractYoutubePlaylist, extractYoutubeSource, YOUTUBE_PLAYLIST_LIMIT } from './youtube.js';
 import { socialVideo, extractSocialVideoSource } from './social-video.js';
 
 const decodeHtml = (text) => text.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
 const digest = (value) => crypto.createHash('sha256').update(value).digest('hex');
+const playlistInFlight = new Map();
 
 function htmlToText(html) {
   return decodeHtml(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, config.aiMaxInputChars);
@@ -36,6 +37,7 @@ function metaContent(html, names) {
 }
 
 export function normalizeSourceUrl(input) {
+  if (youtubePlaylist(input)) throw Object.assign(new Error('Плейлист нужно обрабатывать пакетным импортом.'), { status: 422, code: 'YOUTUBE_PLAYLIST_BATCH_REQUIRED' });
   const youtube = youtubeVideo(input);
   if (youtube) return { sourceKey: `youtube:${youtube.id}`, url: youtube.url, thumbnailUrl: `https://i.ytimg.com/vi/${youtube.id}/hqdefault.jpg`, label: 'YouTube' };
   const social = socialVideo(input);
@@ -47,6 +49,38 @@ export function normalizeSourceUrl(input) {
   url.searchParams.sort();
   if (url.pathname !== '/') url.pathname = url.pathname.replace(/\/+$/, '') || '/';
   return { sourceKey: `url:${url.toString()}`, url: url.toString(), thumbnailUrl: null, label: url.hostname.replace(/^www\./, '') };
+}
+
+export async function importYoutubePlaylist(userId, input, options = {}) {
+  const playlistIdentity = youtubePlaylist(input);
+  const inFlightKey = `${userId}:${playlistIdentity?.id || String(input).trim()}`;
+  if (playlistInFlight.has(inFlightKey)) return playlistInFlight.get(inFlightKey);
+  const task = (async () => {
+    const extract = options.extractPlaylist || extractYoutubePlaylist;
+    const importOne = options.importOne || importUrl;
+    const playlist = await extract(input, options.fetchText, options.limit || YOUTUBE_PLAYLIST_LIMIT);
+    const results = new Array(playlist.videos.length);
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < playlist.videos.length) {
+        const index = nextIndex++;
+        const video = playlist.videos[index];
+        try { results[index] = { video, outcome: await importOne(userId, video.url) }; }
+        catch (error) { results[index] = { video, error: { code: error.code || 'IMPORT_FAILED', message: String(error.message || 'Не удалось обработать ролик').slice(0, 300) } }; }
+      }
+    };
+    const concurrency = Math.max(1, Math.min(2, Number(options.concurrency) || 2));
+    await Promise.all(Array.from({ length: Math.min(concurrency, playlist.videos.length) }, worker));
+    const count = state => results.filter(result => result?.outcome?.state === state).length;
+    return {
+      state: 'playlist', title: playlist.title, total: results.length, discovered: playlist.discovered,
+      truncated: playlist.truncated, created: count('created'), existing: count('existing'), processing: count('processing'),
+      failed: results.filter(result => result?.error).map(result => ({ title: result.video.title, ...result.error }))
+    };
+  })();
+  playlistInFlight.set(inFlightKey, task);
+  try { return await task; }
+  finally { if (playlistInFlight.get(inFlightKey) === task) playlistInFlight.delete(inFlightKey); }
 }
 
 export function sourceKeyForText(text, prefix = 'text') {

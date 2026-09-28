@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
-import { importText, importUrl } from './importer.js';
+import { importText, importUrl, importYoutubePlaylist } from './importer.js';
 import { extractDinnerIntake, transcribeAudio } from './openai.js';
 import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
 import { log } from './log.js';
@@ -11,6 +11,8 @@ import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestC
 import { DINNER_CATEGORIES } from './dinner.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, getBillingOffer, recordBillingExposure } from './billing.js';
+import { getSubscriptionAccess } from './subscriptions.js';
+import { youtubePlaylist } from './youtube.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
@@ -47,6 +49,7 @@ function canUsePaidImport(userId) {
   const billing = getBillingOffer(userId);
   return !billing.available || !billing.hasFirstRecipe || billing.active;
 }
+export function canUsePlaylistImport(userId) { return getSubscriptionAccess(userId).active; }
 function currentDinnerIntake(userId) {
   const profile = getFoodProfile(userId);
   return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId) });
@@ -429,7 +432,37 @@ async function finishImport(chatId, outcome, options = {}) {
 
 async function saveContent(message, user, content, options = {}) {
   const chatId = message.chat.id;
+  const playlist = content.url ? youtubePlaylist(content.url) : null;
+  if (playlist && !canUsePlaylistImport(user.id)) {
+    await send(chatId, 'Импорт плейлистов доступен только с активной подпиской или премиум-доступом к боту.');
+    await sendTestOffer(chatId, user.id, true);
+    return;
+  }
   if (!canUsePaidImport(user.id)) { await sendTestOffer(chatId, user.id, true); return; }
+  if (playlist) {
+    await send(chatId, 'Получено. Обрабатываю до 30 роликов из плейлиста. Результат отправлю сюда; чат можно закрыть.');
+    void (async () => {
+      try {
+        const outcome = await importYoutubePlaylist(user.id, playlist.url);
+        const failed = outcome.failed.length;
+        const lines = [
+          '<b>Плейлист обработан.</b>', '',
+          `Роликов: <b>${outcome.total}</b>. Сохранено: <b>${outcome.created}</b>. Уже было в коллекции: <b>${outcome.existing}</b>.`,
+          ...(outcome.processing ? [`Уже обрабатывалось: <b>${outcome.processing}</b>.`] : []),
+          ...(failed ? [`Не удалось распознать: <b>${failed}</b>.`] : []),
+          ...(outcome.truncated ? ['Обработаны первые 30 роликов из плейлиста.'] : []),
+          ...outcome.failed.slice(0, 5).map(item => `Не обработано: ${escapeHtml(item.title)} — ${escapeHtml(item.message)}`)
+        ];
+        const url = !options.groupMode && webAppUrl({ view: 'collection' });
+        await send(chatId, lines.join('\n'), url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть коллекцию', web_app: { url } }]] } } : {});
+      } catch (error) {
+        log('error', 'telegram_playlist_import_failed', { error, userId: user.id });
+        try { await send(chatId, `Не получилось обработать плейлист: ${escapeHtml(error.message || 'источник временно недоступен')}`); }
+        catch (sendError) { log('error', 'telegram_playlist_error_message_failed', { error: sendError, userId: user.id }); }
+      }
+    })();
+    return true;
+  }
   await send(chatId, 'Получено. Извлекаю рецепт — статус уже сохранён, можно закрыть чат.');
   let outcome;
   if (message.photo?.length) {
@@ -546,7 +579,7 @@ export async function handleMessage(message) {
   if (saveEntry?.kind === 'recipe-save' && (text === '/dinner' || text === '/ingredients')) restoreAfterRecipeSave(user.id, saveEntry);
   if (text === '/ingredients') { await sendDinnerIntakePrompt(chatId, user.id); return; }
   if (text === '/dinner') { await sendDinnerEntry(chatId, user.id); return; }
-  if (text === '/help') { await send(chatId, 'Короткий текст ищу в вашей коллекции. Подробный текст с ингредиентами и шагами, ссылку или фото сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …». Если в сообщении есть и просьба найти, и просьба сохранить, я уточню цель.'); return; }
+  if (text === '/help') { await send(chatId, 'Короткий текст ищу в вашей коллекции. Подробный текст с ингредиентами и шагами, ссылку или фото сохраняю как рецепт. С активным доступом можно отправить публичный плейлист YouTube — обработаю до 30 роликов. Можно явно написать «Сохрани рецепт: …» или «Найди …». Если в сообщении есть и просьба найти, и просьба сохранить, я уточню цель.'); return; }
   if (text === '/usage') { await send(chatId, usageMessage(user.id)); return; }
   if (text === '/delete_data CONFIRM') { deleteUserData(user.id); await send(chatId, 'Ваши рецепты и профиль удалены.'); return; }
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }

@@ -62,6 +62,15 @@ test('link import rejects malformed or unsafe protocols and retains valid source
   assert.deepEqual(f.opened, ['saved']);
 });
 
+test('playlist import reports a batch result without opening one recipe', async () => {
+  const f = fixture('url'); f.text.value = 'https://youtube.com/playlist?list=PL1234567890';
+  f.sandbox.api = async () => ({ state: 'playlist', accepted: true, limit: 30 });
+  await f.submit();
+  assert.equal(f.closed, 1);
+  assert.deepEqual(f.opened, []);
+  assert.match(f.notices[0], /Плейлист принят/);
+});
+
 test('photo validation handles missing and oversized files, valid photo retains caption', async () => {
   const f = fixture('image'); await f.submit();
   assert.match(f.message.textContent, /Выберите фото/);

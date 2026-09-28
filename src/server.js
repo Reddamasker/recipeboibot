@@ -5,7 +5,7 @@ import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
-import { importText, importUrl } from './importer.js';
+import { importText, importUrl, importYoutubePlaylist } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
@@ -19,6 +19,8 @@ import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotifica
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
 import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
+import { getSubscriptionAccess } from './subscriptions.js';
+import { youtubePlaylist } from './youtube.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -252,7 +254,16 @@ async function api(request, response, url) {
     if (!canImport) return json(response, 402, { error: `Для следующего автоматического импорта откройте предложение за ${billing.offer.priceRub} ₽`, offerPath: '/?view=offer' });
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
-    if (input.kind === 'url') outcome = await importUrl(user.id, String(input.value || ''));
+    if (input.kind === 'url') {
+      const value = String(input.value || '');
+      const playlist = youtubePlaylist(value);
+      if (playlist && !getSubscriptionAccess(user.id).active) return json(response, 402, { error: 'Импорт плейлистов доступен только с активной подпиской или премиум-доступом к боту', offerPath: '/?view=offer' });
+      if (playlist) {
+        void importYoutubePlaylist(user.id, playlist.url).catch(error => log('error', 'api_playlist_import_failed', { error, userId: user.id }));
+        return json(response, 202, { state: 'playlist', accepted: true, limit: 30 });
+      }
+      outcome = await importUrl(user.id, value);
+    }
     if (input.kind === 'image') {
       if (!/^image\/(jpeg|png|webp)$/.test(input.mime || '')) throw Object.assign(new Error('Разрешены JPEG, PNG и WEBP'), { status: 415 });
       const buffer = Buffer.from(String(input.value || ''), 'base64'); if (!buffer.length || buffer.length > config.maxUploadBytes) throw Object.assign(new Error('Изображение слишком большое'), { status: 413 });
