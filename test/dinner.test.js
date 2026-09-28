@@ -9,7 +9,7 @@ process.env.DINNER_LLM_ENABLED = 'false';
 
 const { db, upsertTelegramUser, allowUser, createRecipe } = await import('../src/db.js');
 const { hasExcludedIngredient, isDinnerCandidate, pantryCoverage, rankCandidates, recipeCategories, selectDinnerChoices, shortlistDinnerCandidates, SEED_RECIPES } = await import('../src/dinner.js');
-const { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } = await import('../src/dinner-intake.js');
+const { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } = await import('../src/dinner-intake.js');
 const { confirmDinnerIntake, recommendDinner, rejectDinnerBatch, startDinner, updateDinnerProfile } = await import('../src/dinner-service.js');
 const { getFoodProfile } = await import('../src/dinner-store.js');
 const { createServer } = await import('../src/server.js');
@@ -122,6 +122,24 @@ test('rice is a saved taste while a wish for today is an imperative request', ()
   assert.ok(exact.every((candidate) => candidate.categories.includes('asian') && candidate.categories.includes('rice')));
   assert.ok(!exact.some((candidate) => candidate.recipe.id === 'seed:keema-potato'));
   assert.deepEqual(recipeCategories({ title: 'Салат с рисовым уксусом', ingredients: [{ name: 'рисовый уксус' }] }), ['salad']);
+});
+
+test('a bare cuisine reply in the profile dialog is kept even when AI extraction is empty', () => {
+  const fallback = parseDinnerIntakeFallback('Итальянская кухня', { bareCategoriesAsLikes: true });
+  assert.deepEqual(fallback.preferredCategories, { pasta: 1 });
+  assert.deepEqual(fallback.availableIngredients, []);
+
+  const emptyExtraction = {
+    availableIngredients: [], excludedIngredients: [], removedIngredients: [], replaceIngredients: false,
+    householdSize: null, hasChildren: null, maxMinutes: null, likedCategories: [], dislikedCategories: [],
+    requestedCategories: [], replaceRequestedCategories: false
+  };
+  const combined = combineDinnerIntakeExtraction(emptyExtraction, fallback);
+  assert.deepEqual(normalizeDinnerIntake(combined).preferredCategories, { pasta: 1 });
+
+  const today = parseDinnerIntakeFallback('Сегодня хочу азиатское с рисом', { bareCategoriesAsLikes: true });
+  assert.deepEqual(today.preferredCategories, {});
+  assert.deepEqual(new Set(today.requestedCategories), new Set(['asian', 'rice']));
 });
 
 test('confirmed pantry changes candidate filtering, ranking and the dinner session', async () => {

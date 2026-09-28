@@ -542,6 +542,24 @@ test('profile introduction accepts partial text, missing size, correction and co
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('profile correction accepts a bare cuisine name as a preference', async () => {
+  const originalFetch = globalThis.fetch, sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  const from = { id: 6495, first_name: 'Кухня' }, chat = { id: from.id, type: 'private' };
+  try {
+    await telegramModule.handleMessage({ chat, from, text: '/start' });
+    await telegramModule.handleMessage({ chat, from, text: 'На одного.' });
+    assert.match(sent.at(-1).text, /Любим: не указано/);
+    await telegramModule.handleDinnerIntakeCallback({ id: 'bare-cuisine-redo', data: 'dinner:redo', message: { chat }, from });
+    await telegramModule.handleMessage({ chat, from, text: 'Итальянская кухня' });
+    const user = database.getUserByTelegramId(from.id);
+    const pending = database.getPendingIntent(user.id);
+    assert.deepEqual(pending.intake.preferredCategories, { pasta: 1 });
+    assert.deepEqual(pending.intake.availableIngredients, []);
+    assert.match(sent.at(-1).text, /Любим: паста/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('first profile voice message goes to confirmation without asking for products', async () => {
   const originalFetch = globalThis.fetch, sent = [];
   globalThis.fetch = async (url, options) => {

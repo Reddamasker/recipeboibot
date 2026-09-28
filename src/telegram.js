@@ -5,7 +5,7 @@ import { extractDinnerIntake, transcribeAudio } from './openai.js';
 import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
-import { mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
+import { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
@@ -140,9 +140,10 @@ async function handleDinnerIntakeMessage(message, user, pending) {
   }
   if (!transcript) return true;
   let extracted = null;
-  try { extracted = await extractDinnerIntake({ userId: user.id, transcript }); }
+  try { extracted = await extractDinnerIntake({ userId: user.id, transcript, profileOnly: Boolean(pending.profileOnly) }); }
   catch (error) { log('warn', 'dinner_intake_fallback', { error: error.message, userId: user.id }); }
-  const patch = extracted || parseDinnerIntakeFallback(transcript);
+  const fallback = parseDinnerIntakeFallback(transcript, { bareCategoriesAsLikes: Boolean(pending.profileOnly) });
+  const patch = combineDinnerIntakeExtraction(extracted, fallback);
   // In the profile conversation unknown words are not a list of food at home.
   if (pending.profileOnly && !extracted && !/(?:есть|дома|холодильник|продукт|остал)[^.!?\n]*\s/iu.test(transcript)) patch.availableIngredients = [];
   const intake = mergeDinnerIntake(pending.intake, patch);

@@ -276,6 +276,7 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.ok(body.text.format.schema.required.includes('requestedCategories'));
     assert.ok(body.text.format.schema.required.includes('replaceRequestedCategories'));
     assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);
+    assert.match(body.instructions, /«Итальянская кухня».*pasta/u);
     return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({
       availableIngredients: [], excludedIngredients: ['орехи'], removedIngredients: [], replaceIngredients: false,
       householdSize: 3, hasChildren: true, maxMinutes: 30, likedCategories: ['pasta','rice','chicken'], dislikedCategories: ['fish'],
@@ -283,7 +284,7 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     }), usage: { input_tokens: 20, output_tokens: 30 } }), { status: 200 });
   };
   try {
-    const result = await extractDinnerIntake({ userId: user.id, transcript: 'Люблю пасту, рис и курицу, не люблю рыбу. Сегодня хочу азиатское с рисом. Аллергия на орехи.' });
+    const result = await extractDinnerIntake({ userId: user.id, transcript: 'Люблю пасту, рис и курицу, не люблю рыбу. Сегодня хочу азиатское с рисом. Аллергия на орехи.', profileOnly: true });
     assert.deepEqual(result.likedCategories, ['pasta','rice','chicken']);
     assert.deepEqual(result.dislikedCategories, ['fish']);
     assert.deepEqual(result.requestedCategories, ['asian','rice']);

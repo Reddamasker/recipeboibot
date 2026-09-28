@@ -59,11 +59,28 @@ export function normalizeDinnerIntake(raw = {}) {
   return { availableIngredients, excludedIngredients, householdSize, householdType, hasChildren, maxMinutes, preferredCategories: normalizedPreferences(raw), requestedCategories };
 }
 
+export function combineDinnerIntakeExtraction(primary, fallback = {}) {
+  if (!primary) return fallback;
+  const extracted = normalizeDinnerIntake(primary), local = normalizeDinnerIntake(fallback);
+  return {
+    ...primary,
+    preferredCategories: { ...local.preferredCategories, ...extracted.preferredCategories },
+    requestedCategories: [...new Set([...extracted.requestedCategories, ...local.requestedCategories])],
+    replaceRequestedCategories: Boolean(primary.replaceRequestedCategories || fallback.replaceRequestedCategories)
+  };
+}
+
 const sizeWords = { одного: 1, двоих: 2, троих: 3, трое: 3, трех: 3, четырех: 4, четверых: 4, пятерых: 5, шестерых: 6 };
 
-export function parseDinnerIntakeFallback(text) {
+export function parseDinnerIntakeFallback(text, { bareCategoriesAsLikes = false } = {}) {
   const source = String(text || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').slice(0, 3000);
   const parts = source.split(/[,.!?;\n]+/u).map((part) => part.trim()).filter(Boolean);
+  if (bareCategoriesAsLikes && source.length <= 160 && parts.length && !/\d|(?:^|\s)(?:аллерг|без|нельзя|не\s+ем|есть|дома|холодильник|продукт|остал|сегодня|хоч|приготов|давай|люб|нрав|ненавиж|дет|ребен|минут|час)\w*/u.test(source)) {
+    const bareKeys = [...new Set(parts.flatMap((part) => TASTE_CATEGORIES.filter(([, pattern]) => pattern.test(part)).map(([key]) => key)))];
+    if (bareKeys.length && parts.every((part) => TASTE_CATEGORIES.some(([, pattern]) => pattern.test(part)))) {
+      return normalizeDinnerIntake({ preferredCategories: Object.fromEntries(bareKeys.map((key) => [key, 1])) });
+    }
+  }
   const availableIngredients = [], excludedIngredients = [], removedIngredients = [], preferredCategories = {}, requestedCategories = [];
   let householdSize = null, hasChildren = null, maxMinutes = null, family = false, excluding = false;
   for (const part of parts) {
