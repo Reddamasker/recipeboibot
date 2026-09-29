@@ -7,13 +7,13 @@ process.env.DATABASE_PATH = path.resolve('data', `contour-${process.pid}.sqlite`
 process.env.TELEGRAM_BOT_TOKEN = '123456:test-contour-secret';
 process.env.TELEGRAM_POLLING = 'false';
 process.env.TEST_CONTOUR = 'true';
-process.env.TEST_OWNER_TELEGRAM_ID = '6971956699';
 process.env.TEST_BOT_USERNAME = 'recipeboi_test_bot';
 process.env.DINNER_LLM_ENABLED = 'false';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 
 const { db, upsertTelegramUser, allowUser, createRecipe, recordAiAttempt } = await import('../src/db.js');
 const { createServer } = await import('../src/server.js');
+const { handleMessage, handleTestResetCallback } = await import('../src/telegram.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { buildWebDocument } = await import('../src/web-document.js');
 const { getSubscriptionAccess, monthAfter, monthsAfter, startTrial } = await import('../src/subscriptions.js');
@@ -124,15 +124,43 @@ test('test contour retains current tastes, specific recipe requests and mock che
   assert.equal(db.prepare('SELECT count(*) AS n FROM ai_reservations').get().n, 0);
 });
 
-test('test account data stays isolated and only the test owner can reset it', async () => {
+test('every test user can reset only their own account data', async () => {
   const other = { id: 987654, first_name: 'Другой' };
   const otherUser = upsertTelegramUser(other); allowUser(otherUser.id);
+  const otherRecipe = createRecipe(otherUser.id, { title: 'Чужой тестовый рецепт', status: 'ready' });
   const otherHeaders = { authorization: `tma ${makeTelegramInitData(other, process.env.TELEGRAM_BOT_TOKEN)}`, 'content-type': 'application/json' };
   const response = await fetch(base + '/api/dinner/profile', { headers: otherHeaders });
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).preferredCategories, {});
   const reset = await fetch(base + '/api/test/reset', { method: 'POST', headers: otherHeaders, body: '{}' });
-  assert.equal(reset.status, 403);
+  assert.equal(reset.status, 200);
+  assert.equal(db.prepare('SELECT id FROM users WHERE id=?').get(otherUser.id), undefined);
+  assert.equal(db.prepare('SELECT id FROM recipes WHERE id=?').get(otherRecipe.id), undefined);
+  assert.ok(db.prepare('SELECT id FROM users WHERE id=?').get(user.id));
+});
+
+test('every test user can invoke and confirm the Telegram reset command', async () => {
+  const other = { id: 987655, first_name: 'Другой' };
+  const otherUser = upsertTelegramUser(other); allowUser(otherUser.id);
+  createRecipe(otherUser.id, { title: 'Рецепт для сброса', status: 'ready' });
+  const realFetch = globalThis.fetch;
+  const telegramCalls = [];
+  globalThis.fetch = async (url, options) => {
+    if (String(url).startsWith('https://api.telegram.org/')) {
+      telegramCalls.push({ method: String(url).split('/').at(-1), body: JSON.parse(options.body) });
+      return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+    }
+    return realFetch(url, options);
+  };
+  try {
+    await handleMessage({ from: other, chat: { id: other.id, type: 'private' }, text: '/test_reset' });
+    assert.equal(telegramCalls[0].method, 'sendMessage');
+    assert.equal(telegramCalls[0].body.reply_markup.inline_keyboard[0][0].callback_data, 'test:reset:confirm');
+    assert.equal(await handleTestResetCallback({ id: 'callback-1', from: other, message: { chat: { id: other.id, type: 'private' } }, data: 'test:reset:confirm' }), true);
+    assert.equal(db.prepare('SELECT id FROM users WHERE id=?').get(otherUser.id), undefined);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 test('expired mock subscription can be renewed and duplicate success cannot extend the period', async () => {
@@ -164,7 +192,7 @@ test('same shipped UI includes tastes, written and voice requests, plus test-onl
   assert.doesNotMatch(document, /https:\/\/t.me\/Recipeboibot/);
 });
 
-test('explicit test reset preserves AI accounting and removes only the test owner data', async () => {
+test('explicit test reset preserves AI accounting and removes only the current user data', async () => {
   recordAiAttempt();
   const count = db.prepare('SELECT count(*) AS n FROM ai_reservations').get().n;
   const other = upsertTelegramUser({ id: 654321, first_name: 'Сохранить' });

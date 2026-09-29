@@ -11,7 +11,7 @@ import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile }
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
-import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
+import { canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
 import { getSubscriptionAccess } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
@@ -549,7 +549,7 @@ export async function handleMessage(message) {
   const chatId = message.chat.id;
   const user = resolvePrivateTelegramUser(message.from);
   const text = message.text?.trim() || message.caption?.trim() || '';
-  if (config.testContour && text === '/test_reset' && String(message.from.id) === config.testOwnerTelegramId) {
+  if (config.testContour && text === '/test_reset') {
     await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;
   }
@@ -755,7 +755,6 @@ export function stopTelegramPolling() { running = false; }
 
 export async function handleTestResetCallback(callback) {
   if (!config.testContour || !callback.data?.startsWith('test:reset:')) return false;
-  requireTestOwner(callback.from?.id);
   if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from.id)) return false;
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   if (callback.data === 'test:reset:confirm') {

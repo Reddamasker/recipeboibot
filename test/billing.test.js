@@ -8,7 +8,6 @@ process.env.DATABASE_PATH = path.resolve('data', `billing-${process.pid}.sqlite`
 process.env.TELEGRAM_BOT_TOKEN = '123456:billing-test-secret';
 process.env.TELEGRAM_POLLING = 'false';
 process.env.TEST_CONTOUR = 'true';
-process.env.TEST_OWNER_TELEGRAM_ID = '6971956699';
 process.env.TEST_BOT_USERNAME = 'recipeboi_test_bot';
 process.env.ROBOKASSA_MERCHANT_LOGIN = 'billing-test-shop';
 process.env.ROBOKASSA_PASSWORD1 = 'billing-password-one';

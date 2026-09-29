@@ -14,7 +14,7 @@ import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
-import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
+import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
@@ -157,7 +157,6 @@ async function api(request, response, url) {
       return json(response, 200, finishMockOrder(user.id, orderResult[1], input.result));
     }
     if (request.method === 'POST' && url.pathname === '/api/test/reset') {
-      requireTestOwner(user.telegram_id);
       resetTestUser(user.telegram_id);
       return json(response, 200, { reset: true });
     }

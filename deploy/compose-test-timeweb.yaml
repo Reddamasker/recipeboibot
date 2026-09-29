@@ -16,7 +16,6 @@ services:
       OPENAI_HTTPS_PROXY: http://72.56.97.79:3128
       NODE_OPTIONS: "--dns-result-order=ipv6first --no-network-family-autoselection"
       TEST_CONTOUR: "true"
-      TEST_OWNER_TELEGRAM_ID: "6971956699"
       TEST_BOT_USERNAME: recipeboi_test_bot
       TEST_PRICE_VARIANTS: "129"
       TELEGRAM_POLLING: "true"

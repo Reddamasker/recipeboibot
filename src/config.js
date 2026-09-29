@@ -38,7 +38,6 @@ export const config = Object.freeze({
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   telegramPolling: process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',
-  testOwnerTelegramId: process.env.TEST_OWNER_TELEGRAM_ID || '',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
   testPriceVariants: csvIntegers('TEST_PRICE_VARIANTS', '129'),
   billingRequired: process.env.BILLING_REQUIRED === 'true',
@@ -78,7 +77,6 @@ export function assertConfig() {
     if (!value) missing.push(name);
   }
   if (missing.length) throw new Error(`Не настроены: ${missing.join(', ')}`);
-  if (config.testContour && !/^[1-9][0-9]*$/.test(config.testOwnerTelegramId)) throw new Error('Не настроен TEST_OWNER_TELEGRAM_ID');
   if (config.testContour && !/^[A-Za-z0-9_]{5,32}$/.test(config.testBotUsername)) throw new Error('Не настроен TEST_BOT_USERNAME');
   if (config.testContour && (config.testPriceVariants.length === 0 || config.testPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.testPriceVariants).size !== config.testPriceVariants.length)) throw new Error('Неверный TEST_PRICE_VARIANTS');
   if (config.paymentPriceVariants.length === 0 || config.paymentPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.paymentPriceVariants).size !== config.paymentPriceVariants.length) throw new Error('Неверный PAYMENT_PRICE_VARIANTS');

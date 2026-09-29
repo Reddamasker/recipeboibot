@@ -7,9 +7,8 @@ import { publicSubscriptionPlans, subscriptionPlan } from './plans.js';
 
 const error = (message, status) => Object.assign(new Error(message), { status });
 
-export function requireTestOwner(telegramId) {
+function requireTestContour() {
   if (!config.testContour) throw error('Не найдено', 404);
-  if (String(telegramId) !== config.testOwnerTelegramId) throw error('Тестовый контур закрыт', 403);
 }
 
 function ensureMockTables() {
@@ -172,7 +171,7 @@ export function cancelMockAutoRenew(userId) {
 }
 
 export function resetTestUser(telegramId) {
-  requireTestOwner(telegramId);
+  requireTestContour();
   const user = getUserByTelegramId(telegramId);
   if (!user) return false;
   // Provider accounting remains for honest cost tracking.
