@@ -891,7 +891,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
   const editButton = shared || catalog ? '' : '<button class="detail-edit" id="edit" type="button">Изменить</button>';
   const actions = suggestion
     ? '<div class="detail-actions"><button class="primary accent" id="save-suggestion" type="button">Добавить в мои рецепты</button><button class="secondary" id="cook" type="button">Начать готовить</button></div>'
-    : shared || catalog
+    : shared
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
   const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><div class="detail-heading-tools"><div class="eyebrow">${shared ? 'Рецепт по ссылке' : suggestion || r.dinnerGenerated ? 'Создано для тебя' : catalog ? 'Из нашей подборки' : 'Сохранённый рецепт'}</div>${editButton}</div><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
@@ -944,7 +944,8 @@ async function waitForSuggestionImage(id, overlayElement) {
 async function shareRecipe(recipe, button) {
   const label = button.textContent; button.disabled = true; button.textContent = 'Готовлю ссылку…';
   try {
-    const share = await api(`/api/recipes/${encodeURIComponent(recipe.id)}/share`, { method: 'POST', body: '{}' });
+    const route = /^(seed|dinner):/.test(recipe.id) ? '/api/dinner/recipes' : '/api/recipes';
+    const share = await api(`${route}/${encodeURIComponent(recipe.id)}/share`, { method: 'POST', body: '{}' });
     const url = new URL(share.path, location.origin).toString();
     const text = `Смотри рецепт «${recipe.title}»`;
     const telegramShareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;

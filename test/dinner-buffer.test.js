@@ -197,6 +197,16 @@ test('full generated detail is private and its generated illustration is served 
     const detail = await response.json();
     assert.equal(detail.steps.length, selected.recipe.steps.length);
     assert.equal(detail.ingredients.length, selected.recipe.ingredients.length);
+    const shareResponse = await fetch(url + '/share', { method: 'POST', headers, body: '{}' });
+    assert.equal(shareResponse.status, 200);
+    const share = await shareResponse.json();
+    const publicRecipe = await (await fetch(base + share.path.replace('/share/', '/api/shares/'))).json();
+    assert.equal(publicRecipe.title, selected.recipe.title);
+    assert.equal(publicRecipe.sharedBy, 'Генерация');
+    assert.match(publicRecipe.thumbnailUrl, /^\/shared-recipe-images\/[A-Za-z0-9_-]{32}$/);
+    const publicImage = await fetch(base + publicRecipe.thumbnailUrl);
+    assert.equal(publicImage.status, 200);
+    assert.deepEqual(Buffer.from(await publicImage.arrayBuffer()), jpeg);
     assert.equal(detail.thumbnailUrl, `/dinner-images/${selected.id}`);
     const image = await fetch(base + detail.thumbnailUrl);
     assert.equal(image.headers.get('content-type'), 'image/jpeg');

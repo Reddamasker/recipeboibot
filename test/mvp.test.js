@@ -13,6 +13,7 @@ process.env.INVITE_CODE = 'test-invite-code';
 
 const security = await import('../src/security.js');
 const database = await import('../src/db.js');
+const { SEED_RECIPES } = await import('../src/dinner.js');
 const { createServer } = await import('../src/server.js');
 const serverModule = await import('../src/server.js');
 
@@ -80,6 +81,26 @@ test('recipe share links are stable, read-only and do not expose personal notes'
   assert.equal('user_id' in shared, false);
   database.archiveRecipe(owner.id, recipe.id);
   assert.equal(database.getSharedRecipe(token), null);
+});
+
+test('dinner recipe shares are stable snapshots with an optional public image', () => {
+  const owner = database.upsertTelegramUser({ id: 304, first_name: 'Павел' });
+  const recipe = {
+    id: 'dinner:11111111-1111-4111-8111-111111111111', origin: 'generated', title: 'Форель с овощами',
+    description: 'Ужин для семьи', servings: 4, prepMinutes: 10, cookMinutes: 25,
+    ingredients: [{ name: 'форель' }], steps: [{ position: 1, text: 'Запечь' }], tags: ['ужин'], warnings: [],
+    sourceUrl: null, sourceName: 'Создано для тебя', dinnerGenerated: true, pantryMatch: { missing: ['лимон'] }
+  };
+  const image = { mime: 'image/jpeg', bytes: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) };
+  const token = database.createDinnerRecipeShare(owner.id, recipe.id, recipe);
+  assert.match(token, /^[A-Za-z0-9_-]{32}$/);
+  assert.equal(database.createDinnerRecipeShare(owner.id, recipe.id, recipe, image), token);
+  const shared = database.getSharedRecipe(token);
+  assert.equal(shared.title, 'Форель с овощами');
+  assert.equal(shared.sharedBy, 'Павел');
+  assert.equal(shared.thumbnailUrl, `/shared-recipe-images/${token}`);
+  assert.equal('pantryMatch' in shared, false);
+  assert.deepEqual(Buffer.from(database.getSharedRecipeImage(token).bytes), image.bytes);
 });
 
 test('SSRF guard rejects localhost and private addresses', async () => {
@@ -177,6 +198,12 @@ test('owner can create a public recipe link that opens without Telegram auth', a
     assert.equal(publicRecipe.title, 'Шарлотка');
     assert.equal(publicRecipe.sharedBy, 'Лена');
     assert.equal('notes' in publicRecipe, false);
+    const dinnerCreated = await fetch(`${base}/api/dinner/recipes/${encodeURIComponent(SEED_RECIPES[0].id)}/share`, { method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(dinnerCreated.status, 200);
+    const dinnerShare = await dinnerCreated.json();
+    const publicDinner = await (await fetch(`${base}/api/shares/${dinnerShare.token}`)).json();
+    assert.equal(publicDinner.title, SEED_RECIPES[0].title);
+    assert.equal(publicDinner.sharedBy, 'Лена');
     assert.equal((await fetch(`${base}/api/shares/${'x'.repeat(32)}`)).status, 404);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });

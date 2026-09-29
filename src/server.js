@@ -4,7 +4,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
-import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
+import { archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSharedRecipeImage, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importText, importUrl, importYoutubePlaylist } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
@@ -191,6 +191,14 @@ async function api(request, response, url) {
     const recipe = getDinnerRecipe(user.id, decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length)));
     return json(response, recipe ? 200 : 404, recipe ? { ...recipe, pantryMatch: pantryCoverage(recipe, getDinnerContext(user.id)) } : { error: 'Рецепт не найден' });
   }
+  const dinnerShare = url.pathname.match(/^\/api\/dinner\/recipes\/([^/]+)\/share$/);
+  if (request.method === 'POST' && dinnerShare) {
+    const key = decodeURIComponent(dinnerShare[1]);
+    const recipe = getDinnerRecipe(user.id, key);
+    const image = key.startsWith('dinner:') ? getDinnerOptionImage(key.slice(7)) : null;
+    const token = recipe ? createDinnerRecipeShare(user.id, key, recipe, image) : null;
+    return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
+  }
   if (request.method === 'PUT' && url.pathname === '/api/dinner/profile') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 4000)));
   if (request.method === 'POST' && url.pathname === '/api/dinner/open') return json(response, 200, startDinner(user.id));
   if (request.method === 'PUT' && url.pathname === '/api/dinner/request') return json(response, 200, await changeDinnerRequest(user.id, (await bodyJson(request, 4000)).query));
@@ -376,6 +384,13 @@ export function createServer() {
       }
       if (request.method === 'GET' && /^\/recipe-images\/[0-9a-f-]{36}$/i.test(url.pathname)) {
         const image = getRecipeImage(url.pathname.split('/').at(-1));
+        if (!image) return json(response, 404, { error: 'Изображение недоступно' });
+        securityHeaders(response);
+        response.writeHead(200, { 'content-type': image.mime, 'content-length': image.bytes.length, 'cache-control': 'public, max-age=86400' });
+        return response.end(image.bytes);
+      }
+      if (request.method === 'GET' && /^\/shared-recipe-images\/[A-Za-z0-9_-]{32}$/.test(url.pathname)) {
+        const image = getSharedRecipeImage(url.pathname.split('/').at(-1));
         if (!image) return json(response, 404, { error: 'Изображение недоступно' });
         securityHeaders(response);
         response.writeHead(200, { 'content-type': image.mime, 'content-length': image.bytes.length, 'cache-control': 'public, max-age=86400' });

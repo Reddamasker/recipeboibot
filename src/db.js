@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS recipe_shares (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS recipe_shares_recipe ON recipe_shares(recipe_id);
+CREATE TABLE IF NOT EXISTS dinner_recipe_shares (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipe_key TEXT NOT NULL,
+  recipe_json TEXT NOT NULL,
+  image_mime TEXT CHECK(image_mime IN ('image/jpeg','image/png','image/webp')),
+  image_bytes BLOB,
+  created_at TEXT NOT NULL,
+  UNIQUE(user_id, recipe_key)
+);
 CREATE TABLE IF NOT EXISTS import_jobs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -468,31 +478,55 @@ export function createRecipeShare(userId, recipeId) {
   db.prepare('INSERT INTO recipe_shares(token,recipe_id,created_at) VALUES(?,?,?)').run(token, recipeId, now());
   return token;
 }
+const publicRecipe = (recipe, sharedBy, thumbnailUrl = recipe.thumbnailUrl) => ({
+  id: recipe.id,
+  origin: recipe.origin,
+  title: recipe.title,
+  description: recipe.description,
+  servings: recipe.servings,
+  prepMinutes: recipe.prepMinutes,
+  cookMinutes: recipe.cookMinutes,
+  ingredients: recipe.ingredients,
+  steps: recipe.steps,
+  tags: recipe.tags,
+  warnings: recipe.warnings,
+  sourceUrl: recipe.sourceUrl,
+  sourceName: recipe.sourceName,
+  thumbnailUrl,
+  sharedBy
+});
+export function createDinnerRecipeShare(userId, recipeKey, recipe, image = null) {
+  const owner = db.prepare('SELECT id FROM users WHERE id=?').get(userId);
+  if (!owner || !recipe || recipe.id !== recipeKey) return null;
+  const current = db.prepare('SELECT token,image_bytes FROM dinner_recipe_shares WHERE user_id=? AND recipe_key=?').get(userId, recipeKey);
+  if (current) {
+    if (image && !current.image_bytes) {
+      const snapshot = publicRecipe(recipe, null, `/shared-recipe-images/${current.token}`);
+      db.prepare('UPDATE dinner_recipe_shares SET recipe_json=?,image_mime=?,image_bytes=? WHERE token=?')
+        .run(JSON.stringify(snapshot), image.mime, image.bytes, current.token);
+    }
+    return current.token;
+  }
+  const token = randomBytes(24).toString('base64url');
+  const snapshot = publicRecipe(recipe, null, image ? `/shared-recipe-images/${token}` : recipe.thumbnailUrl);
+  db.prepare('INSERT INTO dinner_recipe_shares(token,user_id,recipe_key,recipe_json,image_mime,image_bytes,created_at) VALUES(?,?,?,?,?,?,?)')
+    .run(token, userId, recipeKey, JSON.stringify(snapshot), image?.mime || null, image?.bytes || null, now());
+  return token;
+}
 export function getSharedRecipe(token) {
   const row = db.prepare(`SELECT r.*, u.display_name AS shared_by
     FROM recipe_shares s
     JOIN recipes r ON r.id=s.recipe_id
     JOIN users u ON u.id=r.user_id
     WHERE s.token=? AND r.status!='archived'`).get(String(token));
-  if (!row) return null;
-  const recipe = parseRecipe(row);
-  return {
-    id: recipe.id,
-    origin: recipe.origin,
-    title: recipe.title,
-    description: recipe.description,
-    servings: recipe.servings,
-    prepMinutes: recipe.prepMinutes,
-    cookMinutes: recipe.cookMinutes,
-    ingredients: recipe.ingredients,
-    steps: recipe.steps,
-    tags: recipe.tags,
-    warnings: recipe.warnings,
-    sourceUrl: recipe.sourceUrl,
-    sourceName: recipe.sourceName,
-    thumbnailUrl: recipe.thumbnailUrl,
-    sharedBy: row.shared_by
-  };
+  if (row) return publicRecipe(parseRecipe(row), row.shared_by);
+  const dinner = db.prepare(`SELECT s.recipe_json,u.display_name AS shared_by
+    FROM dinner_recipe_shares s JOIN users u ON u.id=s.user_id WHERE s.token=?`).get(String(token));
+  if (!dinner) return null;
+  return { ...JSON.parse(dinner.recipe_json), sharedBy: dinner.shared_by };
+}
+export function getSharedRecipeImage(token) {
+  return db.prepare('SELECT image_mime AS mime,image_bytes AS bytes FROM dinner_recipe_shares WHERE token=? AND image_bytes IS NOT NULL').get(String(token));
 }
 export function updateRecipe(userId, id, input) {
   const current = getRecipe(userId, id);
