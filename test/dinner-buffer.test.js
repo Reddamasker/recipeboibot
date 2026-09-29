@@ -159,6 +159,10 @@ test('generated validation rejects allergies, missing base, invalid amounts, slo
   assert.equal(validateGeneratedDinner(hidden, { ...context, profile: { ...context.profile, excludedIngredients: ['молоко'] } }), null);
   const hiddenComment = structuredClone(item); hiddenComment.recipe.ingredients[0].comment = 'Смешать с молоком';
   assert.equal(validateGeneratedDinner(hiddenComment, { ...context, profile: { ...context.profile, excludedIngredients: ['молоко'] } }), null);
+  const unusualContext = { ...context, mealRequest: { kind: 'open', novelty: 'unusual', requiredIngredients: [], excludedIngredients: [], methods: [] } };
+  assert.equal(validateGeneratedDinner(item, unusualContext), null);
+  const unusual = structuredClone(item); unusual.discovery = 'Узнаваемое региональное блюдо с непривычной подачей';
+  assert.ok(validateGeneratedDinner(unusual, unusualContext));
 });
 
 test('full generated detail is private and its generated illustration is served from the stored bytes', async () => {
@@ -278,7 +282,10 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.ok(body.text.format.schema.required.includes('replaceRequestedCategories'));
     assert.ok(body.text.format.schema.properties.mealRequest.required.includes('kind'));
     assert.ok(body.text.format.schema.properties.mealRequest.required.includes('confidence'));
+    assert.ok(body.text.format.schema.properties.mealRequest.required.includes('novelty'));
     assert.deepEqual(body.text.format.schema.properties.mealRequest.properties.kind.enum, ['exact','open']);
+    assert.deepEqual(body.text.format.schema.properties.mealRequest.properties.novelty.enum, ['unusual','familiar',null]);
+    assert.match(body.instructions, /novelty=unusual/u);
     const categories = body.text.format.schema.properties.likedCategories.items.enum;
     for (const key of ['pizza','georgian','italian','european','asian']) assert.ok(categories.includes(key), key);
     assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);

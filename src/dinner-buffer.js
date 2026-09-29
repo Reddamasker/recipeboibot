@@ -38,12 +38,14 @@ export function validateGeneratedDinner(item, context) {
     const time = s.text.match(/(?:варите|тушите)[^\d.!?]{0,80}(\d{1,2})(?:\s*[–—-]\s*(\d{1,2}))?\s*мин/iu);
     return time && Number(time[2] || time[1]) < 15;
   })) return null;
-  if (item.role === 'variety' && (typeof item.discovery !== 'string' || item.discovery.trim().length < 8 || item.discovery.length > 200)) return null;
+  const needsDiscovery = item.role === 'variety' || context.mealRequest?.novelty === 'unusual';
+  if (needsDiscovery && (typeof item.discovery !== 'string' || item.discovery.trim().length < 8 || item.discovery.length > 200)) return null;
+  if (context.mealRequest?.novelty === 'familiar' && typeof item.discovery === 'string' && item.discovery.trim()) return null;
   // Ignore provider IDs, sources and main-ingredient claims; derive the base from actual ingredients.
   const recipe = { title: raw.title.trim(), description: raw.description, servings: raw.servings, prepMinutes: raw.prepMinutes, cookMinutes: raw.cookMinutes,
     ingredients: raw.ingredients.map((i) => ({ name: i.name.trim(), raw: i.name.trim(), quantity: i.quantity, unit: i.unit, comment: typeof i.comment === 'string' ? i.comment.slice(0, 300) : null })),
     steps: raw.steps.map((s, i) => ({ position: i + 1, text: s.text })), tags: raw.tags, warnings: [],
-    discovery: item.role === 'variety' ? item.discovery.trim() : null, origin: 'generated', dinnerGenerated: true, userSaved: false,
+    discovery: typeof item.discovery === 'string' && item.discovery.trim() ? item.discovery.trim() : null, origin: 'generated', dinnerGenerated: true, userSaved: false,
     sourceName: 'Создано для тебя', sourceUrl: null, thumbnailUrl: null };
   recipe.mainIngredients = recipeMainIngredients(recipe);
   if (context.pantry.length && !recipe.mainIngredients.length) return null;

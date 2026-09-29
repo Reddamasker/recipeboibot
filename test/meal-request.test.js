@@ -72,6 +72,37 @@ test('open-ended rice request does not turn a placeholder into a dish name', () 
   assert.deepEqual(combined.requestedCategories, ['rice']);
 });
 
+test('unusual minced-beef request rejects everyday macaroni and keeps the novelty constraint', async () => {
+  const query = 'Дай че нить необычное из фарша говяжьего на ужин';
+  const request = parseMealRequest(query);
+  assert.equal(request.kind, 'open');
+  assert.equal(request.dish, '');
+  assert.equal(request.novelty, 'unusual');
+  assert.deepEqual(request.requiredIngredients, ['фарша говяжьего']);
+
+  const macaroni = SEED_RECIPES.find((recipe) => recipe.id === 'seed:mince-pasta');
+  const keftedes = SEED_RECIPES.find((recipe) => recipe.id === 'seed:keftedes');
+  assert.equal(matchesMealRequest(macaroni, request), false);
+  assert.equal(matchesMealRequest(keftedes, request), true);
+
+  const owner = user();
+  db.createRecipeSuggestion(owner.id, `request:${query}`, macaroni, { ...request, novelty: null });
+  const result = await suggestions.resolveRecipeRequest(owner.id, query, { generate: assert.fail, interpret: async () => request });
+  assert.equal(result.kind, 'existing');
+  assert.notEqual(result.recipe.title, 'Макароны по-флотски');
+  assert.ok(result.recipe.discovery);
+});
+
+test('generated recipe needs a real discovery explanation when unusual was requested', async () => {
+  const owner = user(), query = 'предложи необычное с романеско';
+  const mealRequest = normalizeMealRequest({ text: query, kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['романеско'], novelty: 'unusual', excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
+  const ordinary = { ...steak(), title: 'Романеско с фаршем', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'говяжий фарш', quantity: 300, unit: 'г' }] };
+  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest, generate: async () => ordinary }), { status: 422 });
+  const result = await suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest, generate: async () => ({ ...ordinary, title: 'Кёфте с романеско', discovery: 'Турецкие пряные кёфте с необычным овощным гарниром' }) });
+  assert.equal(result.kind, 'generated');
+  assert.ok(result.suggestion.recipe.discovery);
+});
+
 test('semantic intent handles unseen open wording, exact dishes and ambiguous phrases without keyword lists', () => {
   const open = normalizeMealRequest({ text: 'собери мне уютный вариант без лишней возни', kind: 'open', confidence: 'high', dish: 'уютный вариант', requiredIngredients: ['рис'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
   assert.equal(open.kind, 'open');

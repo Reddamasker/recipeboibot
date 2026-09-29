@@ -158,12 +158,12 @@ test('private Telegram request generates only after no ready recipe and waits fo
       aiCalls += 1;
       const body = JSON.parse(options.body);
       if (body.text.format.name === 'meal_request_interpretation') {
-        return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
+        return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], novelty: null, excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
       }
       assert.equal(body.text.format.name, 'requested_recipe_generation');
       assert.match(body.instructions, /preferredCategories/);
       assert.deepEqual(JSON.parse(body.input[0].content[0].text).profile.preferredCategories, { soup: 1, fish: -1 });
-      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20, ingredients: [{ name: 'тыква', raw: 'тыква' }] }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
+      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20, ingredients: [{ name: 'тыква', raw: 'тыква' }], discovery: null }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
     }
     sent.push(JSON.parse(options.body));
     return { json: async () => ({ ok: true, result: { message_id: 12 } }) };
@@ -199,13 +199,13 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
           calls++;
           const body = JSON.parse(options.body);
           if (body.text.format.name === 'meal_request_interpretation') {
-            return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+            return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], novelty: null, excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
           }
           const input = JSON.parse(body.input[0].content[0].text);
           assert.equal(body.text.format.name, 'requested_recipe_generation');
           assert.equal(input.query, 'Дай рецепт стейка');
           assert.equal(input.mealRequest.dish, 'стейка');
-          return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ ...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'] }) }), { status: 200 });
+          return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ ...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'], discovery: null }) }), { status: 200 });
         }
         sent.push(JSON.parse(options.body));
         return { json: async () => ({ ok: true, result: { message_id: 71 } }) };

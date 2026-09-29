@@ -5,9 +5,10 @@ const list = (value) => [...new Set((Array.isArray(value) ? value : []).filter((
 const words = (value) => clean(value).match(/[\p{L}\p{N}]+/gu) || [];
 export const mealRequestSchema = { type: ['object', 'null'], additionalProperties: false, properties: {
   text: { type: 'string' }, kind: { type: 'string', enum: ['exact', 'open'] }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] }, dish: { type: 'string' }, requiredIngredients: { type: 'array', items: { type: 'string' } },
+  novelty: { type: ['string', 'null'], enum: ['unusual', 'familiar', null] },
   excludedIngredients: { type: 'array', items: { type: 'string' } }, methods: { type: 'array', items: { type: 'string', enum: ['гриль', 'духовка', 'пар', 'сковорода'] } },
   maxMinutes: { type: ['integer', 'null'] }, servings: { type: ['integer', 'null'] }
-}, required: ['text', 'kind', 'confidence', 'dish', 'requiredIngredients', 'excludedIngredients', 'methods', 'maxMinutes', 'servings'] };
+}, required: ['text', 'kind', 'confidence', 'dish', 'requiredIngredients', 'novelty', 'excludedIngredients', 'methods', 'maxMinutes', 'servings'] };
 const ignored = new Set(['с', 'со', 'из', 'и', 'по', 'на', 'в', 'для']);
 const forms = [
   /^(?:стейк|рибай|стриплойн|тибон|ribeye|steak)/u,
@@ -39,6 +40,7 @@ export function normalizeMealRequest(raw) {
   const confidence = ['high', 'medium', 'low'].includes(raw.confidence) ? raw.confidence : null;
   const dish = kind === 'open' ? '' : normalizedDish;
   const result = { text: clean(raw.text), kind, confidence, dish, requiredIngredients: list(raw.requiredIngredients),
+    novelty: ['unusual', 'familiar'].includes(raw.novelty) ? raw.novelty : null,
     excludedIngredients: list(raw.excludedIngredients), methods: list(raw.methods),
     maxMinutes: Number.isInteger(raw.maxMinutes) && raw.maxMinutes >= 5 && raw.maxMinutes <= 180 ? raw.maxMinutes : null,
     servings: Number.isInteger(raw.servings) && raw.servings >= 1 && raw.servings <= 10 ? raw.servings : null };
@@ -64,6 +66,12 @@ export function parseMealRequest(text) {
   const people = source.match(/(?:на|для)\s*(\d+|одного|двоих|троих|четверых|пятерых|шестерых)/u);
   const servings = people ? Number(people[1]) || ({ одного: 1, двоих: 2, троих: 3, четверых: 4, пятерых: 5, шестерых: 6 })[people[1]] : null;
   const excludedIngredients = [], requiredIngredients = [], methods = [];
+  const novelty = /(?:^|\s)(?:необычн|нестандартн|незаезжен|оригинальн)[\p{L}]*(?=\s|$)/u.test(rest) ? 'unusual'
+    : /(?:^|\s)(?:обычн|привычн|классическ)[\p{L}]*(?=\s|$)/u.test(rest) ? 'familiar' : null;
+  rest = rest.replace(/(?:^|\s)(?:необычн|нестандартн|незаезжен|оригинальн|обычн|привычн|классическ)[\p{L}]*(?=\s|$)/gu, ' ')
+    .replace(/(?:^|\s)(?:что|че|чё)(?:\s*[- ]?\s*)(?:то|нибудь|нить|либо)(?=\s|$)/gu, ' ')
+    .replace(/(?:^|\s)на\s+(?:ужин|обед|завтрак)(?=\s|$)/gu, ' ')
+    .replace(/\s+/gu, ' ').trim();
   const max = rest.match(/(?:за|до|максимум|не больше)\s*(\d{1,3})\s*мин/u);
   const maxMinutes = max ? Number(max[1]) : /быстр|полчаса/u.test(rest) ? 30 : null;
   rest = rest.replace(/(?:за|до|максимум|не больше)\s*\d{1,3}\s*мин[\p{L}.]*/gu, ' ')
@@ -79,7 +87,7 @@ export function parseMealRequest(text) {
     .replace(/[,.!?;:]+/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (/^(?:говядина|говядину|курица|курицу|свинина|свинину|рыба|рыбу|рис|фарш|индейка|индейку)$/u.test(rest)) { requiredIngredients.push(rest); rest = ''; }
   if (/^(?:мясо|азиатское|домашнее)$/u.test(rest)) rest = '';
-  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, excludedIngredients, methods, maxMinutes, servings });
+  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, novelty, excludedIngredients, methods, maxMinutes, servings });
 }
 
 export function mergeMealRequests(before, patch, replace = false) {
@@ -87,7 +95,7 @@ export function mergeMealRequests(before, patch, replace = false) {
   if (replace) return b;
   if (!b) return a;
   if (!a) return b;
-  return normalizeMealRequest({ text: `${a.text}; ${b.text}`, kind: b.dish ? b.kind : a.kind, confidence: b.dish ? b.confidence : a.confidence, dish: b.dish || a.dish,
+  return normalizeMealRequest({ text: `${a.text}; ${b.text}`, kind: b.dish ? b.kind : a.kind, confidence: b.dish ? b.confidence : a.confidence, dish: b.dish || a.dish, novelty: b.novelty || a.novelty,
     requiredIngredients: [...a.requiredIngredients, ...b.requiredIngredients], excludedIngredients: [...a.excludedIngredients, ...b.excludedIngredients],
     methods: [...a.methods, ...b.methods], maxMinutes: b.maxMinutes ?? a.maxMinutes, servings: b.servings ?? a.servings });
 }
@@ -100,6 +108,9 @@ export function matchesMealRequest(recipe, raw) {
   // Low-confidence classification is a soft hint: hard filters must not turn
   // an ambiguous phrase into a literal dish name and reject every result.
   if (request.dish && request.kind === 'exact' && request.confidence !== 'low' && !containsFoodPhrase(recipe.title, request.dish)) return false;
+  const hasDiscovery = typeof recipe.discovery === 'string' && recipe.discovery.trim().length >= 8;
+  if (request.novelty === 'unusual' && !hasDiscovery) return false;
+  if (request.novelty === 'familiar' && hasDiscovery) return false;
   const ingredients = (recipe.ingredients || []).map((i) => i.name || i.raw || i);
   if (request.requiredIngredients.some((item) => !ingredients.some((name) => containsFoodPhrase(name, item)))) return false;
   const steps = (recipe.steps || []).map((s) => s.text || s).join(' ');

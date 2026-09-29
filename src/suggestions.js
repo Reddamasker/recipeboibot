@@ -9,6 +9,9 @@ import { parseDinnerIntakeFallback } from './dinner-intake.js';
 import { log } from './log.js';
 
 const inFlight = new Map();
+const REQUEST_CACHE_VERSION = 2;
+const requestSuggestionKey = (query) => `request:${REQUEST_CACHE_VERSION}:${query}`;
+const requestFromSuggestionKey = (key) => String(key || '').replace(/^request:(?:\d+:)?/u, '');
 function requestContext(userId, query, mealRequestOverride = null) {
   const normalized = String(query || '').trim().slice(0, 500);
   if (!normalized) throw Object.assign(new Error('Напишите, что хотите приготовить'), { status: 400 });
@@ -33,7 +36,7 @@ const invalidRequest = () => Object.assign(new Error('Рецепт не соот
 
 export function assertSuggestionCurrent(userId, suggestion) {
   if (!suggestion) throw invalidRequest();
-  const query = suggestion.query.replace(/^request:/u, '');
+  const query = requestFromSuggestionKey(suggestion.query);
   if (!validRecipe(suggestion.recipe, requestContext(userId, query, suggestion.mealRequest))) throw invalidRequest();
 }
 
@@ -50,7 +53,7 @@ export function findRequestedRecipe(userId, query, contextOverride = null) {
 async function generateSuggestion(userId, query, generate, requested, contextOverride = null) {
   requireUnexpiredTrial(userId);
   const context = contextOverride || requestContext(userId, query), { normalized, profile, excluded, maxMinutes, mealRequest } = context;
-  const suggestionKey = (requested ? 'request:' : '') + normalized;
+  const suggestionKey = requested ? requestSuggestionKey(normalized) : normalized;
   const cached = findRecipeSuggestion(userId, suggestionKey);
   if (cached && validRecipe(cached.recipe, context, true)) {
     if (requested && !cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached);
@@ -91,7 +94,7 @@ export async function suggestForEmptySearch(userId, query, { generate = generate
 
 export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe, interpret = generate === generateRequestedRecipe ? interpretMealRequest : null } = {}) {
   const normalized = String(query || '').trim().slice(0, 500);
-  const cached = normalized && findRecipeSuggestion(userId, `request:${normalized}`);
+  const cached = normalized && findRecipeSuggestion(userId, requestSuggestionKey(normalized));
   if (cached && validRecipe(cached.recipe, requestContext(userId, normalized, cached.mealRequest), true)) {
     if (!cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached);
     return { kind: 'generated', suggestion: cached };
