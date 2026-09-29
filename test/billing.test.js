@@ -32,7 +32,7 @@ const {
   recordBillingExposure,
   runRecurringCycle
 } = await import('../src/billing.js');
-const { getSubscriptionAccess } = await import('../src/subscriptions.js');
+const { getSubscriptionAccess, startTrial } = await import('../src/subscriptions.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 
@@ -110,6 +110,19 @@ test('callback rejects a bad signature or amount without granting access', () =>
   assert.throws(() => processRobokassaResult({ OutSum: wrong, InvId: order.invId, SignatureValue: digest(`${wrong}:${order.invId}:${process.env.ROBOKASSA_PASSWORD2}`) }), /сумма/i);
   assert.equal(getSubscriptionAccess(other.id).active, false);
   assert.equal(getPaymentOrder(other.id, order.id).status, 'pending');
+});
+
+test('payment during trial adds a month after the seven free days without shortening them', () => {
+  const trialUser = upsertTelegramUser({ id: 600000009, first_name: 'Trial buyer' });
+  const at = new Date('2026-09-29T10:00:00Z');
+  startTrial(trialUser.id, at);
+  const order = createPaymentOrder(trialUser.id, {}, new Date('2026-09-30T10:00:00Z'));
+  callback(order, new Date('2026-09-30T10:00:00Z'));
+  const access = getSubscriptionAccess(trialUser.id, new Date('2026-09-30T10:01:00Z'));
+  assert.equal(access.source, 'subscription');
+  assert.equal(access.expiresAt, '2026-11-06T10:00:00.000Z');
+  callback(order, new Date('2026-10-01T10:00:00Z'));
+  assert.equal(getSubscriptionAccess(trialUser.id, new Date('2026-10-01T10:01:00Z')).expiresAt, access.expiresAt);
 });
 
 test('authenticated billing API creates an order and the public form callback confirms it', async () => {

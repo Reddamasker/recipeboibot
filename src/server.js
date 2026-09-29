@@ -19,7 +19,7 @@ import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotifica
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
 import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
-import { getSubscriptionAccess } from './subscriptions.js';
+import { getSubscriptionAccess, startTrial } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
 const publicDir = path.resolve('public');
@@ -94,6 +94,10 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  if (request.method === 'POST' && url.pathname === '/api/billing/trial') {
+    startTrial(user.id);
+    return json(response, 200, config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id));
+  }
   if (request.method === 'GET' && url.pathname === '/api/billing/offer') {
     if (config.testContour && !billingAvailable()) return json(response, 200, mockPaymentStatus(user.id));
     return json(response, 200, getBillingOffer(user.id));
@@ -251,7 +255,7 @@ async function api(request, response, url) {
   if (request.method === 'POST' && url.pathname === '/api/import') {
     const billing = config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id);
     const canImport = config.testContour && !billingAvailable() ? canUseTestImport(user.id) : canUseAutomaticImport(user.id);
-    if (!canImport) return json(response, 402, { error: `Для следующего автоматического импорта откройте предложение за ${billing.offer.priceRub} ₽`, offerPath: '/?view=offer' });
+    if (!canImport) return json(response, 402, { error: billing.trial?.used ? 'Пробный период закончился. Оформите подписку, чтобы продолжить автоматический импорт.' : `Для следующего автоматического импорта откройте предложение за ${billing.offer.priceRub} ₽`, offerPath: '/?view=offer' });
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
     if (input.kind === 'url') {

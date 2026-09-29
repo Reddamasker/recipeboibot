@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { db, deleteUserData, getUserByTelegramId } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus } from './subscriptions.js';
 
 const error = (message, status) => Object.assign(new Error(message), { status });
 
@@ -70,7 +70,9 @@ export function mockPaymentStatus(userId) {
   const recurring = db.prepare("SELECT auto_renew,updated_at FROM mock_orders WHERE user_id=? AND status='success' ORDER BY updated_at DESC LIMIT 1").get(userId);
   const firstValue = hasRecipe(userId) ? 'saved' : hasCookedDinner(userId) ? 'cooked' : null;
   const access = getSubscriptionAccess(userId);
+  const trial = getTrialStatus(userId);
   return {
+    accessSource: access.source, trial: { ...trial, eligible: !trial.used && !access.active },
     active: access.active, expiresAt: access.expiresAt, lastResult: payment?.last_result || null, updatedAt: payment?.updated_at || null,
     hasFirstRecipe: Boolean(firstValue), firstValue, offerShown: Boolean(offer.shown_at),
     mode: 'mock', available: true, recurringSupported: true,
@@ -90,12 +92,13 @@ export function claimMockOffer(userId) {
 export function canUseTestImport(userId) {
   if (!config.testContour) return true;
   const status = mockPaymentStatus(userId);
+  if (status.trial.used) return status.active;
   return !status.hasFirstRecipe || status.active;
 }
 
 export function createMockOrder(userId, method, autoRenew = false) {
   const status = mockPaymentStatus(userId);
-  if (!status.hasFirstRecipe) throw error('Сначала сохраните первый рецепт', 409);
+  if (!status.hasFirstRecipe && !status.trial.used) throw error('Сначала сохраните первый рецепт', 409);
   if (status.active) throw error('Тестовый доступ уже активен', 409);
   if (!['card', 'sbp'].includes(method)) throw error('Неверный способ оплаты', 400);
   if (autoRenew && method !== 'card') throw error('Автопродление доступно только при оплате картой', 400);

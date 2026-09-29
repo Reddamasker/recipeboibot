@@ -16,7 +16,8 @@ const { db, upsertTelegramUser, allowUser, createRecipe, recordAiAttempt } = awa
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { buildWebDocument } = await import('../src/web-document.js');
-const { getSubscriptionAccess, monthAfter } = await import('../src/subscriptions.js');
+const { getSubscriptionAccess, monthAfter, startTrial } = await import('../src/subscriptions.js');
+const { mockPaymentStatus, canUseTestImport } = await import('../src/contour-sandbox.js');
 const telegramUser = { id: 6971956699, first_name: 'Тест' };
 const user = upsertTelegramUser(telegramUser);
 allowUser(user.id);
@@ -29,6 +30,20 @@ test.after(async () => {
   await new Promise((resolve) => server.close(resolve));
   db.close();
   for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} }
+});
+
+test('test contour uses the real seven-day entitlement without creating a mock payment', () => {
+  const fresh = upsertTelegramUser({ id: 6971956680, first_name: 'Trial' });
+  startTrial(fresh.id);
+  const status = mockPaymentStatus(fresh.id);
+  assert.equal(status.active, true);
+  assert.equal(status.accessSource, 'trial');
+  assert.equal(status.trial.durationDays, 7);
+  assert.equal(canUseTestImport(fresh.id), true);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM mock_orders WHERE user_id=?').get(fresh.id).n, 0);
+  db.prepare('UPDATE user_trials SET starts_at=?,expires_at=? WHERE user_id=?').run('2026-01-01', '2026-01-08', fresh.id);
+  assert.equal(canUseTestImport(fresh.id), false);
+  assert.equal(mockPaymentStatus(fresh.id).trial.eligible, false);
 });
 
 test('test contour retains current tastes, specific recipe requests and mock checkout together', async () => {

@@ -3,6 +3,7 @@ import { getFoodProfile } from './dinner-store.js';
 import { hasExcludedIngredient, SEED_RECIPES, totalMinutes } from './dinner.js';
 import { generateRecipe, generateRequestedRecipe } from './openai.js';
 import { ensureSuggestionImage } from './recipe-images.js';
+import { requireUnexpiredTrial } from './subscriptions.js';
 
 const inFlight = new Map();
 
@@ -30,6 +31,7 @@ export function findRequestedRecipe(userId, query) {
 }
 
 export async function suggestForEmptySearch(userId, query, { generate = generateRecipe } = {}) {
+  requireUnexpiredTrial(userId);
   const normalized = String(query || '').trim().slice(0, 500);
   if (!normalized) throw Object.assign(new Error('Укажите, что хотите приготовить'), { status: 400 });
   if (searchRecipes(userId, normalized).some((recipe) => recipe.status === 'ready')) {
@@ -51,6 +53,7 @@ export async function suggestForEmptySearch(userId, query, { generate = generate
 export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe } = {}) {
   const existing = findRequestedRecipe(userId, query);
   if (existing) return { kind: 'existing', recipe: existing };
+  requireUnexpiredTrial(userId);
   const { normalized, profile, excluded, maxMinutes } = requestContext(userId, query);
   const suggestionKey = `request:${normalized}`;
   const cached = findRecipeSuggestion(userId, suggestionKey);

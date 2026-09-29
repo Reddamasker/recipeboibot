@@ -1,5 +1,6 @@
 import { listRecipes } from './db.js';
 import { config } from './config.js';
+import { requireUnexpiredTrial } from './subscriptions.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
@@ -154,6 +155,7 @@ function bufferResponse(userId, sessionId, buffer) {
 }
 
 export async function recommendDinner(userId, sessionId, options) {
+  requireUnexpiredTrial(userId);
   const context = dinnerContext(userId, sessionId);
   const effectiveOptions = context.requestedCategories.length ? { ...options, catalogFirst: false } : options;
   const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
@@ -161,12 +163,14 @@ export async function recommendDinner(userId, sessionId, options) {
 }
 
 export function prefetchDinner(userId, sessionId, options) {
+  requireUnexpiredTrial(userId);
   const context = dinnerContext(userId, sessionId);
   const effectiveOptions = context.requestedCategories.length ? { ...options, catalogFirst: false } : options;
   return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions));
 }
 
 export async function nextDinner(userId, ids, options) {
+  requireUnexpiredTrial(userId);
   const result = rejectDinnerBatch(userId, ids);
   return recommendDinner(userId, result.sessionId, options);
 }

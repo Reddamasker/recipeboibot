@@ -87,6 +87,11 @@ function notificationEntry() {
 
 function offerBanner() {
   const payment = state.payment;
+  if (payment?.trial?.eligible || payment?.trial?.used) {
+    if (payment.active && payment.accessSource !== 'trial') return '';
+    const active = payment.active;
+    return `<section class="offer-banner"><h2>${active ? 'Пробный период активен' : payment.trial.used ? 'Пробный период закончился' : '7 дней бесплатно'}</h2><p>${active ? `Полный доступ до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}.` : payment.trial.used ? 'Сохранённые рецепты остаются в коллекции. Для продолжения оформите подписку.' : 'Сохраняйте рецепты, подбирайте ужин и настройте напоминания. Карта не нужна, списаний нет.'}</p><button class="primary accent" type="button" data-open-offer>${active ? 'Условия пробного периода' : payment.trial.used ? 'Продолжить с подпиской' : 'Попробовать 7 дней бесплатно'}</button></section>`;
+  }
   if (!payment?.available || !payment?.hasFirstRecipe || payment.active) return '';
   const mock = payment.mode === 'mock';
   return `<section class="offer-banner">
@@ -599,7 +604,7 @@ async function notificationSettingsPage() {
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
-  if (view === 'offer' && state.payment?.available) offerPage();
+  if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && state.payment?.available) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
@@ -974,7 +979,7 @@ function cookMode(r, onComplete = null) {
   mountModal(el, el, close, step);
 }
 function settingsSheet() {
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${state.payment?.available ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
   el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
   el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
@@ -991,7 +996,30 @@ function settingsSheet() {
   el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); };
 }
 
+function trialOfferPage() {
+  const payment = state.payment;
+  const trial = payment.trial;
+  const active = payment.active && payment.accessSource === 'trial';
+  const price = payment.offer?.priceRub || 199;
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${active ? 'Ваши семь дней уже идут' : trial.used ? 'Пробный период закончился' : 'Попробуйте 7 дней бесплатно'}</h1><p>${active ? `Полный доступ действует до ${esc(new Date(trial.expiresAt).toLocaleString('ru-RU'))}.` : trial.used ? 'Ваши рецепты сохранены. Для новых подборок, автоматического импорта и напоминаний нужна подписка.' : 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.'}</p></div><section class="offer-plan"><ul><li>Сохранение рецептов из ссылок, фото, текста и голосовых</li><li>Подбор ужина и импорт плейлистов</li><li>Напоминания по вашему расписанию</li></ul><p>Затем ${price} рублей в месяц. Подписка оформляется отдельно.</p>${trial.eligible ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>' : active ? '<button class="primary accent" id="trial-return">Вернуться к рецептам</button>' : payment.available ? '<button class="primary accent" id="trial-subscribe">Оформить подписку</button>' : '<p role="status">Оплата пока подключается. Уже сохранённые рецепты доступны; новых списаний нет.</p>'}</section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Условия использования и оплаты</a></p></main>`;
+  bindCommon();
+  document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
+  document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
+  document.querySelector('#trial-subscribe')?.addEventListener('click', () => { setRoute({ view: 'checkout' }); checkoutPage(); });
+  document.querySelector('#start-trial')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
+      if (state.payment.accessSource !== 'trial' || !state.payment.active) { trialOfferPage(); return; }
+      setTrialOnboardingStep('taste');
+      setRoute({ view: 'dinner' });
+      await beginDinner(false, true);
+    } catch (error) { toast(error.message); event.currentTarget.disabled = false; }
+  });
+}
+
 function offerPage() {
+  if (state.payment?.trial && (state.payment.trial.eligible || state.payment.accessSource === 'trial' || (state.payment.trial.used && !state.payment.active))) { trialOfferPage(); return; }
   const payment = state.payment;
   if (payment?.mode === 'provider') { providerOfferPage(); return; }
   const price = payment?.offer?.priceRub;
@@ -1009,7 +1037,7 @@ function offerPage() {
 function checkoutPage() {
   const payment = state.payment;
   if (payment?.mode === 'provider') { providerCheckoutPage(); return; }
-  if (!payment?.hasFirstRecipe || payment.active) { setRoute({ view: 'offer' }, { replace: true }); offerPage(); return; }
+  if ((!payment?.hasFirstRecipe && !payment?.trial?.used) || payment.active) { setRoute({ view: 'offer' }, { replace: true }); offerPage(); return; }
   const order = state.checkoutOrder || payment.pendingOrder;
   const price = order?.priceRub || payment.offer.priceRub;
   const confirmStep = Boolean(order);
@@ -1069,7 +1097,7 @@ function providerOfferPage() {
 
 function providerCheckoutPage() {
   const payment = state.payment;
-  if (!payment?.hasFirstRecipe) { setRoute({ view: 'offer' }, { replace: true }); providerOfferPage(); return; }
+  if (!payment?.hasFirstRecipe && !payment?.trial?.used) { setRoute({ view: 'offer' }, { replace: true }); providerOfferPage(); return; }
   const price = payment.offer.priceRub;
   root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">Robokassa</span><span class="checkout-safe">Защищённая оплата</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата для</small><strong>Твои рецепты</strong></div></div><div class="checkout-total"><span>К оплате сейчас</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Твои рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${payment.recurringSupported ? `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление каждый месяц</strong><small>${price} ₽ раз в месяц. Первое продление — после окончания оплаченного периода. Отключить можно в профиле.</small></span></label>` : '<p class="checkout-notice">Сейчас оформляется доступ на один месяц без автоматического продления.</p>'}<button class="checkout-pay" id="checkout-continue">Оплатить ${price} ₽</button><p class="checkout-notice">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Реквизиты карты вводятся только на стороне Robokassa.</p></div></div></main>`;
   document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); providerOfferPage(); };

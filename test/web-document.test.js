@@ -68,8 +68,8 @@ test('landing exposes the public offer and entrepreneur details', () => {
   const faq = landing.match(/<section class="lp-faq[\s\S]*?<\/section>/)[0];
   assert.doesNotMatch(faq, /199|id="pricing"/);
   assert.ok(landing.indexOf('id="pricing"') > landing.indexOf(faq) + faq.length);
-  assert.match(landing, /Первый рецепт бесплатно/);
-  assert.doesNotMatch(landing, /7 дней бесплатно/);
+  assert.match(landing, /7 дней бесплатно/);
+  assert.match(landing, /Без карты и автоматических списаний/);
   assert.match(landing, /Затем 199 рублей в месяц/);
   assert.match(tariffs, /http-equiv="refresh" content="0;url=\/#pricing"/);
   assert.doesNotMatch(tariffs, /Telegram Stars/i);

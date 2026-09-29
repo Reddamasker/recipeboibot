@@ -29,6 +29,15 @@ const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: ch
 async function sendTestOffer(chatId, userId, force = false) {
   const mock = config.testContour && !billingAvailable();
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
+  if (status.trial?.eligible && (force || status.hasFirstRecipe)) {
+    if (!force && !(mock ? claimMockOffer(userId) : recordBillingExposure(userId))) return;
+    await send(chatId, '<b>Попробуйте 7 дней бесплатно</b>\n\nСохранение рецептов, подбор ужина и напоминания. Без карты и списаний. Затем 199 рублей в месяц; подписка оформляется отдельно.', { reply_markup: { inline_keyboard: [[{ text: 'Попробовать 7 дней бесплатно', web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+    return;
+  }
+  if (status.trial?.used && !status.active) {
+    await send(chatId, 'Пробный период закончился. Сохранённые рецепты остаются в коллекции. ' + (status.available ? 'Оформите подписку, чтобы продолжить.' : 'Оплата пока подключается.'), { reply_markup: { inline_keyboard: [[{ text: 'Подписка и доступ', web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+    return;
+  }
   if (!status.available) return;
   if (!status.hasFirstRecipe) {
     if (force) await send(chatId, `Сначала сохраните первый рецепт или приготовьте предложенный ужин. После этого откроется ${mock ? 'тестовое ' : ''}предложение.`);

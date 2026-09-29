@@ -11,6 +11,32 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_subscriptions (
   updated_at TEXT NOT NULL
 );`);
 
+db.exec(`CREATE TABLE IF NOT EXISTS user_trials (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  starts_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);`);
+
+export function getTrialStatus(userId, at = new Date()) {
+  const trial = db.prepare('SELECT starts_at,expires_at FROM user_trials WHERE user_id=?').get(userId);
+  return {
+    used: Boolean(trial),
+    active: Boolean(trial && Date.parse(trial.starts_at) <= at.getTime() && at.getTime() < Date.parse(trial.expires_at)),
+    startsAt: trial?.starts_at || null,
+    expiresAt: trial?.expires_at || null,
+    durationDays: 7
+  };
+}
+
+export function startTrial(userId, at = new Date()) {
+  // The unique user key makes retries and concurrent clicks idempotent.
+  if (getTrialStatus(userId, at).used) return getTrialStatus(userId, at);
+  if (getSubscriptionAccess(userId, at).active) throw Object.assign(new Error('У вас уже есть активный доступ'), { status: 409 });
+  db.prepare('INSERT OR IGNORE INTO user_trials(user_id,starts_at,expires_at) VALUES(?,?,?)')
+    .run(userId, at.toISOString(), new Date(at.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString());
+  return getTrialStatus(userId, at);
+}
+
 export function monthAfter(timestamp) {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return null;
@@ -38,13 +64,21 @@ export function getSubscriptionAccess(userId, at = new Date()) {
       if (Date.parse(startedAt) <= at.getTime() && Date.parse(expiresAt) > at.getTime()) return { active: true, plan: 'subscription', expiresAt, source: 'test_payment' };
     }
   }
-  return { active: false, plan: null, expiresAt: row?.expires_at || null, source: null };
+  const trial = getTrialStatus(userId, at);
+  if (trial.active && !row?.revoked_at) return { active: true, plan: 'trial', expiresAt: trial.expiresAt, source: 'trial' };
+  return { active: false, plan: null, expiresAt: row?.expires_at || trial.expiresAt || null, source: null };
 }
 
 export function requireNotificationSubscription(userId, at = new Date()) {
   const access = getSubscriptionAccess(userId, at);
   if (!access.active) throw Object.assign(new Error('Напоминания доступны с активной подпиской или премиум-доступом к боту'), { status: 402 });
   return access;
+}
+
+export function requireUnexpiredTrial(userId, at = new Date()) {
+  if (getTrialStatus(userId, at).used && !getSubscriptionAccess(userId, at).active) {
+    throw Object.assign(new Error('Пробный период закончился. Оформите подписку, чтобы продолжить.'), { status: 402 });
+  }
 }
 
 export function grantSubscription(userId, plan, expiresAt, at = new Date()) {

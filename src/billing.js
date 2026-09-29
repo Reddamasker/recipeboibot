@@ -1,7 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess, monthAfter } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus, monthAfter } from './subscriptions.js';
 import { log } from './log.js';
 
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -100,6 +100,7 @@ export function billingAvailable() {
 }
 
 export function canUseAutomaticImport(userId, at = new Date()) {
+  if (getTrialStatus(userId, at).used) return getSubscriptionAccess(userId, at).active;
   if (!config.billingRequired) return true;
   const offer = getBillingOffer(userId, at);
   return !offer.hasFirstRecipe || offer.active;
@@ -108,12 +109,15 @@ export function canUseAutomaticImport(userId, at = new Date()) {
 export function getBillingOffer(userId, at = new Date()) {
   const firstValue = hasFirstValue(userId);
   const access = getSubscriptionAccess(userId, at);
-  const assignment = firstValue ? assignmentFor(userId, at) : null;
+  const trial = getTrialStatus(userId, at);
+  const assignment = firstValue || trial.used ? assignmentFor(userId, at) : null;
   const pending = db.prepare("SELECT id,inv_id,amount_kopeks,variant,auto_renew,created_at FROM payment_orders WHERE user_id=? AND status='pending' AND kind='initial' ORDER BY created_at DESC LIMIT 1").get(userId);
   return {
     mode: config.robokassaConfigured ? 'provider' : 'unavailable',
     available: config.robokassaConfigured,
     active: access.active,
+    accessSource: access.source,
+    trial: { ...trial, eligible: !trial.used && !access.active },
     expiresAt: access.expiresAt,
     hasFirstRecipe: Boolean(firstValue),
     firstValue,
@@ -147,7 +151,7 @@ function publicOrder(row) {
 
 export function createPaymentOrder(userId, { autoRenew = false } = {}, at = new Date()) {
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 503);
-  if (!hasFirstValue(userId)) throw error('Сначала сохраните первый рецепт или приготовьте предложенный ужин', 409);
+  if (!hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
   if (autoRenew && !config.robokassaRecurring) throw error('Автопродление пока не подключено у платёжного провайдера', 409);
   const assignment = assignmentFor(userId, at);
   recordBillingExposure(userId, at);
@@ -253,7 +257,8 @@ export function processRobokassaResult(params, at = new Date()) {
       db.prepare("UPDATE payment_orders SET status='paid',provider_method=?,provider_op_key=?,paid_at=?,updated_at=? WHERE inv_id=?")
         .run(parameter(params, 'PaymentMethod') || null, parameter(params, 'OpKey') || null, timestamp, timestamp, invId);
       const access = db.prepare('SELECT * FROM user_subscriptions WHERE user_id=?').get(current.user_id);
-      const baseDate = access && !access.revoked_at && Date.parse(access.expires_at) > at.getTime() ? new Date(access.expires_at) : at;
+      const currentAccess = getSubscriptionAccess(current.user_id, at);
+      const baseDate = currentAccess.active ? new Date(currentAccess.expiresAt) : at;
       const expiresAt = monthAfter(baseDate);
       const startsAt = access && !access.revoked_at && Date.parse(access.expires_at) > at.getTime() ? access.starts_at : timestamp;
       db.prepare(`INSERT INTO user_subscriptions(user_id,plan,starts_at,expires_at,updated_at) VALUES(?,'subscription',?,?,?)
