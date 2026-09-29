@@ -70,7 +70,10 @@ test('landing exposes the public offer and entrepreneur details', () => {
   assert.ok(landing.indexOf('id="pricing"') > landing.indexOf(faq) + faq.length);
   assert.match(landing, /7 дней бесплатно/);
   assert.match(landing, /Без карты и автоматических списаний/);
-  assert.match(landing, /Затем 199 рублей в месяц/);
+  assert.match(landing, /1 месяц/);
+  assert.match(landing, /3 месяца <small>скидка 16%/);
+  assert.match(landing, /1 год <small>скидка 37%/);
+  assert.match(landing, /1 499 ₽/);
   assert.match(tariffs, /http-equiv="refresh" content="0;url=\/#pricing"/);
   assert.doesNotMatch(tariffs, /Telegram Stars/i);
 });

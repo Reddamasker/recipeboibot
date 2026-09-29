@@ -189,6 +189,30 @@ span.recipe-tag { cursor: default; }
 .offer-fineprint { margin: 16px 0 0; text-align: center; }
 .offer-support { margin: 22px 4px; }
 .offer-active { padding: 17px; border-radius: 13px; background: #edf5df; color: #315c21; font-weight: 800; text-align: center; }
+.offer-periods { display: grid; gap: 10px; margin: 22px 0 14px; }
+.offer-period { min-height: 86px; padding: 14px 15px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 12px; border: 2px solid var(--line); border-radius: 17px; background: var(--paper); color: var(--ink); text-align: left; cursor: pointer; }
+.offer-period.selected { border-color: var(--berry); background: var(--lilac); }
+.offer-period strong,.offer-period small { display: block; }
+.offer-period strong { font-size: 15px; }
+.offer-period small { margin-top: 5px; color: var(--muted); font-size: 11px; }
+.offer-period-price { text-align: right; font-size: 18px; font-weight: 800; white-space: nowrap; }
+.offer-period-price small { font-weight: 500; }
+.offer-discount { display: inline-block; margin-left: 7px; padding: 3px 7px; border-radius: 99px; background: var(--lime); color: #4d682d; font-size: 12px; vertical-align: 1px; }
+.offer-promo { margin: 20px 0 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.offer-promo label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 800; }
+.offer-promo-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.offer-promo-row input { min-width: 0; min-height: 46px; border: 1px solid var(--line); border-radius: 13px; padding: 10px 12px; background: var(--paper); font-size: 16px; text-transform: uppercase; }
+.offer-promo-row .secondary { min-height: 46px; padding: 0 14px; border: 0; border-radius: 13px; }
+.offer-promo-result { margin-top: 12px; padding: 13px 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; border-radius: 14px; background: var(--lime-soft); color: #4d682d; font-size: 12px; }
+.offer-promo-result strong { font-size: 14px; }
+.offer-promo-result .text-button { margin-left: auto; color: var(--berry-dark); }
+.offer-promo-message { min-height: 20px; margin: 8px 0 0; color: var(--berry-dark); font-size: 12px; }
+.offer-promo > small { display: block; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.offer-price-summary { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.offer-price-summary > strong { display: block; margin-bottom: 5px; color: var(--berry); font-size: 16px; }
+.offer-price-summary .offer-price { margin: 7px 0; }
+.offer-price-summary > p { margin: 0; color: var(--muted); font-size: 11px; }
+@media (max-width: 390px) { .offer-promo-row { grid-template-columns: 1fr; } .offer-promo-row .secondary { width: 100%; } }
 
 .checkout-page { min-height: 100dvh; padding: 20px 12px 60px; background: #f4f6f9; color: #1e2634; font-family: Arial,Helvetica,sans-serif; }
 .checkout-shell { max-width: 510px; margin: 0 auto; overflow: hidden; border: 1px solid #e4e8ef; border-radius: 21px; background: #fff; box-shadow: 0 20px 65px rgba(23,43,69,.12); }

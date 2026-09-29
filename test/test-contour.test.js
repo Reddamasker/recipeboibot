@@ -16,7 +16,7 @@ const { db, upsertTelegramUser, allowUser, createRecipe, recordAiAttempt } = awa
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { buildWebDocument } = await import('../src/web-document.js');
-const { getSubscriptionAccess, monthAfter, startTrial } = await import('../src/subscriptions.js');
+const { getSubscriptionAccess, monthAfter, monthsAfter, startTrial } = await import('../src/subscriptions.js');
 const { mockPaymentStatus, canUseTestImport, createMockOrder, finishMockOrder } = await import('../src/contour-sandbox.js');
 const { promoQuote, redeemFreePromo } = await import('../src/promos.js');
 const telegramUser = { id: 6971956699, first_name: 'Тест' };
@@ -65,6 +65,24 @@ test('test contour uses the real seven-day entitlement without creating a mock p
   db.prepare('UPDATE user_trials SET starts_at=?,expires_at=? WHERE user_id=?').run('2026-01-01', '2026-01-08', fresh.id);
   assert.equal(canUseTestImport(fresh.id), false);
   assert.equal(mockPaymentStatus(fresh.id).trial.eligible, false);
+});
+
+test('test contour mirrors discounted three-month and annual access periods', () => {
+  const threeMonthUser = upsertTelegramUser({ id: 6971956678, first_name: 'Three' });
+  createRecipe(threeMonthUser.id, { title: 'Паста', status: 'ready' });
+  const three = createMockOrder(threeMonthUser.id, 'card', false, undefined, 3);
+  assert.equal(three.priceRub, 499);
+  assert.equal(three.periodMonths, 3);
+  finishMockOrder(threeMonthUser.id, three.id, 'success');
+  const threeAccess = getSubscriptionAccess(threeMonthUser.id);
+  assert.ok(Math.abs(Date.parse(threeAccess.expiresAt) - Date.parse(monthsAfter(three.createdAt, 3))) < 1000);
+
+  const annualUser = upsertTelegramUser({ id: 6971956677, first_name: 'Annual' });
+  createRecipe(annualUser.id, { title: 'Суп', status: 'ready' });
+  const annual = createMockOrder(annualUser.id, 'card', false, undefined, 12);
+  assert.equal(annual.priceRub, 1499);
+  finishMockOrder(annualUser.id, annual.id, 'success');
+  assert.ok(Math.abs(Date.parse(getSubscriptionAccess(annualUser.id).expiresAt) - Date.parse(monthsAfter(annual.createdAt, 12))) < 1000);
 });
 
 test('test contour retains current tastes, specific recipe requests and mock checkout together', async () => {
@@ -139,6 +157,9 @@ test('same shipped UI includes tastes, written and voice requests, plus test-onl
   assert.match(document, /voice-request/);
   assert.match(document, /Мои вкусы/);
   assert.match(document, /test-reset/);
+  assert.match(document, /id="offer-promo-code"/);
+  assert.match(document, /data-period-months/);
+  assert.match(document, /Экономия/);
   assert.match(document, /https:\/\/t.me\/recipeboi_test_bot/);
   assert.doesNotMatch(document, /https:\/\/t.me\/Recipeboibot/);
 });

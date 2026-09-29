@@ -116,6 +116,11 @@ test('price experiment is stable, recorded once, and an initial order is signed 
   assert.equal(first.available, true);
   assert.equal(first.mode, 'provider');
   assert.ok([129, 199].includes(first.offer.priceRub));
+  assert.deepEqual(first.plans.map(({ months, priceRub, discountPercent, savingRub }) => ({ months, priceRub, discountPercent, savingRub })), [
+    { months: 1, priceRub: 199, discountPercent: 0, savingRub: 0 },
+    { months: 3, priceRub: 499, discountPercent: 16, savingRub: 98 },
+    { months: 12, priceRub: 1499, discountPercent: 37, savingRub: 889 }
+  ]);
   assert.deepEqual(second.offer, first.offer);
   assert.equal(recordBillingExposure(user.id), true);
   assert.equal(recordBillingExposure(user.id), false);
@@ -132,6 +137,29 @@ test('price experiment is stable, recorded once, and an initial order is signed 
   assert.match(document, /name="Receipt"/);
   assert.match(document, /name="ResultUrl2" value="https:\/\/billing\.example\.test\/api\/payments\/robokassa\/result"/);
   assert.doesNotMatch(document, /billing-password-(?:one|two)/);
+});
+
+test('three-month and annual orders charge discounted prices and grant the purchased period', () => {
+  const threeMonthUser = upsertTelegramUser({ id: 600000041, first_name: 'Three months' });
+  createRecipe(threeMonthUser.id, { title: 'Запеканка', status: 'ready', ingredients: [{ name: 'картофель' }], steps: [{ text: 'Запечь.' }] });
+  const threeAt = new Date('2026-09-29T12:00:00.000Z');
+  const three = createPaymentOrder(threeMonthUser.id, { periodMonths: 3 }, threeAt);
+  assert.equal(three.priceRub, 499);
+  assert.equal(three.periodMonths, 3);
+  const threeDocument = paymentRedirectDocument(three.id);
+  assert.match(threeDocument, /name="OutSum" value="499.00"/);
+  assert.match(threeDocument, /на 3 месяца/);
+  callback(three, threeAt);
+  assert.equal(getSubscriptionAccess(threeMonthUser.id, threeAt).expiresAt, '2026-12-29T12:00:00.000Z');
+
+  const annualUser = upsertTelegramUser({ id: 600000042, first_name: 'Annual' });
+  createRecipe(annualUser.id, { title: 'Рагу', status: 'ready', ingredients: [{ name: 'овощи' }], steps: [{ text: 'Потушить.' }] });
+  const annualAt = new Date('2026-09-29T13:00:00.000Z');
+  const annual = createPaymentOrder(annualUser.id, { periodMonths: 12 }, annualAt);
+  assert.equal(annual.priceRub, 1499);
+  assert.equal(annual.periodMonths, 12);
+  callback(annual, annualAt);
+  assert.equal(getSubscriptionAccess(annualUser.id, annualAt).expiresAt, '2027-09-29T13:00:00.000Z');
 });
 
 test('signed callback activates exactly one month and duplicate delivery is idempotent', () => {

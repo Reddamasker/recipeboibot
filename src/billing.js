@@ -1,8 +1,9 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess, getTrialStatus, hasUsedTrialOrPromo, monthAfter } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus, hasUsedTrialOrPromo, monthsAfter } from './subscriptions.js';
 import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './promos.js';
+import { publicSubscriptionPlans, subscriptionPeriodLabel, subscriptionPlan } from './plans.js';
 import { log } from './log.js';
 
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -59,6 +60,8 @@ CREATE TABLE IF NOT EXISTS payment_recurring (
 );`);
 
 if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'promo_code')) db.exec('ALTER TABLE payment_orders ADD COLUMN promo_code TEXT');
+if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE payment_orders ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
+if (!db.prepare('PRAGMA table_info(payment_recurring)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE payment_recurring ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
 
 const nowIso = (at = new Date()) => at.toISOString();
 const formatAmount = (kopeks) => `${Math.floor(kopeks / 100)}.${String(kopeks % 100).padStart(2, '0')}`;
@@ -127,7 +130,8 @@ export function getBillingOffer(userId, at = new Date()) {
     offerShown: Boolean(assignment?.exposed_at),
     recurringSupported: config.robokassaConfigured && config.robokassaRecurring,
     recurring: recurringFor(userId),
-    offer: assignment ? { variant: assignment.variant, priceRub: assignment.amount_kopeks / 100, currency: 'RUB', period: 'month' } : null,
+    offer: assignment ? { variant: 'period_1_price_199', priceRub: 199, currency: 'RUB', period: 'month', periodMonths: 1 } : null,
+    plans: assignment ? publicSubscriptionPlans() : [],
     pendingOrder: pending ? publicOrder(pending) : null
   };
 }
@@ -149,14 +153,18 @@ function publicOrder(row) {
     status: row.status || 'pending',
     autoRenew: Boolean(row.auto_renew),
     createdAt: row.created_at,
-    paidAt: row.paid_at || null
+    paidAt: row.paid_at || null,
+    periodMonths: Number(row.period_months || 1)
   };
 }
 
-export function createPaymentOrder(userId, { autoRenew = false, promoCode } = {}, at = new Date()) {
+export function createPaymentOrder(userId, { autoRenew = false, promoCode, periodMonths = 1 } = {}, at = new Date()) {
+  const plan = subscriptionPlan(periodMonths);
+  if (!plan) throw error('Выберите срок подписки: 1 месяц, 3 месяца или 1 год');
   const promo = promoCode !== undefined ? promoQuote(userId, promoCode) : null;
   if (promo?.discountPercent === 100) throw error('Активируйте бесплатный месяц без оплаты');
   if (promo && autoRenew) throw error('Промокод действует на один месяц без автопродления');
+  if (promo && plan.months !== 1) throw error('Промокод действует только на тариф «1 месяц»');
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 503);
   if (!promo && !hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
   if (autoRenew && !config.robokassaRecurring) throw error('Автопродление пока не подключено у платёжного провайдера', 409);
@@ -165,7 +173,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode } = {}
   const recentAfter = new Date(at.getTime() - 30 * 60 * 1000).toISOString();
   const reserved = promo && reservedPromoOrder(userId, promo.code);
   const existing = reserved ? db.prepare("SELECT * FROM payment_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId)
-    : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, recentAfter);
+    : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND period_months=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, plan.months, recentAfter);
   if (existing) {
     db.prepare('UPDATE payment_orders SET updated_at=? WHERE id=?').run(nowIso(at), existing.id);
     return { ...publicOrder(existing), paymentUrl: `${config.appUrl}/payment/start/${existing.id}` };
@@ -175,9 +183,9 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode } = {}
   const timestamp = nowIso(at);
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code)
-      VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?)`)
-      .run(id, userId, config.paymentExperimentKey, assignment.variant, promo ? 199 : assignment.amount_kopeks, autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null);
+    db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code,period_months)
+      VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?,?)`)
+      .run(id, userId, config.paymentExperimentKey, promo ? 'promo_99' : `period_${plan.months}_price_${plan.priceRub}`, promo ? 199 : plan.priceRub * 100, autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months);
     if (promo) reservePromo(userId, promo.code, id);
     db.exec('COMMIT');
   } catch (cause) { db.exec('ROLLBACK'); throw cause; }
@@ -192,8 +200,9 @@ export function getPaymentOrder(userId, id) {
 }
 
 function receiptFor(order) {
+  const period = subscriptionPeriodLabel(order.period_months || 1);
   const item = {
-    name: 'Доступ к сервису «Твои рецепты» на 1 месяц',
+    name: `Доступ к сервису «Твои рецепты» на ${period}`,
     quantity: 1,
     sum: order.amount_kopeks / 100,
     payment_method: config.paymentMethod,
@@ -215,13 +224,14 @@ function signatureForOrder(order, { recurringChild = false } = {}) {
 }
 
 function paymentFields(order) {
+  const period = subscriptionPeriodLabel(order.period_months || 1);
   const successUrl = `${config.appUrl}/payment/success?order=${encodeURIComponent(order.id)}`;
   const failUrl = `${config.appUrl}/payment/fail?order=${encodeURIComponent(order.id)}`;
   return [
     ['MerchantLogin', config.robokassaMerchantLogin],
     ['OutSum', formatAmount(order.amount_kopeks)],
     ['InvId', String(order.inv_id)],
-    ['Description', 'Доступ к сервису Твои рецепты на 1 месяц'],
+    ['Description', `Доступ к сервису Твои рецепты на ${period}`],
     ['SignatureValue', signatureForOrder(order)],
     ['Culture', 'ru'],
     ['Encoding', 'utf-8'],
@@ -276,7 +286,7 @@ export function processRobokassaResult(params, at = new Date()) {
       const access = db.prepare('SELECT * FROM user_subscriptions WHERE user_id=?').get(current.user_id);
       const currentAccess = getSubscriptionAccess(current.user_id, at);
       const baseDate = currentAccess.active ? new Date(currentAccess.expiresAt) : at;
-      const expiresAt = monthAfter(baseDate);
+      const expiresAt = monthsAfter(baseDate, current.period_months || 1);
       const startsAt = access && !access.revoked_at && Date.parse(access.expires_at) > at.getTime() ? access.starts_at : timestamp;
       db.prepare(`INSERT INTO user_subscriptions(user_id,plan,starts_at,expires_at,updated_at) VALUES(?,'subscription',?,?,?)
         ON CONFLICT(user_id) DO UPDATE SET plan='subscription',starts_at=excluded.starts_at,expires_at=excluded.expires_at,revoked_at=NULL,updated_at=excluded.updated_at`)
@@ -287,9 +297,9 @@ export function processRobokassaResult(params, at = new Date()) {
           .run(new Date(Date.parse(expiresAt) - 86400000).toISOString(), timestamp, current.user_id);
       }
       if (current.kind === 'initial' && current.auto_renew) {
-        db.prepare(`INSERT INTO payment_recurring(user_id,enabled,parent_inv_id,amount_kopeks,next_charge_at,retry_count,updated_at)
-          VALUES(?,1,?,?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,parent_inv_id=excluded.parent_inv_id,amount_kopeks=excluded.amount_kopeks,next_charge_at=excluded.next_charge_at,retry_count=0,cancelled_at=NULL,updated_at=excluded.updated_at`)
-          .run(current.user_id, current.inv_id, current.amount_kopeks, new Date(Date.parse(expiresAt) - 24 * 60 * 60 * 1000).toISOString(), timestamp);
+        db.prepare(`INSERT INTO payment_recurring(user_id,enabled,parent_inv_id,amount_kopeks,period_months,next_charge_at,retry_count,updated_at)
+          VALUES(?,1,?,?,?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,parent_inv_id=excluded.parent_inv_id,amount_kopeks=excluded.amount_kopeks,period_months=excluded.period_months,next_charge_at=excluded.next_charge_at,retry_count=0,cancelled_at=NULL,updated_at=excluded.updated_at`)
+          .run(current.user_id, current.inv_id, current.amount_kopeks, current.period_months || 1, new Date(Date.parse(expiresAt) - 24 * 60 * 60 * 1000).toISOString(), timestamp);
       } else if (current.kind === 'recurring') {
         db.prepare('UPDATE payment_recurring SET next_charge_at=?,retry_count=0,updated_at=? WHERE user_id=?')
           .run(new Date(Date.parse(expiresAt) - 24 * 60 * 60 * 1000).toISOString(), timestamp, current.user_id);
@@ -312,19 +322,20 @@ function createRecurringOrder(row, at) {
   const assignment = db.prepare('SELECT * FROM payment_experiment_assignments WHERE user_id=? AND experiment_key=?').get(row.user_id, config.paymentExperimentKey);
   const id = randomUUID();
   const timestamp = nowIso(at);
-  db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,parent_inv_id,auto_renew,status,created_at,updated_at)
-    VALUES(?,?,?,?,?,'recurring',?,1,'pending',?,?)`)
-    .run(id, row.user_id, config.paymentExperimentKey, assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp);
+  db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,parent_inv_id,auto_renew,status,created_at,updated_at,period_months)
+    VALUES(?,?,?,?,?,'recurring',?,1,'pending',?,?,?)`)
+    .run(id, row.user_id, config.paymentExperimentKey, assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp, row.period_months || 1);
   return db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id);
 }
 
 async function submitRecurring(order, transport = fetch) {
+  const period = subscriptionPeriodLabel(order.period_months || 1);
   const fields = new URLSearchParams({
     MerchantLogin: config.robokassaMerchantLogin,
     OutSum: formatAmount(order.amount_kopeks),
     InvoiceID: String(order.inv_id),
     PreviousInvoiceID: String(order.parent_inv_id),
-    Description: 'Автопродление доступа к сервису Твои рецепты на 1 месяц',
+    Description: `Автопродление доступа к сервису Твои рецепты на ${period}`,
     SignatureValue: signatureForOrder(order, { recurringChild: true }),
     Receipt: receiptFor(order),
     ResultUrl2: `${config.appUrl}/api/payments/robokassa/result`,

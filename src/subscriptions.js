@@ -37,15 +37,20 @@ export function startTrial(userId, at = new Date()) {
   return getTrialStatus(userId, at);
 }
 
-export function monthAfter(timestamp) {
+export function monthsAfter(timestamp, months = 1) {
   const date = new Date(timestamp);
-  if (!Number.isFinite(date.getTime())) return null;
+  const count = Number(months);
+  if (!Number.isFinite(date.getTime()) || !Number.isSafeInteger(count) || count < 1 || count > 120) return null;
   const day = date.getUTCDate();
   date.setUTCDate(1);
-  date.setUTCMonth(date.getUTCMonth() + 1);
+  date.setUTCMonth(date.getUTCMonth() + count);
   const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
   date.setUTCDate(Math.min(day, lastDay));
   return date.toISOString();
+}
+
+export function monthAfter(timestamp) {
+  return monthsAfter(timestamp, 1);
 }
 
 export function getSubscriptionAccess(userId, at = new Date()) {
@@ -58,9 +63,9 @@ export function getSubscriptionAccess(userId, at = new Date()) {
     const payment = db.prepare('SELECT active,updated_at FROM mock_payments WHERE user_id=?').get(userId);
     if (payment?.active) {
       const orderTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mock_orders'").get();
-      const success = orderTable && db.prepare("SELECT updated_at FROM mock_orders WHERE user_id=? AND status='success' ORDER BY updated_at DESC LIMIT 1").get(userId);
+      const success = orderTable && db.prepare("SELECT * FROM mock_orders WHERE user_id=? AND status='success' ORDER BY updated_at DESC LIMIT 1").get(userId);
       const startedAt = success?.updated_at || payment.updated_at;
-      const expiresAt = monthAfter(startedAt);
+      const expiresAt = monthsAfter(startedAt, success?.period_months || 1);
       if (Date.parse(startedAt) <= at.getTime() && Date.parse(expiresAt) > at.getTime()) return { active: true, plan: 'subscription', expiresAt, source: 'test_payment' };
     }
   }

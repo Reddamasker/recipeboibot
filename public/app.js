@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card', trialOnboarding: null };
+const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card', paymentPeriodMonths: 1, paymentPromoQuote: null, paymentPromoMessage: '', trialOnboarding: null };
 let paymentPollTimer = null;
 window.miniProbe?.('app-script');
 
@@ -999,6 +999,53 @@ function settingsSheet() {
   el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); };
 }
 
+const paymentMoney = (value) => Number(value).toLocaleString('ru-RU', { minimumFractionDigits: Number(value) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+const paymentPeriodLabel = (months) => Number(months) === 12 ? '1 год' : Number(months) === 3 ? '3 месяца' : '1 месяц';
+function availablePaymentPlans() {
+  return state.payment?.plans?.length ? state.payment.plans : [{ months: 1, priceRub: state.payment?.offer?.priceRub || 199, fullPriceRub: state.payment?.offer?.priceRub || 199, discountPercent: 0, savingRub: 0, pricePerMonthRub: state.payment?.offer?.priceRub || 199 }];
+}
+function selectedPaymentPlan() {
+  const plans = availablePaymentPlans();
+  return plans.find((plan) => plan.months === state.paymentPeriodMonths) || plans[0];
+}
+function paymentPlanChoices() {
+  return `<div class="offer-periods" role="group" aria-label="Срок подписки">${availablePaymentPlans().map((plan) => `<button class="offer-period${plan.months === state.paymentPeriodMonths ? ' selected' : ''}" type="button" data-period-months="${plan.months}" aria-pressed="${plan.months === state.paymentPeriodMonths}"><span><strong>${paymentPeriodLabel(plan.months)}${plan.discountPercent ? `<span class="offer-discount">−${plan.discountPercent}%</span>` : ''}</strong><small>${plan.savingRub ? `Экономия ${paymentMoney(plan.savingRub)} ₽` : 'Без скидки'}</small></span><span class="offer-period-price">${paymentMoney(plan.priceRub)} ₽<small>${plan.months > 1 ? `<s>${paymentMoney(plan.fullPriceRub)} ₽</s>` : 'за месяц'}</small></span></button>`).join('')}</div>`;
+}
+function paymentPromoControls() {
+  const quote = state.paymentPromoQuote;
+  return `<div class="offer-promo"><form id="offer-promo-form"><label for="offer-promo-code">Промокод</label><div class="offer-promo-row"><input id="offer-promo-code" name="code" maxlength="64" autocomplete="off" autocapitalize="characters" placeholder="Введите код" value="${esc(quote?.code || '')}"><button class="secondary" type="submit">Применить</button></div></form>${quote ? `<div class="offer-promo-result"><strong>Скидка ${quote.discountPercent}%</strong><span><s>${paymentMoney(quote.basePriceRub)} ₽</s> ${paymentMoney(quote.priceRub)} ₽ за месяц</span><button class="text-button" id="offer-promo-remove" type="button">Убрать</button></div>` : ''}<p class="offer-promo-message" id="offer-promo-message" role="status" aria-live="polite">${esc(state.paymentPromoMessage)}</p><small>Промокод действует на тариф «1 месяц» и используется один раз.</small></div>`;
+}
+function bindPaymentOfferControls() {
+  document.querySelectorAll('[data-period-months]').forEach((button) => button.addEventListener('click', () => {
+    state.paymentPeriodMonths = Number(button.dataset.periodMonths);
+    if (state.paymentPeriodMonths !== 1) state.paymentPromoQuote = null;
+    state.paymentPromoMessage = '';
+    providerOfferPage();
+  }));
+  document.querySelector('#offer-promo-remove')?.addEventListener('click', () => {
+    state.paymentPromoQuote = null;
+    state.paymentPromoMessage = '';
+    providerOfferPage();
+  });
+  document.querySelector('#offer-promo-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (state.paymentPeriodMonths !== 1) {
+      state.paymentPromoMessage = 'Промокод действует только на тариф «1 месяц».';
+      providerOfferPage();
+      return;
+    }
+    try {
+      state.paymentPromoQuote = await api('/api/billing/promo/quote', { method: 'POST', body: JSON.stringify({ code: document.querySelector('#offer-promo-code').value }) });
+      state.paymentPromoMessage = '';
+      providerOfferPage();
+    } catch (failure) {
+      state.paymentPromoQuote = null;
+      state.paymentPromoMessage = failure.message;
+      providerOfferPage();
+    }
+  });
+}
+
 function promoPage(quote = null) {
   const money = value => Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const payable = quote && quote.priceRub > 0;
@@ -1065,7 +1112,7 @@ function trialOfferPage() {
 function offerPage() {
   if (state.payment?.trial && (state.payment.trial.eligible || state.payment.accessSource === 'trial' || (state.payment.trial.used && !state.payment.active))) { trialOfferPage(); return; }
   const payment = state.payment;
-  if (payment?.mode === 'provider' || payment?.mode === 'unavailable') { providerOfferPage(); return; }
+  if (['provider', 'unavailable', 'mock'].includes(payment?.mode)) { providerOfferPage(); return; }
   const price = payment?.offer?.priceRub;
   root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Рецепты Плюс · тестовое предложение</span><h1>${payment?.active ? 'Доступ открыт' : payment?.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment?.active ? `Автоматический импорт доступен в тестовом контуре. Автопродление ${payment.recurring?.enabled ? 'включено' : 'выключено'}.` : payment?.hasFirstRecipe ? `Сохраняйте следующие рецепты из ссылок, фото и текста.${payment.firstValue === 'saved' ? ' Первый сохранённый рецепт остаётся в коллекции.' : ' Первый ужин уже позади.'}` : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment?.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ТЕСТ</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение следующих рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Выбор оплаты картой или через СБП в макете</li></ul>${payment.active ? `<div class="offer-active">✓ Тестовый доступ активен</div>${payment.recurring?.enabled ? '<button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>' : ''}` : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Демонстрационный сценарий. Реального платежа и автоматического списания нет.</p></section>` : ''}<p class="offer-support"><a href="/?view=promo">У меня есть промокод</a></p><p class="offer-support">В тестовом контуре можно проверить успех, ошибку и отмену платежа. Для нового прохождения используйте сброс профиля в настройках.</p></main>`;
   bindCommon();
@@ -1083,15 +1130,17 @@ function checkoutPage() {
   if (payment?.mode === 'provider') { providerCheckoutPage(); return; }
   if (!(state.checkoutOrder?.promoCode || payment?.pendingOrder?.promoCode) && ((!payment?.hasFirstRecipe && !payment?.trial?.used) || payment.active)) { setRoute({ view: 'offer' }, { replace: true }); offerPage(); return; }
   const order = state.checkoutOrder || payment.pendingOrder;
-  const price = order?.priceRub || payment.offer.priceRub;
+  const periodMonths = Number(order?.periodMonths || state.paymentPeriodMonths || 1);
+  const periodText = periodMonths === 12 ? '1 год' : periodMonths === 3 ? '3 месяца' : '1 месяц';
+  const price = order?.priceRub || selectedPaymentPlan().priceRub;
   const confirmStep = Boolean(order);
-  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">● pay<span>demo</span></span><span class="checkout-safe">⌁ Защищённая форма</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата заказа для</small><strong>Рецепты</strong></div></div><div class="checkout-total"><span>К оплате</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${confirmStep ? `<div class="checkout-bank-step"><span class="checkout-step-icon">${order.method === 'sbp' ? '↗' : '▣'}</span><h1>${order.method === 'sbp' ? 'Подтвердите платёж в банке' : 'Подтвердите оплату'}</h1><p>${order.method === 'sbp' ? 'В реальном сценарии здесь открылось бы приложение выбранного банка для подтверждения через СБП.' : 'В реальном сценарии здесь появилось бы подтверждение банка по карте.'}</p><div class="checkout-order-id">Заказ № ${esc(order.id.slice(0, 8).toUpperCase())}</div><div class="checkout-scenarios"><span>Выберите исход тестового платежа</span><button class="checkout-pay" data-payment-result="success">Подтвердить · ${price} ₽</button><button class="checkout-alt" data-payment-result="failure">Показать ошибку оплаты</button><button class="checkout-alt" data-payment-result="cancel">Отменить платёж</button></div></div>` : `<h1 class="checkout-title">Выберите способ оплаты</h1><div class="checkout-methods"><button type="button" class="checkout-method ${state.paymentMethod === 'card' ? 'selected' : ''}" data-method="card"><span class="checkout-method-icon">▣</span><span><strong>Банковская карта</strong><small>Мир · Visa · Mastercard</small></span><span class="checkout-radio"></span></button><button type="button" class="checkout-method ${state.paymentMethod === 'sbp' ? 'selected' : ''}" data-method="sbp"><span class="checkout-method-icon sbp">СБП</span><span><strong>Система быстрых платежей</strong><small>Подтверждение в приложении банка</small></span><span class="checkout-radio"></span></button></div>${state.paymentMethod === 'card' ? '<div class="checkout-demo-form"><div class="checkout-field"><span>Номер карты</span><strong>•••• •••• •••• 4242</strong></div><div class="checkout-field-row"><div class="checkout-field"><span>Срок действия</span><strong>•• / ••</strong></div><div class="checkout-field"><span>CVC / CVV</span><strong>•••</strong></div></div><small>Демо-поля. Номер карты и CVC вводить не нужно.</small></div><label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление каждый месяц</strong><small>Тест согласия без реального списания. Отключается в профиле.</small></span></label>' : '<div class="checkout-demo-form"><span class="checkout-field-label">Банк для подтверждения</span><div class="checkout-bank-list"><span>Сбербанк</span><span>Т-Банк</span><span>ВТБ</span><span>Другой банк</span></div><small>В тесте приложение банка не откроется.</small></div>'}<button class="checkout-pay" id="checkout-continue">${state.paymentMethod === 'sbp' ? 'Перейти к подтверждению' : 'Оплатить'} · ${price} ₽</button>`}<p class="checkout-notice">Это макет платёжной страницы. Платёжный сервис не подключён; реквизиты карты не запрашиваются и деньги не списываются.</p></div></div></main>`;
+  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">● pay<span>demo</span></span><span class="checkout-safe">⌁ Защищённая форма</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата заказа для</small><strong>Рецепты</strong></div></div><div class="checkout-total"><span>К оплате</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Рецепты Плюс · ${periodText}</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${confirmStep ? `<div class="checkout-bank-step"><span class="checkout-step-icon">${order.method === 'sbp' ? '↗' : '▣'}</span><h1>${order.method === 'sbp' ? 'Подтвердите платёж в банке' : 'Подтвердите оплату'}</h1><p>${order.method === 'sbp' ? 'В реальном сценарии здесь открылось бы приложение выбранного банка для подтверждения через СБП.' : 'В реальном сценарии здесь появилось бы подтверждение банка по карте.'}</p><div class="checkout-order-id">Заказ № ${esc(order.id.slice(0, 8).toUpperCase())}</div><div class="checkout-scenarios"><span>Выберите исход тестового платежа</span><button class="checkout-pay" data-payment-result="success">Подтвердить · ${price} ₽</button><button class="checkout-alt" data-payment-result="failure">Показать ошибку оплаты</button><button class="checkout-alt" data-payment-result="cancel">Отменить платёж</button></div></div>` : `<h1 class="checkout-title">Выберите способ оплаты</h1><div class="checkout-methods"><button type="button" class="checkout-method ${state.paymentMethod === 'card' ? 'selected' : ''}" data-method="card"><span class="checkout-method-icon">▣</span><span><strong>Банковская карта</strong><small>Мир · Visa · Mastercard</small></span><span class="checkout-radio"></span></button><button type="button" class="checkout-method ${state.paymentMethod === 'sbp' ? 'selected' : ''}" data-method="sbp"><span class="checkout-method-icon sbp">СБП</span><span><strong>Система быстрых платежей</strong><small>Подтверждение в приложении банка</small></span><span class="checkout-radio"></span></button></div>${state.paymentMethod === 'card' ? '<div class="checkout-demo-form"><div class="checkout-field"><span>Номер карты</span><strong>•••• •••• •••• 4242</strong></div><div class="checkout-field-row"><div class="checkout-field"><span>Срок действия</span><strong>•• / ••</strong></div><div class="checkout-field"><span>CVC / CVV</span><strong>•••</strong></div></div><small>Демо-поля. Номер карты и CVC вводить не нужно.</small></div><label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление выбранного тарифа</strong><small>Тест согласия без реального списания. Отключается в профиле.</small></span></label>' : '<div class="checkout-demo-form"><span class="checkout-field-label">Банк для подтверждения</span><div class="checkout-bank-list"><span>Сбербанк</span><span>Т-Банк</span><span>ВТБ</span><span>Другой банк</span></div><small>В тесте приложение банка не откроется.</small></div>'}<button class="checkout-pay" id="checkout-continue">${state.paymentMethod === 'sbp' ? 'Перейти к подтверждению' : 'Оплатить'} · ${price} ₽</button>`}<p class="checkout-notice">Это макет платёжной страницы. Платёжный сервис не подключён; реквизиты карты не запрашиваются и деньги не списываются.</p></div></div></main>`;
   document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); offerPage(); };
   document.querySelectorAll('[data-method]').forEach((button) => button.onclick = () => { state.paymentMethod = button.dataset.method; checkoutPage(); });
   document.querySelector('#checkout-continue')?.addEventListener('click', async (event) => {
     const button = event.currentTarget; button.disabled = true;
     try {
-      state.checkoutOrder = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ method: state.paymentMethod, autoRenew: Boolean(document.querySelector('#auto-renew')?.checked) }) });
+      state.checkoutOrder = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ method: state.paymentMethod, autoRenew: Boolean(document.querySelector('#auto-renew')?.checked), periodMonths }) });
       checkoutPage();
     } catch (error) { toast(error.message); button.disabled = false; }
   });
@@ -1122,7 +1171,7 @@ function paymentResultPage() {
   document.querySelector('#result-next').onclick = () => { setRoute(success ? {} : { view: 'offer' }); void render(); };
 }
 
-function providerOfferPage() {
+function legacyProviderOfferPage() {
   const payment = state.payment;
   const price = payment?.offer?.priceRub;
   const recurring = payment?.recurring;
@@ -1143,18 +1192,65 @@ function providerOfferPage() {
   });
 }
 
+function providerOfferPage() {
+  const payment = state.payment;
+  const plan = selectedPaymentPlan();
+  const quote = state.paymentPromoQuote;
+  const price = quote ? quote.priceRub : plan.priceRub;
+  const canProceed = payment.available || quote?.discountPercent === 100;
+  const activeCopy = payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : payment.hasFirstRecipe || payment.trial?.used ? 'Выберите срок доступа. Чем больше срок, тем выше скидка.' : 'Сначала попробуйте бесплатный период.';
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${payment.active ? 'Продлить доступ' : 'Выберите срок подписки'}</h1><p>${activeCopy}</p></div><section class="offer-plan"><div class="offer-plan-top"><span>Доступ без ограничений</span><span class="offer-test-pill">ПЛЮС</span></div>${paymentPlanChoices()}${paymentPromoControls()}<div class="offer-price-summary">${quote ? `<strong>Скидка ${quote.discountPercent}%</strong>` : plan.savingRub ? `<strong>Экономия ${paymentMoney(plan.savingRub)} ₽</strong>` : ''}<div class="offer-price">${paymentMoney(price)} ₽ <small>/ ${paymentPeriodLabel(quote ? 1 : plan.months)}</small></div>${!quote && plan.months > 1 ? `<p>${paymentMoney(plan.pricePerMonthRub)} ₽ в месяц вместо 199 ₽.</p>` : ''}</div><ul><li>Автоматическое сохранение рецептов</li><li>Подбор ужина с учётом ваших вкусов</li><li>Напоминания по вашему расписанию</li></ul><button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? 'Получить месяц бесплатно' : `Оплатить ${paymentMoney(price)} ₽` : 'Оплата пока подключается'}</button><p class="offer-fineprint">${quote ? 'Промокод не включает новое автопродление.' : 'Оплата проходит на защищённой странице Robokassa.'}</p></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  bindCommon();
+  bindPaymentOfferControls();
+  document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
+  document.querySelector('#offer-pay')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      if (quote?.discountPercent === 100) {
+        const result = await api('/api/billing/promo/redeem', { method: 'POST', body: JSON.stringify({ code: quote.code }) });
+        state.payment = result.payment;
+        state.paymentPromoQuote = null;
+        state.paymentPromoMessage = 'Месяц бесплатно активирован.';
+        providerOfferPage();
+        return;
+      }
+      if (quote) {
+        const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ promoCode: quote.code, autoRenew: false, method: 'card', periodMonths: 1 }) });
+        state.checkoutOrder = order;
+        if (order.mode === 'mock') { setRoute({ view: 'checkout' }); checkoutPage(); }
+        else {
+          state.paymentResult = 'pending';
+          if (tg?.openLink) tg.openLink(order.paymentUrl);
+          else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
+          setRoute({ view: 'payment-result' }); providerPaymentResultPage();
+        }
+        return;
+      }
+      setRoute({ view: 'checkout' });
+      if (payment.mode === 'mock') checkoutPage(); else providerCheckoutPage();
+    } catch (failure) {
+      state.paymentPromoMessage = failure.message;
+      providerOfferPage();
+    }
+  });
+}
+
 function providerCheckoutPage() {
   const payment = state.payment;
   if (!payment?.hasFirstRecipe && !payment?.trial?.used) { setRoute({ view: 'offer' }, { replace: true }); providerOfferPage(); return; }
-  const price = payment.offer.priceRub;
-  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">Robokassa</span><span class="checkout-safe">Защищённая оплата</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата для</small><strong>Твои рецепты</strong></div></div><div class="checkout-total"><span>К оплате сейчас</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Твои рецепты Плюс · 1 месяц</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${payment.recurringSupported ? `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление каждый месяц</strong><small>${price} ₽ раз в месяц. Первое продление — после окончания оплаченного периода. Отключить можно в профиле.</small></span></label>` : '<p class="checkout-notice">Сейчас оформляется доступ на один месяц без автоматического продления.</p>'}<button class="checkout-pay" id="checkout-continue">Оплатить ${price} ₽</button><p class="checkout-notice">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Реквизиты карты вводятся только на стороне Robokassa.</p></div></div></main>`;
+  const plan = selectedPaymentPlan();
+  const price = plan.priceRub;
+  const period = paymentPeriodLabel(plan.months);
+  const renewal = plan.months === 12 ? 'каждый год' : plan.months === 3 ? 'каждые 3 месяца' : 'каждый месяц';
+  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">Robokassa</span><span class="checkout-safe">Защищённая оплата</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата для</small><strong>Твои рецепты</strong></div></div><div class="checkout-total"><span>К оплате сейчас</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Твои рецепты Плюс · ${period}</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${payment.recurringSupported ? `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>Автопродление ${renewal}</strong><small>${price} ₽ за ${period}. Первое продление — после окончания оплаченного периода. Отключить можно в профиле.</small></span></label>` : `<p class="checkout-notice">Сейчас оформляется доступ на ${period} без автоматического продления.</p>`}<button class="checkout-pay" id="checkout-continue">Оплатить ${price} ₽</button><p class="checkout-notice">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Реквизиты карты вводятся только на стороне Robokassa.</p></div></div></main>`;
   document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); providerOfferPage(); };
   document.querySelector('#checkout-continue').onclick = async (event) => {
     const button = event.currentTarget;
     button.disabled = true; button.textContent = 'Создаём заказ…';
     try {
       const autoRenew = Boolean(document.querySelector('#auto-renew')?.checked);
-      const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ autoRenew }) });
+      const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ autoRenew, periodMonths: plan.months }) });
       state.checkoutOrder = order;
       state.paymentResult = 'pending';
       if (tg?.openLink) tg.openLink(order.paymentUrl);
