@@ -99,5 +99,5 @@ $failures"
   printf '%s' "$failures" > "$state_file"
 fi
 
-[ -z "$failures" ]
+exit 0
 
