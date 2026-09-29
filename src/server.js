@@ -47,6 +47,18 @@ async function bodyText(request, maxBytes = 16_000) {
   for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw Object.assign(new Error('Запрос слишком большой'), { status: 413 }); chunks.push(chunk); }
   return Buffer.concat(chunks).toString('utf8');
 }
+async function relayRobokassaTestResult(body, params) {
+  const response = await fetch(config.robokassaTestResultUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' },
+    body,
+    signal: AbortSignal.timeout(5000)
+  });
+  const acknowledgement = (await response.text()).trim();
+  const invId = Number(params.InvId ?? params.invid ?? params.INVID);
+  if (!response.ok || !Number.isSafeInteger(invId) || acknowledgement !== `OK${invId}`) throw Object.assign(new Error('Тестовый callback не подтверждён'), { status: 502 });
+  return acknowledgement;
+}
 function htmlResponse(response, status, document, { paymentForm = false } = {}) {
   securityHeaders(response);
   if (paymentForm) response.setHeader('content-security-policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action https://auth.robokassa.ru; base-uri 'none'");
@@ -335,10 +347,19 @@ export function createServer() {
         let acknowledgement;
         if (request.method === 'POST') {
           const body = await bodyText(request);
-          acknowledgement = body.trim().split('.').length === 3
-            ? processRobokassaResultJws(body)
-            : processRobokassaResult(Object.fromEntries(new URLSearchParams(body)));
-        } else acknowledgement = processRobokassaResult(Object.fromEntries(url.searchParams));
+          if (body.trim().split('.').length === 3) acknowledgement = processRobokassaResultJws(body);
+          else {
+            const params = Object.fromEntries(new URLSearchParams(body));
+            acknowledgement = !config.testContour && config.robokassaTestResultUrl && params.Shp_contour === 'test'
+              ? await relayRobokassaTestResult(body, params)
+              : processRobokassaResult(params);
+          }
+        } else {
+          const params = Object.fromEntries(url.searchParams);
+          acknowledgement = !config.testContour && config.robokassaTestResultUrl && params.Shp_contour === 'test'
+            ? await relayRobokassaTestResult(url.searchParams.toString(), params)
+            : processRobokassaResult(params);
+        }
         securityHeaders(response);
         response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         return response.end(acknowledgement);

@@ -218,11 +218,12 @@ function signatureForOrder(order, { recurringChild = false } = {}) {
   const outSum = formatAmount(order.amount_kopeks);
   const receipt = receiptFor(order);
   const resultUrl = `${config.appUrl}/api/payments/robokassa/result`;
-  if (recurringChild) return hash(`${config.robokassaMerchantLogin}:${outSum}:${order.inv_id}:${receipt}:${resultUrl}:`, config.robokassaPassword1);
+  const contour = config.testContour ? 'test' : 'production';
+  if (recurringChild) return hash(`${config.robokassaMerchantLogin}:${outSum}:${order.inv_id}:${receipt}:${resultUrl}:${config.robokassaPassword1}:Shp_contour=${contour}`);
   const successUrl = `${config.appUrl}/payment/success?order=${encodeURIComponent(order.id)}`;
   const failUrl = `${config.appUrl}/payment/fail?order=${encodeURIComponent(order.id)}`;
   const base = `${config.robokassaMerchantLogin}:${outSum}:${order.inv_id}:${receipt}:${resultUrl}:${successUrl}:GET:${failUrl}:GET:`;
-  return hash(base, config.robokassaPassword1);
+  return hash(`${base}${config.robokassaPassword1}:Shp_contour=${contour}`);
 }
 
 function paymentFields(order) {
@@ -243,6 +244,7 @@ function paymentFields(order) {
     ['SuccessUrl2Method', 'GET'],
     ['FailUrl2', failUrl],
     ['FailUrl2Method', 'GET'],
+    ['Shp_contour', config.testContour ? 'test' : 'production'],
     ...(config.robokassaTest ? [['IsTest', '1']] : []),
     ...(order.auto_renew ? [['Recurring', 'true'], ['PaymentMethods', 'BankCard']] : [])
   ];

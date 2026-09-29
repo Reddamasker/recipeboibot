@@ -155,6 +155,21 @@ test('price experiment is stable, recorded once, and an initial order is signed 
   assert.match(document, /name="PaymentMethods" value="BankCard"/);
   assert.match(document, /name="Receipt"/);
   assert.match(document, /name="ResultUrl2" value="https:\/\/billing\.example\.test\/api\/payments\/robokassa\/result"/);
+  assert.match(document, /name="Shp_contour" value="test"/);
+  const fields = Object.fromEntries([...document.matchAll(/name="([^"]+)" value="([^"]*)"/g)].map((match) => [match[1], match[2].replaceAll('&amp;', '&')]));
+  assert.equal(fields.SignatureValue, digest([
+    process.env.ROBOKASSA_MERCHANT_LOGIN,
+    fields.OutSum,
+    fields.InvId,
+    fields.Receipt,
+    fields.ResultUrl2,
+    fields.SuccessUrl2,
+    fields.SuccessUrl2Method,
+    fields.FailUrl2,
+    fields.FailUrl2Method,
+    process.env.ROBOKASSA_PASSWORD1,
+    'Shp_contour=test'
+  ].join(':')));
   assert.doesNotMatch(document, /billing-password-(?:one|two)/);
 });
 
@@ -290,7 +305,8 @@ test('recurring cycle creates a signed child order, callback extends access, and
     child.inv_id,
     submitted.body.get('Receipt'),
     'https://billing.example.test/api/payments/robokassa/result',
-    process.env.ROBOKASSA_PASSWORD1
+    process.env.ROBOKASSA_PASSWORD1,
+    'Shp_contour=test'
   ].join(':')));
 
   const publicChild = getPaymentOrder(user.id, child.id);

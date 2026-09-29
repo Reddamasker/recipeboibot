@@ -53,6 +53,7 @@ export const config = Object.freeze({
   robokassaHash,
   robokassaTest: process.env.ROBOKASSA_TEST === 'true',
   robokassaRecurring: process.env.ROBOKASSA_RECURRING_ENABLED === 'true',
+  robokassaTestResultUrl: (process.env.ROBOKASSA_TEST_RESULT_URL || '').replace(/\/$/, ''),
   robokassaConfigured: Object.values(robokassaCredentials).every(Boolean) && Boolean(process.env.PAYMENT_TAX),
   openaiKey: process.env.OPENAI_API_KEY || '',
   textModel: process.env.OPENAI_TEXT_MODEL || '',
@@ -85,6 +86,11 @@ export function assertConfig() {
   if (robokassaValues.some(Boolean) && !robokassaValues.every(Boolean)) throw new Error('ROBOKASSA_MERCHANT_LOGIN, ROBOKASSA_PASSWORD1 и ROBOKASSA_PASSWORD2 должны быть заданы вместе');
   if (robokassaValues.every(Boolean) && !config.paymentTax) throw new Error('Для Robokassa необходимо настроить PAYMENT_TAX');
   if (!config.testContour && config.robokassaTest) throw new Error('ROBOKASSA_TEST нельзя включать в основном контуре');
+  if (config.robokassaTestResultUrl) {
+    let testResultUrl;
+    try { testResultUrl = new URL(config.robokassaTestResultUrl); } catch { throw new Error('Неверный ROBOKASSA_TEST_RESULT_URL'); }
+    if (testResultUrl.protocol !== 'https:' || testResultUrl.pathname !== '/api/payments/robokassa/result') throw new Error('Неверный ROBOKASSA_TEST_RESULT_URL');
+  }
   if (config.robokassaRecurring && !config.robokassaConfigured) throw new Error('Автопродление требует полной настройки Robokassa');
   if (config.billingRequired && config.testContour) throw new Error('BILLING_REQUIRED предназначен только для основного контура');
   if (config.billingRequired && !config.robokassaConfigured) throw new Error('BILLING_REQUIRED=true требует полной настройки Robokassa');
