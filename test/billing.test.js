@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -29,6 +29,7 @@ const {
   getPaymentOrder,
   paymentRedirectDocument,
   processRobokassaResult,
+  processRobokassaResultJws,
   recordBillingExposure,
   runRecurringCycle
 } = await import('../src/billing.js');
@@ -45,6 +46,24 @@ createRecipe(user.id, {
 });
 
 const digest = (value) => createHash('md5').update(value).digest('hex');
+const jwsKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const compactJws = (order, overrides = {}) => {
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    header: { type: 'PaymentStateNotification', version: '1.0.0', timestamp: '2026-09-29T12:00:00Z' },
+    data: {
+      shop: process.env.ROBOKASSA_MERCHANT_LOGIN,
+      opKey: 'test-operation-key',
+      invId: String(order.invId),
+      paymentMethod: 'BankCard',
+      incSum: Number(order.priceRub).toFixed(2),
+      state: 'OK',
+      ...overrides
+    }
+  })).toString('base64url');
+  const signature = sign('RSA-SHA256', Buffer.from(`${header}.${payload}`, 'ascii'), jwsKeys.privateKey).toString('base64url');
+  return `${header}.${payload}.${signature}`;
+};
 const callback = (order, at, extra = {}) => {
   const outSum = Number(order.priceRub).toFixed(2);
   return processRobokassaResult({
@@ -186,6 +205,26 @@ test('callback rejects a bad signature or amount without granting access', () =>
   assert.throws(() => processRobokassaResult({ OutSum: wrong, InvId: order.invId, SignatureValue: digest(`${wrong}:${order.invId}:${process.env.ROBOKASSA_PASSWORD2}`) }), /сумма/i);
   assert.equal(getSubscriptionAccess(other.id).active, false);
   assert.equal(getPaymentOrder(other.id, order.id).status, 'pending');
+});
+
+test('signed ResultUrl2 JWS activates the order and rejects forged notifications', () => {
+  const buyer = upsertTelegramUser({ id: 600000012, first_name: 'JWS buyer' });
+  createRecipe(buyer.id, { title: 'Салат', status: 'ready', ingredients: [{ name: 'огурец' }], steps: [{ text: 'Нарезать.' }] });
+  const at = new Date('2026-09-29T12:00:00.000Z');
+  const order = createPaymentOrder(buyer.id, {}, at);
+  const token = compactJws(order);
+  assert.equal(processRobokassaResultJws(token, at, jwsKeys.publicKey), `OK${order.invId}`);
+  assert.equal(getPaymentOrder(buyer.id, order.id).status, 'paid');
+  assert.equal(db.prepare('SELECT provider_method FROM payment_orders WHERE inv_id=?').get(order.invId).provider_method, 'BankCard');
+  assert.equal(processRobokassaResultJws(token, at, jwsKeys.publicKey), `OK${order.invId}`);
+
+  const other = upsertTelegramUser({ id: 600000013, first_name: 'Forged JWS' });
+  createRecipe(other.id, { title: 'Каша', status: 'ready', ingredients: [{ name: 'крупа' }], steps: [{ text: 'Сварить.' }] });
+  const pending = createPaymentOrder(other.id, {}, at);
+  const forged = compactJws(pending).replace(/.$/, (value) => value === 'A' ? 'B' : 'A');
+  assert.throws(() => processRobokassaResultJws(forged, at, jwsKeys.publicKey), /подпись/i);
+  assert.throws(() => processRobokassaResultJws(compactJws(pending, { shop: 'another-shop' }), at, jwsKeys.publicKey), /уведомление/i);
+  assert.equal(getPaymentOrder(other.id, pending.id).status, 'pending');
 });
 
 test('payment during trial adds a month after the seven free days without shortening them', () => {

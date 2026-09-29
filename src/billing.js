@@ -1,4 +1,5 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual, verify as verifySignature } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { db } from './db.js';
 import { config } from './config.js';
 import { getSubscriptionAccess, getTrialStatus, hasUsedTrialOrPromo, monthsAfter } from './subscriptions.js';
@@ -9,6 +10,7 @@ import { log } from './log.js';
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
 const PAYMENT_ACTION = 'https://auth.robokassa.ru/Merchant/Index.aspx';
 const RECURRING_ACTION = 'https://auth.robokassa.ru/Merchant/Recurring';
+const ROBOKASSA_JWS_CERTIFICATE = readFileSync(new URL('./robokassa-jwtsign.cer', import.meta.url));
 
 db.exec(`CREATE TABLE IF NOT EXISTS payment_experiment_assignments (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -258,31 +260,21 @@ export function paymentRedirectDocument(id) {
 export function paymentReturnDocument(kind) {
   const success = kind === 'success';
   const bot = config.testContour ? config.testBotUsername : 'Recipeboibot';
-  return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${success ? 'Платёж принят' : 'Платёж не завершён'}</title><style>body{margin:0;background:#f3f0f7;color:#2d2633;font:16px/1.5 system-ui}main{max-width:520px;margin:12vh auto;padding:32px}a{display:inline-block;margin-top:20px;padding:14px 20px;border-radius:12px;background:#6d4f7d;color:#fff;text-decoration:none;font-weight:700}</style><main><h1>${success ? 'Платёж обрабатывается' : 'Платёж не завершён'}</h1><p>${success ? 'Вернитесь в приложение. Доступ откроется после серверного подтверждения оплаты.' : 'Деньги не списаны. Вернитесь в приложение, чтобы повторить оплату.'}</p><a href="https://t.me/${html(bot)}?start=dinner">Вернуться в бот</a></main></html>`;
+  return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${success ? 'Платёж принят' : 'Платёж не завершён'}</title><style>body{margin:0;background:#f3f0f7;color:#2d2633;font:16px/1.5 system-ui}main{max-width:520px;margin:12vh auto;padding:32px}a{display:inline-block;margin-top:20px;padding:14px 20px;border-radius:12px;background:#6d4f7d;color:#fff;text-decoration:none;font-weight:700}</style><main><h1>${success ? 'Платёж принят' : 'Платёж не завершён'}</h1><p>${success ? 'Robokassa приняла платёж. Вернитесь в приложение: мы проверим серверное подтверждение и сразу откроем доступ.' : 'Деньги не списаны. Вернитесь в приложение, чтобы повторить оплату.'}</p><a href="https://t.me/${html(bot)}?start=dinner">Вернуться в бот</a></main></html>`;
 }
 
 const parameter = (params, name) => params[name] ?? params[name.toLowerCase()] ?? params[name.toUpperCase()];
 
-export function processRobokassaResult(params, at = new Date()) {
-  if (!config.robokassaConfigured) throw error('Оплата не настроена', 404);
-  const outSum = String(parameter(params, 'OutSum') || '');
-  const invId = Number(parameter(params, 'InvId'));
-  const received = String(parameter(params, 'SignatureValue') || '');
-  if (!Number.isSafeInteger(invId) || invId < 1 || !received) throw error('Некорректное уведомление', 400);
-  const shp = Object.entries(params).filter(([key]) => /^Shp_/i.test(key)).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`);
-  const base = [outSum, String(invId), config.robokassaPassword2, ...shp].join(':');
-  const expected = hash(base);
-  if (!secureEqual(received, expected)) throw error('Некорректная подпись', 400);
+function confirmRobokassaPayment({ outSum, invId, signatureHash, paymentMethod, opKey }, at = new Date()) {
   const order = db.prepare('SELECT * FROM payment_orders WHERE inv_id=?').get(invId);
   if (!order || parseAmount(outSum) !== order.amount_kopeks) throw error('Заказ или сумма не совпадают', 400);
-  const signatureHash = createHash('sha256').update(received.toLowerCase()).digest('hex');
   const timestamp = nowIso(at);
   db.exec('BEGIN IMMEDIATE');
   try {
     const current = db.prepare('SELECT * FROM payment_orders WHERE inv_id=?').get(invId);
     if (['pending', 'failed'].includes(current.status)) {
       db.prepare("UPDATE payment_orders SET status='paid',provider_method=?,provider_op_key=?,paid_at=?,updated_at=? WHERE inv_id=?")
-        .run(parameter(params, 'PaymentMethod') || null, parameter(params, 'OpKey') || null, timestamp, timestamp, invId);
+        .run(paymentMethod || null, opKey || null, timestamp, timestamp, invId);
       const access = db.prepare('SELECT * FROM user_subscriptions WHERE user_id=?').get(current.user_id);
       const currentAccess = getSubscriptionAccess(current.user_id, at);
       const baseDate = currentAccess.active ? new Date(currentAccess.expiresAt) : at;
@@ -310,6 +302,61 @@ export function processRobokassaResult(params, at = new Date()) {
     db.exec('COMMIT');
   } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   return `OK${invId}`;
+}
+
+export function processRobokassaResult(params, at = new Date()) {
+  if (!config.robokassaConfigured) throw error('Оплата не настроена', 404);
+  const outSum = String(parameter(params, 'OutSum') || '');
+  const invId = Number(parameter(params, 'InvId'));
+  const received = String(parameter(params, 'SignatureValue') || '');
+  if (!Number.isSafeInteger(invId) || invId < 1 || !received) throw error('Некорректное уведомление', 400);
+  const shp = Object.entries(params).filter(([key]) => /^Shp_/i.test(key)).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`);
+  const base = [outSum, String(invId), config.robokassaPassword2, ...shp].join(':');
+  const expected = hash(base);
+  if (!secureEqual(received, expected)) throw error('Некорректная подпись', 400);
+  return confirmRobokassaPayment({
+    outSum,
+    invId,
+    signatureHash: createHash('sha256').update(received.toLowerCase()).digest('hex'),
+    paymentMethod: parameter(params, 'PaymentMethod'),
+    opKey: parameter(params, 'OpKey')
+  }, at);
+}
+
+function decodeJwsPart(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw error('Некорректное уведомление', 400);
+  try { return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')); }
+  catch { throw error('Некорректное уведомление', 400); }
+}
+
+export function processRobokassaResultJws(compactJws, at = new Date(), publicKey = ROBOKASSA_JWS_CERTIFICATE) {
+  if (!config.robokassaConfigured) throw error('Оплата не настроена', 404);
+  const token = String(compactJws || '').trim();
+  if (token.length > 16_000) throw error('Запрос слишком большой', 413);
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts.some((part) => !part)) throw error('Некорректное уведомление', 400);
+  const header = decodeJwsPart(parts[0]);
+  const payload = decodeJwsPart(parts[1]);
+  if (header.alg !== 'RS256') throw error('Некорректная подпись', 400);
+  let verified = false;
+  try {
+    verified = verifySignature('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`, 'ascii'), publicKey, Buffer.from(parts[2], 'base64url'));
+  } catch {}
+  if (!verified) throw error('Некорректная подпись', 400);
+  if (payload?.header?.type !== 'PaymentStateNotification' || payload?.header?.version !== '1.0.0') throw error('Некорректное уведомление', 400);
+  const data = payload.data;
+  const invId = Number(data?.invId);
+  const outSum = String(data?.incSum || '');
+  if (!Number.isSafeInteger(invId) || invId < 1 || data?.state !== 'OK' || String(data?.shop || '') !== config.robokassaMerchantLogin) {
+    throw error('Некорректное уведомление', 400);
+  }
+  return confirmRobokassaPayment({
+    outSum,
+    invId,
+    signatureHash: createHash('sha256').update(token).digest('hex'),
+    paymentMethod: data.paymentMethod,
+    opKey: data.opKey
+  }, at);
 }
 
 export function cancelAutoRenew(userId, at = new Date()) {

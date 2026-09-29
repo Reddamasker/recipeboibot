@@ -18,7 +18,7 @@ import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder,
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
-import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
+import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
@@ -42,10 +42,10 @@ async function bodyJson(request, maxBytes = Math.ceil(config.maxUploadBytes * 4 
   for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw Object.assign(new Error('Запрос слишком большой'), { status: 413 }); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw Object.assign(new Error('Неверный JSON'), { status: 400 }); }
 }
-async function bodyForm(request, maxBytes = 16_000) {
+async function bodyText(request, maxBytes = 16_000) {
   const chunks = []; let size = 0;
   for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw Object.assign(new Error('Запрос слишком большой'), { status: 413 }); chunks.push(chunk); }
-  return Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString('utf8')));
+  return Buffer.concat(chunks).toString('utf8');
 }
 function htmlResponse(response, status, document, { paymentForm = false } = {}) {
   securityHeaders(response);
@@ -332,8 +332,13 @@ export function createServer() {
         });
       }
       if (robokassaResult) {
-        const params = request.method === 'POST' ? await bodyForm(request) : Object.fromEntries(url.searchParams);
-        const acknowledgement = processRobokassaResult(params);
+        let acknowledgement;
+        if (request.method === 'POST') {
+          const body = await bodyText(request);
+          acknowledgement = body.trim().split('.').length === 3
+            ? processRobokassaResultJws(body)
+            : processRobokassaResult(Object.fromEntries(new URLSearchParams(body)));
+        } else acknowledgement = processRobokassaResult(Object.fromEntries(url.searchParams));
         securityHeaders(response);
         response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         return response.end(acknowledgement);
