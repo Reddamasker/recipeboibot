@@ -32,7 +32,9 @@ try {
     run(process.execPath, ['--test', '--test-concurrency=1']);
     const temp = mkdtempSync(path.join(tmpdir(), 'recipeboibot-test-release-'));
     const archive = path.join(temp, 'release.tgz'), script = path.join(temp, 'apply.sh');
-    run('git', ['archive', '--format=tar.gz', '-o', archive, 'HEAD', 'src', 'public', 'Dockerfile', 'package.json', 'test']);
+    run('git', ['archive', '--format=tar.gz', '-o', archive, 'HEAD',
+      'src', 'public', 'Dockerfile', 'package.json', 'test',
+      'deploy/apply-release.sh', 'deploy/apply-test-release.sh']);
     const hash = createHash('sha256').update(readFileSync(archive)).digest('hex');
     copyFileSync(path.join(root, 'deploy', 'apply-test-release.sh'), script);
     const remote = `/root/recipeboibot-test-release-${hash}`;
