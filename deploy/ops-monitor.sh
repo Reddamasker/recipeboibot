@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+
+base_dir="${RECIPEBOIBOT_BASE_DIR:-/opt/recipeboibot}"
+env_file="$base_dir/.env.local"
+state_dir="${RECIPEBOIBOT_MONITOR_STATE_DIR:-/var/lib/recipeboibot-monitor}"
+state_file="$state_dir/current-status"
+container="${RECIPEBOIBOT_CONTAINER:-recipeboibot}"
+local_url="${RECIPEBOIBOT_LOCAL_URL:-http://127.0.0.1:3087}"
+public_url="${RECIPEBOIBOT_PUBLIC_URL:-https://dishfinder.ru}"
+mode="${1:-}"
+
+read_env() {
+  key="$1"
+  [ -f "$env_file" ] || return 0
+  sed -n "s/^${key}=//p" "$env_file" | tail -n 1 | tr -d '\r' | sed 's/^"//;s/"$//'
+}
+
+alert_chat_id="$(read_env OPS_ALERT_CHAT_ID)"
+telegram_token="$(read_env TELEGRAM_BOT_TOKEN)"
+telegram_origin="$(read_env OPS_TELEGRAM_API_ORIGIN)"
+[ -n "$telegram_origin" ] || telegram_origin="https://api.telegram.org"
+telegram_origin="${telegram_origin%/}"
+
+send_alert() {
+  text="$1"
+  if [ -z "$alert_chat_id" ] || [ -z "$telegram_token" ]; then
+    printf '%s\n' "Monitoring alert was not delivered: OPS_ALERT_CHAT_ID or TELEGRAM_BOT_TOKEN is missing" >&2
+    return 1
+  fi
+  curl -fsS --max-time 20 -X POST "${telegram_origin}/bot${telegram_token}/sendMessage" \
+    --data-urlencode "chat_id=${alert_chat_id}" \
+    --data-urlencode "text=${text}" >/dev/null
+}
+
+failures=""
+add_failure() {
+  if [ -n "$failures" ]; then failures="$failures
+$1"; else failures="$1"; fi
+}
+
+if ! curl -fsS --max-time 10 "$local_url/healthz" >/dev/null; then add_failure "Локальный healthcheck недоступен"; fi
+if ! curl -fsS --max-time 15 "$public_url/healthz" >/dev/null; then add_failure "Публичный healthcheck недоступен"; fi
+
+container_state="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}} {{.State.OOMKilled}}' "$container" 2>/dev/null || true)"
+set -- $container_state
+if [ "$#" -ne 4 ]; then
+  add_failure "Контейнер не найден"
+else
+  [ "$1" = "running" ] || add_failure "Контейнер не запущен: $1"
+  [ "$2" = "healthy" ] || add_failure "Контейнер unhealthy: $2"
+  [ "$3" = "0" ] || add_failure "Контейнер перезапускался: $3"
+  [ "$4" = "false" ] || add_failure "Контейнер завершался по OOM"
+fi
+
+disk_used="$(df -P "$base_dir" | awk 'NR==2 { gsub(/%/,"",$5); print $5 }')"
+if [ -z "$disk_used" ]; then add_failure "Не удалось прочитать заполнение диска"
+elif [ "$disk_used" -ge 90 ]; then add_failure "Критически заполнен диск: ${disk_used}%"
+elif [ "$disk_used" -ge 80 ]; then add_failure "Диск заполнен на ${disk_used}%"
+fi
+
+latest_backup="$(find "$base_dir/backups" -maxdepth 1 -type f -name 'recipes-*.sqlite.enc' -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1 | cut -d. -f1)"
+now="$(date +%s)"
+if [ -z "$latest_backup" ]; then add_failure "Нет зашифрованной резервной копии БД"
+elif [ $((now - latest_backup)) -gt 108000 ]; then add_failure "Локальная резервная копия старше 30 часов"
+fi
+
+offsite_marker="$base_dir/backups/offsite-last-success"
+if [ ! -f "$offsite_marker" ]; then add_failure "Ещё не подтверждена внешняя резервная копия"
+else
+  offsite_age=$((now - $(stat -c %Y "$offsite_marker")))
+  [ "$offsite_age" -le 129600 ] || add_failure "Внешняя резервная копия старше 36 часов"
+fi
+
+billing_required="$(read_env BILLING_REQUIRED)"
+if [ "$billing_required" = "true" ]; then
+  if ! curl -fsS --max-time 10 "$local_url/readyz" | grep -F '"billing":{"required":true,"configured":true}' >/dev/null; then
+    add_failure "Обязательный платёжный контур не готов"
+  fi
+else
+  add_failure "Продажи выключены: BILLING_REQUIRED не равен true"
+fi
+
+mkdir -p "$state_dir"
+previous=""
+[ ! -f "$state_file" ] || previous="$(cat "$state_file")"
+
+if [ "$mode" = "--test-alert" ]; then
+  send_alert "Твои рецепты: тест оповещений мониторинга успешно доставлен."
+fi
+
+if [ "$failures" != "$previous" ]; then
+  if [ -n "$failures" ]; then
+    send_alert "Твои рецепты: требуется внимание.
+$failures"
+  elif [ -n "$previous" ]; then
+    send_alert "Твои рецепты: все контролируемые показатели снова в норме."
+  fi
+  printf '%s' "$failures" > "$state_file"
+fi
+
+[ -z "$failures" ]
+

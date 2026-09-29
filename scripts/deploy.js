@@ -35,7 +35,10 @@ try {
   const archive = path.join(temp, 'release.tgz'), script = path.join(temp, 'apply.sh');
   const remoteHome = target.startsWith('root@') ? '/root' : '/home/nikita';
   const remoteBase = `${remoteHome}/recipeboibot-release-${revision}`;
-  run('git', ['archive', '--format=tar.gz', '-o', archive, revision, 'src', 'public', 'Dockerfile', 'package.json']);
+  run('git', ['archive', '--format=tar.gz', '-o', archive, revision,
+    'src', 'public', 'Dockerfile', 'package.json',
+    'deploy/ops-monitor.sh', 'deploy/enable-monitor.sh',
+    'deploy/recipeboibot-monitor.service', 'deploy/recipeboibot-monitor.timer']);
   copyFileSync(path.join(root, 'deploy', 'apply-release.sh'), script);
   run('scp', [...sshOptions, archive, `${target}:${remoteBase}.tgz`]);
   run('scp', [...sshOptions, script, `${target}:${remoteBase}.sh`]);

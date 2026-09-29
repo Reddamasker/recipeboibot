@@ -19,7 +19,7 @@ sudo -n sh deploy/backup.sh /opt/recipeboibot/backups
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="backups/source-before-git-$stamp.tgz"
 previous="recipeboibot-recipeboibot:before-git-$stamp"
-sudo -n tar -czf "$backup" src public Dockerfile package.json
+sudo -n tar -czf "$backup" src public deploy Dockerfile package.json
 sudo -n docker tag recipeboibot-recipeboibot "$previous"
 rollback() {
   echo 'Deployment failed; restoring previous source and image' >&2
@@ -37,6 +37,8 @@ while [ "$i" -lt 30 ]; do
   status=$(sudo -n docker inspect --format '{{.State.Health.Status}}' recipeboibot)
   if [ "$status" = healthy ]; then
     curl -fsS "$health_url/healthz" || rollback
+    curl -fsS "$health_url/readyz" | grep -F '"ok":true' >/dev/null || rollback
+    sudo -n sh deploy/enable-monitor.sh || rollback
     printf '%s\n' "$revision" | sudo -n tee /opt/recipeboibot/DEPLOYED_REVISION >/dev/null
     printf '\nPublished %s\n' "$revision"
     exit 0

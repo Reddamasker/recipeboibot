@@ -99,6 +99,12 @@ export function billingAvailable() {
   return config.robokassaConfigured;
 }
 
+export function canUseAutomaticImport(userId, at = new Date()) {
+  if (!config.billingRequired) return true;
+  const offer = getBillingOffer(userId, at);
+  return !offer.hasFirstRecipe || offer.active;
+}
+
 export function getBillingOffer(userId, at = new Date()) {
   const firstValue = hasFirstValue(userId);
   const access = getSubscriptionAccess(userId, at);

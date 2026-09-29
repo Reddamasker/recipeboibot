@@ -18,7 +18,7 @@ import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder,
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
-import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
+import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
 import { getSubscriptionAccess } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
@@ -250,7 +250,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'POST' && url.pathname === '/api/import') {
     const billing = config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id);
-    const canImport = config.testContour && !billingAvailable() ? canUseTestImport(user.id) : !billing.available || !billing.hasFirstRecipe || billing.active;
+    const canImport = config.testContour && !billingAvailable() ? canUseTestImport(user.id) : canUseAutomaticImport(user.id);
     if (!canImport) return json(response, 402, { error: `Для следующего автоматического импорта откройте предложение за ${billing.offer.priceRub} ₽`, offerPath: '/?view=offer' });
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
@@ -306,6 +306,14 @@ export function createServer() {
       const robokassaResult = url.pathname === '/api/payments/robokassa/result' && ['GET', 'POST'].includes(request.method);
       rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (url.pathname === '/readyz') {
+        const billingReady = !config.billingRequired || billingAvailable();
+        return json(response, billingReady ? 200 : 503, {
+          ok: billingReady,
+          service: 'recipeboibot',
+          billing: { required: config.billingRequired, configured: billingAvailable() }
+        });
+      }
       if (robokassaResult) {
         const params = request.method === 'POST' ? await bodyForm(request) : Object.fromEntries(url.searchParams);
         const acknowledgement = processRobokassaResult(params);

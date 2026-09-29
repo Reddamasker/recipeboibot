@@ -24,7 +24,7 @@ const csvIntegers = (name, fallback) => (process.env[name] || fallback)
   .split(',').map((value) => Number(value.trim()));
 
 const robokassaHash = String(process.env.ROBOKASSA_HASH_ALGORITHM || 'md5').toLowerCase();
-const paymentPriceVariants = csvIntegers('PAYMENT_PRICE_VARIANTS', '129,199');
+const paymentPriceVariants = csvIntegers('PAYMENT_PRICE_VARIANTS', '199');
 const robokassaCredentials = {
   merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN || '',
   password1: process.env.ROBOKASSA_PASSWORD1 || '',
@@ -41,8 +41,9 @@ export const config = Object.freeze({
   testOwnerTelegramId: process.env.TEST_OWNER_TELEGRAM_ID || '',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
   testPriceVariants: csvIntegers('TEST_PRICE_VARIANTS', '129'),
+  billingRequired: process.env.BILLING_REQUIRED === 'true',
   paymentPriceVariants,
-  paymentExperimentKey: process.env.PAYMENT_EXPERIMENT_KEY || 'monthly-price-v1',
+  paymentExperimentKey: process.env.PAYMENT_EXPERIMENT_KEY || 'monthly-price-199-v1',
   paymentTax: process.env.PAYMENT_TAX || '',
   paymentSno: process.env.PAYMENT_SNO || '',
   paymentMethod: process.env.PAYMENT_METHOD || 'full_payment',
@@ -85,4 +86,6 @@ export function assertConfig() {
   if (robokassaValues.every(Boolean) && !config.paymentTax) throw new Error('Для Robokassa необходимо настроить PAYMENT_TAX');
   if (!config.testContour && config.robokassaTest) throw new Error('ROBOKASSA_TEST нельзя включать в основном контуре');
   if (config.robokassaRecurring && !config.robokassaConfigured) throw new Error('Автопродление требует полной настройки Robokassa');
+  if (config.billingRequired && config.testContour) throw new Error('BILLING_REQUIRED предназначен только для основного контура');
+  if (config.billingRequired && !config.robokassaConfigured) throw new Error('BILLING_REQUIRED=true требует полной настройки Robokassa');
 }

@@ -1,0 +1,11 @@
+[Unit]
+Description=Recipeboibot sales readiness and health monitor
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/recipeboibot/deploy/ops-monitor.sh
+UMask=0077
+

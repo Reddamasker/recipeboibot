@@ -10,7 +10,7 @@ import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile }
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
-import { billingAvailable, getBillingOffer, recordBillingExposure } from './billing.js';
+import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
 import { getSubscriptionAccess } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
@@ -46,8 +46,7 @@ async function sendTestOffer(chatId, userId, force = false) {
 }
 function canUsePaidImport(userId) {
   if (config.testContour && !billingAvailable()) return canUseTestImport(userId);
-  const billing = getBillingOffer(userId);
-  return !billing.available || !billing.hasFirstRecipe || billing.active;
+  return canUseAutomaticImport(userId);
 }
 export function canUsePlaylistImport(userId) { return getSubscriptionAccess(userId).active; }
 function currentDinnerIntake(userId) {

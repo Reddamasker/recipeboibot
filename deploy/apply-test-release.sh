@@ -52,6 +52,7 @@ for attempt in $(seq 1 30); do
   health=$(docker inspect --format '{{.State.Health.Status}}' recipeboibot-test)
   if [ "$health" = healthy ]; then
     curl -fsS --max-time 15 https://recipeboibot-test.89-223-123-75.sslip.io/healthz
+    curl -fsS --max-time 15 http://127.0.0.1:3088/readyz | grep -F '"ok":true' >/dev/null
     printf '%s\n' "$release" > DEPLOYED_ARCHIVE_SHA256
     trap - ERR
     printf '\nTest release published: %s\n' "$release"
