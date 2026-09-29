@@ -236,7 +236,13 @@ test('signed ResultUrl2 JWS activates the order and rejects forged notifications
   const other = upsertTelegramUser({ id: 600000013, first_name: 'Forged JWS' });
   createRecipe(other.id, { title: 'Каша', status: 'ready', ingredients: [{ name: 'крупа' }], steps: [{ text: 'Сварить.' }] });
   const pending = createPaymentOrder(other.id, {}, at);
-  const forged = compactJws(pending).replace(/.$/, (value) => value === 'A' ? 'B' : 'A');
+  // Change a signature byte, not unused padding bits in the last base64url
+  // character: A -> B there can decode to the same valid signature.
+  const parts = compactJws(pending).split('.');
+  const signature = Buffer.from(parts[2], 'base64url');
+  signature[0] ^= 1;
+  parts[2] = signature.toString('base64url');
+  const forged = parts.join('.');
   assert.throws(() => processRobokassaResultJws(forged, at, jwsKeys.publicKey), /подпись/i);
   assert.throws(() => processRobokassaResultJws(compactJws(pending, { shop: 'another-shop' }), at, jwsKeys.publicKey), /уведомление/i);
   assert.equal(getPaymentOrder(other.id, pending.id).status, 'pending');
