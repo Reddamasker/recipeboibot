@@ -158,7 +158,7 @@ test('private Telegram request generates only after no ready recipe and waits fo
       aiCalls += 1;
       const body = JSON.parse(options.body);
       if (body.text.format.name === 'meal_request_interpretation') {
-        return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], novelty: null, excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
+        return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
       }
       assert.equal(body.text.format.name, 'requested_recipe_generation');
       assert.match(body.instructions, /preferredCategories/);
@@ -199,7 +199,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
           calls++;
           const body = JSON.parse(options.body);
           if (body.text.format.name === 'meal_request_interpretation') {
-            return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], novelty: null, excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+            return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
           }
           const input = JSON.parse(body.input[0].content[0].text);
           assert.equal(body.text.format.name, 'requested_recipe_generation');

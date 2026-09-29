@@ -194,7 +194,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'PUT' && url.pathname === '/api/dinner/profile') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 4000)));
   if (request.method === 'POST' && url.pathname === '/api/dinner/open') return json(response, 200, startDinner(user.id));
-  if (request.method === 'PUT' && url.pathname === '/api/dinner/request') return json(response, 200, changeDinnerRequest(user.id, (await bodyJson(request, 4000)).query));
+  if (request.method === 'PUT' && url.pathname === '/api/dinner/request') return json(response, 200, await changeDinnerRequest(user.id, (await bodyJson(request, 4000)).query));
   if (request.method === 'POST' && url.pathname === '/api/dinner/onboarding/start') {
     const input = await bodyJson(request, 1000);
     return json(response, 200, startDinnerOnboarding(user.id, String(input.sessionId || '')));

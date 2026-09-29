@@ -6,11 +6,13 @@ process.env.DATABASE_PATH = path.resolve('data', `meal-request-${process.pid}.sq
 process.env.DINNER_LLM_ENABLED = 'true';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 process.env.OPENAI_API_KEY = 'test-key';
+process.env.OPENAI_TEXT_MODEL = 'test-model';
 process.env.TELEGRAM_BOT_TOKEN = 'test-token';
 const db = await import('../src/db.js');
 const store = await import('../src/dinner-store.js');
 const service = await import('../src/dinner-service.js');
 const suggestions = await import('../src/suggestions.js');
+const { validateRecipeCriteria } = await import('../src/openai.js');
 const { normalizeMealRequest, parseMealRequest, matchesMealRequest } = await import('../src/meal-request.js');
 const { parseDinnerIntakeFallback, combineDinnerIntakeExtraction } = await import('../src/dinner-intake.js');
 const { rankCandidates, SEED_RECIPES } = await import('../src/dinner.js');
@@ -72,35 +74,70 @@ test('open-ended rice request does not turn a placeholder into a dish name', () 
   assert.deepEqual(combined.requestedCategories, ['rice']);
 });
 
-test('unusual minced-beef request rejects everyday macaroni and keeps the novelty constraint', async () => {
+test('unusual minced-beef request is judged semantically instead of trusting recipe metadata', async () => {
   const query = 'Дай че нить необычное из фарша говяжьего на ужин';
-  const request = parseMealRequest(query);
+  const fallback = parseMealRequest(query);
+  assert.deepEqual(fallback.requiredIngredients, ['фарша говяжьего']);
+  const request = normalizeMealRequest({ ...fallback, kind: 'open', confidence: 'high', dish: '',
+    semanticCriteria: [{ description: 'необычное и незаезженное блюдо', importance: 'required' }] });
   assert.equal(request.kind, 'open');
   assert.equal(request.dish, '');
-  assert.equal(request.novelty, 'unusual');
+  assert.match(request.semanticCriteria[0].description, /необычн/u);
   assert.deepEqual(request.requiredIngredients, ['фарша говяжьего']);
 
   const macaroni = SEED_RECIPES.find((recipe) => recipe.id === 'seed:mince-pasta');
   const keftedes = SEED_RECIPES.find((recipe) => recipe.id === 'seed:keftedes');
-  assert.equal(matchesMealRequest(macaroni, request), false);
+  assert.equal(matchesMealRequest(macaroni, request), true, 'hard filter must not pretend to understand subjective criteria');
   assert.equal(matchesMealRequest(keftedes, request), true);
 
   const owner = user();
-  db.createRecipeSuggestion(owner.id, `request:${query}`, macaroni, { ...request, novelty: null });
-  const result = await suggestions.resolveRecipeRequest(owner.id, query, { generate: assert.fail, interpret: async () => request });
+  const result = await suggestions.resolveRecipeRequest(owner.id, query, { generate: assert.fail, interpret: async () => request,
+    validate: async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: recipe.title === keftedes.title, preferredScore: 100, failedCriteria: recipe.title === keftedes.title ? [] : ['Повседневное блюдо'] })) });
   assert.equal(result.kind, 'existing');
-  assert.notEqual(result.recipe.title, 'Макароны по-флотски');
-  assert.ok(result.recipe.discovery);
+  assert.equal(result.recipe.title, keftedes.title);
 });
 
-test('generated recipe needs a real discovery explanation when unusual was requested', async () => {
+test('generated recipe must pass an independent semantic verdict and retries once with feedback', async () => {
   const owner = user(), query = 'предложи необычное с романеско';
-  const mealRequest = normalizeMealRequest({ text: query, kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['романеско'], novelty: 'unusual', excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
+  const mealRequest = normalizeMealRequest({ text: query, kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['романеско'], semanticCriteria: [{ description: 'необычное незаезженное блюдо', importance: 'required' }], excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
   const ordinary = { ...steak(), title: 'Романеско с фаршем', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'говяжий фарш', quantity: 300, unit: 'г' }] };
-  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest, generate: async () => ordinary }), { status: 422 });
-  const result = await suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest, generate: async () => ({ ...ordinary, title: 'Кёфте с романеско', discovery: 'Турецкие пряные кёфте с необычным овощным гарниром' }) });
+  let attempts = 0;
+  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest,
+    generate: async ({ validationFeedback }) => { attempts++; if (attempts === 2) assert.ok(validationFeedback.length); return { ...ordinary, discovery: 'Мы назвали это необычным' }; },
+    validate: async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: false, preferredScore: 0, failedCriteria: ['Обычное сочетание'] })) }), { status: 422 });
+  assert.equal(attempts, 2);
+  const result = await suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest, generate: async () => ({ ...ordinary, title: 'Кёфте с романеско' }),
+    validate: async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: /Kёфте|Кёфте/u.test(recipe.title), preferredScore: 100, failedCriteria: [] })) });
   assert.equal(result.kind, 'generated');
-  assert.ok(result.suggestion.recipe.discovery);
+  assert.match(result.suggestion.recipe.title, /Кёфте/u);
+});
+
+test('AI validator uses its own model call and does not treat discovery as proof', async () => {
+  const originalFetch = globalThis.fetch;
+  const ordinary = { ...steak(), title: 'Обычные котлеты', discovery: 'Совершенно необычное блюдо' };
+  const regional = { ...steak(), title: 'Люля-кебаб с сумахом', discovery: null, ingredients: [...steak().ingredients, { name: 'сумах', quantity: 5, unit: 'г' }] };
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.model, 'test-model');
+    assert.equal(body.text.format.name, 'recipe_semantic_validation');
+    assert.equal(body.text.format.strict, true);
+    const input = JSON.parse(body.input[0].content[0].text);
+    assert.equal(input.candidates[0].discovery, ordinary.discovery);
+    assert.match(body.instructions, /discovery не считай доказательством/u);
+    return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ candidates: [
+      { id: 'candidate-0', criteria: [{ index: 0, matches: false, confidence: 'high', evidence: 'Обычные котлеты без нетипичной техники' }] },
+      { id: 'candidate-1', criteria: [{ index: 0, matches: true, confidence: 'high', evidence: 'Узнаваемое региональное блюдо с сумахом' }] }
+    ] }), usage: { input_tokens: 20, output_tokens: 30 } }), { status: 200 });
+  };
+  try {
+    const verdicts = await validateRecipeCriteria({ userId: user().id, query: 'удиви меня блюдом из говядины', mealRequest: {
+      text: 'удиви меня блюдом из говядины', kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['говядина'],
+      semanticCriteria: [{ description: 'блюдо должно удивить и не быть повседневным', importance: 'required' }],
+      excludedIngredients: [], methods: [], maxMinutes: null, servings: null
+    }, recipes: [ordinary, regional] });
+    assert.equal(verdicts[0].accepted, false);
+    assert.equal(verdicts[1].accepted, true);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('semantic intent handles unseen open wording, exact dishes and ambiguous phrases without keyword lists', () => {
@@ -220,12 +257,12 @@ test('exact request survives storage and buffer; wrong AI and fallback cannot re
   assert.ok(calls >= 1);
   assert.equal(result.recommendations.length, 0);
   assert.match(result.message, /соответствует всем условиям/);
-  const next = service.changeDinnerRequest(owner.id, 'стейк');
+  const next = await service.changeDinnerRequest(owner.id, 'стейк', { interpret: null });
   assert.notEqual(next.sessionId, session.sessionId);
   const good = await service.recommendDinner(owner.id, next.sessionId, { generate: async () => ({ recipes: [{ role: 'familiar', recipe: steak() }] }) });
   assert.equal(good.recommendations.length, 1);
   assert.match(good.recommendations[0].recipe.title, /Стейк/);
-  service.changeDinnerRequest(owner.id, '');
+  await service.changeDinnerRequest(owner.id, '', { interpret: null });
   assert.equal(store.getDinnerMealRequest(owner.id), null);
   assert.throws(() => service.dinnerContext(owner.id, next.sessionId), { status: 409 });
 });

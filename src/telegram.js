@@ -3,6 +3,7 @@ import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimU
 import { importText, importUrl, importYoutubePlaylist } from './importer.js';
 import { extractDinnerIntake, transcribeAudio } from './openai.js';
 import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
+import { parseMealRequest } from './meal-request.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
@@ -334,7 +335,8 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   if (!groupMode) {
-    const existing = findRequestedRecipe(user.id, normalizedQuery);
+    const localRequest = parseMealRequest(normalizedQuery);
+    const existing = localRequest?.semanticCriteria?.length ? null : findRequestedRecipe(user.id, normalizedQuery);
     if (existing) {
       await send(chatId, `Подобрал готовый рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>».`);
       await sendRecipeCard(chatId, existing);

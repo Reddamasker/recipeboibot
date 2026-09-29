@@ -58,6 +58,7 @@ export const config = Object.freeze({
   openaiKey: process.env.OPENAI_API_KEY || '',
   textModel: process.env.OPENAI_TEXT_MODEL || '',
   dinnerTextModel: process.env.DINNER_TEXT_MODEL || process.env.OPENAI_TEXT_MODEL || '',
+  dinnerValidatorModel: process.env.DINNER_VALIDATOR_MODEL || process.env.DINNER_TEXT_MODEL || process.env.OPENAI_TEXT_MODEL || '',
   dinnerLlmEnabled: process.env.DINNER_LLM_ENABLED !== 'false',
   dinnerGenerationTimeoutMs: Math.min(120000, Math.max(10000, integer('DINNER_GENERATION_TIMEOUT_MS', 60000))),
   dinnerImagesEnabled: process.env.DINNER_IMAGES_ENABLED !== 'false',

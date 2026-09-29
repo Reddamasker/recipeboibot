@@ -8,6 +8,8 @@ import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, g
 import { normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { getDinnerMealRequest } from './dinner-store.js';
 import { normalizeMealRequest, parseMealRequest } from './meal-request.js';
+import { interpretMealRequest } from './openai.js';
+import { log } from './log.js';
 
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 const notFound = () => Object.assign(new Error('Сценарий ужина не найден'), { status: 404 });
@@ -71,10 +73,14 @@ export function startDinner(userId, { prefetchOnly = false } = {}) {
   return { sessionId, profile, pantry, requestedCategories, mealRequest, needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
 }
 
-export function changeDinnerRequest(userId, query) {
+export async function changeDinnerRequest(userId, query, { interpret = interpretMealRequest } = {}) {
   if (typeof query !== 'string' || query.length > 500) throw badRequest('Пожелание должно быть не длиннее 500 символов');
   const intake = query.trim() ? parseDinnerIntakeFallback(`сегодня хочу ${query.trim()}`) : {};
   intake.mealRequest = parseMealRequest(query);
+  if (query.trim() && interpret) {
+    try { intake.mealRequest = normalizeMealRequest(await interpret({ userId, query: query.trim() })) || intake.mealRequest; }
+    catch (error) { log('warn', 'dinner_request_interpretation_fallback', { userId, status: error?.status, code: error?.code }); }
+  }
   setDinnerContext(userId, getDinnerContext(userId), intake.requestedCategories || [], intake.mealRequest || null);
   return startDinner(userId);
 }

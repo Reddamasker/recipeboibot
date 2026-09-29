@@ -102,6 +102,7 @@ export function combineDinnerIntakeExtraction(primary, fallback = {}) {
       confidence: classifiedConfidence,
       dish: classifiedKind === 'exact' ? (extracted.mealRequest.dish || local.mealRequest.dish) : '',
       requiredIngredients: extracted.mealRequest.requiredIngredients.length ? extracted.mealRequest.requiredIngredients : local.mealRequest.requiredIngredients,
+      semanticCriteria: extracted.mealRequest.semanticCriteria.length ? extracted.mealRequest.semanticCriteria : local.mealRequest.semanticCriteria,
       excludedIngredients: unique([...local.mealRequest.excludedIngredients, ...extracted.mealRequest.excludedIngredients]),
       methods: extracted.mealRequest.methods.length ? extracted.mealRequest.methods : local.mealRequest.methods,
       maxMinutes: local.mealRequest.maxMinutes ?? extracted.mealRequest.maxMinutes,

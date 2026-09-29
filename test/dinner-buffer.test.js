@@ -129,6 +129,23 @@ test('provider failure returns six deterministic recipes without a retry storm',
   prefetchDinner(user.id, session.sessionId, { catalogFirst: false, generate }); assert.equal(calls, 1);
 });
 
+test('semantic dinner request never falls back to an unjudged recipe', async () => {
+  const user = fixture(612), mealRequest = {
+    text: 'удиви меня блюдом из фарша', kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['говяжий фарш'],
+    semanticCriteria: [{ description: 'неповседневное блюдо, которое удивит', importance: 'required' }], excludedIngredients: [], methods: [], maxMinutes: 30, servings: 4
+  };
+  setDinnerContext(user.id, ['говяжий фарш'], [], mealRequest);
+  let validations = 0;
+  const result = await recommendDinner(user.id, startDinner(user.id).sessionId, {
+    catalogFirst: false, generate: async () => ({ recipes: batch().slice(0, 3) }),
+    validate: async ({ recipes }) => { validations++; return recipes.map((recipe) => ({ recipe, accepted: false, preferredScore: 0, failedCriteria: ['Повседневное блюдо'] })); }
+  });
+  assert.ok(validations >= 1);
+  assert.equal(result.recommendations.length, 0);
+  assert.match(result.message, /соответствует всем условиям/);
+  assert.equal(listDinnerOptions(user.id, result.sessionId).filter((option) => option.method === 'deterministic' && option.state !== 'discarded').length, 0);
+});
+
 test('concurrent initial requests generate once and prepared recipes survive a new process', async () => {
   const user = fixture(608), session = startDinner(user.id); let calls = 0, resolve;
   const generate = async () => { calls++; return new Promise((done) => { resolve = done; }); };
@@ -159,8 +176,8 @@ test('generated validation rejects allergies, missing base, invalid amounts, slo
   assert.equal(validateGeneratedDinner(hidden, { ...context, profile: { ...context.profile, excludedIngredients: ['молоко'] } }), null);
   const hiddenComment = structuredClone(item); hiddenComment.recipe.ingredients[0].comment = 'Смешать с молоком';
   assert.equal(validateGeneratedDinner(hiddenComment, { ...context, profile: { ...context.profile, excludedIngredients: ['молоко'] } }), null);
-  const unusualContext = { ...context, mealRequest: { kind: 'open', novelty: 'unusual', requiredIngredients: [], excludedIngredients: [], methods: [] } };
-  assert.equal(validateGeneratedDinner(item, unusualContext), null);
+  const unusualContext = { ...context, mealRequest: { kind: 'open', semanticCriteria: [{ description: 'необычное блюдо', importance: 'required' }], requiredIngredients: [], excludedIngredients: [], methods: [] } };
+  assert.ok(validateGeneratedDinner(item, unusualContext), 'structural validation must not decide a semantic criterion');
   const unusual = structuredClone(item); unusual.discovery = 'Узнаваемое региональное блюдо с непривычной подачей';
   assert.ok(validateGeneratedDinner(unusual, unusualContext));
 });
@@ -282,10 +299,10 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.ok(body.text.format.schema.required.includes('replaceRequestedCategories'));
     assert.ok(body.text.format.schema.properties.mealRequest.required.includes('kind'));
     assert.ok(body.text.format.schema.properties.mealRequest.required.includes('confidence'));
-    assert.ok(body.text.format.schema.properties.mealRequest.required.includes('novelty'));
+    assert.ok(body.text.format.schema.properties.mealRequest.required.includes('semanticCriteria'));
     assert.deepEqual(body.text.format.schema.properties.mealRequest.properties.kind.enum, ['exact','open']);
-    assert.deepEqual(body.text.format.schema.properties.mealRequest.properties.novelty.enum, ['unusual','familiar',null]);
-    assert.match(body.instructions, /novelty=unusual/u);
+    assert.deepEqual(body.text.format.schema.properties.mealRequest.properties.semanticCriteria.items.properties.importance.enum, ['required','preferred']);
+    assert.match(body.instructions, /semanticCriteria/u);
     const categories = body.text.format.schema.properties.likedCategories.items.enum;
     for (const key of ['pizza','georgian','italian','european','asian']) assert.ok(categories.includes(key), key);
     assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);
