@@ -30,7 +30,12 @@ export function containsFoodPhrase(text, phrase) {
 
 export function normalizeMealRequest(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const result = { text: clean(raw.text), dish: clean(raw.dish, 150), requiredIngredients: list(raw.requiredIngredients),
+  const normalizedDish = clean(raw.dish, 150);
+  // Conversational placeholders describe an open-ended request, not the
+  // identity of a dish. Models may still return them in `dish`, so normalize
+  // them here as well as in the deterministic parser.
+  const dish = /^(?:что|чего)[ -](?:то|нибудь|либо)$/u.test(normalizedDish) ? '' : normalizedDish;
+  const result = { text: clean(raw.text), dish, requiredIngredients: list(raw.requiredIngredients),
     excludedIngredients: list(raw.excludedIngredients), methods: list(raw.methods),
     maxMinutes: Number.isInteger(raw.maxMinutes) && raw.maxMinutes >= 5 && raw.maxMinutes <= 180 ? raw.maxMinutes : null,
     servings: Number.isInteger(raw.servings) && raw.servings >= 1 && raw.servings <= 10 ? raw.servings : null };
@@ -66,7 +71,7 @@ export function parseMealRequest(text) {
   }
   // Keep ingredient requirements separate from the identity of the dish.
   rest = rest.replace(/(?:^|\s)(?:с|со|из)\s+(.+)$/u, (_, value) => { requiredIngredients.push(...value.split(/\s+и\s+|,/u)); return ' '; });
-  rest = rest.replace(/(?:^|\s)(?:сегодня|на\s+сегодня|на\s+ужин|хочу|хочется|хотим|давай|давайте|приготовим|приготовить|найди|найти|подбери|рецепт|пожалуйста|мне|я|что[ -]нибудь|быстрое|быстро|легкий|легкое|ужин|блюдо|блюда|кухня|кухню)(?=\s|$)/gu, ' ')
+  rest = rest.replace(/(?:^|\s)(?:сегодня|на\s+сегодня|на\s+ужин|хочу|хочется|хотим|давай|давайте|приготовим|приготовить|найди|найти|подбери|рецепт|пожалуйста|мне|я|что[ -](?:то|нибудь|либо)|чего[ -](?:то|нибудь|либо)|быстрое|быстро|легкий|легкое|ужин|блюдо|блюда|кухня|кухню)(?=\s|$)/gu, ' ')
     .replace(/(?:азиатск|итальянск|грузинск|японск|китайск|русск|восточн|кавказск|узбекск|европейск|домашн|мясн|рыбн)[\p{L}]*/gu, ' ')
     .replace(/[,.!?;:]+/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (/^(?:говядина|говядину|курица|курицу|свинина|свинину|рыба|рыбу|рис|фарш|индейка|индейку)$/u.test(rest)) { requiredIngredients.push(rest); rest = ''; }

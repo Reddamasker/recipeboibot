@@ -55,6 +55,23 @@ test('polite request preserves ingredients, exclusions, method, servings and tim
   assert.deepEqual(parseMealRequest('Дай рецепт стейка с картофелем, пожалуйста').requiredIngredients, ['картофелем']);
 });
 
+test('open-ended rice request does not turn a placeholder into a dish name', () => {
+  const request = parseMealRequest('сегодня хочу что-то с рисом');
+  assert.equal(request.dish, '');
+  assert.deepEqual(request.requiredIngredients, ['рисом']);
+  const rice = { title: 'Рис с овощами', ingredients: [{ name: 'рис' }], steps: [{ text: 'Сварите рис.' }] };
+  assert.equal(matchesMealRequest(rice, request), true);
+  assert.equal(matchesMealRequest({ ...rice, title: 'Картофель с овощами', ingredients: [{ name: 'картофель' }] }, request), false);
+
+  const combined = combineDinnerIntakeExtraction({
+    requestedCategories: ['rice'],
+    mealRequest: { text: 'сегодня хочу что-то с рисом', dish: 'что-то', requiredIngredients: ['рисом'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }
+  }, parseDinnerIntakeFallback('сегодня хочу что-то с рисом'));
+  assert.equal(combined.mealRequest.dish, '');
+  assert.deepEqual(combined.mealRequest.requiredIngredients, ['рисом']);
+  assert.deepEqual(combined.requestedCategories, ['rice']);
+});
+
 test('original screenshot query accepts generated steak, reuses cache and validates before saving', async () => {
   const owner = user(), query = 'Дай рецепт стейка';
   let calls = 0;
