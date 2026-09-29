@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS recipe_suggestions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   query TEXT NOT NULL,
+  request_json TEXT,
   recipe_json TEXT NOT NULL,
   recipe_id TEXT REFERENCES recipes(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL
@@ -160,6 +161,7 @@ ensureColumn('provider_requests', 'request_id', 'TEXT');
 ensureColumn('provider_requests', 'client_request_id', 'TEXT');
 ensureColumn('provider_requests', 'incomplete_reason', 'TEXT');
 ensureColumn('provider_requests', 'retry_after', 'TEXT');
+ensureColumn('recipe_suggestions', 'request_json', 'TEXT');
 db.exec(`
 CREATE UNIQUE INDEX IF NOT EXISTS recipes_owner_source_key ON recipes(user_id, source_key) WHERE source_key IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_owner_source_key ON import_jobs(user_id, source_key) WHERE source_key IS NOT NULL;
@@ -375,7 +377,12 @@ export function getSearchOffer(userId, id) {
   return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? row : null;
 }
 
-const parseSuggestion = (row) => row ? { id: row.id, query: row.query, recipe: { ...JSON.parse(row.recipe_json), ...(row.has_image ? { thumbnailUrl: `/suggestion-images/${row.id}`, imageGenerated: true } : {}) }, recipeId: row.recipe_id, createdAt: row.created_at } : null;
+const parseSuggestion = (row) => {
+  if (!row) return null;
+  let mealRequest = null;
+  try { mealRequest = row.request_json ? JSON.parse(row.request_json) : null; } catch { /* legacy/corrupt metadata falls back to parsing the query */ }
+  return { id: row.id, query: row.query, mealRequest, recipe: { ...JSON.parse(row.recipe_json), ...(row.has_image ? { thumbnailUrl: `/suggestion-images/${row.id}`, imageGenerated: true } : {}) }, recipeId: row.recipe_id, createdAt: row.created_at };
+};
 export function getRecipeSuggestion(userId, id) {
   const row = db.prepare('SELECT s.*, EXISTS(SELECT 1 FROM recipe_suggestion_images i WHERE i.suggestion_id=s.id) AS has_image FROM recipe_suggestions s WHERE s.id=? AND s.user_id=?').get(id, userId);
   return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? parseSuggestion(row) : null;
@@ -384,10 +391,10 @@ export function findRecipeSuggestion(userId, query) {
   const row = db.prepare('SELECT s.*, EXISTS(SELECT 1 FROM recipe_suggestion_images i WHERE i.suggestion_id=s.id) AS has_image FROM recipe_suggestions s WHERE s.user_id=? AND s.query=? AND s.recipe_id IS NULL ORDER BY s.created_at DESC LIMIT 1').get(userId, query);
   return row && Date.now() - Date.parse(row.created_at) < 24 * 60 * 60 * 1000 ? parseSuggestion(row) : null;
 }
-export function createRecipeSuggestion(userId, query, recipe) {
+export function createRecipeSuggestion(userId, query, recipe, mealRequest = null) {
   const id = randomUUID();
   db.prepare('DELETE FROM recipe_suggestions WHERE created_at<?').run(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
-  db.prepare('INSERT INTO recipe_suggestions(id,user_id,query,recipe_json,created_at) VALUES(?,?,?,?,?)').run(id, userId, query, JSON.stringify(recipe), now());
+  db.prepare('INSERT INTO recipe_suggestions(id,user_id,query,request_json,recipe_json,created_at) VALUES(?,?,?,?,?,?)').run(id, userId, query, mealRequest ? JSON.stringify(mealRequest) : null, JSON.stringify(recipe), now());
   return getRecipeSuggestion(userId, id);
 }
 export function getSuggestionImage(id) {

@@ -11,7 +11,7 @@ const db = await import('../src/db.js');
 const store = await import('../src/dinner-store.js');
 const service = await import('../src/dinner-service.js');
 const suggestions = await import('../src/suggestions.js');
-const { parseMealRequest, matchesMealRequest } = await import('../src/meal-request.js');
+const { normalizeMealRequest, parseMealRequest, matchesMealRequest } = await import('../src/meal-request.js');
 const { parseDinnerIntakeFallback, combineDinnerIntakeExtraction } = await import('../src/dinner-intake.js');
 const { rankCandidates, SEED_RECIPES } = await import('../src/dinner.js');
 const { dinnerContextKey } = await import('../src/dinner-buffer.js');
@@ -70,6 +70,66 @@ test('open-ended rice request does not turn a placeholder into a dish name', () 
   assert.equal(combined.mealRequest.dish, '');
   assert.deepEqual(combined.mealRequest.requiredIngredients, ['рисом']);
   assert.deepEqual(combined.requestedCategories, ['rice']);
+});
+
+test('semantic intent handles unseen open wording, exact dishes and ambiguous phrases without keyword lists', () => {
+  const open = normalizeMealRequest({ text: 'собери мне уютный вариант без лишней возни', kind: 'open', confidence: 'high', dish: 'уютный вариант', requiredIngredients: ['рис'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
+  assert.equal(open.kind, 'open');
+  assert.equal(open.dish, '');
+  assert.equal(matchesMealRequest({ title: 'Тёплый рис с овощами', ingredients: [{ name: 'рис' }] }, open), true);
+
+  const exact = normalizeMealRequest({ text: 'приготовь чанахи', kind: 'exact', confidence: 'high', dish: 'чанахи', requiredIngredients: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
+  assert.equal(matchesMealRequest({ title: 'Чанахи по-домашнему' }, exact), true);
+  assert.equal(matchesMealRequest({ title: 'Овощное рагу' }, exact), false);
+
+  const uncertain = normalizeMealRequest({ ...exact, confidence: 'low', requiredIngredients: ['баклажан'] });
+  assert.equal(matchesMealRequest({ title: 'Овощное рагу', ingredients: [{ name: 'баклажан' }] }, uncertain), true);
+  assert.equal(matchesMealRequest({ title: 'Овощное рагу', ingredients: [{ name: 'картофель' }] }, uncertain), false);
+});
+
+test('semantic dinner classifier overrides a deterministic false dish and preserves independent constraints', () => {
+  const phrase = 'сегодня собери уютный вариант с рисом без суеты';
+  const combined = combineDinnerIntakeExtraction({
+    requestedCategories: ['rice'],
+    mealRequest: { text: phrase, kind: 'open', confidence: 'high', dish: 'уютный вариант', requiredIngredients: ['рис'], excludedIngredients: [], methods: [], maxMinutes: 30, servings: null }
+  }, parseDinnerIntakeFallback(phrase));
+  assert.equal(combined.mealRequest.kind, 'open');
+  assert.equal(combined.mealRequest.dish, '');
+  assert.deepEqual(combined.mealRequest.requiredIngredients, ['рис']);
+  assert.equal(combined.mealRequest.maxMinutes, 30);
+});
+
+test('classified request is persisted with a suggestion and reused without reclassifying wording', async () => {
+  const owner = user(), query = 'собери уютный вариант с романеско на свой вкус';
+  let interpretations = 0;
+  const riceRecipe = { ...steak(), title: 'Романеско с овощами', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'овощи', quantity: 300, unit: 'г' }], tags: ['vegetables'] };
+  const result = await suggestions.resolveRecipeRequest(owner.id, query, {
+    interpret: async () => { interpretations++; return normalizeMealRequest({ text: query, kind: 'open', confidence: 'high', dish: 'уютный вариант', requiredIngredients: ['романеско'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }); },
+    generate: async (input) => { assert.equal(input.mealRequest.kind, 'open'); assert.equal(input.mealRequest.dish, ''); return riceRecipe; }
+  });
+  assert.equal(result.kind, 'generated');
+  assert.equal(result.suggestion.mealRequest.kind, 'open');
+  assert.equal(result.suggestion.mealRequest.dish, '');
+  suggestions.assertSuggestionCurrent(owner.id, result.suggestion);
+  const cached = await suggestions.resolveRecipeRequest(owner.id, query, { interpret: assert.fail, generate: assert.fail });
+  assert.equal(cached.suggestion.id, result.suggestion.id);
+  assert.equal(interpretations, 1);
+});
+
+test('semantic exact and low-confidence classifications have different title strictness', async () => {
+  const exactOwner = user();
+  await assert.rejects(suggestions.resolveRecipeRequest(exactOwner.id, 'приготовь чанахи', {
+    interpret: async () => normalizeMealRequest({ text: 'приготовь чанахи', kind: 'exact', confidence: 'high', dish: 'чанахи', requiredIngredients: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }),
+    generate: async () => steak()
+  }), { status: 422 });
+
+  const uncertainOwner = user();
+  const result = await suggestions.resolveRecipeRequest(uncertainOwner.id, 'хочется чего-то вроде жаркого с трюфелем', {
+    interpret: async () => normalizeMealRequest({ text: 'хочется чего-то вроде жаркого с трюфелем', kind: 'exact', confidence: 'low', dish: 'жаркое', requiredIngredients: ['трюфель'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }),
+    generate: async () => ({ ...steak(), ingredients: [...steak().ingredients, { name: 'трюфель', quantity: 5, unit: 'г' }] })
+  });
+  assert.equal(result.kind, 'generated');
+  assert.equal(result.suggestion.mealRequest.confidence, 'low');
 });
 
 test('original screenshot query accepts generated steak, reuses cache and validates before saving', async () => {

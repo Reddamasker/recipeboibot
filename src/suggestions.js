@@ -1,17 +1,18 @@
 import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes } from './db.js';
 import { getFoodProfile } from './dinner-store.js';
 import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, recipeCategories } from './dinner.js';
-import { generateRecipe, generateRequestedRecipe } from './openai.js';
+import { generateRecipe, generateRequestedRecipe, interpretMealRequest } from './openai.js';
 import { ensureSuggestionImage } from './recipe-images.js';
 import { requireUnexpiredTrial } from './subscriptions.js';
-import { parseMealRequest, matchesMealRequest, recipeTextIngredients, isSpicy } from './meal-request.js';
+import { normalizeMealRequest, parseMealRequest, matchesMealRequest, recipeTextIngredients, isSpicy } from './meal-request.js';
 import { parseDinnerIntakeFallback } from './dinner-intake.js';
+import { log } from './log.js';
 
 const inFlight = new Map();
-function requestContext(userId, query) {
+function requestContext(userId, query, mealRequestOverride = null) {
   const normalized = String(query || '').trim().slice(0, 500);
   if (!normalized) throw Object.assign(new Error('Напишите, что хотите приготовить'), { status: 400 });
-  const profile = getFoodProfile(userId), mealRequest = parseMealRequest(normalized);
+  const profile = getFoodProfile(userId), mealRequest = normalizeMealRequest(mealRequestOverride) || parseMealRequest(normalized);
   const excluded = [...profile.excludedIngredients, ...mealRequest.excludedIngredients];
   const maxMinutes = Math.min(profile.preferredMaxCookingTime || Infinity, mealRequest.maxMinutes || Infinity);
   const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${normalized}`).requestedCategories;
@@ -33,11 +34,11 @@ const invalidRequest = () => Object.assign(new Error('Рецепт не соот
 export function assertSuggestionCurrent(userId, suggestion) {
   if (!suggestion) throw invalidRequest();
   const query = suggestion.query.replace(/^request:/u, '');
-  if (!validRecipe(suggestion.recipe, requestContext(userId, query))) throw invalidRequest();
+  if (!validRecipe(suggestion.recipe, requestContext(userId, query, suggestion.mealRequest))) throw invalidRequest();
 }
 
-export function findRequestedRecipe(userId, query) {
-  const context = requestContext(userId, query);
+export function findRequestedRecipe(userId, query, contextOverride = null) {
+  const context = contextOverride || requestContext(userId, query);
   const candidates = [...listRecipes(userId).filter((recipe) => recipe.status === 'ready'), ...SEED_RECIPES];
   const light = /легк|лёгк|низкокалор/u.test(context.normalized);
   return candidates.filter((recipe) => validRecipe(recipe, context) && (!light || recipe.tags?.some((t) => /л[её]гк|низкокалор/iu.test(t))))
@@ -46,9 +47,9 @@ export function findRequestedRecipe(userId, query) {
     .sort((a, b) => b.score - a.score || a.order - b.order)[0]?.recipe || null;
 }
 
-async function generateSuggestion(userId, query, generate, requested) {
+async function generateSuggestion(userId, query, generate, requested, contextOverride = null) {
   requireUnexpiredTrial(userId);
-  const context = requestContext(userId, query), { normalized, profile, excluded, maxMinutes, mealRequest } = context;
+  const context = contextOverride || requestContext(userId, query), { normalized, profile, excluded, maxMinutes, mealRequest } = context;
   const suggestionKey = (requested ? 'request:' : '') + normalized;
   const cached = findRecipeSuggestion(userId, suggestionKey);
   if (cached && validRecipe(cached.recipe, context, true)) {
@@ -61,8 +62,8 @@ async function generateSuggestion(userId, query, generate, requested) {
     const recentTitles = listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 12).map((recipe) => recipe.title);
     const recipe = await generate({ userId, query: normalized, mealRequest, profile: { ...profile, excludedIngredients: excluded, preferredMaxCookingTime: Number.isFinite(maxMinutes) ? maxMinutes : null }, recentTitles });
     // A profile may change while the provider is responding.
-    if (!validRecipe(recipe, requestContext(userId, normalized), true)) throw invalidRequest();
-    const suggestion = createRecipeSuggestion(userId, suggestionKey, recipe);
+    if (!validRecipe(recipe, requestContext(userId, normalized, mealRequest), true)) throw invalidRequest();
+    const suggestion = createRecipeSuggestion(userId, suggestionKey, recipe, mealRequest);
     if (requested) void ensureSuggestionImage(userId, suggestion);
     return suggestion;
   })();
@@ -70,14 +71,33 @@ async function generateSuggestion(userId, query, generate, requested) {
   try { return await task; } finally { inFlight.delete(key); }
 }
 
-export async function suggestForEmptySearch(userId, query, { generate = generateRecipe } = {}) {
-  const context = requestContext(userId, query);
-  if (searchRecipes(userId, context.normalized).some((recipe) => recipe.status === 'ready' && validRecipe(recipe, context))) throw Object.assign(new Error('В коллекции уже есть подходящие рецепты'), { status: 409 });
-  return generateSuggestion(userId, query, generate, false);
+async function interpretedContext(userId, query, interpret) {
+  const fallback = requestContext(userId, query);
+  if (!interpret) return fallback;
+  try {
+    const mealRequest = await interpret({ userId, query: fallback.normalized });
+    return requestContext(userId, query, mealRequest);
+  } catch (error) {
+    log('warn', 'meal_request_interpretation_fallback', { userId, status: error?.status, code: error?.code });
+    return fallback;
+  }
 }
 
-export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe } = {}) {
-  const existing = findRequestedRecipe(userId, query);
+export async function suggestForEmptySearch(userId, query, { generate = generateRecipe, interpret = generate === generateRecipe ? interpretMealRequest : null } = {}) {
+  const context = await interpretedContext(userId, query, interpret);
+  if (searchRecipes(userId, context.normalized).some((recipe) => recipe.status === 'ready' && validRecipe(recipe, context))) throw Object.assign(new Error('В коллекции уже есть подходящие рецепты'), { status: 409 });
+  return generateSuggestion(userId, query, generate, false, context);
+}
+
+export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe, interpret = generate === generateRequestedRecipe ? interpretMealRequest : null } = {}) {
+  const normalized = String(query || '').trim().slice(0, 500);
+  const cached = normalized && findRecipeSuggestion(userId, `request:${normalized}`);
+  if (cached && validRecipe(cached.recipe, requestContext(userId, normalized, cached.mealRequest), true)) {
+    if (!cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached);
+    return { kind: 'generated', suggestion: cached };
+  }
+  const context = await interpretedContext(userId, query, interpret);
+  const existing = findRequestedRecipe(userId, query, context);
   if (existing) return { kind: 'existing', recipe: existing };
-  return { kind: 'generated', suggestion: await generateSuggestion(userId, query, generate, true) };
+  return { kind: 'generated', suggestion: await generateSuggestion(userId, query, generate, true, context) };
 }

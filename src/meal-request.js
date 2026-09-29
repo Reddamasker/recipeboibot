@@ -4,10 +4,10 @@ const clean = (value, limit = 500) => String(value || '').normalize('NFKC').toLo
 const list = (value) => [...new Set((Array.isArray(value) ? value : []).filter((v) => typeof v === 'string').map((v) => clean(v, 100)).filter(Boolean))].slice(0, 12);
 const words = (value) => clean(value).match(/[\p{L}\p{N}]+/gu) || [];
 export const mealRequestSchema = { type: ['object', 'null'], additionalProperties: false, properties: {
-  text: { type: 'string' }, dish: { type: 'string' }, requiredIngredients: { type: 'array', items: { type: 'string' } },
+  text: { type: 'string' }, kind: { type: 'string', enum: ['exact', 'open'] }, confidence: { type: 'string', enum: ['high', 'medium', 'low'] }, dish: { type: 'string' }, requiredIngredients: { type: 'array', items: { type: 'string' } },
   excludedIngredients: { type: 'array', items: { type: 'string' } }, methods: { type: 'array', items: { type: 'string', enum: ['гриль', 'духовка', 'пар', 'сковорода'] } },
   maxMinutes: { type: ['integer', 'null'] }, servings: { type: ['integer', 'null'] }
-}, required: ['text', 'dish', 'requiredIngredients', 'excludedIngredients', 'methods', 'maxMinutes', 'servings'] };
+}, required: ['text', 'kind', 'confidence', 'dish', 'requiredIngredients', 'excludedIngredients', 'methods', 'maxMinutes', 'servings'] };
 const ignored = new Set(['с', 'со', 'из', 'и', 'по', 'на', 'в', 'для']);
 const forms = [
   /^(?:стейк|рибай|стриплойн|тибон|ribeye|steak)/u,
@@ -31,11 +31,14 @@ export function containsFoodPhrase(text, phrase) {
 export function normalizeMealRequest(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const normalizedDish = clean(raw.dish, 150);
-  // Conversational placeholders describe an open-ended request, not the
-  // identity of a dish. Models may still return them in `dish`, so normalize
-  // them here as well as in the deterministic parser.
-  const dish = /^(?:что|чего)[ -](?:то|нибудь|либо)$/u.test(normalizedDish) ? '' : normalizedDish;
-  const result = { text: clean(raw.text), dish, requiredIngredients: list(raw.requiredIngredients),
+  // New requests carry semantic intent from the classifier. The small legacy
+  // fallback keeps pre-release sessions readable without making word lists the
+  // primary routing mechanism.
+  const legacyOpen = !raw.kind && /^(?:что|чего)[ -](?:то|нибудь|либо)$/u.test(normalizedDish);
+  const kind = raw.kind === 'open' || legacyOpen ? 'open' : raw.kind === 'exact' || normalizedDish ? 'exact' : 'open';
+  const confidence = ['high', 'medium', 'low'].includes(raw.confidence) ? raw.confidence : null;
+  const dish = kind === 'open' ? '' : normalizedDish;
+  const result = { text: clean(raw.text), kind, confidence, dish, requiredIngredients: list(raw.requiredIngredients),
     excludedIngredients: list(raw.excludedIngredients), methods: list(raw.methods),
     maxMinutes: Number.isInteger(raw.maxMinutes) && raw.maxMinutes >= 5 && raw.maxMinutes <= 180 ? raw.maxMinutes : null,
     servings: Number.isInteger(raw.servings) && raw.servings >= 1 && raw.servings <= 10 ? raw.servings : null };
@@ -76,7 +79,7 @@ export function parseMealRequest(text) {
     .replace(/[,.!?;:]+/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (/^(?:говядина|говядину|курица|курицу|свинина|свинину|рыба|рыбу|рис|фарш|индейка|индейку)$/u.test(rest)) { requiredIngredients.push(rest); rest = ''; }
   if (/^(?:мясо|азиатское|домашнее)$/u.test(rest)) rest = '';
-  return normalizeMealRequest({ text: source, dish: rest, requiredIngredients, excludedIngredients, methods, maxMinutes, servings });
+  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, excludedIngredients, methods, maxMinutes, servings });
 }
 
 export function mergeMealRequests(before, patch, replace = false) {
@@ -84,7 +87,7 @@ export function mergeMealRequests(before, patch, replace = false) {
   if (replace) return b;
   if (!b) return a;
   if (!a) return b;
-  return normalizeMealRequest({ text: `${a.text}; ${b.text}`, dish: b.dish || a.dish,
+  return normalizeMealRequest({ text: `${a.text}; ${b.text}`, kind: b.dish ? b.kind : a.kind, confidence: b.dish ? b.confidence : a.confidence, dish: b.dish || a.dish,
     requiredIngredients: [...a.requiredIngredients, ...b.requiredIngredients], excludedIngredients: [...a.excludedIngredients, ...b.excludedIngredients],
     methods: [...a.methods, ...b.methods], maxMinutes: b.maxMinutes ?? a.maxMinutes, servings: b.servings ?? a.servings });
 }
@@ -94,7 +97,9 @@ export function matchesMealRequest(recipe, raw) {
   if (!request) return true;
   if (request.servings && (!Number.isInteger(recipe.servings) || recipe.servings < request.servings)) return false;
   // Dish identity is checked in the title, never in a tag or a passing mention.
-  if (request.dish && !containsFoodPhrase(recipe.title, request.dish)) return false;
+  // Low-confidence classification is a soft hint: hard filters must not turn
+  // an ambiguous phrase into a literal dish name and reject every result.
+  if (request.dish && request.kind === 'exact' && request.confidence !== 'low' && !containsFoodPhrase(recipe.title, request.dish)) return false;
   const ingredients = (recipe.ingredients || []).map((i) => i.name || i.raw || i);
   if (request.requiredIngredients.some((item) => !ingredients.some((name) => containsFoodPhrase(name, item)))) return false;
   const steps = (recipe.steps || []).map((s) => s.text || s).join(' ');

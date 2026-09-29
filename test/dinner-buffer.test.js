@@ -276,6 +276,9 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.ok(body.text.format.schema.required.includes('dislikedCategories'));
     assert.ok(body.text.format.schema.required.includes('requestedCategories'));
     assert.ok(body.text.format.schema.required.includes('replaceRequestedCategories'));
+    assert.ok(body.text.format.schema.properties.mealRequest.required.includes('kind'));
+    assert.ok(body.text.format.schema.properties.mealRequest.required.includes('confidence'));
+    assert.deepEqual(body.text.format.schema.properties.mealRequest.properties.kind.enum, ['exact','open']);
     const categories = body.text.format.schema.properties.likedCategories.items.enum;
     for (const key of ['pizza','georgian','italian','european','asian']) assert.ok(categories.includes(key), key);
     assert.match(body.instructions, /«Не люблю» — dislikedCategories, а не excludedIngredients/);

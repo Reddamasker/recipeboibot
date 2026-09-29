@@ -157,6 +157,9 @@ test('private Telegram request generates only after no ready recipe and waits fo
     if (String(url).includes('api.openai.com')) {
       aiCalls += 1;
       const body = JSON.parse(options.body);
+      if (body.text.format.name === 'meal_request_interpretation') {
+        return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
+      }
       assert.equal(body.text.format.name, 'requested_recipe_generation');
       assert.match(body.instructions, /preferredCategories/);
       assert.deepEqual(JSON.parse(body.input[0].content[0].text).profile.preferredCategories, { soup: 1, fish: -1 });
@@ -167,7 +170,7 @@ test('private Telegram request generates only after no ready recipe and waits fo
   };
   try {
     await telegramModule.handleMessage({ chat: { id: 6165, type: 'private' }, from: telegramUser, text: 'Найди суп с тыквой' });
-    assert.equal(aiCalls, 1);
+    assert.equal(aiCalls, 2);
     assert.equal(database.listRecipes(owner.id).length, 0);
     assert.match(sent[0].text, /Составляю новый/);
     const callback = { id: 'callback-private', message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser };
@@ -195,6 +198,9 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
         if (String(url).includes('api.openai.com')) {
           calls++;
           const body = JSON.parse(options.body);
+          if (body.text.format.name === 'meal_request_interpretation') {
+            return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+          }
           const input = JSON.parse(body.input[0].content[0].text);
           assert.equal(body.text.format.name, 'requested_recipe_generation');
           assert.equal(input.query, 'Дай рецепт стейка');
@@ -205,7 +211,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
         return { json: async () => ({ ok: true, result: { message_id: 71 } }) };
       };
       await telegramModule.handleMessage({ chat: { id, type: 'private' }, from: tg, text: 'Дай рецепт стейка' });
-      assert.equal(calls, 1);
+      assert.equal(calls, 2);
       assert.equal(database.listRecipes(owner.id).length, 0);
       if (accepted) {
         assert.ok(sent.some((m) => m.text?.includes('Стейк из говядины') && m.reply_markup?.inline_keyboard[0][0].callback_data.startsWith('suggest:save:')));

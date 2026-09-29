@@ -7,7 +7,7 @@ import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, ran
 import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, getDinnerContext, getDinnerHistory, getDinnerRecommendation, getDinnerRequestCategories, getDinnerSession, getFoodProfile, markDinnerCooked, openDinnerSession, rejectDinnerRecommendations, rejectedInSession, retryCountInSession, saveFoodProfile, setDinnerContext } from './dinner-store.js';
 import { normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { getDinnerMealRequest } from './dinner-store.js';
-import { parseMealRequest } from './meal-request.js';
+import { normalizeMealRequest, parseMealRequest } from './meal-request.js';
 
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 const notFound = () => Object.assign(new Error('Сценарий ужина не найден'), { status: 404 });
@@ -138,7 +138,7 @@ export function dinnerContext(userId, sessionId) {
   if (!session) throw notFound();
   const pantry = JSON.parse(session.pantry_json || '[]');
   const requestedCategories = JSON.parse(session.requested_categories_json || '[]');
-  const mealRequest = JSON.parse(session.meal_request_json || 'null');
+  const mealRequest = normalizeMealRequest(JSON.parse(session.meal_request_json || 'null'));
   if (JSON.stringify(mealRequest) !== JSON.stringify(getDinnerMealRequest(userId))) throw Object.assign(new Error('Пожелание изменилось. Открой подбор заново.'), { status: 409 });
   if (JSON.stringify(pantry) !== JSON.stringify(getDinnerContext(userId)) || JSON.stringify(requestedCategories) !== JSON.stringify(getDinnerRequestCategories(userId))) throw Object.assign(new Error('Пожелания к ужину обновились. Открой подбор заново.'), { status: 409 });
   const profile = getFoodProfile(userId);

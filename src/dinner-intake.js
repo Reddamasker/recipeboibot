@@ -91,13 +91,30 @@ export function normalizeDinnerIntake(raw = {}) {
 export function combineDinnerIntakeExtraction(primary, fallback = {}) {
   if (!primary) return fallback;
   const extracted = normalizeDinnerIntake(primary), local = normalizeDinnerIntake(fallback);
+  const classifiedKind = primary.mealRequest?.kind;
+  const classifiedConfidence = primary.mealRequest?.confidence;
+  let mealRequest = local.mealRequest || extracted.mealRequest;
+  if (local.mealRequest && extracted.mealRequest && ['exact', 'open'].includes(classifiedKind)) {
+    const unique = (values) => [...new Set(values.filter(Boolean))];
+    mealRequest = normalizeMealRequest({
+      text: local.mealRequest.text || extracted.mealRequest.text,
+      kind: classifiedKind,
+      confidence: classifiedConfidence,
+      dish: classifiedKind === 'exact' ? (extracted.mealRequest.dish || local.mealRequest.dish) : '',
+      requiredIngredients: extracted.mealRequest.requiredIngredients.length ? extracted.mealRequest.requiredIngredients : local.mealRequest.requiredIngredients,
+      excludedIngredients: unique([...local.mealRequest.excludedIngredients, ...extracted.mealRequest.excludedIngredients]),
+      methods: extracted.mealRequest.methods.length ? extracted.mealRequest.methods : local.mealRequest.methods,
+      maxMinutes: local.mealRequest.maxMinutes ?? extracted.mealRequest.maxMinutes,
+      servings: local.mealRequest.servings ?? extracted.mealRequest.servings
+    });
+  }
   return {
     ...primary,
     preferredCategories: { ...local.preferredCategories, ...extracted.preferredCategories },
     requestedCategories: [...new Set([...extracted.requestedCategories, ...local.requestedCategories])],
     replaceRequestedCategories: Boolean(primary.replaceRequestedCategories || fallback.replaceRequestedCategories),
     // Local text is preserved even when the model only extracted a broad category.
-    mealRequest: local.mealRequest || extracted.mealRequest,
+    mealRequest,
     dishPreferences: { ...extracted.dishPreferences, ...local.dishPreferences },
     ...(local.mealRequest ? { availableIngredients: extracted.availableIngredients.filter((item) => !local.mealRequest.text.includes(item) || local.availableIngredients.includes(item)) } : {})
   };
