@@ -250,11 +250,11 @@ function paymentFields(order) {
   ];
 }
 
-export function paymentRedirectDocument(id) {
+export function paymentRedirectDocument(id, at = new Date()) {
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 404);
   const order = db.prepare("SELECT * FROM payment_orders WHERE id=? AND kind='initial'").get(id);
   if (!order || order.status !== 'pending') throw error('Ссылка на оплату недоступна', 404);
-  if (Date.parse(order.updated_at) < Date.now() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
+  if (Date.parse(order.updated_at) < at.getTime() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
   const fields = paymentFields(order).map(([name, value]) => `<input type="hidden" name="${html(name)}" value="${html(value)}">`).join('');
   return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Переход к оплате</title><body><main><h1>Переходим к защищённой оплате</h1><p>Если страница не открылась автоматически, нажмите кнопку.</p><form id="pay" method="post" action="${PAYMENT_ACTION}">${fields}<button type="submit">Перейти к оплате</button></form></main><script>document.getElementById('pay').submit()</script></body></html>`;
 }

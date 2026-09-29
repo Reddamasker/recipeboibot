@@ -88,17 +88,21 @@ const parseJson = (value, fallback) => { try { return JSON.parse(value); } catch
 
 export function getFoodProfile(userId) {
   const row = db.prepare('SELECT * FROM food_profiles WHERE user_id=?').get(userId);
-  return row ? {
+  if (!row) return { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, dishPreferences: {}, tastePreferencesStatus: 'pending', onboardingCompleted: false };
+  const preferredCategories = parseJson(row.preferred_categories_json, {});
+  const dishPreferences = parseJson(row.dish_preferences_json, {});
+  const hasSavedTastes = Object.keys(preferredCategories).length > 0 || Object.keys(dishPreferences).length > 0;
+  return {
     householdType: row.household_type,
     householdSize: row.household_size,
     hasChildren: row.has_children === null ? null : Boolean(row.has_children),
     preferredMaxCookingTime: row.preferred_max_cooking_time,
     excludedIngredients: parseJson(row.excluded_ingredients_json, []),
-    preferredCategories: parseJson(row.preferred_categories_json, {}),
-    dishPreferences: parseJson(row.dish_preferences_json, {}),
-    tastePreferencesStatus: row.taste_preferences_status,
+    preferredCategories,
+    dishPreferences,
+    tastePreferencesStatus: row.taste_preferences_status === 'pending' && hasSavedTastes ? 'completed' : row.taste_preferences_status,
     onboardingCompleted: Boolean(row.onboarding_completed)
-  } : { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, dishPreferences: {}, tastePreferencesStatus: 'pending', onboardingCompleted: false };
+  };
 }
 
 export function saveFoodProfile(userId, profile) {

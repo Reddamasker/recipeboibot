@@ -88,7 +88,7 @@ test('99 percent order charges 1.99, signs the discounted receipt, reserves once
   assert.equal(createPaymentOrder(promoUser.id, { promoCode: 'pichu99' }, at).id, order.id);
   assert.equal(createPaymentOrder(promoUser.id, {}, at).id, normal.id);
   assert.throws(() => createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', autoRenew: true }, at), { status: 400 });
-  const document = paymentRedirectDocument(order.id);
+  const document = paymentRedirectDocument(order.id, at);
   assert.match(document, /name="OutSum" value="1.99"/);
   const receipt = JSON.parse(decodeURIComponent(document.match(/name="Receipt" value="([^"]+)"/)[1]));
   assert.equal(receipt.items[0].sum, 1.99);
@@ -149,7 +149,7 @@ test('price experiment is stable, recorded once, and an initial order is signed 
   assert.equal(duplicate.id, order.id);
   assert.equal(order.autoRenew, true);
   assert.equal(order.paymentUrl, `https://billing.example.test/payment/start/${order.id}`);
-  const document = paymentRedirectDocument(order.id);
+  const document = paymentRedirectDocument(order.id, new Date('2026-09-28T10:10:00.000Z'));
   assert.match(document, /action="https:\/\/auth\.robokassa\.ru\/Merchant\/Index\.aspx"/);
   assert.match(document, /name="Recurring" value="true"/);
   assert.match(document, /name="PaymentMethods" value="BankCard"/);
@@ -180,7 +180,7 @@ test('three-month and annual orders charge discounted prices and grant the purch
   const three = createPaymentOrder(threeMonthUser.id, { periodMonths: 3 }, threeAt);
   assert.equal(three.priceRub, 499);
   assert.equal(three.periodMonths, 3);
-  const threeDocument = paymentRedirectDocument(three.id);
+  const threeDocument = paymentRedirectDocument(three.id, threeAt);
   assert.match(threeDocument, /name="OutSum" value="499.00"/);
   assert.match(threeDocument, /на 3 месяца/);
   callback(three, threeAt);

@@ -64,6 +64,8 @@ test('invalid taste values cannot modify the profile; old positive preferences r
   const user = upsertTelegramUser({ id: 652, first_name: 'Проверка' });
   updateDinnerProfile(user.id, { preferredCategories: { pasta: 0.8 } });
   const original = getFoodProfile(user.id);
+  assert.equal(original.tastePreferencesStatus, 'completed');
+  assert.equal(startDinner(user.id).needsTastePreferences, false, 'saved tastes must not be requested again');
   for (const preferredCategories of [{ unknown: 1 }, { fish: -2 }, { pasta: 2 }, { fish: '1' }, { fish: NaN }, [], null]) {
     assert.throws(() => updateDinnerProfile(user.id, { preferredCategories }), (error) => error.status === 400);
     assert.deepEqual(getFoodProfile(user.id), original);
