@@ -119,17 +119,13 @@ function home() {
   root.innerHTML = `${header()}<main class="home-page">
     <section class="home-choice" aria-label="Выбор блюда">
       <h1>Что приготовить <em>сегодня?</em></h1>
-      <p>Три идеи для ужина — из твоих рецептов или нашей подборки.</p>
-      <button id="choose" class="primary accent" type="button">Предложить три блюда <span aria-hidden="true">→</span></button>
-      ${notificationEntry()}
+      <p>Выбери, нужна подборка из трёх идей или один рецепт под конкретное пожелание.</p>
+      <div class="home-choice-actions">
+        <button id="choose" class="home-choice-button primary accent" type="button"><span><strong>Подборка рецептов</strong><small>Три разных варианта на сегодня</small></span><span aria-hidden="true">→</span></button>
+        <button id="specific-recipe" class="home-choice-button secondary" type="button"><span><strong>Хочу конкретный рецепт</strong><small>Напиши или надиктуй, что приготовить</small></span><span aria-hidden="true">→</span></button>
+      </div>
     </section>
-    <section class="home-search" aria-labelledby="home-search-title">
-      <h2 id="home-search-title">Найти конкретный рецепт</h2>
-      <form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Что хочется приготовить" placeholder="Например, суп или курица с рисом" required><button class="voice-request" id="voice-request" type="button" aria-label="Надиктовать пожелание" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5m-3.5 0h7"/></svg></button><button class="primary accent" type="submit">Подобрать рецепт</button></form>
-      <p class="request-voice-status" id="request-voice-status" aria-live="polite"></p>
-      <div class="request-examples" aria-label="Примеры коротких запросов"><span>Можно коротко:</span><button type="button" data-request-example="Суп">Суп</button><button type="button" data-request-example="Курица">Курица</button><button type="button" data-request-example="Что-нибудь быстрое">Что-нибудь быстрое</button></div>
-      <p>Сначала поищу готовый рецепт. Если подходящего нет — составлю новый.</p>
-    </section>
+    ${notificationEntry()}
     ${offerBanner()}
     <section class="home-library" aria-labelledby="collection-title">
       <h2 id="collection-title"><button class="collection-link" id="collection"><span>Мои рецепты <small>${state.recipes.length}</small></span><span aria-hidden="true">→</span></button></h2>
@@ -140,11 +136,19 @@ function home() {
   </main>`;
   bindCommon();
   document.querySelector('#choose').onclick = () => { setRoute({ view: 'dinner' }); beginDinner(); };
+  document.querySelector('#specific-recipe').onclick = () => { state.query = ''; setRoute({ view: 'request' }); recipeRequestView(); };
+  document.querySelector('#collection').onclick = () => { setRoute({ view: 'collection' }); render(); };
+  document.querySelector('#add').onclick = importSheet;
+}
+
+function recipeRequestView({ focus = false } = {}) {
+  root.innerHTML = `${header()}<main class="recipe-request-page"><button class="back-link" id="request-back">← На главную</button><section class="home-search" aria-labelledby="home-search-title"><div class="eyebrow">РЕЦЕПТ ПО ПОЖЕЛАНИЮ</div><h1 id="home-search-title">Что хочешь приготовить?</h1><p>Напиши блюдо или условие своими словами. Можно начать коротко, а предложенный рецепт потом уточнить.</p><form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Что хочется приготовить" placeholder="Например, лазанья полегче или суп без сливок" value="${esc(state.query)}" required><button class="voice-request" id="voice-request" type="button" aria-label="Надиктовать пожелание" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5m-3.5 0h7"/></svg></button><button class="primary accent" type="submit">Подобрать рецепт</button></form><p class="request-voice-status" id="request-voice-status" aria-live="polite"></p><div class="request-examples" aria-label="Примеры коротких запросов"><span>Можно коротко:</span><button type="button" data-request-example="Суп">Суп</button><button type="button" data-request-example="Курица">Курица</button><button type="button" data-request-example="Что-нибудь быстрое">Что-нибудь быстрое</button></div><p class="request-note">Сначала поищу готовый рецепт. Если подходящего нет — составлю новый. После этого можно уточнить: «полегче», «без духовки» или «на двоих».</p></section></main>`;
+  bindCommon();
+  document.querySelector('#request-back').onclick = () => { state.query = ''; setRoute({}); home(); };
   document.querySelector('#home-search-form').onsubmit = showRequestedRecipe;
   document.querySelector('#voice-request').onclick = toggleRequestRecording;
   document.querySelectorAll('[data-request-example]').forEach((button) => button.onclick = () => { document.querySelector('#home-search-input').value = button.textContent.trim(); return showRequestedRecipe({ preventDefault() {}, currentTarget: document.querySelector('#home-search-form') }); });
-  document.querySelector('#collection').onclick = () => { setRoute({ view: 'collection' }); render(); };
-  document.querySelector('#add').onclick = importSheet;
+  if (focus) globalThis.requestAnimationFrame?.(() => { const input = document.querySelector('#home-search-input'); input?.focus(); input?.select(); });
 }
 
 async function showRequestedRecipe(event) {
@@ -152,11 +156,14 @@ async function showRequestedRecipe(event) {
   const query = document.querySelector('#home-search-input')?.value.trim();
   const button = event.currentTarget.querySelector('button[type=submit]');
   if (!query || !button || button.disabled) return;
+  state.query = query;
+  setRoute({ view: 'request', q: query }, { replace: true });
   button.disabled = true;
   button.innerHTML = '<span class="loader"></span> Подбираю…';
   try {
     const result = await api('/api/recipe-request', { method: 'POST', body: JSON.stringify({ query }) });
-    if (new URLSearchParams(location.search).get('view')) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('view') !== 'request' || params.get('q') !== query) return;
     if (result.kind === 'existing') await openRecipe(result.recipe.id, true);
     else if (result.kind === 'generated') recipeDetail({ ...result.suggestion.recipe, origin: 'generated', sourceName: 'Создано в «Рецептах»' }, { suggestion: result.suggestion });
     else throw new Error('Не получилось подобрать рецепт');
@@ -646,6 +653,7 @@ async function render() {
   } else if (view === 'dinner') { if (!state.dinner) await beginDinner(); else dinnerView(); }
   else if (view === 'notifications') await notificationSettingsPage();
   else if (view === 'collection') collection();
+  else if (view === 'request') recipeRequestView();
   else if (view === 'search') searchView();
   else if (view === 'add') { home(); setRoute({}, { replace: true }); importSheet(); }
   else home();
@@ -863,6 +871,7 @@ async function waitForRecipeImage(id) {
 
 function recipeDetail(r, { shared = false, suggestion = null } = {}) {
   const catalog = r.origin === 'seed' || r.dinnerGenerated || Boolean(suggestion);
+  const requestMode = !shared && new URLSearchParams(location.search).get('view') === 'request';
   const dinnerOption = state.dinner?.recommendations.find((option) => option.recipe.id === r.id);
   const missing = dinnerOption?.pantryMatch?.missing || r.pantryMatch?.missing || [];
   const shopping = missing.length ? `<aside class="detail-shopping"><strong>Докупить</strong><p>${esc(missing.join(', '))}</p></aside>` : '';
@@ -888,7 +897,9 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
   const steps = (r.steps || []).map((item, index) => `<div class="step-card"><span class="step-number">${index + 1}</span><p>${esc(item.text)}</p></div>`).join('') || '<p class="detail-empty">Шаги не извлечены</p>';
   const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="https://t.me/Recipeboibot?start=dinner" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
   const backButton = shared ? '' : '<button class="detail-back" type="button" data-close aria-label="Назад"><span aria-hidden="true">←</span> Назад</button>';
-  const editButton = shared || catalog ? '' : '<button class="detail-edit" id="edit" type="button">Изменить</button>';
+  const editButton = requestMode
+    ? '<button class="detail-edit" id="request-refine" type="button">Уточнить пожелание</button>'
+    : shared || catalog ? '' : '<button class="detail-edit" id="edit" type="button">Изменить</button>';
   const actions = suggestion
     ? '<div class="detail-actions"><button class="primary accent" id="save-suggestion" type="button">Добавить в мои рецепты</button><button class="secondary" id="cook" type="button">Начать готовить</button></div>'
     : shared
@@ -905,6 +916,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     banner.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
   }
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
+  el.querySelector('#request-refine')?.addEventListener('click', () => { closeOverlay(); setRoute({ view: 'request', q: state.query }, { replace: true }); recipeRequestView({ focus: true }); });
   el.querySelector('#edit')?.addEventListener('click', () => { closeOverlay(); editRecipe(r); });
   el.querySelector('#save-suggestion')?.addEventListener('click', async (event) => {
     const button = event.currentTarget; button.disabled = true; button.textContent = 'Сохраняю…';

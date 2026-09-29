@@ -28,32 +28,40 @@ test('offer banner names the next action directly and uses no emoji', () => {
   assert.doesNotMatch(providerHtml, /бесплатно/i);
 });
 
-test('home keeps dinner separate and resolves a written recipe request', async () => {
+test('home offers two paths and opens written or spoken recipe requests separately', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function home()'), source.indexOf('\nasync function beginDinner'));
   const submit = { innerHTML: '', textContent: '', disabled: false };
-  const elements = Object.fromEntries(['#choose','#home-search-form','#home-search-input','#voice-request','#collection','#add'].map((key) => [key, { value: '', innerHTML: '', disabled: false }]));
+  const elements = Object.fromEntries(['#choose','#specific-recipe','#request-back','#home-search-form','#home-search-input','#voice-request','#collection','#add'].map((key) => [key, { value: '', innerHTML: '', disabled: false }]));
   elements['#home-search-form'].querySelector = () => submit;
   elements['#home-search-form'].requestSubmit = () => elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
   const example = { textContent: 'Суп' };
   const root = { innerHTML: '' };
   const routes = [], requests = [], opened = []; let rendered; let response = { kind: 'existing', recipe: { id: 'seed:chicken-rice' } };
-  const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', offerBanner: () => '', card: () => '', bindCommon() {}, importSheet() {},
+  const location = { search: '', href: 'https://local.test/' };
+  const sandbox = { root, state: { recipes: [], jobs: [], query: '' }, header: () => '<header></header>', offerBanner: () => '', card: () => '', bindCommon() {}, importSheet() {}, esc: String,
     notificationEntry: () => '',
-    document: { querySelector: (key) => elements[key], querySelectorAll: () => [example] }, setRoute: (value) => routes.push(value), beginDinner() {}, render() {}, loadAndRender() {},
+    document: { querySelector: (key) => elements[key], querySelectorAll: () => [example] }, setRoute: (value) => { routes.push(value); const params = new URLSearchParams(value); location.search = params.size ? `?${params}` : ''; }, beginDinner() {}, render() {}, loadAndRender() {},
     api: async (path, options) => { requests.push([path, options.method, JSON.parse(options.body).query]); return response; },
-    openRecipe: async (id) => opened.push(id), location: { search: '' }, URLSearchParams, recipeDetail: (recipe, options) => { rendered = [recipe, options]; }, toast: assert.fail };
+    openRecipe: async (id) => opened.push(id), location, URLSearchParams, recipeDetail: (recipe, options) => { rendered = [recipe, options]; }, toast: assert.fail };
   vm.runInNewContext(handler, sandbox);
   sandbox.home();
-  assert.match(root.innerHTML, /Найти конкретный рецепт/);
-  assert.match(root.innerHTML, /Предложить три блюда/);
+  assert.match(root.innerHTML, /Подборка рецептов/);
+  assert.match(root.innerHTML, /Хочу конкретный рецепт/);
+  assert.doesNotMatch(root.innerHTML, /home-search-form/);
   assert.doesNotMatch(root.innerHTML, /<h1><button/);
+  elements['#specific-recipe'].onclick();
+  assert.equal(routes.at(-1).view, 'request');
+  assert.match(root.innerHTML, /Что хочешь приготовить/);
   assert.match(root.innerHTML, /Надиктовать пожелание/);
   assert.match(root.innerHTML, /Можно коротко/);
   assert.match(root.innerHTML, /Сначала поищу готовый рецепт/);
+  assert.match(root.innerHTML, /полегче/);
   assert.doesNotMatch(root.innerHTML, /Напоминания об ужине/);
+  sandbox.home();
   elements['#choose'].onclick();
   assert.equal(routes.at(-1).view, 'dinner');
+  elements['#specific-recipe'].onclick();
   elements['#home-search-input'].value = 'курица с рисом';
   await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
   assert.deepEqual(requests, [['/api/recipe-request', 'POST', 'курица с рисом']]);
@@ -65,6 +73,15 @@ test('home keeps dinner separate and resolves a written recipe request', async (
   await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
   assert.equal(rendered[0].title, 'Новое блюдо');
   assert.equal(rendered[1].suggestion.id, 'proposal');
+});
+
+test('a recipe opened from the request flow offers refinement', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const detail = source.slice(source.indexOf('function recipeDetail('), source.indexOf('\nasync function waitForSuggestionImage'));
+  assert.match(detail, /requestMode/);
+  assert.match(detail, /Уточнить пожелание/);
+  assert.match(detail, /detail-edit/);
+  assert.match(detail, /recipeRequestView\(\{ focus: true \}\)/);
 });
 
 test('top reminder entries stay hidden until access is active', () => {
@@ -113,7 +130,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.35/);
+  assert.match(document, /app\.js\?v=dinner-10\.36/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
