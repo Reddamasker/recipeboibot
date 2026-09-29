@@ -1,7 +1,8 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess, getTrialStatus, monthAfter } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus, hasUsedTrialOrPromo, monthAfter } from './subscriptions.js';
+import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './promos.js';
 import { log } from './log.js';
 
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -57,6 +58,8 @@ CREATE TABLE IF NOT EXISTS payment_recurring (
   updated_at TEXT NOT NULL
 );`);
 
+if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'promo_code')) db.exec('ALTER TABLE payment_orders ADD COLUMN promo_code TEXT');
+
 const nowIso = (at = new Date()) => at.toISOString();
 const formatAmount = (kopeks) => `${Math.floor(kopeks / 100)}.${String(kopeks % 100).padStart(2, '0')}`;
 const parseAmount = (value) => {
@@ -100,7 +103,7 @@ export function billingAvailable() {
 }
 
 export function canUseAutomaticImport(userId, at = new Date()) {
-  if (getTrialStatus(userId, at).used) return getSubscriptionAccess(userId, at).active;
+  if (hasUsedTrialOrPromo(userId, at)) return getSubscriptionAccess(userId, at).active;
   if (!config.billingRequired) return true;
   const offer = getBillingOffer(userId, at);
   return !offer.hasFirstRecipe || offer.active;
@@ -110,8 +113,8 @@ export function getBillingOffer(userId, at = new Date()) {
   const firstValue = hasFirstValue(userId);
   const access = getSubscriptionAccess(userId, at);
   const trial = getTrialStatus(userId, at);
-  const assignment = firstValue || trial.used ? assignmentFor(userId, at) : null;
-  const pending = db.prepare("SELECT id,inv_id,amount_kopeks,variant,auto_renew,created_at FROM payment_orders WHERE user_id=? AND status='pending' AND kind='initial' ORDER BY created_at DESC LIMIT 1").get(userId);
+  const assignment = firstValue || hasUsedTrialOrPromo(userId, at) ? assignmentFor(userId, at) : null;
+  const pending = db.prepare("SELECT id,inv_id,amount_kopeks,variant,auto_renew,created_at,promo_code FROM payment_orders WHERE user_id=? AND status='pending' AND kind='initial' ORDER BY created_at DESC LIMIT 1").get(userId);
   return {
     mode: config.robokassaConfigured ? 'provider' : 'unavailable',
     available: config.robokassaConfigured,
@@ -141,6 +144,7 @@ function publicOrder(row) {
     id: row.id,
     invId: row.inv_id,
     priceRub: row.amount_kopeks / 100,
+    promoCode: row.promo_code || null,
     variant: row.variant,
     status: row.status || 'pending',
     autoRenew: Boolean(row.auto_renew),
@@ -149,21 +153,34 @@ function publicOrder(row) {
   };
 }
 
-export function createPaymentOrder(userId, { autoRenew = false } = {}, at = new Date()) {
+export function createPaymentOrder(userId, { autoRenew = false, promoCode } = {}, at = new Date()) {
+  const promo = promoCode !== undefined ? promoQuote(userId, promoCode) : null;
+  if (promo?.discountPercent === 100) throw error('Активируйте бесплатный месяц без оплаты');
+  if (promo && autoRenew) throw error('Промокод действует на один месяц без автопродления');
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 503);
-  if (!hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
+  if (!promo && !hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
   if (autoRenew && !config.robokassaRecurring) throw error('Автопродление пока не подключено у платёжного провайдера', 409);
   const assignment = assignmentFor(userId, at);
   recordBillingExposure(userId, at);
   const recentAfter = new Date(at.getTime() - 30 * 60 * 1000).toISOString();
-  const existing = db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND auto_renew=? AND created_at>? ORDER BY created_at DESC LIMIT 1")
-    .get(userId, autoRenew ? 1 : 0, recentAfter);
-  if (existing) return { ...publicOrder(existing), paymentUrl: `${config.appUrl}/payment/start/${existing.id}` };
+  const reserved = promo && reservedPromoOrder(userId, promo.code);
+  const existing = reserved ? db.prepare("SELECT * FROM payment_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId)
+    : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, recentAfter);
+  if (existing) {
+    db.prepare('UPDATE payment_orders SET updated_at=? WHERE id=?').run(nowIso(at), existing.id);
+    return { ...publicOrder(existing), paymentUrl: `${config.appUrl}/payment/start/${existing.id}` };
+  }
+  if (reserved) throw error('Заказ с этим промокодом уже завершён', 409);
   const id = randomUUID();
   const timestamp = nowIso(at);
-  db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at)
-    VALUES(?,?,?,?,?,'initial',?,'pending',?,?)`)
-    .run(id, userId, config.paymentExperimentKey, assignment.variant, assignment.amount_kopeks, autoRenew ? 1 : 0, timestamp, timestamp);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code)
+      VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?)`)
+      .run(id, userId, config.paymentExperimentKey, assignment.variant, promo ? 199 : assignment.amount_kopeks, autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null);
+    if (promo) reservePromo(userId, promo.code, id);
+    db.exec('COMMIT');
+  } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   const order = db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id);
   return { ...publicOrder(order), paymentUrl: `${config.appUrl}/payment/start/${id}` };
 }
@@ -223,7 +240,7 @@ export function paymentRedirectDocument(id) {
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 404);
   const order = db.prepare("SELECT * FROM payment_orders WHERE id=? AND kind='initial'").get(id);
   if (!order || order.status !== 'pending') throw error('Ссылка на оплату недоступна', 404);
-  if (Date.parse(order.created_at) < Date.now() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
+  if (Date.parse(order.updated_at) < Date.now() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
   const fields = paymentFields(order).map(([name, value]) => `<input type="hidden" name="${html(name)}" value="${html(value)}">`).join('');
   return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Переход к оплате</title><body><main><h1>Переходим к защищённой оплате</h1><p>Если страница не открылась автоматически, нажмите кнопку.</p><form id="pay" method="post" action="${PAYMENT_ACTION}">${fields}<button type="submit">Перейти к оплате</button></form></main><script>document.getElementById('pay').submit()</script></body></html>`;
 }
@@ -264,6 +281,11 @@ export function processRobokassaResult(params, at = new Date()) {
       db.prepare(`INSERT INTO user_subscriptions(user_id,plan,starts_at,expires_at,updated_at) VALUES(?,'subscription',?,?,?)
         ON CONFLICT(user_id) DO UPDATE SET plan='subscription',starts_at=excluded.starts_at,expires_at=excluded.expires_at,revoked_at=NULL,updated_at=excluded.updated_at`)
         .run(current.user_id, startsAt, expiresAt, timestamp);
+      if (current.promo_code) {
+        consumePromo(current.user_id, current.id, at, expiresAt);
+        db.prepare('UPDATE payment_recurring SET next_charge_at=?,updated_at=? WHERE user_id=? AND enabled=1')
+          .run(new Date(Date.parse(expiresAt) - 86400000).toISOString(), timestamp, current.user_id);
+      }
       if (current.kind === 'initial' && current.auto_renew) {
         db.prepare(`INSERT INTO payment_recurring(user_id,enabled,parent_inv_id,amount_kopeks,next_charge_at,retry_count,updated_at)
           VALUES(?,1,?,?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,parent_inv_id=excluded.parent_inv_id,amount_kopeks=excluded.amount_kopeks,next_charge_at=excluded.next_charge_at,retry_count=0,cancelled_at=NULL,updated_at=excluded.updated_at`)

@@ -33,6 +33,7 @@ const {
   runRecurringCycle
 } = await import('../src/billing.js');
 const { getSubscriptionAccess, startTrial } = await import('../src/subscriptions.js');
+const { promoQuote, redeemFreePromo } = await import('../src/promos.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 
@@ -54,6 +55,53 @@ const callback = (order, at, extra = {}) => {
     ...extra
   }, at);
 };
+
+test('99 percent order charges 1.99, signs the discounted receipt, reserves once and grants only after callback', () => {
+  const promoUser = upsertTelegramUser({ id: 600000088, first_name: 'Promo' });
+  const at = new Date();
+  const trial = startTrial(promoUser.id, at);
+  const normal = createPaymentOrder(promoUser.id, {}, at);
+  const order = createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', amount: 0 }, at);
+  assert.notEqual(order.id, normal.id);
+  assert.equal(order.priceRub, 1.99);
+  assert.equal(order.autoRenew, false);
+  assert.equal(order.promoCode, 'PICHU99');
+  assert.equal(createPaymentOrder(promoUser.id, { promoCode: 'pichu99' }, at).id, order.id);
+  assert.equal(createPaymentOrder(promoUser.id, {}, at).id, normal.id);
+  assert.throws(() => createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', autoRenew: true }, at), { status: 400 });
+  const document = paymentRedirectDocument(order.id);
+  assert.match(document, /name="OutSum" value="1.99"/);
+  const receipt = JSON.parse(decodeURIComponent(document.match(/name="Receipt" value="([^"]+)"/)[1]));
+  assert.equal(receipt.items[0].sum, 1.99);
+  assert.equal(getSubscriptionAccess(promoUser.id, at).expiresAt, trial.expiresAt);
+  assert.throws(() => callback(order, at, { OutSum: '0.00', SignatureValue: digest(`0.00:${order.invId}:${process.env.ROBOKASSA_PASSWORD2}`) }), { status: 400 });
+  callback(order, at);
+  const expiry = getSubscriptionAccess(promoUser.id, at).expiresAt;
+  assert.ok(Date.parse(expiry) > Date.parse(trial.expiresAt));
+  callback(order, at);
+  assert.equal(getSubscriptionAccess(promoUser.id, at).expiresAt, expiry);
+  assert.throws(() => promoQuote(promoUser.id, 'PICHU99'), { status: 409 });
+  assert.throws(() => createPaymentOrder(promoUser.id, { promoCode: 'PICHU99' }, at), { status: 409 });
+});
+
+test('free month postpones an existing renewal without changing its amount or enabling new charges', () => {
+  const account = upsertTelegramUser({ id: 600000087, first_name: 'Renewal promo' });
+  const at = new Date();
+  startTrial(account.id, at);
+  const order = createPaymentOrder(account.id, { autoRenew: true }, at);
+  callback(order, at);
+  const before = db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(account.id);
+  const result = redeemFreePromo(account.id, 'PICHU 100', at);
+  const after = db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(account.id);
+  assert.equal(after.enabled, before.enabled);
+  assert.equal(after.amount_kopeks, before.amount_kopeks);
+  assert.equal(after.next_charge_at, new Date(Date.parse(result.expiresAt) - 86400000).toISOString());
+  const discounted = createPaymentOrder(account.id, { promoCode: 'PICHU99' }, at);
+  callback(discounted, at);
+  const extended = db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(account.id);
+  assert.equal(extended.amount_kopeks, before.amount_kopeks);
+  assert.equal(extended.next_charge_at, new Date(Date.parse(getSubscriptionAccess(account.id, at).expiresAt) - 86400000).toISOString());
+});
 
 test.after(() => {
   db.close();

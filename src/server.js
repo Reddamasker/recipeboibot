@@ -19,6 +19,7 @@ import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotifica
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
 import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, recordBillingExposure } from './billing.js';
+import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
@@ -94,6 +95,15 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  if (request.method === 'POST' && url.pathname === '/api/billing/promo/quote') {
+    const input = await bodyJson(request, 1000);
+    return json(response, 200, promoQuote(user.id, input.code));
+  }
+  if (request.method === 'POST' && url.pathname === '/api/billing/promo/redeem') {
+    const input = await bodyJson(request, 1000);
+    const redemption = redeemFreePromo(user.id, input.code);
+    return json(response, 200, { ...redemption, payment: config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id) });
+  }
   if (request.method === 'POST' && url.pathname === '/api/billing/trial') {
     startTrial(user.id);
     return json(response, 200, config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id));
@@ -108,8 +118,8 @@ async function api(request, response, url) {
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/orders') {
     const input = await bodyJson(request, 1000);
-    if (config.testContour && !billingAvailable()) return json(response, 201, { ...createMockOrder(user.id, input.method || 'card', Boolean(input.autoRenew)), mode: 'mock' });
-    return json(response, 201, { ...createPaymentOrder(user.id, { autoRenew: Boolean(input.autoRenew) }), mode: 'provider' });
+    if (config.testContour && !billingAvailable()) return json(response, 201, { ...createMockOrder(user.id, input.method || 'card', Boolean(input.autoRenew), input.promoCode), mode: 'mock' });
+    return json(response, 201, { ...createPaymentOrder(user.id, { autoRenew: Boolean(input.autoRenew), promoCode: input.promoCode }), mode: 'provider' });
   }
   const billingOrder = url.pathname.match(/^\/api\/billing\/orders\/([0-9a-f-]{36})$/i);
   if (request.method === 'GET' && billingOrder) return json(response, 200, getPaymentOrder(user.id, billingOrder[1]));

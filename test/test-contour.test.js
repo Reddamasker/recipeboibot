@@ -17,7 +17,8 @@ const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { buildWebDocument } = await import('../src/web-document.js');
 const { getSubscriptionAccess, monthAfter, startTrial } = await import('../src/subscriptions.js');
-const { mockPaymentStatus, canUseTestImport } = await import('../src/contour-sandbox.js');
+const { mockPaymentStatus, canUseTestImport, createMockOrder, finishMockOrder } = await import('../src/contour-sandbox.js');
+const { promoQuote, redeemFreePromo } = await import('../src/promos.js');
 const telegramUser = { id: 6971956699, first_name: 'Тест' };
 const user = upsertTelegramUser(telegramUser);
 allowUser(user.id);
@@ -26,6 +27,26 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const headers = { authorization: `tma ${makeTelegramInitData(telegramUser, process.env.TELEGRAM_BOT_TOKEN)}`, 'content-type': 'application/json' };
 const call = (url, method = 'GET', body) => fetch(base + url, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+
+test('promo discounts work in test contour: failure frees code, success consumes once and preserves trial', () => {
+  const promoUser = upsertTelegramUser({ id: 600000099, first_name: 'Promo' });
+  const trial = startTrial(promoUser.id);
+  const order = createMockOrder(promoUser.id, 'card', false, 'PICHU99');
+  assert.equal(order.priceRub, 1.99);
+  assert.equal(mockPaymentStatus(promoUser.id).pendingOrder.promoCode, 'PICHU99');
+  assert.equal(createMockOrder(promoUser.id, 'card', false, 'pichu99').id, order.id);
+  finishMockOrder(promoUser.id, order.id, 'failure');
+  assert.equal(promoQuote(promoUser.id, 'PICHU99').priceRub, 1.99);
+  const retry = createMockOrder(promoUser.id, 'card', false, 'PICHU99');
+  assert.notEqual(retry.id, order.id);
+  finishMockOrder(promoUser.id, retry.id, 'success');
+  const access = getSubscriptionAccess(promoUser.id);
+  assert.equal(access.expiresAt, monthAfter(trial.expiresAt));
+  finishMockOrder(promoUser.id, retry.id, 'success');
+  assert.equal(getSubscriptionAccess(promoUser.id).expiresAt, access.expiresAt);
+  assert.throws(() => promoQuote(promoUser.id, 'PICHU99'), { status: 409 });
+  assert.equal(redeemFreePromo(promoUser.id, 'PICHU 100').expiresAt, monthAfter(access.expiresAt));
+});
 test.after(async () => {
   await new Promise((resolve) => server.close(resolve));
   db.close();

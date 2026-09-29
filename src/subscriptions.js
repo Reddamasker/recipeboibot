@@ -76,9 +76,15 @@ export function requireNotificationSubscription(userId, at = new Date()) {
 }
 
 export function requireUnexpiredTrial(userId, at = new Date()) {
-  if (getTrialStatus(userId, at).used && !getSubscriptionAccess(userId, at).active) {
-    throw Object.assign(new Error('Пробный период закончился. Оформите подписку, чтобы продолжить.'), { status: 402 });
+  if (hasUsedTrialOrPromo(userId, at) && !getSubscriptionAccess(userId, at).active) {
+    throw Object.assign(new Error('Бесплатный период закончился. Оформите подписку, чтобы продолжить.'), { status: 402 });
   }
+}
+
+export function hasUsedTrialOrPromo(userId, at = new Date()) {
+  return getTrialStatus(userId, at).used || Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='promo_redemptions'").get()
+    && db.prepare('SELECT 1 FROM promo_redemptions WHERE user_id=? AND redeemed_at IS NOT NULL LIMIT 1').get(userId));
 }
 
 export function grantSubscription(userId, plan, expiresAt, at = new Date()) {
