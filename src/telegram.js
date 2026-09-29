@@ -256,6 +256,12 @@ export function webAppUrl(params = {}) {
   return url.toString();
 }
 
+export async function configureTelegramMenuButton() {
+  const url = webAppUrl();
+  if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
+  await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Открыть приложение', web_app: { url } } });
+}
+
 export async function sendNotificationReminder(delivery) {
   const url = webAppUrl({ view: 'dinner', notification: delivery.id });
   if (!url) throw new Error('APP_URL is not configured for notifications');
@@ -730,6 +736,7 @@ export async function startTelegramPolling() {
     const bot = await telegram('getMe');
     if (bot.username?.toLowerCase() !== config.testBotUsername.toLowerCase()) throw new Error('Unexpected bot token for test contour');
   }
+  await configureTelegramMenuButton();
   running = true; let offset = 0;
   log('info', 'telegram_polling_started');
   while (running) {

@@ -832,8 +832,9 @@ test('polling completes a dinner callback without routing it as an absent messag
   const from = { id: 6405, first_name: 'Polling' }, chat = { id: 6405, type: 'private' };
   const user = database.upsertTelegramUser(from); database.allowUser(user.id);
   database.setPendingIntent(user.id, { kind: 'dinner-intake' });
-  let polls = 0;
-  globalThis.fetch = async (url) => {
+  let polls = 0; const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) });
     if (String(url).endsWith('/getUpdates')) {
       polls += 1;
       if (polls > 1) telegramModule.stopTelegramPolling();
@@ -845,6 +846,9 @@ test('polling completes a dinner callback without routing it as an absent messag
     await telegramModule.startTelegramPolling();
     assert.equal(database.db.prepare('SELECT status FROM processed_updates WHERE update_id=?').get('76405').status, 'done');
     assert.equal(database.getPendingIntent(user.id), null);
+    const menu = calls.find((call) => call.method === 'setChatMenuButton');
+    assert.equal(menu.body.menu_button.web_app.url, 'https://recipes.example.test/');
+    assert.equal(new URL(menu.body.menu_button.web_app.url).search, '');
   } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
 });
 
