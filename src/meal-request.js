@@ -37,10 +37,22 @@ export function normalizeMealRequest(raw) {
   return result.text || result.dish || result.requiredIngredients.length || result.excludedIngredients.length || result.methods.length || result.maxMinutes ? result : null;
 }
 
+// Strip conversational framing before extracting ingredients: otherwise a word
+// such as "дай" becomes part of the dish, or "пожалуйста" part of the garnish.
+// Only leading request phrases are removed. Negations and dish words stay intact.
+function stripRequestFraming(text) {
+  let rest = text.replace(/(?<![\p{L}\p{N}])пожалуйста(?![\p{L}\p{N}])/gu, ' ');
+  const trimEdges = (value) => value.replace(/^[\s,.!?;:«»"“”]+|[\s,.!?;:«»"“”]+$/gu, '').replace(/\s+/gu, ' ');
+  const prefix = /^(?:привет|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|дай(?:те)?|покажи(?:те)?|посоветуй(?:те)?|предложи(?:те)?|подскажи(?:те)?|найди(?:те)?|подбери(?:те)?|пришли(?:те)?|расскажи(?:те)?|можешь|можете|можно|не\s+мог(?:ли)?\s+бы|хотел(?:а|и)?\s+бы|хочу|хотим|хочется|давай(?:те)?|как|приготовить|приготовим|готовить|сделать|найти|показать|посоветовать|предложить|подсказать|подобрать|дать|рецепт(?:ик)?(?:\s+приготовления)?|сегодня|на\s+сегодня|на\s+ужин|мне|нам|ты|вы|я|ли)(?=$|[\s,.!?;:«»"“”])/u;
+  rest = trimEdges(rest);
+  while (prefix.test(rest)) rest = trimEdges(rest.replace(prefix, ''));
+  return rest;
+}
+
 export function parseMealRequest(text) {
   const source = clean(text);
   if (!source) return null;
-  let rest = source;
+  let rest = stripRequestFraming(source);
   const people = source.match(/(?:на|для)\s*(\d+|одного|двоих|троих|четверых|пятерых|шестерых)/u);
   const servings = people ? Number(people[1]) || ({ одного: 1, двоих: 2, троих: 3, четверых: 4, пятерых: 5, шестерых: 6 })[people[1]] : null;
   const excludedIngredients = [], requiredIngredients = [], methods = [];

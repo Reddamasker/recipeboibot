@@ -183,6 +183,43 @@ test('private Telegram request generates only after no ready recipe and waits fo
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('screenshot Telegram wording delivers steak and refuses a substituted dish', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const [id, title, accepted] of [[7991, 'Стейк из говядины', true], [7992, 'Гуляш из говядины', false]]) {
+      const tg = { id, first_name: 'Проверка формулировки' };
+      const owner = database.upsertTelegramUser(tg); database.allowUser(owner.id);
+      dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), onboardingCompleted: true, tastePreferencesStatus: 'completed' });
+      const sent = []; let calls = 0;
+      globalThis.fetch = async (url, options) => {
+        if (String(url).includes('api.openai.com')) {
+          calls++;
+          const body = JSON.parse(options.body);
+          const input = JSON.parse(body.input[0].content[0].text);
+          assert.equal(body.text.format.name, 'requested_recipe_generation');
+          assert.equal(input.query, 'Дай рецепт стейка');
+          assert.equal(input.mealRequest.dish, 'стейка');
+          return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ ...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'] }) }), { status: 200 });
+        }
+        sent.push(JSON.parse(options.body));
+        return { json: async () => ({ ok: true, result: { message_id: 71 } }) };
+      };
+      await telegramModule.handleMessage({ chat: { id, type: 'private' }, from: tg, text: 'Дай рецепт стейка' });
+      assert.equal(calls, 1);
+      assert.equal(database.listRecipes(owner.id).length, 0);
+      if (accepted) {
+        assert.ok(sent.some((m) => m.text?.includes('Стейк из говядины') && m.reply_markup?.inline_keyboard[0][0].callback_data.startsWith('suggest:save:')));
+        assert.ok(!sent.some((m) => m.text?.includes('Не получилось составить рецепт')));
+        assert.equal(database.getPendingIntent(owner.id).kind, 'recipe-suggestion');
+      } else {
+        assert.match(sent.at(-1).text, /не соответствует запросу/);
+        assert.doesNotMatch(sent.at(-1).text, /ещё раз\. Попробуйте уточнить/);
+        assert.equal(database.getPendingIntent(owner.id), null);
+      }
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('plain Нет declines the pending suggestion instead of becoming a recipe request', async () => {
   const telegramUser = { id: 6190, first_name: 'Отказ текстом' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);

@@ -347,7 +347,7 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
       await sendSuggestion(chatId, result.suggestion, { userId: user.id });
     } catch (error) {
       log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
-      await send(chatId, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
+      await send(chatId, `Не получилось составить рецепт: ${escapeHtml(error.message)}`);
     }
     return [];
   }
@@ -419,7 +419,7 @@ export async function handleSuggestionCallback(callback) {
       await sendSuggestion(chat.id, suggestion, { groupMode, userId });
     } catch (error) {
       log('error', 'telegram_suggestion_failed', { error, userId });
-      await send(chat.id, `Не получилось составить рецепт: ${escapeHtml(error.message)} Попробуйте уточнить запрос.`);
+      await send(chat.id, `Не получилось составить рецепт: ${escapeHtml(error.message)}`);
     }
     return;
   }

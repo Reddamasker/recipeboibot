@@ -22,6 +22,58 @@ const steak = () => ({ title: 'Стейк из говядины', description: '
   steps: [{ text: 'Обсушите говядину и нарежьте на стейки.' }, { text: 'Разогрейте сковороду с растительным маслом.' }, { text: 'Обжарьте стейки с двух сторон до готовности.' }, { text: 'Дайте мясу отдохнуть перед подачей.' }], tags: ['мясо'], warnings: [] });
 test.after(async () => { await new Promise(setImmediate); db.db.close(); for (const suffix of ['', '-wal', '-shm']) fs.rmSync(process.env.DATABASE_PATH + suffix, { force: true }); });
 
+for (const phrase of ['Дай рецепт стейка', 'Дайте, пожалуйста, рецепт стейка!', 'Покажи рецепт стейка', 'Посоветуй стейк', 'Можно рецепт стейка?', 'Можно мне рецепт стейка?', 'Можешь дать мне рецепт стейка?', 'Не мог бы ты показать рецепт стейка?', 'Подскажи, как приготовить стейк', 'Расскажи, как готовить стейк', 'Пришли рецепт стейка', 'Хочу приготовить стейк', 'Я хотел бы рецепт стейка', 'Привет! Подбери мне стейк, пожалуйста.', 'Рецепт: «стейк»', 'СТЕЙК, ПОЖАЛУЙСТА']) {
+  test(`request framing is not part of dish identity: ${phrase}`, () => {
+    const request = parseMealRequest(phrase);
+    assert.match(request.dish, /^стейк(?:а)?$/u);
+    assert.equal(matchesMealRequest(steak(), request), true);
+    assert.equal(matchesMealRequest({ ...steak(), title: 'Гуляш из говядины', tags: ['стейк'] }, request), false);
+  });
+}
+
+test('framing works for other dishes and does not remove dish words or negations', () => {
+  for (const dish of ['борщ', 'лазанья', 'бефстроганов', 'салат цезарь', 'плов']) {
+    const request = parseMealRequest(`Покажи, пожалуйста, рецепт: ${dish}!`);
+    assert.equal(request.dish, dish);
+    assert.equal(matchesMealRequest({ title: dish }, request), true);
+    assert.equal(matchesMealRequest({ title: 'Омлет' }, request), false);
+  }
+  assert.equal(parseMealRequest('стейк дайкон').dish, 'стейк дайкон');
+  assert.equal(parseMealRequest('не хочу стейк').dish.includes('не'), true);
+});
+
+test('polite request preserves ingredients, exclusions, method, servings and time', () => {
+  const request = parseMealRequest('Дайте, пожалуйста, рецепт стейка из говядины на сковороде на четверых за 30 минут без чеснока, пожалуйста.');
+  assert.equal(request.dish, 'стейка');
+  assert.deepEqual(request.requiredIngredients, ['говядины']);
+  assert.deepEqual(request.excludedIngredients, ['чеснока']);
+  assert.deepEqual(request.methods, ['сковорода']);
+  assert.equal(request.servings, 4); assert.equal(request.maxMinutes, 30);
+  assert.equal(matchesMealRequest(steak(), request), true);
+  assert.equal(matchesMealRequest({ ...steak(), servings: 2 }, request), false);
+  assert.equal(matchesMealRequest({ ...steak(), cookMinutes: 40 }, request), false);
+  assert.deepEqual(parseMealRequest('Дай рецепт стейка с картофелем, пожалуйста').requiredIngredients, ['картофелем']);
+});
+
+test('original screenshot query accepts generated steak, reuses cache and validates before saving', async () => {
+  const owner = user(), query = 'Дай рецепт стейка';
+  let calls = 0;
+  const result = await suggestions.resolveRecipeRequest(owner.id, query, { generate: async (input) => {
+    calls++; assert.equal(input.query, query); assert.equal(input.mealRequest.dish, 'стейка'); return steak();
+  } });
+  assert.equal(result.kind, 'generated');
+  const cached = await suggestions.resolveRecipeRequest(owner.id, query, { generate: assert.fail });
+  assert.equal(calls, 1); assert.equal(cached.suggestion.id, result.suggestion.id);
+  suggestions.assertSuggestionCurrent(owner.id, result.suggestion);
+  const saved = db.saveRecipeSuggestion(owner.id, result.suggestion.id);
+  const existing = await suggestions.resolveRecipeRequest(owner.id, 'Можно рецепт стейка?', { generate: assert.fail });
+  assert.equal(existing.kind, 'existing'); assert.equal(existing.recipe.id, saved.id);
+  const other = user();
+  await assert.rejects(suggestions.resolveRecipeRequest(other.id, query, { generate: async () => ({ ...steak(), title: 'Гуляш' }) }), { status: 422 });
+  service.updateDinnerProfile(other.id, { excludedIngredients: ['говядина'] });
+  await assert.rejects(suggestions.resolveRecipeRequest(other.id, query, { generate: async () => steak() }), { status: 422 });
+});
+
 test('today request preserves arbitrary dish identity separately from pantry and persistent tastes', () => {
   for (const dish of ['стейк', 'лазанья', 'бефстроганов']) {
     const parsed = parseDinnerIntakeFallback(`Сегодня хочу ${dish}`);
