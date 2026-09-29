@@ -460,4 +460,9 @@ button:disabled { cursor: wait; opacity: .5; }
   .trial-feature-art { width: 110px; height: 110px; margin-bottom: 24px; border-radius: 34px; }
   .trial-feature h1 { font-size: 37px; }
 }
+.dinner-request { margin: 18px 0 24px; }
+.dinner-request form, #missing-ingredients-form { display: grid; gap: 10px; }
+.dinner-request .manual-save { margin: 0; padding: 10px; }
+.dinner-request label { font-weight: 600; }
+#liked-dishes, #disliked-dishes { margin: 8px 0 20px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

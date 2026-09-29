@@ -6,14 +6,14 @@ import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { archiveRecipe, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importText, importUrl, importYoutubePlaylist } from './importer.js';
-import { resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
+import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
 import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
 import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
-import { decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
+import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
 import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
@@ -151,7 +151,7 @@ async function api(request, response, url) {
     }
     return json(response, 404, { error: 'Не найдено' });
   }
-  if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour });
+  if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour, botUsername: config.testContour ? config.testBotUsername : 'Recipeboibot' });
   if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, getNotificationSchedule(user.id));
   if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));
   const notificationAction = url.pathname.match(/^\/api\/notifications\/([0-9a-f-]{36})\/(open|select)$/i);
@@ -182,6 +182,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'PUT' && url.pathname === '/api/dinner/profile') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 4000)));
   if (request.method === 'POST' && url.pathname === '/api/dinner/open') return json(response, 200, startDinner(user.id));
+  if (request.method === 'PUT' && url.pathname === '/api/dinner/request') return json(response, 200, changeDinnerRequest(user.id, (await bodyJson(request, 4000)).query));
   if (request.method === 'POST' && url.pathname === '/api/dinner/onboarding/start') {
     const input = await bodyJson(request, 1000);
     return json(response, 200, startDinnerOnboarding(user.id, String(input.sessionId || '')));
@@ -210,7 +211,7 @@ async function api(request, response, url) {
     if (action === 'accept' || action === 'reject') return json(response, 200, decideDinner(user.id, id, action === 'accept' ? 'accepted' : 'rejected'));
     if (action === 'cooked') return json(response, 200, finishDinner(user.id, id));
     const input = await bodyJson(request, 1000);
-    return json(response, 200, setDinnerRejectionReason(user.id, id, input.reason));
+    return json(response, 200, setDinnerRejectionReason(user.id, id, input.reason, input));
   }
   if (request.method === 'GET' && url.pathname === '/api/search') {
     const q = (url.searchParams.get('q') || '').slice(0,500);
@@ -247,6 +248,8 @@ async function api(request, response, url) {
   if (request.method === 'POST' && /^\/api\/suggestions\/[0-9a-f-]{36}\/save$/i.test(url.pathname)) {
     const suggestionId = url.pathname.split('/').at(-2);
     const suggestion = getRecipeSuggestion(user.id, suggestionId);
+    if (!suggestion) return json(response, 404, { error: 'Предложение больше недоступно' });
+    assertSuggestionCurrent(user.id, suggestion);
     const recipe = saveRecipeSuggestion(user.id, suggestionId);
     if (!recipe) return json(response, 404, { error: 'Предложение больше недоступно' });
     if (suggestion?.query.startsWith('request:')) void ensureSuggestionImage(user.id, suggestion).then(() => ensureRecipeImage(user.id, getRecipe(user.id, recipe.id)));

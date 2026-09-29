@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
+import { normalizeMealRequest } from './meal-request.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS food_profiles (
@@ -78,6 +79,9 @@ ensureColumn('dinner_contexts', 'requested_categories_json', "TEXT NOT NULL DEFA
 ensureColumn('dinner_sessions', 'buffer_context', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('dinner_sessions', 'buffer_retry_at', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('dinner_sessions', 'viewed_at', 'TEXT');
+ensureColumn('food_profiles', 'dish_preferences_json', "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn('dinner_sessions', 'meal_request_json', "TEXT NOT NULL DEFAULT 'null'");
+ensureColumn('dinner_contexts', 'meal_request_json', "TEXT NOT NULL DEFAULT 'null'");
 
 const now = () => new Date().toISOString();
 const parseJson = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
@@ -91,9 +95,10 @@ export function getFoodProfile(userId) {
     preferredMaxCookingTime: row.preferred_max_cooking_time,
     excludedIngredients: parseJson(row.excluded_ingredients_json, []),
     preferredCategories: parseJson(row.preferred_categories_json, {}),
+    dishPreferences: parseJson(row.dish_preferences_json, {}),
     tastePreferencesStatus: row.taste_preferences_status,
     onboardingCompleted: Boolean(row.onboarding_completed)
-  } : { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, tastePreferencesStatus: 'pending', onboardingCompleted: false };
+  } : { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, dishPreferences: {}, tastePreferencesStatus: 'pending', onboardingCompleted: false };
 }
 
 export function saveFoodProfile(userId, profile) {
@@ -102,17 +107,18 @@ export function saveFoodProfile(userId, profile) {
     preferred_max_cooking_time=excluded.preferred_max_cooking_time,excluded_ingredients_json=excluded.excluded_ingredients_json,
     preferred_categories_json=excluded.preferred_categories_json,onboarding_completed=excluded.onboarding_completed,updated_at=excluded.updated_at,taste_preferences_status=excluded.taste_preferences_status`)
     .run(userId, profile.householdType, profile.householdSize, profile.hasChildren === null ? null : profile.hasChildren ? 1 : 0, profile.preferredMaxCookingTime, JSON.stringify(profile.excludedIngredients), JSON.stringify(profile.preferredCategories), profile.onboardingCompleted ? 1 : 0, now(), profile.tastePreferencesStatus ?? getFoodProfile(userId).tastePreferencesStatus);
+  db.prepare('UPDATE food_profiles SET dish_preferences_json=? WHERE user_id=?').run(JSON.stringify(profile.dishPreferences ?? getFoodProfile(userId).dishPreferences), userId);
   return getFoodProfile(userId);
 }
 
-export function setDinnerContext(userId, availableIngredients, requestedCategories = []) {
-  db.prepare(`INSERT INTO dinner_contexts(user_id,pantry_json,requested_categories_json,updated_at) VALUES(?,?,?,?)
-    ON CONFLICT(user_id) DO UPDATE SET pantry_json=excluded.pantry_json,requested_categories_json=excluded.requested_categories_json,updated_at=excluded.updated_at`)
-    .run(userId, JSON.stringify(availableIngredients), JSON.stringify(requestedCategories), now());
+export function setDinnerContext(userId, availableIngredients, requestedCategories = [], mealRequest = null) {
+  db.prepare(`INSERT INTO dinner_contexts(user_id,pantry_json,requested_categories_json,meal_request_json,updated_at) VALUES(?,?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET pantry_json=excluded.pantry_json,requested_categories_json=excluded.requested_categories_json,meal_request_json=excluded.meal_request_json,updated_at=excluded.updated_at`)
+    .run(userId, JSON.stringify(availableIngredients), JSON.stringify(requestedCategories), JSON.stringify(normalizeMealRequest(mealRequest)), now());
 }
 
 function activeDinnerContext(userId) {
-  const row = db.prepare('SELECT pantry_json,requested_categories_json,updated_at FROM dinner_contexts WHERE user_id=?').get(userId);
+  const row = db.prepare('SELECT pantry_json,requested_categories_json,meal_request_json,updated_at FROM dinner_contexts WHERE user_id=?').get(userId);
   if (!row) return null;
   if (Date.now() - Date.parse(row.updated_at) < 6 * 60 * 60 * 1000) return row;
   clearDinnerContext(userId);
@@ -120,6 +126,7 @@ function activeDinnerContext(userId) {
 }
 export function getDinnerContext(userId) { const row = activeDinnerContext(userId); return row ? parseJson(row.pantry_json, []) : []; }
 export function getDinnerRequestCategories(userId) { const row = activeDinnerContext(userId); return row ? parseJson(row.requested_categories_json, []) : []; }
+export function getDinnerMealRequest(userId) { const row = activeDinnerContext(userId); return row ? normalizeMealRequest(parseJson(row.meal_request_json, null)) : null; }
 
 export function clearDinnerContext(userId) { db.prepare('DELETE FROM dinner_contexts WHERE user_id=?').run(userId); }
 
@@ -130,8 +137,8 @@ export function addDinnerEvent(userId, event, { sessionId = null, recommendation
 
 export function openDinnerSession(userId, { prefetchOnly = false } = {}) {
   const id = randomUUID();
-  db.prepare('INSERT INTO dinner_sessions(id,user_id,pantry_json,requested_categories_json,opened_at) VALUES(?,?,?,?,?)')
-    .run(id, userId, JSON.stringify(getDinnerContext(userId)), JSON.stringify(getDinnerRequestCategories(userId)), now());
+  db.prepare('INSERT INTO dinner_sessions(id,user_id,pantry_json,requested_categories_json,meal_request_json,opened_at) VALUES(?,?,?,?,?,?)')
+    .run(id, userId, JSON.stringify(getDinnerContext(userId)), JSON.stringify(getDinnerRequestCategories(userId)), JSON.stringify(getDinnerMealRequest(userId)), now());
   if (!prefetchOnly) markDinnerSessionOpened(userId, id);
   return id;
 }
@@ -222,11 +229,15 @@ export function rejectDinnerRecommendations(userId, ids, categoriesByKey) {
   return { sessionId, rejectedCount: rejectedInSession(userId, sessionId).length, retryCount: retryCountInSession(userId, sessionId) };
 }
 
-export function addDinnerRejectionReason(userId, id, reason) {
+export function addDinnerRejectionReason(userId, id, reason, details = {}) {
   const row = getDinnerRecommendation(userId, id);
   if (!row || row.status !== 'rejected') return false;
-  if (db.prepare("SELECT id FROM dinner_events WHERE recommendation_id=? AND event='dinner_rejection_reason'").get(id)) return true;
-  addDinnerEvent(userId, 'dinner_rejection_reason', { sessionId: row.session_id, recommendationId: id, recipeKey: row.recipe_key, detail: { reason } });
+  const previous = db.prepare("SELECT id FROM dinner_events WHERE recommendation_id=? AND event='dinner_rejection_reason'").get(id);
+  if (previous) {
+    db.prepare('UPDATE dinner_events SET detail_json=?,created_at=? WHERE id=?').run(JSON.stringify({ ...details, reason }), now(), previous.id);
+    return true;
+  }
+  addDinnerEvent(userId, 'dinner_rejection_reason', { sessionId: row.session_id, recommendationId: id, recipeKey: row.recipe_key, detail: { ...details, reason } });
   return true;
 }
 

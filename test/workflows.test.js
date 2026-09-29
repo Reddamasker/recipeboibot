@@ -35,7 +35,7 @@ test('empty search proposes a recipe and saves it only after owner confirmation'
   const other = database.upsertTelegramUser({ id: 6161, first_name: 'Другой' });
   dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { home: 1, asian: -1 }, tastePreferencesStatus: 'completed' });
   let calls = 0, generationInput;
-  const generate = async (input) => { calls += 1; generationInput = input; return normalizedRecipe('Новый ужин с фасолью'); };
+  const generate = async (input) => { calls += 1; generationInput = input; return { ...normalizedRecipe('Новый ужин с фасолью'), servings: 2, prepMinutes: 10, cookMinutes: 15, ingredients: [{ name: 'фасоль', raw: 'фасоль' }] }; };
   const proposal = await suggestions.suggestForEmptySearch(owner.id, 'ужин с фасолью', { generate });
   assert.deepEqual(generationInput.profile.preferredCategories, { home: 1, asian: -1 });
   assert.equal(database.listRecipes(owner.id).length, 0);
@@ -54,7 +54,7 @@ test('empty search proposes a recipe and saves it only after owner confirmation'
 test('parallel empty searches share one generation request', async () => {
   const owner = database.upsertTelegramUser({ id: 6164, first_name: 'Параллельно' });
   let release; const gate = new Promise((resolve) => { release = resolve; }); let calls = 0;
-  const generate = async () => { calls += 1; await gate; return normalizedRecipe('Пирог с яблоком'); };
+  const generate = async () => { calls += 1; await gate; return { ...normalizedRecipe('Пирог с яблоком'), servings: 2, prepMinutes: 10, cookMinutes: 15, ingredients: [{ name: 'яблоко', raw: 'яблоко' }] }; };
   const first = suggestions.suggestForEmptySearch(owner.id, 'пирог с яблоком', { generate });
   const second = suggestions.suggestForEmptySearch(owner.id, 'пирог с яблоком', { generate });
   release();
@@ -117,7 +117,7 @@ test('group suggestion can only be added by the collection owner', async () => {
   const owner = database.upsertTelegramUser({ id: 6162, first_name: 'Владелец' });
   database.setGroupAccessByTelegramId(6162, true);
   database.activateTelegramGroup(owner.id, { id: -61620, type: 'group', title: 'Семья' });
-  const proposal = database.createRecipeSuggestion(owner.id, 'пирог с грушей', normalizedRecipe('Грушевый пирог'));
+  const proposal = database.createRecipeSuggestion(owner.id, 'пирог с грушей', { ...normalizedRecipe('Грушевый пирог'), ingredients: [{ name: 'груша', raw: 'груша' }] });
   const originalFetch = globalThis.fetch; const calls = [];
   globalThis.fetch = async (url, options) => { calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) }); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -160,7 +160,7 @@ test('private Telegram request generates only after no ready recipe and waits fo
       assert.equal(body.text.format.name, 'requested_recipe_generation');
       assert.match(body.instructions, /preferredCategories/);
       assert.deepEqual(JSON.parse(body.input[0].content[0].text).profile.preferredCategories, { soup: 1, fish: -1 });
-      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20 }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
+      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20, ingredients: [{ name: 'тыква', raw: 'тыква' }] }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
     }
     sent.push(JSON.parse(options.body));
     return { json: async () => ({ ok: true, result: { message_id: 12 } }) };
@@ -606,7 +606,7 @@ test('first profile voice message goes to confirmation without asking for produc
     assert.deepEqual(pending.intake.preferredCategories, { pasta: 1, rice: 1 });
     assert.deepEqual(new Set(pending.intake.requestedCategories), new Set(['asian', 'rice']));
     assert.match(sent.at(-1).text, /Проверьте/);
-    assert.match(sent.at(-1).text, /Сегодня обязательно: рис, азия/);
+    assert.match(sent.at(-1).text, /Сегодня обязательно: сегодня хочу азиатское с рисом/);
     assert.doesNotMatch(sent.at(-1).text, /назовите продукты/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-profile-voice', data: 'dinner:confirm', message: { chat, message_id: 492 }, from });
     const user = database.getUserByTelegramId(from.id);

@@ -5,7 +5,9 @@ import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner
 import { findReusableDinnerSession, getDinnerOption, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
 import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, getDinnerContext, getDinnerHistory, getDinnerRecommendation, getDinnerRequestCategories, getDinnerSession, getFoodProfile, markDinnerCooked, openDinnerSession, rejectDinnerRecommendations, rejectedInSession, retryCountInSession, saveFoodProfile, setDinnerContext } from './dinner-store.js';
-import { normalizeDinnerIntake } from './dinner-intake.js';
+import { normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
+import { getDinnerMealRequest } from './dinner-store.js';
+import { parseMealRequest } from './meal-request.js';
 
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 const notFound = () => Object.assign(new Error('Сценарий ужина не найден'), { status: 404 });
@@ -24,11 +26,13 @@ export function updateDinnerProfile(userId, input) {
   const excludedIngredients = input.excludedIngredients === undefined ? current.excludedIngredients : input.excludedIngredients;
   if (!Array.isArray(excludedIngredients) || excludedIngredients.length > 20 || excludedIngredients.some((item) => typeof item !== 'string' || item.length > 80)) throw badRequest('Проверьте исключённые продукты');
   const categories = input.preferredCategories === undefined ? current.preferredCategories : input.preferredCategories;
+  const dishPreferences = input.dishPreferences ?? current.dishPreferences;
+  if (!dishPreferences || typeof dishPreferences !== 'object' || Array.isArray(dishPreferences) || Object.entries(dishPreferences).length > 30 || Object.entries(dishPreferences).some(([key, value]) => key.length < 2 || key.length > 100 || ![-1, 1].includes(value))) throw badRequest('Проверьте любимые блюда');
   if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.entries(categories).some(([key, value]) => !CATEGORIES.has(key) || !Number.isFinite(value) || value < -1 || value > 1)) throw badRequest('Проверьте предпочтения в блюдах');
   const tastePreferencesStatus = input.tastePreferencesStatus === undefined ? current.tastePreferencesStatus : input.tastePreferencesStatus;
   if (!['pending', 'completed', 'skipped'].includes(tastePreferencesStatus)) throw badRequest('Проверьте статус знакомства со вкусами');
   const firstCompletion = !current.onboardingCompleted && input.onboardingCompleted === true;
-  const saved = saveFoodProfile(userId, { householdType, householdSize, hasChildren, preferredMaxCookingTime, excludedIngredients: [...new Set(excludedIngredients.map((item) => item.trim().toLocaleLowerCase('ru')).filter(Boolean))], preferredCategories: categories, tastePreferencesStatus, onboardingCompleted: Boolean(input.onboardingCompleted ?? current.onboardingCompleted) });
+  const saved = saveFoodProfile(userId, { householdType, householdSize, hasChildren, preferredMaxCookingTime, excludedIngredients: [...new Set(excludedIngredients.map((item) => item.trim().toLocaleLowerCase('ru')).filter(Boolean))], preferredCategories: categories, dishPreferences, tastePreferencesStatus, onboardingCompleted: Boolean(input.onboardingCompleted ?? current.onboardingCompleted) });
   if (tastePreferencesStatus !== current.tastePreferencesStatus && tastePreferencesStatus !== 'pending') addDinnerEvent(userId, `taste_preferences_${tastePreferencesStatus}`);
   if (firstCompletion) addDinnerEvent(userId, 'onboarding_completed');
   return saved;
@@ -36,9 +40,9 @@ export function updateDinnerProfile(userId, input) {
 
 export function confirmDinnerIntake(userId, input) {
   const intake = normalizeDinnerIntake(input);
-  if (!intake.availableIngredients.length) throw badRequest('Назовите хотя бы один продукт');
+  if (!intake.availableIngredients.length && !intake.mealRequest) throw badRequest('Назовите продукты или пожелание к ужину');
   const current = getFoodProfile(userId);
-  const hasTasteAnswers = Object.keys(intake.preferredCategories).length > 0;
+  const hasTasteAnswers = Object.keys(intake.preferredCategories).length > 0 || Object.keys(intake.dishPreferences || {}).length > 0;
   const profile = updateDinnerProfile(userId, {
     householdType: intake.householdType || current.householdType,
     householdSize: intake.householdSize ?? current.householdSize,
@@ -46,28 +50,37 @@ export function confirmDinnerIntake(userId, input) {
     preferredMaxCookingTime: intake.maxMinutes ?? current.preferredMaxCookingTime,
     excludedIngredients: [...new Set([...current.excludedIngredients, ...intake.excludedIngredients])],
     preferredCategories: { ...current.preferredCategories, ...intake.preferredCategories },
+    dishPreferences: { ...current.dishPreferences, ...intake.dishPreferences },
     tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus,
     onboardingCompleted: true
   });
-  setDinnerContext(userId, intake.availableIngredients, intake.requestedCategories);
+  setDinnerContext(userId, intake.availableIngredients, intake.requestedCategories, intake.mealRequest);
   addDinnerEvent(userId, 'dinner_intake_confirmed', { detail: { pantryCount: intake.availableIngredients.length, requestedCategories: intake.requestedCategories, householdSize: intake.householdSize, hasChildren: intake.hasChildren } });
-  return { profile, pantry: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId) };
+  return { profile, pantry: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), mealRequest: getDinnerMealRequest(userId) };
 }
 
 export function startDinner(userId, { prefetchOnly = false } = {}) {
   const profile = getFoodProfile(userId);
-  const pantry = getDinnerContext(userId), requestedCategories = getDinnerRequestCategories(userId);
-  const sessionId = findReusableDinnerSession(userId, dinnerContextKey({ profile, pantry, requestedCategories })) || openDinnerSession(userId, { prefetchOnly });
+  const pantry = getDinnerContext(userId), requestedCategories = getDinnerRequestCategories(userId), mealRequest = getDinnerMealRequest(userId);
+  const sessionId = findReusableDinnerSession(userId, dinnerContextKey({ profile, pantry, requestedCategories, mealRequest })) || openDinnerSession(userId, { prefetchOnly });
   if (!prefetchOnly) markDinnerSessionOpened(userId, sessionId);
   const needsOnboarding = !profile.onboardingCompleted && listRecipes(userId).filter((recipe) => recipe.status === 'ready').length < 3;
-  return { sessionId, profile, pantry, requestedCategories, needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
+  return { sessionId, profile, pantry, requestedCategories, mealRequest, needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
+}
+
+export function changeDinnerRequest(userId, query) {
+  if (typeof query !== 'string' || query.length > 500) throw badRequest('Пожелание должно быть не длиннее 500 символов');
+  const intake = query.trim() ? parseDinnerIntakeFallback(`сегодня хочу ${query.trim()}`) : {};
+  intake.mealRequest = parseMealRequest(query);
+  setDinnerContext(userId, getDinnerContext(userId), intake.requestedCategories || [], intake.mealRequest || null);
+  return startDinner(userId);
 }
 
 export function resumeDinner(userId, sessionId) {
   if (!getDinnerSession(userId, sessionId)) throw notFound();
   markDinnerSessionOpened(userId, sessionId);
   const profile = getFoodProfile(userId);
-  return { sessionId, profile, pantry: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), needsOnboarding: false, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
+  return { sessionId, profile, pantry: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), mealRequest: getDinnerMealRequest(userId), needsOnboarding: false, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };
 }
 
 export function startDinnerOnboarding(userId, sessionId) {
@@ -122,17 +135,23 @@ export function dinnerContext(userId, sessionId) {
   if (!session) throw notFound();
   const pantry = JSON.parse(session.pantry_json || '[]');
   const requestedCategories = JSON.parse(session.requested_categories_json || '[]');
+  const mealRequest = JSON.parse(session.meal_request_json || 'null');
+  if (JSON.stringify(mealRequest) !== JSON.stringify(getDinnerMealRequest(userId))) throw Object.assign(new Error('Пожелание изменилось. Открой подбор заново.'), { status: 409 });
   if (JSON.stringify(pantry) !== JSON.stringify(getDinnerContext(userId)) || JSON.stringify(requestedCategories) !== JSON.stringify(getDinnerRequestCategories(userId))) throw Object.assign(new Error('Пожелания к ужину обновились. Открой подбор заново.'), { status: 409 });
   const profile = getFoodProfile(userId);
   const library = listRecipes(userId).filter((recipe) => recipe.status === 'ready').map((recipe) => ({ ...recipe, userSaved: true }));
   const saved = library.filter(isDinnerCandidate), history = getDinnerHistory(userId);
   const tooLong = history.filter((event) => event.sessionId === sessionId && event.event === 'dinner_rejection_reason' && event.detail.reason === 'too_long')
     .map((event) => recipeForDecision(userId, event.recipeKey)).filter(Boolean).map(totalMinutes).filter((m) => m !== null);
-  const sessionMax = tooLong.length ? Math.max(15, Math.min(...tooLong) - 5) : null;
+  const sessionMax = tooLong.length ? Math.max(5, Math.min(...tooLong) - 5) : null;
   const recentRecipes = history.filter((event) => ['recipe_cooked','recommendation_accepted'].includes(event.event) && Date.now() - Date.parse(event.createdAt) < 7 * 86400000)
     .slice(0, 20).map((event) => recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean);
+  const reasons = history.filter((event) => event.sessionId === sessionId && event.event === 'dinner_rejection_reason');
+  const feedback = { simpleOnly: reasons.some((event) => event.detail.reason === 'too_hard'),
+    unavailableIngredients: [...new Set(reasons.flatMap((event) => event.detail.missingIngredients || []))],
+    avoidTitles: history.filter((event) => event.event === 'dinner_rejection_reason' && ((event.sessionId === sessionId && ['not_today', 'other'].includes(event.detail.reason)) || (event.detail.reason === 'recently_ate' && Date.now() - Date.parse(event.createdAt) < 7 * 86400000))).map((event) => recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean) };
   return { profile: sessionMax ? { ...profile, preferredMaxCookingTime: Math.min(profile.preferredMaxCookingTime || Infinity, sessionMax) } : profile,
-    pantry, requestedCategories, library, saved, history, recentRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
+    pantry, requestedCategories, mealRequest, feedback, library, saved, history, recentRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
 }
 
 function bufferResponse(userId, sessionId, buffer) {
@@ -147,17 +166,17 @@ function bufferResponse(userId, sessionId, buffer) {
   const recommendations = format(buffer.current), reserve = format(buffer.reserve);
   const fallback = recommendations.some((r) => r.method === 'deterministic');
   const preparingMessage = context.pantry.length ? 'Готовлю новые рецепты под твои продукты…' : 'Готовлю новые рецепты для тебя…';
-  return { sessionId, pantry: context.pantry, recommendations, recommendation: recommendations[0] || null, reserve,
+  return { sessionId, pantry: context.pantry, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recommendations, recommendation: recommendations[0] || null, reserve,
     preparing: buffer.preparing, imagesPending: Boolean(config.dinnerLlmEnabled && config.dinnerImagesEnabled && config.openaiKey && config.imageModel) && [...buffer.current,...buffer.reserve].some((o) => o.recipe.dinnerGenerated && !o.recipe.thumbnailUrl && o.imageState !== 'failed'),
     rejectedCount: context.rejected.length, retryCount: retryCountInSession(userId, sessionId),
     notice: fallback && getDinnerSession(userId, sessionId).buffer_retry_at > Date.now() && config.dinnerLlmEnabled ? 'Сейчас показываю подходящие готовые рецепты: новые варианты пока не удалось подготовить.' : null,
-    message: recommendations.length ? null : buffer.preparing ? preparingMessage : 'Пока не удалось подготовить новые рецепты, а подходящий готовый запас закончился. Можно повторить чуть позже или уточнить продукты.' };
+    message: recommendations.length ? null : buffer.preparing ? preparingMessage : context.mealRequest ? 'Не нашёл рецепт, который соответствует всем условиям. Уточни пожелание или попробуй позже.' : 'Пока не удалось подготовить новые рецепты, а подходящий готовый запас закончился. Можно повторить чуть позже или уточнить продукты.' };
 }
 
 export async function recommendDinner(userId, sessionId, options) {
   requireUnexpiredTrial(userId);
   const context = dinnerContext(userId, sessionId);
-  const effectiveOptions = context.requestedCategories.length ? { ...options, catalogFirst: false } : options;
+  const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
   const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
   return bufferResponse(userId, sessionId, buffer);
 }
@@ -165,7 +184,7 @@ export async function recommendDinner(userId, sessionId, options) {
 export function prefetchDinner(userId, sessionId, options) {
   requireUnexpiredTrial(userId);
   const context = dinnerContext(userId, sessionId);
-  const effectiveOptions = context.requestedCategories.length ? { ...options, catalogFirst: false } : options;
+  const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
   return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions));
 }
 
@@ -202,9 +221,16 @@ export function decideDinner(userId, recommendationId, decision) {
   return { status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
 }
 
-export function setDinnerRejectionReason(userId, recommendationId, reason) {
+export function setDinnerRejectionReason(userId, recommendationId, reason, details = {}) {
   if (!['too_long', 'not_today', 'recently_ate', 'missing_ingredients', 'too_hard', 'other'].includes(reason)) throw badRequest('Неверная причина');
-  if (!addDinnerRejectionReason(userId, recommendationId, reason)) throw notFound();
+  const ids = details.ids || [recommendationId];
+  if (!Array.isArray(ids) || !ids.includes(recommendationId) || ids.length > 3 || !ids.length || new Set(ids).size !== ids.length || ids.some((id) => typeof id !== 'string')) throw badRequest('Неверные варианты ужина');
+  const rows = ids.map((id) => getDinnerRecommendation(userId, id));
+  if (rows.some((row) => !row || row.status !== 'rejected' || row.session_id !== rows[0].session_id)) throw notFound();
+  const missingIngredients = details.missingIngredients || [];
+  if (!Array.isArray(missingIngredients) || missingIngredients.length > 20 || missingIngredients.some((v) => typeof v !== 'string' || !v.trim() || v.length > 80)) throw badRequest('Назовите недостающие продукты');
+  if (reason === 'missing_ingredients' && !missingIngredients.length) return { saved: false, needsIngredients: true };
+  for (const id of ids) addDinnerRejectionReason(userId, id, reason, { missingIngredients: reason === 'missing_ingredients' ? missingIngredients.map((v) => v.trim().toLocaleLowerCase('ru')) : [] });
   return { saved: true };
 }
 

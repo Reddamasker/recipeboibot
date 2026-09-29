@@ -1,3 +1,5 @@
+import { normalizeMealRequest, parseMealRequest, mergeMealRequests } from './meal-request.js';
+
 const itemText = (value) => String(value || '').normalize('NFKC').trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
   .replace(/^\d+(?:[.,]\d+)?\s*(?:кг|г|гр|мл|л|шт\.?|штуки?)\s*/iu, '')
   .replace(/^[\s,.;:–-]+|[\s,.;:–-]+$/gu, '').replace(/\s+/g, ' ');
@@ -61,7 +63,9 @@ export function mergeDinnerIntake(previous = {}, patch = {}) {
     maxMinutes: next.maxMinutes ?? before.maxMinutes,
     householdType: next.householdType ?? before.householdType,
     preferredCategories: { ...before.preferredCategories, ...next.preferredCategories },
-    requestedCategories: [...(patch.replaceRequestedCategories === true ? [] : before.requestedCategories), ...next.requestedCategories]
+    requestedCategories: [...(patch.replaceRequestedCategories === true ? [] : before.requestedCategories), ...next.requestedCategories],
+    mealRequest: mergeMealRequests(before.mealRequest, next.mealRequest, patch.replaceRequestedCategories === true),
+    dishPreferences: { ...before.dishPreferences, ...next.dishPreferences }
   });
 }
 
@@ -76,7 +80,12 @@ export function normalizeDinnerIntake(raw = {}) {
   const hasChildren = typeof raw.hasChildren === 'boolean' ? raw.hasChildren : null;
   const householdType = hasChildren ? 'family' : householdSize === 1 ? 'self' : householdSize === 2 ? 'couple' : householdSize >= 3 ? 'family' : ['self', 'couple', 'family'].includes(raw.householdType) ? raw.householdType : null;
   const requestedCategories = [...new Set((Array.isArray(raw.requestedCategories) ? raw.requestedCategories : []).filter((key) => TASTE_KEYS.has(key)))];
-  return { availableIngredients, excludedIngredients, householdSize, householdType, hasChildren, maxMinutes, preferredCategories: normalizedPreferences(raw), requestedCategories };
+  const mealRequest = normalizeMealRequest(raw.mealRequest);
+  const dishPreferences = Object.fromEntries(Object.entries(raw.dishPreferences || {}).filter(([key, value]) => key.length >= 2 && key.length <= 100 && [-1, 1].includes(value)).slice(0, 30));
+  for (const dish of uniqueItems(raw.likedDishes)) dishPreferences[dish] = 1;
+  for (const dish of uniqueItems(raw.dislikedDishes)) dishPreferences[dish] = -1;
+  return { availableIngredients, excludedIngredients, householdSize, householdType, hasChildren, maxMinutes, preferredCategories: normalizedPreferences(raw), requestedCategories,
+    ...(mealRequest ? { mealRequest } : {}), ...(Object.keys(dishPreferences).length ? { dishPreferences } : {}) };
 }
 
 export function combineDinnerIntakeExtraction(primary, fallback = {}) {
@@ -86,7 +95,11 @@ export function combineDinnerIntakeExtraction(primary, fallback = {}) {
     ...primary,
     preferredCategories: { ...local.preferredCategories, ...extracted.preferredCategories },
     requestedCategories: [...new Set([...extracted.requestedCategories, ...local.requestedCategories])],
-    replaceRequestedCategories: Boolean(primary.replaceRequestedCategories || fallback.replaceRequestedCategories)
+    replaceRequestedCategories: Boolean(primary.replaceRequestedCategories || fallback.replaceRequestedCategories),
+    // Local text is preserved even when the model only extracted a broad category.
+    mealRequest: local.mealRequest || extracted.mealRequest,
+    dishPreferences: { ...extracted.dishPreferences, ...local.dishPreferences },
+    ...(local.mealRequest ? { availableIngredients: extracted.availableIngredients.filter((item) => !local.mealRequest.text.includes(item) || local.availableIngredients.includes(item)) } : {})
   };
 }
 
@@ -101,7 +114,8 @@ export function parseDinnerIntakeFallback(text, { bareCategoriesAsLikes = false 
       return normalizeDinnerIntake({ preferredCategories: Object.fromEntries(bareKeys.map((key) => [key, 1])) });
     }
   }
-  const availableIngredients = [], excludedIngredients = [], removedIngredients = [], preferredCategories = {}, requestedCategories = [];
+  const availableIngredients = [], excludedIngredients = [], removedIngredients = [], preferredCategories = {}, requestedCategories = [], dishPreferences = {};
+  let mealRequest = null;
   let householdSize = null, hasChildren = null, maxMinutes = null, family = false, excluding = false;
   for (const part of parts) {
     if (/^(?:кстати|нет|да|забыл(?:а)?(?:\s+сказать)?|добавлю|уточнение)$/u.test(part)) continue;
@@ -112,12 +126,21 @@ export function parseDinnerIntakeFallback(text, { bareCategoriesAsLikes = false 
       : /(?:люб(?:лю|им|ит|ят)|нрав|обож|предпочита)/u.test(part) ? 1 : 0;
     if (taste) {
       for (const [key, pattern] of TASTE_CATEGORIES) if (pattern.test(part)) preferredCategories[key] = taste;
-      if (Object.keys(preferredCategories).length) { excluding = false; continue; }
+      const tasteText = part.replace(/^(?:я\s+)?(?:не\s+)?(?:люблю|любим|нравится|нравятся|обожаю|предпочитаю|ненавижу)\s+/u, '');
+      for (const item of tasteText.split(/\s+и\s+/u)) {
+        const dish = parseMealRequest(item)?.dish;
+        // Broad categories already have their own editable preferences.
+        if (dish && !/^(?:паст[ауы]|макарон[ыи]|суп[ыа]?|салат[ыа]?|рис|рыб[ауы]|куриц[ауы]|мясо|домашнее|азиатское)$/u.test(dish)) dishPreferences[dish] = taste;
+      }
+      excluding = false; continue;
     }
     const todayRequest = /(?:сегодня|на\s+сегодня|на\s+ужин|хоч(?:у|ем|ется)|приготов(?:ить|им)|давай(?:те)?)/u.test(part);
     if (todayRequest) {
+      const people = part.match(/(?:на|для|нас)\s+(\d{1,2}|одного|двоих|троих|трое|трех|четырех|четверых|пятерых|шестерых)/u);
+      if (people) householdSize = Number(people[1]) || sizeWords[people[1]] || householdSize;
       for (const [key, pattern] of TASTE_CATEGORIES) if (pattern.test(part)) requestedCategories.push(key);
-      if (requestedCategories.length) { excluding = false; continue; }
+      mealRequest = mergeMealRequests(mealRequest, parseMealRequest(part));
+      excluding = false; continue;
     }
     const sizeMatch = part.match(/(?:на|для|нас)\s+(\d{1,2}|одного|двоих|троих|трое|трех|четырех|четверых|пятерых|шестерых)(?:\s+(?:человек|людей|персон|порции?))?/u);
     if (sizeMatch) householdSize = Number(sizeMatch[1]) || sizeWords[sizeMatch[1]] || householdSize;
@@ -134,13 +157,18 @@ export function parseDinnerIntakeFallback(text, { bareCategoriesAsLikes = false 
     if (sizeMatch || minutes || /семь|семьи|семью|дети|детей|ребен|ребят|полчаса|минут|часа/u.test(part)) { excluding = false; continue; }
     if (excluding && !/^(?:у\s+меня\s+есть|есть|в\s+холодильнике|дома|из\s+продуктов|остались?|имеются?)\s+/u.test(part)) { excludedIngredients.push(...part.split(/\s+и\s+/u)); continue; }
     excluding = false;
+    if (bareCategoriesAsLikes && !/^(?:(?:а\s+)?еще\s+|добавь\s+)?(?:у\s+меня\s+есть|есть|дома|в\s+холодильнике|из\s+продуктов|остались?|имеются?)\s/u.test(part)) {
+      const dish = parseMealRequest(part)?.dish;
+      if (dish) dishPreferences[dish] = 1;
+      continue;
+    }
     const cleaned = part.replace(/^(?:(?:а\s+)?еще\s+|добавь\s+|добавить\s+)?(?:у\s+меня\s+есть\s+|есть\s+|в\s+холодильнике\s+|дома\s+|из\s+продуктов\s+|остались?\s+|имеются?\s+|теперь\s+только\s+|только\s+)?/u, '');
     availableIngredients.push(...cleaned.split(/\s+и\s+/u));
   }
-  const parsed = normalizeDinnerIntake({ availableIngredients, excludedIngredients, householdSize, hasChildren, maxMinutes, preferredCategories, requestedCategories });
+  const parsed = normalizeDinnerIntake({ availableIngredients, excludedIngredients, householdSize, hasChildren, maxMinutes, preferredCategories, requestedCategories, mealRequest, dishPreferences });
   if (family && !parsed.householdType) parsed.householdType = 'family';
   if (removedIngredients.length) parsed.removedIngredients = uniqueItems(removedIngredients);
   if (/теперь\s+(?:есть\s+)?только|замени\s+(?:весь\s+)?список/u.test(source)) parsed.replaceIngredients = true;
-  if (requestedCategories.length && /(?:сегодня|на\s+сегодня|на\s+ужин|хоч(?:у|ем|ется)|приготов(?:ить|им)|давай(?:те)?)/u.test(source)) parsed.replaceRequestedCategories = true;
+  if ((requestedCategories.length || mealRequest) && !/^(?:и\s+)?(?:еще|добавь|также)/u.test(source)) parsed.replaceRequestedCategories = true;
   return parsed;
 }

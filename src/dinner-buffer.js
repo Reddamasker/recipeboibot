@@ -6,12 +6,12 @@ import { generateRecipeImage } from './recipe-images.js';
 import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 5, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 6, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const MAX_GENERATION_ATTEMPTS = 3;
 const fills = new Map(), imageTasks = new Map();
 let activeImages = 0;
 const imageQueue = [];
-export const dinnerContextKey = ({ profile, pantry, requestedCategories = [] }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories })).digest('hex');
+export const dinnerContextKey = ({ profile, pantry, requestedCategories = [], mealRequest = null, feedback = { simpleOnly: false, unavailableIngredients: [], avoidTitles: [] } }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories, mealRequest, feedback })).digest('hex');
 const titleKey = (recipe) => String(recipe.title || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 export function duplicateDinner(recipe, existing) {
   const title = titleKey(recipe), words = new Set(title.split(' ').filter((w) => w.length > 3));
@@ -137,13 +137,13 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       const prior = listDinnerOptions(userId, sessionId);
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
       const attemptedTitles = [];
-      const maxAttempts = context.requestedCategories.length ? MAX_GENERATION_ATTEMPTS : 1;
+      const maxAttempts = context.requestedCategories.length || context.mealRequest ? MAX_GENERATION_ATTEMPTS : 1;
       let added = 0, attempts = 0;
       while (added < count && attempts < maxAttempts) {
         attempts++;
         const needed = count - added;
         const result = await generate({ userId, count: needed, profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
-          requestedCategories: context.requestedCategories, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20),
+          requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20),
           rejectedTitles: [...prior.map((o) => o.recipe.title), ...attemptedTitles].slice(-40) });
         if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
         const generated = Array.isArray(result?.recipes) ? result.recipes : [];

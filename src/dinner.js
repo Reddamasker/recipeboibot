@@ -1,3 +1,5 @@
+import { matchesMealRequest, containsFoodPhrase, recipeTextIngredients, isSpicy } from './meal-request.js';
+
 export const DINNER_WEIGHTS = Object.freeze({
   saved: 4, category: 2, timeFit: 1, servingsFit: 1, accepted: 0.7, cooked: 1.5,
   recentCookPenalty: 5, recentShownPenalty: 0.5, saveSignal: 0.15,
@@ -134,13 +136,20 @@ export const totalMinutes = (recipe) => {
   return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
 };
 
-export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], now = Date.now() } = {}) {
-  if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, profile.excludedIngredients || [])) return null;
+export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
+  if (rejected.includes(recipe.id) || hasExcludedIngredient(recipeTextIngredients(recipe), [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
+  if (!matchesMealRequest(recipe, mealRequest)) return null;
+  if (profile.householdSize && (!Number.isInteger(recipe.servings) || recipe.servings < profile.householdSize)) return null;
+  if (profile.hasChildren && isSpicy(recipe)) return null;
+  if ((feedback.avoidTitles || []).some((title) => containsFoodPhrase(recipe.title, title))) return null;
+  if (feedback.simpleOnly && ((recipe.ingredients?.length || 0) > 8 || (recipe.steps?.length || 0) > 6 || /лепите|слепите|фарширу|фритюр/iu.test((recipe.steps || []).map((s) => s.text || s).join(' ')))) return null;
   const minutes = totalMinutes(recipe);
-  if (profile.preferredMaxCookingTime && minutes !== null && minutes > profile.preferredMaxCookingTime) return null;
+  if (profile.preferredMaxCookingTime && (![recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) || minutes > profile.preferredMaxCookingTime)) return null;
   const categories = recipeCategories(recipe);
   if (requestedCategories.some((key) => !categories.includes(key))) return null;
   let score = recipe.userSaved ? DINNER_WEIGHTS.saved : 0;
+  const namedTaste = Object.entries(profile.dishPreferences || {}).reduce((sum, [dish, weight]) => sum + (matchesMealRequest(recipe, { dish }) ? weight : 0), 0);
+  score += namedTaste * 8;
   const pantryMatch = pantryCoverage(recipe, pantry);
   if (pantryMatch) {
     const hasBase = pantryMatch.mainIngredients.length && !pantryMatch.missingMainIngredients.length;
@@ -162,7 +171,7 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
   const recentShown = events.some((event) => event.event === 'recommendation_shown' && now - Date.parse(event.createdAt) < 86400000);
   if (recentCook) score -= DINNER_WEIGHTS.recentCookPenalty;
   if (recentShown) score -= DINNER_WEIGHTS.recentShownPenalty;
-  return { recipe, score, categories, minutes, pantryMatch };
+  return { recipe, score, categories, minutes, pantryMatch, namedTaste };
 }
 
 export function rankCandidates(recipes, context = {}) {
@@ -174,7 +183,7 @@ const uncooked = (candidate, history) => !history.some((event) => event.recipeKe
 const sideKeys = (candidate) => (candidate.recipe.ingredients || []).map((item) => pantryKey(item.name || item.raw || item)).filter((key) => ['rice', 'pasta', 'buckwheat', 'potato', 'couscous', 'cabbage'].includes(key));
 const categoryDistance = (candidate, selected) => candidate.categories.filter((key) => !selected.some((item) => item.categories.includes(key))).length
   + sideKeys(candidate).filter((key) => !selected.some((item) => sideKeys(item).includes(key))).length * DINNER_WEIGHTS.newSideVariety;
-const preferenceFit = (candidate, preferredCategories = {}) => candidate.categories.reduce((sum, key) => sum + (preferredCategories[key] || 0), 0);
+const preferenceFit = (candidate, preferredCategories = {}) => (candidate.namedTaste || 0) * 2 + candidate.categories.reduce((sum, key) => sum + (preferredCategories[key] || 0), 0);
 const preferenceChoice = (candidates, preferredCategories = {}) => candidates
   .filter((candidate) => preferenceFit(candidate, preferredCategories) > 0)
   .sort((a, b) => preferenceFit(b, preferredCategories) - preferenceFit(a, preferredCategories) || b.score - a.score)[0];

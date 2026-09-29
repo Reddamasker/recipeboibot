@@ -286,28 +286,26 @@ test('visible trio represents separate cuisine preferences when matching recipes
   assert.ok(visible.has('georgian'));
 });
 
-test('real mince, potato, rice and pasta intake gives three different trios with a discovery in each', async () => {
+test('family pantry batches stop honestly when suitable four-portion recipes run out', async () => {
   const user = upsertTelegramUser({ id: 606, first_name: 'Фарш' });
   confirmDinnerIntake(user.id, { availableIngredients: ['говяжий фарш', 'картошка', 'рис', 'паста'], householdSize: 4, hasChildren: true, maxMinutes: 30 });
   const session = startDinner(user.id);
   const seen = new Set();
-  for (let batch = 0; batch < 3; batch++) {
+  for (let batch = 0; batch < 20; batch++) {
     const result = await recommendDinner(user.id, session.sessionId);
-    assert.equal(result.recommendations.length, 3);
-    assert.equal(result.recommendations[2].pitch.label, 'Попробовать новое');
-    assert.ok(result.recommendations[2].recipe.discovery);
+    if (!result.recommendations.length) break;
+    assert.ok(result.recommendations.length <= 3);
     for (const option of result.recommendations) {
       assert.ok(!seen.has(option.recipe.id), option.recipe.title);
       seen.add(option.recipe.id);
       assert.ok(option.recipe.prepMinutes + option.recipe.cookMinutes <= 30);
+      assert.ok(option.recipe.servings >= 4);
       assert.equal(option.pantryMatch.missingMainIngredients.length, 0);
       assert.ok(option.recipe.steps.length >= 4);
     }
     rejectDinnerBatch(user.id, result.recommendations.map((r) => r.id));
   }
-  const last = await recommendDinner(user.id, session.sessionId);
-  assert.equal(last.recommendations.length, 1);
-  rejectDinnerBatch(user.id, last.recommendations.map((r) => r.id));
+  assert.ok(seen.size >= 3);
   const empty = await recommendDinner(user.id, session.sessionId);
   assert.equal(empty.recommendations.length, 0);
   assert.match(empty.message, /готовый запас закончился/);

@@ -1,87 +1,83 @@
-import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, matchRecipes, searchRecipes } from './db.js';
+import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes } from './db.js';
 import { getFoodProfile } from './dinner-store.js';
-import { hasExcludedIngredient, SEED_RECIPES, totalMinutes } from './dinner.js';
+import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, recipeCategories } from './dinner.js';
 import { generateRecipe, generateRequestedRecipe } from './openai.js';
 import { ensureSuggestionImage } from './recipe-images.js';
 import { requireUnexpiredTrial } from './subscriptions.js';
+import { parseMealRequest, matchesMealRequest, recipeTextIngredients, isSpicy } from './meal-request.js';
+import { parseDinnerIntakeFallback } from './dinner-intake.js';
 
 const inFlight = new Map();
-
 function requestContext(userId, query) {
   const normalized = String(query || '').trim().slice(0, 500);
   if (!normalized) throw Object.assign(new Error('Напишите, что хотите приготовить'), { status: 400 });
-  const profile = getFoodProfile(userId);
-  const explicitExclusions = [...normalized.matchAll(/(?:^|\s)без\s+([\p{L}-]+)/giu)].map((match) => match[1]);
-  const searchQuery = normalized.replace(/(?:^|\s)без\s+[\p{L}-]+/giu, ' ').trim();
-  const explicitMax = Number.parseInt(normalized.match(/(?:за|до|максимум)\s*(\d{1,3})\s*(?:минут|мин\b)/iu)?.[1] || '', 10);
-  const maxMinutes = Math.min(profile.preferredMaxCookingTime || Infinity, explicitMax || Infinity);
-  return { normalized, searchQuery, profile, excluded: [...(profile.excludedIngredients || []), ...explicitExclusions], maxMinutes };
+  const profile = getFoodProfile(userId), mealRequest = parseMealRequest(normalized);
+  const excluded = [...profile.excludedIngredients, ...mealRequest.excludedIngredients];
+  const maxMinutes = Math.min(profile.preferredMaxCookingTime || Infinity, mealRequest.maxMinutes || Infinity);
+  const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${normalized}`).requestedCategories;
+  return { normalized, profile, mealRequest, excluded, maxMinutes, requestedCategories };
+}
+function validRecipe(recipe, context, generated = false) {
+  const { profile, mealRequest, excluded, maxMinutes } = context;
+  const minutes = totalMinutes(recipe);
+  return Boolean(recipe.title?.trim() && recipe.ingredients?.length && recipe.steps?.length &&
+    matchesMealRequest(recipe, mealRequest) && !hasExcludedIngredient(recipeTextIngredients(recipe), excluded) &&
+    context.requestedCategories.every((category) => recipeCategories(recipe).includes(category)) &&
+    (maxMinutes === Infinity || ([recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) && minutes <= maxMinutes)) &&
+    (!profile.householdSize || (Number.isInteger(recipe.servings) && recipe.servings >= profile.householdSize)) &&
+    (!profile.hasChildren || !isSpicy(recipe)) &&
+    (!generated || (Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 0 && Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 0 && minutes >= 5 && Number.isInteger(recipe.servings) && recipe.servings >= 1)));
+}
+const invalidRequest = () => Object.assign(new Error('Рецепт не соответствует запросу или текущим ограничениям. Уточните пожелание и попробуйте ещё раз.'), { status: 422 });
+
+export function assertSuggestionCurrent(userId, suggestion) {
+  if (!suggestion) throw invalidRequest();
+  const query = suggestion.query.replace(/^request:/u, '');
+  if (!validRecipe(suggestion.recipe, requestContext(userId, query))) throw invalidRequest();
 }
 
 export function findRequestedRecipe(userId, query) {
-  const { searchQuery, profile, excluded, maxMinutes } = requestContext(userId, query);
-  const saved = listRecipes(userId).filter((recipe) => recipe.status === 'ready');
-  return matchRecipes([...saved, ...SEED_RECIPES], searchQuery, { allowAll: false }).find((recipe) => {
-    const minutes = totalMinutes(recipe);
-    return recipe.ingredients?.length && recipe.steps?.length && !hasExcludedIngredient(recipe, excluded) &&
-      (maxMinutes === Infinity || (minutes !== null && minutes <= maxMinutes)) &&
-      (!profile.householdSize || !recipe.servings || recipe.servings >= profile.householdSize) &&
-      (!profile.hasChildren || !/остр\w*\s+перец|чили|халапеньо/iu.test([recipe.title, ...(recipe.ingredients || []).map((item) => item.name || item.raw)].join(' ')));
-  }) || null;
+  const context = requestContext(userId, query);
+  const candidates = [...listRecipes(userId).filter((recipe) => recipe.status === 'ready'), ...SEED_RECIPES];
+  const light = /легк|лёгк|низкокалор/u.test(context.normalized);
+  return candidates.filter((recipe) => validRecipe(recipe, context) && (!light || recipe.tags?.some((t) => /л[её]гк|низкокалор/iu.test(t))))
+    .map((recipe, order) => ({ recipe, order, score: (recipe.title.toLocaleLowerCase('ru').replaceAll('ё', 'е') === context.normalized.toLocaleLowerCase('ru').replaceAll('ё', 'е') ? 100 : 0) + recipeCategories(recipe).reduce((score, category) => score + (context.profile.preferredCategories[category] || 0), 0) +
+      Object.entries(context.profile.dishPreferences || {}).reduce((score, [dish, weight]) => score + (matchesMealRequest(recipe, { dish }) ? weight * 4 : 0), 0) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order)[0]?.recipe || null;
 }
 
-export async function suggestForEmptySearch(userId, query, { generate = generateRecipe } = {}) {
+async function generateSuggestion(userId, query, generate, requested) {
   requireUnexpiredTrial(userId);
-  const normalized = String(query || '').trim().slice(0, 500);
-  if (!normalized) throw Object.assign(new Error('Укажите, что хотите приготовить'), { status: 400 });
-  if (searchRecipes(userId, normalized).some((recipe) => recipe.status === 'ready')) {
-    throw Object.assign(new Error('В коллекции уже есть подходящие рецепты'), { status: 409 });
+  const context = requestContext(userId, query), { normalized, profile, excluded, maxMinutes, mealRequest } = context;
+  const suggestionKey = (requested ? 'request:' : '') + normalized;
+  const cached = findRecipeSuggestion(userId, suggestionKey);
+  if (cached && validRecipe(cached.recipe, context, true)) {
+    if (requested && !cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached);
+    return cached;
   }
-  const existing = findRecipeSuggestion(userId, normalized);
-  if (existing) return existing;
-  const key = JSON.stringify([userId, normalized]);
+  const key = JSON.stringify([userId, suggestionKey, profile]);
   if (inFlight.has(key)) return inFlight.get(key);
   const task = (async () => {
-    const profile = getFoodProfile(userId);
-    const recipe = await generate({ userId, query: normalized, profile });
-    return createRecipeSuggestion(userId, normalized, recipe);
+    const recentTitles = listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 12).map((recipe) => recipe.title);
+    const recipe = await generate({ userId, query: normalized, mealRequest, profile: { ...profile, excludedIngredients: excluded, preferredMaxCookingTime: Number.isFinite(maxMinutes) ? maxMinutes : null }, recentTitles });
+    // A profile may change while the provider is responding.
+    if (!validRecipe(recipe, requestContext(userId, normalized), true)) throw invalidRequest();
+    const suggestion = createRecipeSuggestion(userId, suggestionKey, recipe);
+    if (requested) void ensureSuggestionImage(userId, suggestion);
+    return suggestion;
   })();
   inFlight.set(key, task);
   try { return await task; } finally { inFlight.delete(key); }
+}
+
+export async function suggestForEmptySearch(userId, query, { generate = generateRecipe } = {}) {
+  const context = requestContext(userId, query);
+  if (searchRecipes(userId, context.normalized).some((recipe) => recipe.status === 'ready' && validRecipe(recipe, context))) throw Object.assign(new Error('В коллекции уже есть подходящие рецепты'), { status: 409 });
+  return generateSuggestion(userId, query, generate, false);
 }
 
 export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe } = {}) {
   const existing = findRequestedRecipe(userId, query);
   if (existing) return { kind: 'existing', recipe: existing };
-  requireUnexpiredTrial(userId);
-  const { normalized, profile, excluded, maxMinutes } = requestContext(userId, query);
-  const suggestionKey = `request:${normalized}`;
-  const cached = findRecipeSuggestion(userId, suggestionKey);
-  if (cached) { if (!cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached); return { kind: 'generated', suggestion: cached }; }
-  const key = JSON.stringify(['request', userId, normalized]);
-  if (inFlight.has(key)) return inFlight.get(key);
-  const task = (async () => {
-    const recentTitles = listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 12).map((recipe) => recipe.title);
-    const recipe = await generate({ userId, query: normalized, profile: { ...profile, excludedIngredients: excluded, preferredMaxCookingTime: Number.isFinite(maxMinutes) ? maxMinutes : null }, recentTitles });
-    const ingredientsAndSteps = { ingredients: [
-      { name: recipe.title },
-      ...(recipe.ingredients || []),
-      ...(recipe.ingredients || []).filter((item) => item.comment).map((item) => ({ name: item.comment })),
-      ...(recipe.steps || []).map((step) => ({ name: step.text }))
-    ] };
-    const minutes = (recipe.prepMinutes ?? 0) + (recipe.cookMinutes ?? 0);
-    if (!recipe.title?.trim() || !recipe.ingredients?.length || !recipe.steps?.length ||
-      hasExcludedIngredient(ingredientsAndSteps, excluded) ||
-      !Number.isInteger(recipe.prepMinutes) || recipe.prepMinutes < 0 || !Number.isInteger(recipe.cookMinutes) || recipe.cookMinutes < 0 || minutes < 5 ||
-      !Number.isInteger(recipe.servings) || recipe.servings < (profile.householdSize || 1) ||
-      (maxMinutes < Infinity && minutes > maxMinutes) ||
-      recentTitles.some((title) => title.toLocaleLowerCase('ru') === recipe.title.trim().toLocaleLowerCase('ru'))) {
-      throw Object.assign(new Error('Рецепт не прошёл проверку предпочтений. Уточните запрос и попробуйте ещё раз.'), { status: 422 });
-    }
-    const suggestion = createRecipeSuggestion(userId, suggestionKey, recipe);
-    void ensureSuggestionImage(userId, suggestion);
-    return { kind: 'generated', suggestion };
-  })();
-  inFlight.set(key, task);
-  try { return await task; } finally { inFlight.delete(key); }
+  return { kind: 'generated', suggestion: await generateSuggestion(userId, query, generate, true) };
 }

@@ -212,7 +212,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
   try {
     const notificationId = !forceOnboarding ? new URLSearchParams(location.search).get('notification') : null;
     const session = await api(notificationId ? `/api/notifications/${encodeURIComponent(notificationId)}/open` : '/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
-    state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, askingReason: false, loading: false };
+    state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], mealRequest: session.mealRequest || null, needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, askingReason: false, loading: false };
     if (session.acceptedOption) { dinnerView(); return; }
     if (forceOnboarding) await showDinnerOnboarding();
     else if (session.needsTastePreferences) showDinnerTastePreferences();
@@ -274,7 +274,7 @@ function bindTasteChoices(data, redraw) {
 
 function showDinnerTastePreferences() {
   clearTimeout(dinnerPollTimer);
-  state.onboarding = { tasteOnly: true, preferredCategories: { ...state.dinner.profile.preferredCategories }, saving: false };
+  state.onboarding = { tasteOnly: true, preferredCategories: { ...state.dinner.profile.preferredCategories }, dishPreferences: { ...state.dinner.profile.dishPreferences }, saving: false };
   dinnerView();
   if (state.trialOnboarding === 'taste') resetPageScroll();
 }
@@ -282,14 +282,17 @@ function showDinnerTastePreferences() {
 function tastePreferencesView() {
   const data = state.onboarding;
   const trial = state.trialOnboarding === 'taste';
-  root.innerHTML = `${header()}<main class="dinner-page ${trial ? 'trial-onboarding' : ''}">${trial ? '<div class="trial-progress" aria-label="Шаг 1 из 3"><span class="active"></span><span></span><span></span></div><section class="trial-welcome"><div class="trial-icon" aria-hidden="true">✓</div><div><div class="eyebrow">ПРОБНЫЙ ПЕРИОД НАЧАЛСЯ</div><h2>Спасибо, что пробуешь «Твои рецепты»</h2><p>Настроим всё за пару минут, чтобы бот лучше понимал твои вкусы и помогал каждый день.</p></div></section>' : '<div class="eyebrow">ТВОИ ВКУСЫ</div>'}<section class="dinner-onboarding">${tasteChoices(data.preferredCategories, trial ? { title: 'Что ты любишь есть?', copy: 'Выбери любимые направления и то, что тебе не по вкусу. Это улучшит качество определения и подбора рецептов.' } : {})}<div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : trial ? 'Сохранить и продолжить' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>${trial ? 'Пропустить этот шаг' : 'Пока пропустить'}</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
+  root.innerHTML = `${header()}<main class="dinner-page ${trial ? 'trial-onboarding' : ''}">${trial ? '<div class="trial-progress" aria-label="Шаг 1 из 3"><span class="active"></span><span></span><span></span></div><section class="trial-welcome"><div class="trial-icon" aria-hidden="true">✓</div><div><div class="eyebrow">ПРОБНЫЙ ПЕРИОД НАЧАЛСЯ</div><h2>Спасибо, что пробуешь «Твои рецепты»</h2><p>Настроим всё за пару минут, чтобы бот лучше понимал твои вкусы и помогал каждый день.</p></div></section>' : '<div class="eyebrow">ТВОИ ВКУСЫ</div>'}<section class="dinner-onboarding">${tasteChoices(data.preferredCategories, trial ? { title: 'Что ты любишь есть?', copy: 'Выбери любимые направления и то, что тебе не по вкусу. Это улучшит качество определения и подбора рецептов.' } : {})}<label for="liked-dishes">Любимые блюда (через запятую)</label><input class="field" id="liked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v > 0).map(([k]) => k).join(', '))}" placeholder="Стейк, лазанья"><label for="disliked-dishes">Нелюбимые блюда (через запятую)</label><input class="field" id="disliked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v < 0).map(([k]) => k).join(', '))}"><div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : trial ? 'Сохранить и продолжить' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>${trial ? 'Пропустить этот шаг' : 'Пока пропустить'}</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
   bindCommon();
   bindTasteChoices(data, tastePreferencesView);
+  const captureDishes = () => { data.dishPreferences = Object.fromEntries([[1, '#liked-dishes'], [-1, '#disliked-dishes']].flatMap(([weight, selector]) => document.querySelector(selector).value.split(',').map((v) => v.trim().toLocaleLowerCase('ru')).filter(Boolean).map((name) => [name, weight]))); };
+  document.querySelector('#liked-dishes').oninput = captureDishes;
+  document.querySelector('#disliked-dishes').oninput = captureDishes;
   const finish = async (skip) => {
     if (data.saving) return;
     data.saving = true; tastePreferencesView();
     try {
-      const input = skip ? { tastePreferencesStatus: 'skipped' } : { preferredCategories: data.preferredCategories, tastePreferencesStatus: 'completed' };
+      const input = skip ? { tastePreferencesStatus: 'skipped' } : { preferredCategories: data.preferredCategories, dishPreferences: data.dishPreferences, tastePreferencesStatus: 'completed' };
       await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify(input) });
       state.onboarding = null;
       if (trial) {
@@ -332,7 +335,7 @@ async function loadDinnerRecommendation() {
   state.dinner.recommendation = null;
   state.dinner.message = dinner.pantry?.length
     ? 'Составляю рецепты под твои продукты — сразу с запасом для следующего выбора…'
-    : 'Составляю три варианта ужина…';
+    : 'Подбираю подходящие варианты ужина…';
   dinnerView();
   try {
     const result = await api('/api/dinner/recommend', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
@@ -341,6 +344,7 @@ async function loadDinnerRecommendation() {
     state.dinner.recommendations = result.recommendations || (result.recommendation ? [result.recommendation] : []);
     state.dinner.recommendation = result.recommendation;
     state.dinner.pantry = result.pantry || [];
+    state.dinner.mealRequest = result.mealRequest || null;
     state.dinner.message = result.message;
     state.dinner.accepted = false;
     state.dinner.askingReason = false;
@@ -383,6 +387,7 @@ async function showNextDinner() {
   const previous = dinner.recommendations;
   const previousReserve = dinner.reserve;
   dinner.lastRejectedId = previous[0]?.id;
+  dinner.lastRejectedIds = previous.map((option) => option.id);
   dinner.switching = true;
   clearTimeout(dinnerPollTimer);
   // The full reserve is already in memory: change the screen before sending the request.
@@ -450,7 +455,7 @@ function dinnerChoiceCard(option, index) {
 }
 
 function updateDinnerIngredients() {
-  const url = 'https://t.me/Recipeboibot?start=ingredients';
+  const url = `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=ingredients`;
   if (window.Telegram?.WebApp?.openTelegramLink) window.Telegram.WebApp.openTelegramLink(url);
   else window.location.href = url;
 }
@@ -459,11 +464,11 @@ function dinnerView() {
   if (state.onboarding) return onboardingView();
   const dinner = state.dinner, items = dinner?.recommendations || [];
   const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
-  const content = dinner?.askingReason ? `<section class="dinner-decision"><div class="eyebrow">ПОМОГИ УТОЧНИТЬ ВЫБОР</div><h1>Почему не подходит?</h1><div class="dinner-options">${[['too_long','Долго'],['not_today','Не хочется'],['recently_ate','Недавно ел'],['missing_ingredients','Нет ингредиентов'],['too_hard','Слишком сложно'],['other','Другое']].map(([key, label]) => `<button class="dinner-option" data-reason="${key}">${label}</button>`).join('')}</div><button class="manual-save" id="reason-skip">Пропустить</button></section>`
+  const content = dinner?.askingReason ? `<section class="dinner-decision"><div class="eyebrow">ПОМОГИ УТОЧНИТЬ ВЫБОР</div><h1>Почему не подходит?</h1><div class="dinner-options">${[['too_long','Долго'],['not_today','Не хочется'],['recently_ate','Недавно ел'],['missing_ingredients','Нет ингредиентов'],['too_hard','Слишком сложно'],['other','Другое']].map(([key, label]) => `<button class="dinner-option" data-reason="${key}">${label}</button>`).join('')}</div>${dinner.missingIngredientsForm ? '<form id="missing-ingredients-form"><label for="missing-ingredients">Каких продуктов нет?</label><input class="field" id="missing-ingredients" maxlength="500" placeholder="Например: рис, грибы" required><button class="secondary">Учесть и подобрать</button></form>' : ''}<button class="manual-save" id="reason-skip">Пропустить</button></section>`
     : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Отличный выбор. Рецепт под рукой, когда будешь готовить.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
     : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
-  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${content}${dinner?.cooked ? offerBanner() : ''}</main>`;
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted && !dinner?.askingReason ? `<section class="dinner-request"><p class="dinner-help">${dinner?.mealRequest ? `Сегодня: ${esc(dinner.mealRequest.text)}` : 'Конкретного пожелания на сегодня нет'}</p><form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем"><button class="secondary" type="submit">Подобрать по запросу</button>${dinner?.mealRequest ? '<button class="manual-save" id="dinner-request-clear" type="button">Убрать пожелание</button>' : ''}</form></section>` : ''}${content}${dinner?.cooked ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));
@@ -473,7 +478,31 @@ function dinnerView() {
   document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
   document.querySelector('#dinner-reject-batch')?.addEventListener('click', showNextDinner);
   document.querySelector('#dinner-reason-open')?.addEventListener('click', () => { dinner.askingReason = true; dinnerView(); });
-  document.querySelectorAll('[data-reason]').forEach((button) => button.onclick = async () => { try { await api(`/api/dinner/recommendations/${dinner.lastRejectedId}/reason`, { method: 'POST', body: JSON.stringify({ reason: button.dataset.reason }) }); await loadDinnerRecommendation(); } catch (error) { toast(error.message); } });
+  const saveReason = async (reason, missingIngredients = []) => {
+    try {
+      const result = await api(`/api/dinner/recommendations/${dinner.lastRejectedId}/reason`, { method: 'POST', body: JSON.stringify({ reason, ids: dinner.lastRejectedIds || [dinner.lastRejectedId], missingIngredients }) });
+      if (result.needsIngredients) return;
+      dinner.missingIngredientsForm = false;
+      await loadDinnerRecommendation();
+    } catch (error) { toast(error.message); }
+  };
+  document.querySelectorAll('[data-reason]').forEach((button) => button.onclick = () => {
+    if (button.dataset.reason === 'missing_ingredients') { dinner.missingIngredientsForm = true; dinnerView(); }
+    else if (button.dataset.reason === 'other') { dinner.askingReason = false; dinnerView(); document.querySelector('#dinner-request-text')?.focus(); }
+    else void saveReason(button.dataset.reason);
+  });
+  document.querySelector('#missing-ingredients-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const items = document.querySelector('#missing-ingredients').value.split(',').map((v) => v.trim()).filter(Boolean);
+    if (items.length) void saveReason('missing_ingredients', items);
+  });
+  document.querySelector('#dinner-request-text')?.addEventListener('input', (event) => { dinner.requestDraft = event.target.value; });
+  const changeRequest = async (query) => {
+    try { await api('/api/dinner/request', { method: 'PUT', body: JSON.stringify({ query }) }); await beginDinner(); }
+    catch (error) { toast(error.message); }
+  };
+  document.querySelector('#dinner-request-form')?.addEventListener('submit', (event) => { event.preventDefault(); void changeRequest(document.querySelector('#dinner-request-text').value); });
+  document.querySelector('#dinner-request-clear')?.addEventListener('click', () => changeRequest(''));
   document.querySelector('#reason-skip')?.addEventListener('click', () => { dinner.askingReason = false; dinnerView(); });
   document.querySelectorAll('[data-dinner-full]').forEach((button) => button.onclick = () => { const selected = items.find((option) => option.id === button.dataset.dinnerFull); openRecipe(selected.recipe.id, true); });
   document.querySelector('#dinner-full-recipe')?.addEventListener('click', () => { openRecipe(recipe.id, true); });

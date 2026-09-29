@@ -2,13 +2,14 @@ import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importText, importUrl, importYoutubePlaylist } from './importer.js';
 import { extractDinnerIntake, transcribeAudio } from './openai.js';
-import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch } from './suggestions.js';
+import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
+import { getDinnerMealRequest } from './dinner-store.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, requireTestOwner, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
 import { getSubscriptionAccess } from './subscriptions.js';
@@ -60,7 +61,7 @@ function canUsePaidImport(userId) {
 export function canUsePlaylistImport(userId) { return getSubscriptionAccess(userId).active; }
 function currentDinnerIntake(userId) {
   const profile = getFoodProfile(userId);
-  return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId) });
+  return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), mealRequest: getDinnerMealRequest(userId) });
 }
 function prepareDinner(userId) {
   try { const session = startDinner(userId, { prefetchOnly: true }); if (!session.needsOnboarding) prefetchDinner(userId, session.sessionId); }
@@ -117,7 +118,7 @@ async function resumeDinnerIntake(chatId, userId, pending, { unblocked = false }
 }
 
 async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = false } = {}) {
-  if (!profileOnly && !intake.availableIngredients.length) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.'); return; }
+  if (!profileOnly && !intake.availableIngredients.length && !intake.mealRequest) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.'); return; }
   if (!intake.householdSize) {
     await send(chatId, `${intake.availableIngredients.length ? `Записал продукты: <b>${escapeHtml(intake.availableIngredients.join(', '))}</b>.\n` : ''}На сколько человек готовим?`, { reply_markup: { inline_keyboard: [[1, 2, 3, 4, 5].map((size) => ({ text: String(size), callback_data: `dinner:size:${size}` }))] } });
     return;
@@ -126,6 +127,7 @@ async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = f
   const liked = Object.entries(intake.preferredCategories || {}).filter(([, value]) => value > 0).map(([key]) => categoryNames[key]).filter(Boolean);
   const disliked = Object.entries(intake.preferredCategories || {}).filter(([, value]) => value < 0).map(([key]) => categoryNames[key]).filter(Boolean);
   const requested = (intake.requestedCategories || []).map((key) => categoryNames[key]).filter(Boolean);
+  for (const [dish, weight] of Object.entries(intake.dishPreferences || {})) (weight > 0 ? liked : disliked).push(dish);
   const lines = [
     '<b>Проверьте, правильно ли я понял</b>',
     ...(intake.availableIngredients.length ? [`Есть дома: ${escapeHtml(intake.availableIngredients.join(', '))}`] : []),
@@ -133,7 +135,7 @@ async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = f
     `Дети: ${intake.hasChildren === null ? 'не указано' : intake.hasChildren ? 'да' : 'нет'}`,
     `Аллергия и исключения: ${intake.excludedIngredients.length ? escapeHtml(intake.excludedIngredients.join(', ')) : 'не указаны'}`,
     `Время: ${intake.maxMinutes ? `до ${intake.maxMinutes} минут` : 'не указано'}`,
-    `Сегодня обязательно: ${requested.length ? escapeHtml(requested.join(', ')) : 'не указано'}`,
+    `Сегодня обязательно: ${intake.mealRequest?.text ? escapeHtml(intake.mealRequest.text) : requested.length ? escapeHtml(requested.join(', ')) : 'не указано'}`,
     `Любим: ${liked.length ? escapeHtml(liked.join(', ')) : 'не указано'}`,
     `Не любим: ${disliked.length ? escapeHtml(disliked.join(', ')) : 'не указано'}`
   ];
@@ -201,13 +203,14 @@ export async function handleDinnerIntakeCallback(callback) {
     await sendDinnerIntakeSummary(chatId, user.id, intake, pending);
     return true;
   }
-  if (!pending.profileOnly && !pending.intake.availableIngredients.length) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала назовите продукты дома', show_alert: true }); return true; }
+  if (!pending.profileOnly && !pending.intake.availableIngredients.length && !pending.intake.mealRequest) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала назовите продукты или пожелание', show_alert: true }); return true; }
   if (!pending.intake.householdSize) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Сначала укажите число едоков', show_alert: true }); return true; }
   if (pending.profileOnly && !pending.intake.availableIngredients.length) {
     const intake = pending.intake;
-    const current = getFoodProfile(user.id), hasTasteAnswers = Object.keys(intake.preferredCategories || {}).length > 0;
+    const current = getFoodProfile(user.id), hasTasteAnswers = Object.keys(intake.preferredCategories || {}).length > 0 || Object.keys(intake.dishPreferences || {}).length > 0;
     updateDinnerProfile(user.id, { householdType: intake.householdType, householdSize: intake.householdSize, hasChildren: intake.hasChildren, preferredMaxCookingTime: intake.maxMinutes, excludedIngredients: intake.excludedIngredients, preferredCategories: { ...current.preferredCategories, ...(intake.preferredCategories || {}) }, tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus, onboardingCompleted: true });
-    setDinnerContext(user.id, [], intake.requestedCategories || []);
+    updateDinnerProfile(user.id, { dishPreferences: { ...current.dishPreferences, ...intake.dishPreferences } });
+    setDinnerContext(user.id, [], intake.requestedCategories || [], intake.mealRequest);
   } else confirmDinnerIntake(user.id, pending.intake);
   prepareDinner(user.id);
   clearPendingIntent(user.id);
@@ -420,6 +423,8 @@ export async function handleSuggestionCallback(callback) {
     }
     return;
   }
+  try { assertSuggestionCurrent(userId, getRecipeSuggestion(userId, match[3])); }
+  catch (error) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: error.message, show_alert: true }); return; }
   const savedRecipe = saveRecipeSuggestion(userId, match[3]);
   if (!savedRecipe) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true }); return; }
   clearMatchingSuggestionIntent(userId, match[3]);
@@ -510,6 +515,8 @@ async function handleSuggestionTextChoice(message, user, pending) {
     await send(message.chat.id, 'Рецепт не добавлен.');
     return true;
   }
+  try { assertSuggestionCurrent(user.id, getRecipeSuggestion(user.id, pending.suggestionId)); }
+  catch (error) { await send(message.chat.id, error.message); return true; }
   const savedRecipe = saveRecipeSuggestion(user.id, pending.suggestionId);
   if (!savedRecipe) {
     await send(message.chat.id, 'Предложение больше недоступно. Напишите, какой рецепт хотите найти.');
@@ -609,7 +616,7 @@ export async function handleMessage(message) {
       return;
     }
   }
-  const isDinnerFollowup = /^(?:кстати\b|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$|(?:сегодня|на\s+сегодня|на\s+ужин)\b|хоч(?:у|ем|ется)\b|давай(?:те)?\s+приготов)/iu.test(content.text.trim());
+  const isDinnerFollowup = /^(?:кстати(?=\s|[,.!]|$)|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$|(?:сегодня|на\s+сегодня|на\s+ужин)(?=\s|[,.!]|$)|хоч(?:у|ем|ется)(?=\s|[,.!]|$)|давай(?:те)?\s+приготов)/iu.test(content.text.trim());
   if (!savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
     await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: !getDinnerContext(user.id).length });
     return;
