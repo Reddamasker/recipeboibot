@@ -62,7 +62,10 @@ export function confirmDinnerIntake(userId, input) {
 export function startDinner(userId, { prefetchOnly = false } = {}) {
   const profile = getFoodProfile(userId);
   const pantry = getDinnerContext(userId), requestedCategories = getDinnerRequestCategories(userId), mealRequest = getDinnerMealRequest(userId);
-  const sessionId = findReusableDinnerSession(userId, dinnerContextKey({ profile, pantry, requestedCategories, mealRequest })) || openDinnerSession(userId, { prefetchOnly });
+  const sessionId = findReusableDinnerSession(userId, (session) => {
+    try { return session.buffer_context === dinnerContextKey(dinnerContext(userId, session.id)); }
+    catch (error) { if (error.status === 409) return false; throw error; }
+  }) || openDinnerSession(userId, { prefetchOnly });
   if (!prefetchOnly) markDinnerSessionOpened(userId, sessionId);
   const needsOnboarding = !profile.onboardingCompleted && listRecipes(userId).filter((recipe) => recipe.status === 'ready').length < 3;
   return { sessionId, profile, pantry, requestedCategories, mealRequest, needsOnboarding, needsTastePreferences: profile.tastePreferencesStatus === 'pending' };

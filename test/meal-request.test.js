@@ -119,6 +119,10 @@ test('feedback changes next context, asks actual missing items and never stores 
   assert.deepEqual(after.feedback.unavailableIngredients, ['говядина']);
   assert.deepEqual(store.getFoodProfile(owner.id).excludedIngredients, []);
   assert.equal(rankCandidates([{ ...steak(), id: 'a' }], after).length, 0);
+  await service.recommendDinner(owner.id, session.sessionId, { generate: async () => ({ recipes: [] }) });
+  const reopened = service.startDinner(owner.id);
+  assert.equal(reopened.sessionId, session.sessionId);
+  assert.deepEqual(service.dinnerContext(owner.id, reopened.sessionId).feedback.unavailableIngredients, ['говядина']);
   assert.equal(rankCandidates([{ ...steak(), id: 'a', ingredients: Array.from({ length: 9 }, () => ({ name: 'говядина' })) }], { feedback: { simpleOnly: true } }).length, 0);
   assert.equal(rankCandidates([{ ...steak(), id: 'a' }], { feedback: { avoidTitles: ['Стейк из говядины'] } }).length, 0);
   assert.ok(SEED_RECIPES.length > 0);

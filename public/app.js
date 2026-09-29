@@ -356,7 +356,7 @@ async function loadDinnerRecommendation() {
     state.dinner.notice = result.notice;
     dinnerView();
     scheduleDinnerPrefetch(dinner);
-  } catch (error) { state.dinner.loading = false; state.dinner.message = error.message; dinnerView(); toast(error.message); }
+  } catch (error) { if (state.dinner !== dinner) return; dinner.loading = false; dinner.message = error.message; dinnerView(); toast(error.message); }
 }
 
 let dinnerPollTimer;

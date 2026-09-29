@@ -308,6 +308,9 @@ export function promoteDinnerOptions(userId, sessionId, ids) {
   return currentDinnerOptions(userId, sessionId);
 }
 export function findReusableDinnerSession(userId, context) {
+  if (typeof context === 'function') return db.prepare(`SELECT s.* FROM dinner_sessions s WHERE s.user_id=? AND s.opened_at>=?
+    AND NOT EXISTS(SELECT 1 FROM dinner_recommendations r WHERE r.session_id=s.id AND r.status='accepted')
+    ORDER BY s.opened_at DESC LIMIT 50`).all(userId, new Date(Date.now() - 6 * 3600000).toISOString()).find(context)?.id;
   return db.prepare(`SELECT s.id FROM dinner_sessions s WHERE s.user_id=? AND s.buffer_context=? AND s.opened_at>=?
     AND NOT EXISTS(SELECT 1 FROM dinner_recommendations r WHERE r.session_id=s.id AND r.status='accepted')
     ORDER BY s.opened_at DESC LIMIT 1`).get(userId, context, new Date(Date.now() - 6 * 3600000).toISOString())?.id;
