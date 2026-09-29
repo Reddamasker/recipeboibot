@@ -983,6 +983,7 @@ test('recipe detail exposes sharing to the owner and a read-only public view', (
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
   const css = fs.readFileSync(path.resolve('public/refinements.css'), 'utf8');
   assert.match(app, /id="share">Поделиться/);
+  assert.match(app, /shared-recipe-images\\\/\[A-Za-z0-9_-\]\{32\}/);
   assert.match(app, /detail-heading-tools[^`]*\$\{editButton\}/);
   assert.match(app, /\? '\/api\/dinner\/recipes' : '\/api\/recipes'/);
   assert.match(app, /\$\{route\}\/\$\{encodeURIComponent\(recipe\.id\)\}\/share/);
