@@ -185,6 +185,7 @@ span.recipe-tag { cursor: default; }
 .offer-plan li { padding: 11px 0 11px 26px; position: relative; border-bottom: 1px solid #eeeaf1; font-size: 14px; line-height: 1.45; }
 .offer-plan li::before { content: '✓'; position: absolute; left: 0; color: #68953c; font-weight: 900; }
 .offer-plan .primary { width: 100%; min-height: 54px; }
+.offer-plan .trial-return { width: 100%; min-height: 48px; margin-top: 10px; }
 .offer-fineprint,.offer-support { color: #77717d; font-size: 11px; line-height: 1.5; }
 .offer-fineprint { margin: 16px 0 0; text-align: center; }
 .offer-support { margin: 22px 4px; }

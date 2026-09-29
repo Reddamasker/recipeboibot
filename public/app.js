@@ -1092,10 +1092,23 @@ function trialOfferPage() {
   const trial = payment.trial;
   const active = payment.active && payment.accessSource === 'trial';
   const price = payment.offer?.priceRub || 199;
-  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${active ? 'Ваши семь дней уже идут' : trial.used ? 'Пробный период закончился' : 'Попробуйте 7 дней бесплатно'}</h1><p>${active ? `Полный доступ действует до ${esc(new Date(trial.expiresAt).toLocaleString('ru-RU'))}.` : trial.used ? 'Ваши рецепты сохранены. Для новых подборок, автоматического импорта и напоминаний нужна подписка.' : 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.'}</p></div><section class="offer-plan"><ul><li>Сохранение рецептов из ссылок, фото, текста и голосовых</li><li>Подбор ужина и импорт плейлистов</li><li>Напоминания по вашему расписанию</li></ul><p>Затем ${price} рублей в месяц. Подписка оформляется отдельно.</p>${trial.eligible ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>' : active ? '<button class="primary accent" id="trial-return">Вернуться к рецептам</button>' : payment.available ? '<button class="primary accent" id="trial-subscribe">Оформить подписку</button>' : '<p role="status">Оплата пока подключается. Уже сохранённые рецепты доступны; новых списаний нет.</p>'}</section><p class="offer-support"><a href="/?view=promo">У меня есть промокод</a></p><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Условия использования и оплаты</a></p></main>`;
+  const action = trial.eligible
+    ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>'
+    : active
+      ? `${payment.available ? `<button class="primary accent" id="trial-buy-month">Оплатить месяц сейчас — ${price} ₽</button><p class="offer-fineprint">Оплаченный месяц начнётся после окончания пробного периода.</p>` : '<button class="primary accent" type="button" disabled>Оплата пока подключается</button>'}<button class="secondary trial-return" id="trial-return">Продолжить пробный период</button>`
+      : payment.available
+        ? '<button class="primary accent" id="trial-subscribe">Оформить подписку</button>'
+        : '<p role="status">Оплата пока подключается. Уже сохранённые рецепты доступны; новых списаний нет.</p>';
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${active ? 'Ваши семь дней уже идут' : trial.used ? 'Пробный период закончился' : 'Попробуйте 7 дней бесплатно'}</h1><p>${active ? `Полный доступ действует до ${esc(new Date(trial.expiresAt).toLocaleString('ru-RU'))}.` : trial.used ? 'Ваши рецепты сохранены. Для новых подборок, автоматического импорта и напоминаний нужна подписка.' : 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.'}</p></div><section class="offer-plan"><ul><li>Сохранение рецептов из ссылок, фото, текста и голосовых</li><li>Подбор ужина и импорт плейлистов</li><li>Напоминания по вашему расписанию</li></ul><p>Затем ${price} рублей в месяц. Подписка оформляется отдельно.</p>${action}</section><p class="offer-support"><a href="/?view=promo">У меня есть промокод</a></p><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Условия использования и оплаты</a></p></main>`;
   bindCommon();
   document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
   document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
+  document.querySelector('#trial-buy-month')?.addEventListener('click', () => {
+    state.paymentPeriodMonths = 1;
+    state.paymentPromoQuote = null;
+    setRoute({ view: 'checkout' });
+    checkoutPage();
+  });
   document.querySelector('#trial-subscribe')?.addEventListener('click', () => { setRoute({ view: 'checkout' }); checkoutPage(); });
   document.querySelector('#start-trial')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
