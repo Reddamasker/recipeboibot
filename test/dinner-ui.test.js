@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+
+test('dinner request locks while it is being saved to prevent duplicate generation', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  assert.match(source, /if \(dinner\.requestSaving\) return;/);
+  assert.match(source, /dinner\.requestSaving = true; dinnerView\(\);/);
+  assert.match(source, /dinner\?\.requestSaving \? 'disabled' : ''/);
+});
 import vm from 'node:vm';
 
 test('offer banner names the next action directly and uses no emoji', () => {
@@ -130,7 +137,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.37/);
+  assert.match(document, /app\.js\?v=dinner-10\.38/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),

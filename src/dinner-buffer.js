@@ -8,7 +8,7 @@ import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinner
 import { needsSemanticValidation } from './meal-request.js';
 
 export const DINNER_BUFFER = Object.freeze({ version: 7, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
-const MAX_GENERATION_ATTEMPTS = 3;
+const MAX_GENERATION_ATTEMPTS = 1;
 const fills = new Map(), imageTasks = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
 let activeImages = 0;
@@ -58,6 +58,16 @@ export function validateGeneratedDinner(item, context) {
 
 const ready = (userId, sessionId) => listDinnerOptions(userId, sessionId).filter((o) => o.state === 'ready');
 const activeCount = (userId, sessionId) => ready(userId, sessionId).length + currentDinnerOptions(userId, sessionId).length;
+function missingRoles(userId, sessionId, count) {
+  const active = [...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)];
+  const counts = Object.fromEntries(['familiar','quick','variety'].map((role) => [role, active.filter((option) => option.role === role).length]));
+  const roles = [];
+  while (roles.length < count) {
+    const role = ['familiar','quick','variety'].sort((left, right) => counts[left] - counts[right])[0];
+    roles.push(role); counts[role]++;
+  }
+  return roles;
+}
 function nextBatch(options) {
   const selected = [];
   for (const role of ['familiar','quick','variety']) {
@@ -148,7 +158,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       while (added < count && attempts < maxAttempts) {
         attempts++;
         const needed = count - added;
-        const result = await generate({ userId, count: needed, profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
+        const result = await generate({ userId, count: needed, roles: missingRoles(userId, sessionId, needed), profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
           requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20),
           rejectedTitles: [...prior.map((o) => o.recipe.title), ...attemptedTitles].slice(-40) });
         if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;

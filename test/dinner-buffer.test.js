@@ -287,8 +287,8 @@ test('a request for today is mandatory for every visible dinner option', async (
     return generationCounts.length === 1 ? { recipes: [exact[0], ...batch().slice(1, 3)] } : { recipes: exact.slice(1) };
   };
   const dinner = await recommendDinner(user.id, session.sessionId, { generate });
-  assert.deepEqual(generationCounts.slice(0, 2), [3, 2]);
-  assert.deepEqual(generatedFor.slice(0, 2), [['asian', 'rice'], ['asian', 'rice']]);
+  assert.deepEqual(generationCounts, [3]);
+  assert.deepEqual(generatedFor, [['asian', 'rice']]);
   assert.equal(dinner.recommendations.length, 3);
   assert.ok(dinner.recommendations.every(({ recipe }) => {
     const categories = recipeCategories(recipe);
@@ -296,25 +296,34 @@ test('a request for today is mandatory for every visible dinner option', async (
   }));
 });
 
-test('generation abstraction sends constraints and six recipes using strict JSON', async () => {
+test('generation abstraction creates independent roles concurrently using strict low-reasoning JSON', async () => {
   const user = fixture(606), original = globalThis.fetch;
+  const calls = [], pending = [];
   globalThis.fetch = async (url, init) => {
     assert.equal(url, 'https://api.openai.com/v1/responses');
     const body = JSON.parse(init.body); assert.equal(body.model, 'test-model'); assert.equal(body.text.format.strict, true); assert.equal(body.text.format.name, 'dinner_generation');
-    const input = JSON.parse(body.input[0].content[0].text); assert.equal(input.count, 6); assert.deepEqual(input.profile.excludedIngredients, ['орехи']);
+    assert.equal(body.reasoning.effort, 'low'); assert.equal(body.text.verbosity, 'low');
+    const input = JSON.parse(body.input[0].content[0].text); assert.equal(input.count, 1); assert.deepEqual(input.profile.excludedIngredients, ['орехи']);
     assert.deepEqual(input.profile.preferredCategories, { fish: 1, pasta: -1 });
     assert.deepEqual(input.requestedCategories, ['asian', 'rice']);
-    assert.match(body.instructions, /КАЖДЫЙ рецепт должен одновременно соответствовать всем перечисленным категориям/);
+    assert.deepEqual(body.text.format.schema.properties.recipes.items.properties.role.enum, [input.role]);
+    assert.match(body.instructions, /рецепт должен одновременно соответствовать всем перечисленным категориям/);
     assert.match(body.instructions, /pizza означает пиццу, italian — итальянскую кухню, georgian — грузинскую/);
     if (input.pantry.length) assert.match(body.instructions, /Используй названные продукты как основу/);
-    else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное из имеющихся продуктов/); }
-    return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ recipes: batch() }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 });
+    else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное блюдо из имеющихся продуктов/); }
+    calls.push(input);
+    const source = batch()[input.candidateIndex];
+    const response = new Promise((resolve) => pending.push(() => resolve(new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ recipes: [{ ...source, role: input.role }] }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 }))));
+    if (pending.length === 6) pending.splice(0).forEach((resolve) => resolve());
+    return response;
   };
   try {
     for (const pantry of [['фарш'], []]) {
       const result = await generateDinnerRecipes({ userId: user.id, count: 6, profile: { excludedIngredients: ['орехи'], preferredCategories: { fish: 1, pasta: -1 } }, pantry, requestedCategories: ['asian', 'rice'], signals: {}, recentRecipes: [], rejectedTitles: [] });
       assert.equal(result.recipes.length, 6);
+      assert.deepEqual(result.recipes.map((item) => item.role), ['familiar','quick','variety','familiar','quick','variety']);
     }
+    assert.equal(calls.length, 12);
   }
   finally { globalThis.fetch = original; }
 });
@@ -324,6 +333,8 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(init.body);
     assert.equal(body.text.format.name, 'dinner_intake');
+    assert.equal(body.reasoning.effort, 'none');
+    assert.equal(body.text.verbosity, 'low');
     assert.ok(body.text.format.schema.required.includes('likedCategories'));
     assert.ok(body.text.format.schema.required.includes('dislikedCategories'));
     assert.ok(body.text.format.schema.required.includes('requestedCategories'));
