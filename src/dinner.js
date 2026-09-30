@@ -1,4 +1,4 @@
-import { matchesMealRequest, containsFoodPhrase, recipeTextIngredients, isSpicy } from './meal-request.js';
+import { matchesMealRequest, containsFoodPhrase, matchesIngredientConstraint, recipeTextIngredients, isSpicy } from './meal-request.js';
 
 export const DINNER_WEIGHTS = Object.freeze({
   saved: 4, category: 2, timeFit: 1, servingsFit: 1, accepted: 0.7, cooked: 1.5,
@@ -34,7 +34,10 @@ export const DINNER_CATEGORIES = Object.freeze([
   ['rice', 'Рис', /рис/iu],
   ['asian', 'Азия', /азиат|терияки|вок|карри|соев|фунчоз|япон|китай|коре|тайск|суши|ролл|рамен|соборо|узбек|плов|лагман/iu],
   ['chicken', 'Курица', /куриц|курин|бедр|филе птиц/iu],
-  ['meat', 'Мясо', /говяд|говяж|свинин|мяс|фарш|индейк/iu],
+  // Keep the UI facet separate from poultry: users can prefer chicken and the
+  // broader meat section independently. Hard food constraints use the wider
+  // ingredient family from meal-request.js.
+  ['meat', 'Мясо', /говяд|говяж|телят|свин|баранин|ягнят|мяс|фарш|индейк|крол|оленин|конин/iu],
   ['fish', 'Рыба', /рыб|лосос|треск|тунц|форел|минта|хек|скумбр|сельд/iu],
   ['soup', 'Супы', /суп|борщ|похлеб|щи\b/iu],
   ['salad', 'Салаты', /салат/iu],
@@ -127,7 +130,10 @@ export function hasExcludedIngredient(recipe, excluded = []) {
     const forbidden = ingredient(raw);
     if (!forbidden) return false;
     const alias = Object.entries(aliases).find(([key, pattern]) => pattern.test(forbidden) || forbidden.includes(key))?.[1];
-    return names.some((name) => name.includes(forbidden) || (forbidden.length >= 4 && name.split(' ').some((word) => word.startsWith(forbidden.slice(0, Math.min(5, forbidden.length - 1))))) || (alias && alias.test(name)));
+    return names.some((name) => matchesIngredientConstraint(name, forbidden)
+      || name.includes(forbidden)
+      || (forbidden.length >= 4 && name.split(' ').some((word) => word.startsWith(forbidden.slice(0, Math.min(5, forbidden.length - 1)))))
+      || (alias && alias.test(name)));
   });
 }
 
@@ -146,7 +152,10 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
   const minutes = totalMinutes(recipe);
   if (profile.preferredMaxCookingTime && (![recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) || minutes > profile.preferredMaxCookingTime)) return null;
   const categories = recipeCategories(recipe);
-  if (requestedCategories.some((key) => !categories.includes(key))) return null;
+  const ingredientNames = (recipe.ingredients || []).map((item) => item.name || item.raw || item);
+  const matchesRequestedCategory = (key) => categories.includes(key)
+    || (key === 'meat' && ingredientNames.some((name) => matchesIngredientConstraint(name, 'мясо')));
+  if (requestedCategories.some((key) => !matchesRequestedCategory(key))) return null;
   let score = recipe.userSaved ? DINNER_WEIGHTS.saved : 0;
   const namedTaste = Object.entries(profile.dishPreferences || {}).reduce((sum, [dish, weight]) => sum + (matchesMealRequest(recipe, { dish }) ? weight : 0), 0);
   score += namedTaste * 8;

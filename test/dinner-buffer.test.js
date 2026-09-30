@@ -296,6 +296,43 @@ test('a request for today is mandatory for every visible dinner option', async (
   }));
 });
 
+test('generic meat and lentil request produces a complete family trio', async () => {
+  const user = upsertTelegramUser({ id: 613, first_name: 'Чечевица и мясо' });
+  updateDinnerProfile(user.id, { householdSize: 4, hasChildren: true, onboardingCompleted: true });
+  const mealRequest = {
+    text: 'что-то с чечевицей и мясом на 4, 2 детей', kind: 'open', confidence: 'high', dish: '',
+    requiredIngredients: ['чечевица', 'мясо'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: 4
+  };
+  setDinnerContext(user.id, [], ['meat'], mealRequest);
+  const titles = ['Рагу из чечевицы с мясом', 'Чечевичный суп с мясом', 'Котлеты с чечевицей'];
+  const generated = [batch()[0], batch()[1], batch()[3]].map((item, index) => ({
+    ...item,
+    role: ['familiar', 'quick', 'variety'][index],
+    discovery: index === 2 ? 'Сытное сочетание чечевицы и мясных котлет' : item.discovery,
+    recipe: {
+      ...item.recipe,
+      title: titles[index],
+      servings: 4,
+      ingredients: [...item.recipe.ingredients, { name: 'красная чечевица', raw: 'красная чечевица', quantity: 150, unit: 'г', comment: null }]
+    }
+  }));
+  const validationContext = { profile: { householdSize: 4, hasChildren: true, excludedIngredients: [] }, pantry: [], requestedCategories: ['meat'], mealRequest, feedback: {}, rejected: [], history: [], recentRecipes: [], library: [], categorySignals: {} };
+  assert.deepEqual(generated.map((item) => Boolean(validateGeneratedDinner(item, validationContext))), [true, true, true]);
+  let calls = 0;
+  const result = await recommendDinner(user.id, startDinner(user.id).sessionId, {
+    catalogFirst: false,
+    generate: async ({ roles, mealRequest: received }) => {
+      calls++;
+      assert.deepEqual(roles, ['familiar', 'quick', 'variety']);
+      assert.deepEqual(received.requiredIngredients, ['чечевица', 'мясо']);
+      return { recipes: generated };
+    }
+  });
+  assert.ok(calls >= 1, 'the visible trio must be generated');
+  assert.equal(result.recommendations.length, 3);
+  assert.ok(result.recommendations.every(({ recipe }) => recipe.servings >= 4 && recipeCategories(recipe).includes('meat')));
+});
+
 test('generation abstraction creates independent roles concurrently using strict low-reasoning JSON', async () => {
   const user = fixture(606), original = globalThis.fetch;
   const calls = [], pending = [];

@@ -14,7 +14,7 @@ const store = await import('../src/dinner-store.js');
 const service = await import('../src/dinner-service.js');
 const suggestions = await import('../src/suggestions.js');
 const { validateRecipeCriteria } = await import('../src/openai.js');
-const { normalizeMealRequest, parseMealRequest, matchesMealRequest } = await import('../src/meal-request.js');
+const { normalizeMealRequest, parseMealRequest, matchesMealRequest, matchesIngredientConstraint } = await import('../src/meal-request.js');
 const { parseDinnerIntakeFallback, combineDinnerIntakeExtraction } = await import('../src/dinner-intake.js');
 const { rankCandidates, SEED_RECIPES } = await import('../src/dinner.js');
 const { dinnerContextKey } = await import('../src/dinner-buffer.js');
@@ -73,6 +73,26 @@ test('open-ended rice request does not turn a placeholder into a dish name', () 
   assert.equal(combined.mealRequest.dish, '');
   assert.deepEqual(combined.mealRequest.requiredIngredients, ['рисом']);
   assert.deepEqual(combined.requestedCategories, ['rice']);
+});
+
+test('generic meat accepts concrete meats while a concrete meat stays strict', () => {
+  const generic = normalizeMealRequest({ text: 'что-то с чечевицей и мясом на 4', kind: 'open', confidence: 'high', dish: '',
+    requiredIngredients: ['чечевица', 'мясо'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: 4 });
+  const recipe = (meat) => ({ title: `Чечевица с ${meat}`, servings: 4,
+    ingredients: [{ name: 'чечевица' }, { name: meat }], steps: [{ text: 'Приготовьте до готовности.' }] });
+  for (const meat of ['говядина', 'свинина', 'куриное филе', 'индейка', 'баранина']) {
+    assert.equal(matchesMealRequest(recipe(meat), generic), true, meat);
+    assert.equal(matchesIngredientConstraint(meat, 'мясо'), true, meat);
+  }
+  assert.equal(matchesMealRequest(recipe('рыба'), generic), false);
+  assert.equal(matchesMealRequest(recipe('грибы'), generic), false);
+  assert.equal(matchesMealRequest(recipe('соевый фарш'), generic), false);
+  assert.equal(matchesMealRequest(recipe('растительное мясо'), generic), false);
+
+  const beef = { ...generic, requiredIngredients: ['чечевица', 'говядина'] };
+  assert.equal(matchesMealRequest(recipe('говядина'), beef), true);
+  assert.equal(matchesMealRequest(recipe('свинина'), beef), false);
+  assert.equal(matchesMealRequest(recipe('куриное филе'), beef), false);
 });
 
 test('unusual minced-beef request is judged semantically instead of trusting recipe metadata', async () => {

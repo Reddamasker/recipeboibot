@@ -87,6 +87,21 @@ test('scoring applies food exclusions, time limits, saved preference and recent 
   assert.deepEqual(rankCandidates([pasta], { rejected: ['a'] }), []);
 });
 
+test('generic meat exclusions and requests cover concrete meats without merging preference facets', () => {
+  const recipe = (name) => ({ title: `Блюдо с ${name}`, ingredients: [{ name }], steps: [{ text: 'Приготовьте.' }] });
+  for (const meat of ['говядина', 'свинина', 'куриное филе', 'индейка', 'баранина']) {
+    assert.equal(hasExcludedIngredient(recipe(meat), ['мясо']), true, meat);
+    assert.equal(rankCandidates([recipe(meat)], { requestedCategories: ['meat'] }).length, 1, meat);
+  }
+  assert.ok(recipeCategories(recipe('говядина')).includes('meat'));
+  assert.ok(!recipeCategories(recipe('куриное филе')).includes('meat'), 'the chicken preference facet stays independent');
+  assert.equal(hasExcludedIngredient(recipe('рыба'), ['мясо']), false);
+  assert.equal(hasExcludedIngredient(recipe('грибы'), ['мясо']), false);
+  assert.equal(hasExcludedIngredient(recipe('соевый фарш'), ['мясо']), false);
+  assert.equal(hasExcludedIngredient(recipe('свинина'), ['говядина']), false);
+  assert.equal(hasExcludedIngredient(recipe('чесночный соус'), ['чеснок']), true, 'existing inflection fallback remains intact');
+});
+
 test('dinner trio gives a saved, quick and different option', () => {
   const candidate = (id, minutes, categories, userSaved = false, score = 1) => ({ recipe: { id, userSaved }, minutes, categories, score });
   const ranked = [candidate('saved', 30, ['chicken'], true, 9), candidate('similar', 25, ['chicken'], false, 8), candidate('new', 20, ['fish'], false, 5), candidate('fast', 15, ['salad'], false, 2)];

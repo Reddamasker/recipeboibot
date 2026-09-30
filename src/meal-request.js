@@ -29,6 +29,12 @@ const forms = [
   /^(?:макарон|спагетт|паст[ауыойе])/u, /^(?:рыб|лосос|треск|форел|минта|хек|скумбр|сельд)/u,
   /^(?:гриб|шампиньон|вешенк)/u, /^(?:яйц|яиц)/u
 ];
+// Generic food groups are objective constraints, so resolve them locally before
+// subjective criteria reach the semantic validator. Keep concrete ingredients
+// strict: asking for beef must never be satisfied by pork or chicken.
+export const MEAT_INGREDIENT_PATTERN = /говяд|говяж|телят|свин|баранин|ягнят|куриц|курин|индейк|утин|утка|крол|оленин|конин|мяс|фарш/iu;
+const GENERIC_MEAT_PATTERN = /^мяс(?:о|а|у|ом|е|ной|ная|ное|ные|ного|ному|ным|ных)$/iu;
+const MEAT_ALTERNATIVE_PATTERN = /(?:растительн|соев|чечевич|грибн|горохов|нутов|веган|вегетариан)\p{L}*\s+(?:мяс|фарш)|(?:мяс|фарш)\p{L}*\s+из\s+(?:сои|чечевиц|гриб|горох|нут)/iu;
 function sameWord(a, b) {
   if (a === b) return true;
   if (forms.some((pattern) => pattern.test(a) && pattern.test(b))) return true;
@@ -39,6 +45,13 @@ export function containsFoodPhrase(text, phrase) {
   const required = words(phrase).filter((w) => !ignored.has(w));
   const actual = words(text);
   return required.length > 0 && required.every((w) => actual.some((a) => sameWord(w, a) || (/^овощ/u.test(w) && /^(?:морков|капуст|помидор|томат|кабач|баклаж|огур|броккол|перец)/u.test(a))));
+}
+
+export function matchesIngredientConstraint(actual, constraint) {
+  const required = clean(constraint, 100);
+  const ingredient = clean(actual, 200);
+  if (GENERIC_MEAT_PATTERN.test(required)) return MEAT_INGREDIENT_PATTERN.test(ingredient) && !MEAT_ALTERNATIVE_PATTERN.test(ingredient);
+  return containsFoodPhrase(ingredient, required);
 }
 
 export function normalizeMealRequest(raw) {
@@ -118,7 +131,7 @@ export function matchesMealRequest(recipe, raw) {
   // an ambiguous phrase into a literal dish name and reject every result.
   if (request.dish && request.kind === 'exact' && request.confidence !== 'low' && !containsFoodPhrase(recipe.title, request.dish)) return false;
   const ingredients = (recipe.ingredients || []).map((i) => i.name || i.raw || i);
-  if (request.requiredIngredients.some((item) => !ingredients.some((name) => containsFoodPhrase(name, item)))) return false;
+  if (request.requiredIngredients.some((item) => !ingredients.some((name) => matchesIngredientConstraint(name, item)))) return false;
   const steps = (recipe.steps || []).map((s) => s.text || s).join(' ');
   const methods = { гриль: /грил/iu, духовка: /духов|запек/iu, пар: /на пару|паровар/iu, сковорода: /сковород/iu };
   if (request.methods.some((method) => !methods[method]?.test(steps))) return false;
