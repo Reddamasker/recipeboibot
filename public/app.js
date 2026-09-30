@@ -151,19 +151,20 @@ function recipeRequestView({ focus = false } = {}) {
   if (focus) globalThis.requestAnimationFrame?.(() => { const input = document.querySelector('#home-search-input'); input?.focus(); input?.select(); });
 }
 
-async function showRequestedRecipe(event) {
+async function showRequestedRecipe(event, { query: suppliedQuery = '', hideRawQuery = false } = {}) {
   event.preventDefault();
-  const query = document.querySelector('#home-search-input')?.value.trim();
+  const query = suppliedQuery.trim() || document.querySelector('#home-search-input')?.value.trim();
   const button = event.currentTarget.querySelector('button[type=submit]');
   if (!query || !button || button.disabled) return;
-  state.query = query;
-  setRoute({ view: 'request', q: query }, { replace: true });
+  state.query = hideRawQuery ? '' : query;
+  setRoute(hideRawQuery ? { view: 'request' } : { view: 'request', q: query }, { replace: true });
   button.disabled = true;
   button.innerHTML = '<span class="loader"></span> Подбираю…';
   try {
     const result = await api('/api/recipe-request', { method: 'POST', body: JSON.stringify({ query }) });
     const params = new URLSearchParams(location.search);
-    if (params.get('view') !== 'request' || params.get('q') !== query) return;
+    if (params.get('view') !== 'request' || (!hideRawQuery && params.get('q') !== query)) return;
+    state.query = String(result.query || '').trim();
     if (result.kind === 'existing') await openRecipe(result.recipe.id, true);
     else if (result.kind === 'generated') recipeDetail({ ...result.suggestion.recipe, origin: 'generated', sourceName: 'Создано в «Рецептах»' }, { suggestion: result.suggestion });
     else throw new Error('Не получилось подобрать рецепт');
@@ -200,9 +201,8 @@ async function toggleRequestRecording(event) {
       try {
         const value = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob); });
         const result = await api('/api/recipe-request/transcribe', { method: 'POST', body: JSON.stringify({ mime, value }) });
-        const input = document.querySelector('#home-search-input');
         const form = document.querySelector('#home-search-form');
-        if (input && form) { input.value = result.text; status.textContent = 'Пожелание записано. Подбираю рецепт…'; await showRequestedRecipe({ preventDefault() {}, currentTarget: form }); }
+        if (form) { status.textContent = 'Пожелание записано. Подбираю рецепт…'; await showRequestedRecipe({ preventDefault() {}, currentTarget: form }, { query: result.text, hideRawQuery: true }); }
       } catch (error) { status.textContent = ''; toast(error.message); }
       finally { button.disabled = false; }
     };

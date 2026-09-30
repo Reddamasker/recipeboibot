@@ -80,6 +80,8 @@ test('home offers two paths and opens written or spoken recipe requests separate
   await elements['#home-search-form'].onsubmit({ preventDefault() {}, currentTarget: elements['#home-search-form'] });
   assert.equal(rendered[0].title, 'Новое блюдо');
   assert.equal(rendered[1].suggestion.id, 'proposal');
+  assert.doesNotMatch(handler, /input\.value = result\.text/);
+  assert.match(handler, /hideRawQuery: true/);
 });
 
 test('a recipe opened from the request flow offers refinement', () => {
@@ -137,7 +139,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.38/);
+  assert.match(document, /app\.js\?v=dinner-10\.39/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),

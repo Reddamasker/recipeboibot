@@ -251,6 +251,8 @@ test('Mini App voice request transcribes a short spoken dish and allows its micr
   globalThis.fetch = async (url, options) => {
     if (String(url).startsWith(base)) return originalFetch(url, options);
     assert.match(String(url), /audio\/transcriptions$/);
+    assert.match(options.body.get('prompt'), /не суп/);
+    assert.match(options.body.get('prompt'), /чечевица/);
     calls++;
     return Response.json({ text: 'Суп' });
   };

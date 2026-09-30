@@ -1,6 +1,10 @@
 // A request survives extraction, storage, generation and cache reuse unchanged.
 // Categories help ranking; they are not a substitute for the name of a dish.
 const clean = (value, limit = 500) => String(value || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').trim().slice(0, limit);
+const GLUED_NEGATED_DISH = /(?<![\p{L}\p{N}])не(?=(?:суп|борщ|похлеб|щи|салат|десерт|пицц|паст|макарон)\p{L}*)/giu;
+export const normalizeVoiceTranscript = (value, limit = 500) => String(value || '').normalize('NFKC').replace(GLUED_NEGATED_DISH, 'не ')
+  .replace(/\s+/gu, ' ').replace(/\s+([,.!?;:])/gu, '$1').trim().slice(0, limit);
+export const normalizeMealText = (value, limit = 500) => clean(normalizeVoiceTranscript(value, limit), limit);
 const list = (value) => [...new Set((Array.isArray(value) ? value : []).filter((v) => typeof v === 'string').map((v) => clean(v, 100)).filter(Boolean))].slice(0, 12);
 const semanticCriteria = (value, legacyNovelty = null) => {
   const normalized = (Array.isArray(value) ? value : []).filter((item) => item && typeof item === 'object' && !Array.isArray(item))
@@ -85,12 +89,12 @@ function stripRequestFraming(text) {
 }
 
 export function parseMealRequest(text) {
-  const source = clean(text);
+  const source = normalizeMealText(text);
   if (!source) return null;
   let rest = stripRequestFraming(source);
   const people = source.match(/(?:на|для)\s*(\d+|одного|двоих|троих|четверых|пятерых|шестерых)/u);
   const servings = people ? Number(people[1]) || ({ одного: 1, двоих: 2, троих: 3, четверых: 4, пятерых: 5, шестерых: 6 })[people[1]] : null;
-  const excludedIngredients = [], requiredIngredients = [], methods = [];
+  const excludedIngredients = [], requiredIngredients = [], methods = [], negativeDishCriteria = [];
   rest = rest.replace(/(?:^|\s)(?:что|че|чё)(?:\s*[- ]?\s*)(?:то|нибудь|нить|либо)(?=\s|$)/gu, ' ')
     .replace(/(?:^|\s)на\s+(?:ужин|обед|завтрак)(?=\s|$)/gu, ' ')
     .replace(/\s+/gu, ' ').trim();
@@ -98,6 +102,13 @@ export function parseMealRequest(text) {
   const maxMinutes = max ? Number(max[1]) : /быстр|полчаса/u.test(rest) ? 30 : null;
   rest = rest.replace(/(?:за|до|максимум|не больше)\s*\d{1,3}\s*мин[\p{L}.]*/gu, ' ')
     .replace(/(?:на|для)\s*(?:\d+|одного|двоих|троих|четверых|пятерых|шестерых)(?:\s*(?:человек|порц[\p{L}]*))?/gu, ' ');
+  for (const [pattern, description] of [
+    [/(?:^|\s)(?:не|без)\s+(?:хочу\s+|нужен\s+|надо\s+)?(?:суп\p{L}*|борщ\p{L}*|похлеб\p{L}*|щи)(?=\s|$|[,.;])/gu, 'Блюдо не должно быть супом'],
+    [/(?:^|\s)(?:не|без)\s+(?:хочу\s+|нужен\s+|надо\s+)?салат\p{L}*(?=\s|$|[,.;])/gu, 'Блюдо не должно быть салатом'],
+    [/(?:^|\s)(?:не|без)\s+(?:хочу\s+|нужен\s+|надо\s+)?десерт\p{L}*(?=\s|$|[,.;])/gu, 'Блюдо не должно быть десертом']
+  ]) {
+    if (pattern.test(rest)) { negativeDishCriteria.push({ description, importance: 'required' }); pattern.lastIndex = 0; rest = rest.replace(pattern, ' '); }
+  }
   rest = rest.replace(/(?:^|\s)без\s+(.+?)(?=\s+(?:за|до|на|с|со|из|в)\s|[,.;]|$)/gu, (_, value) => { excludedIngredients.push(...value.split(/\s+и\s+/u)); return ' '; });
   for (const [pattern, name] of [[/на\s+гриле/gu, 'гриль'], [/в\s+духовке/gu, 'духовка'], [/на\s+пару/gu, 'пар'], [/на\s+сковороде/gu, 'сковорода']]) {
     if (pattern.test(rest)) { methods.push(name); pattern.lastIndex = 0; rest = rest.replace(pattern, ' '); }
@@ -109,7 +120,7 @@ export function parseMealRequest(text) {
     .replace(/[,.!?;:]+/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (/^(?:говядина|говядину|курица|курицу|свинина|свинину|рыба|рыбу|рис|фарш|индейка|индейку)$/u.test(rest)) { requiredIngredients.push(rest); rest = ''; }
   if (/^(?:мясо|азиатское|домашнее)$/u.test(rest)) rest = '';
-  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, semanticCriteria: [], excludedIngredients, methods, maxMinutes, servings });
+  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, semanticCriteria: negativeDishCriteria, excludedIngredients, methods, maxMinutes, servings });
 }
 
 export function mergeMealRequests(before, patch, replace = false) {

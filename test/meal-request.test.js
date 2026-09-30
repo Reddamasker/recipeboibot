@@ -50,6 +50,23 @@ test('framing works for other dishes and does not remove dish words or negations
   assert.equal(parseMealRequest('не хочу стейк').dish.includes('не'), true);
 });
 
+test('spoken not-soup request preserves negation and ingredients without a positive soup category', () => {
+  for (const phrase of [
+    'Предложи рецепт не суп из чечевицы и фарша говяжьего',
+    'Предложи рецепт несуп из чечевицы и фарша говяжьего'
+  ]) {
+    const request = parseMealRequest(phrase);
+    assert.equal(request.kind, 'open');
+    assert.equal(request.dish, '');
+    assert.deepEqual(request.requiredIngredients, ['чечевицы', 'фарша говяжьего']);
+    assert.deepEqual(request.semanticCriteria, [{ description: 'блюдо не должно быть супом', importance: 'required' }]);
+    const intake = parseDinnerIntakeFallback(`Сегодня хочу ${phrase}`);
+    assert.equal(intake.requestedCategories.includes('soup'), false);
+    assert.equal(intake.requestedCategories.includes('meat'), true);
+    assert.match(intake.mealRequest.text, /не суп/u);
+  }
+});
+
 test('polite request preserves ingredients, exclusions, method, servings and time', () => {
   const request = parseMealRequest('Дайте, пожалуйста, рецепт стейка из говядины на сковороде на четверых за 30 минут без чеснока, пожалуйста.');
   assert.equal(request.dish, 'стейка');

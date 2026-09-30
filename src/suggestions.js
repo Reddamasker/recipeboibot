@@ -26,10 +26,11 @@ function requestContext(userId, query, mealRequestOverride = null) {
   const normalized = String(query || '').trim().slice(0, 500);
   if (!normalized) throw Object.assign(new Error('Напишите, что хотите приготовить'), { status: 400 });
   const profile = getFoodProfile(userId), mealRequest = normalizeMealRequest(mealRequestOverride) || parseMealRequest(normalized);
+  const understood = normalized;
   const excluded = [...profile.excludedIngredients, ...mealRequest.excludedIngredients];
   const maxMinutes = Math.min(profile.preferredMaxCookingTime || Infinity, mealRequest.maxMinutes || Infinity);
-  const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${normalized}`).requestedCategories;
-  return { normalized, profile, mealRequest, excluded, maxMinutes, requestedCategories };
+  const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${understood}`).requestedCategories;
+  return { normalized, understood, profile, mealRequest, excluded, maxMinutes, requestedCategories };
 }
 function validRecipe(recipe, context, generated = false) {
   const { profile, mealRequest, excluded, maxMinutes } = context;
@@ -67,7 +68,7 @@ function requestedRecipes(userId, query, contextOverride = null) {
 
 async function generateSuggestion(userId, query, generate, validate, requested, contextOverride = null) {
   requireUnexpiredTrial(userId);
-  const context = contextOverride || requestContext(userId, query), { normalized, profile, excluded, maxMinutes, mealRequest } = context;
+  const context = contextOverride || requestContext(userId, query), { normalized, understood, profile, excluded, maxMinutes, mealRequest } = context;
   const suggestionKey = requested ? requestSuggestionKey(userId, normalized) : normalized;
   const cached = findRecipeSuggestion(userId, suggestionKey);
   if (cached && validRecipe(cached.recipe, context, true)) {
@@ -82,10 +83,10 @@ async function generateSuggestion(userId, query, generate, validate, requested, 
     const attempts = needsSemanticValidation(mealRequest, context.requestedCategories) ? 2 : 1;
     let recipe = null, validationFeedback = [];
     for (let attempt = 0; attempt < attempts; attempt++) {
-      const candidate = await generate({ userId, query: normalized, mealRequest, profile: generationProfile, recentTitles, validationFeedback });
+      const candidate = await generate({ userId, query: understood, mealRequest, profile: generationProfile, recentTitles, validationFeedback });
       // A profile may change while the provider is responding.
       if (!validRecipe(candidate, requestContext(userId, normalized, mealRequest), true)) throw invalidRequest();
-      const [verdict] = await validate({ userId, query: normalized, mealRequest, requestedCategories: context.requestedCategories, recipes: [candidate], profile: generationProfile, recentTitles });
+      const [verdict] = await validate({ userId, query: understood, mealRequest, requestedCategories: context.requestedCategories, recipes: [candidate], profile: generationProfile, recentTitles });
       if (verdict?.accepted) { recipe = candidate; break; }
       validationFeedback = verdict?.failedCriteria || ['Рецепт не прошёл независимую смысловую проверку'];
     }
@@ -103,7 +104,10 @@ async function interpretedContext(userId, query, interpret) {
   if (!interpret) return fallback;
   try {
     const mealRequest = await interpret({ userId, query: fallback.normalized });
-    return requestContext(userId, query, mealRequest);
+    const interpreted = requestContext(userId, query, mealRequest);
+    const understood = String(interpreted.mealRequest?.text || interpreted.normalized).trim().slice(0, 500);
+    const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${understood}`).requestedCategories;
+    return { ...interpreted, understood, requestedCategories };
   } catch (error) {
     log('warn', 'meal_request_interpretation_fallback', { userId, status: error?.status, code: error?.code });
     return fallback;
@@ -126,16 +130,16 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
   const cached = findRecipeSuggestion(userId, requestSuggestionKey(userId, normalized));
   if (cached && validRecipe(cached.recipe, requestContext(userId, normalized, cached.mealRequest), true)) {
     if (!cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached);
-    return { kind: 'generated', suggestion: cached };
+    return { kind: 'generated', query: cached.mealRequest?.text || normalized, suggestion: cached };
   }
   const context = await interpretedContext(userId, query, interpret);
   const ranked = requestedRecipes(userId, query, context).slice(0, 8);
   if (ranked.length) {
     const recentTitles = listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 20).map((recipe) => recipe.title);
-    const verdicts = await validate({ userId, query: context.normalized, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recipes: ranked.map((item) => item.recipe), profile: context.profile, recentTitles });
+    const verdicts = await validate({ userId, query: context.understood, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recipes: ranked.map((item) => item.recipe), profile: context.profile, recentTitles });
     const accepted = verdicts.map((verdict, index) => ({ ...verdict, order: index })).filter((verdict) => verdict.accepted)
       .sort((a, b) => b.preferredScore - a.preferredScore || a.order - b.order)[0];
-    if (accepted) return { kind: 'existing', recipe: accepted.recipe };
+    if (accepted) return { kind: 'existing', query: context.understood, recipe: accepted.recipe };
   }
-  return { kind: 'generated', suggestion: await generateSuggestion(userId, query, generate, validate, true, context) };
+  return { kind: 'generated', query: context.understood, suggestion: await generateSuggestion(userId, query, generate, validate, true, context) };
 }

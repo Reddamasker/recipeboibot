@@ -368,11 +368,11 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
   await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
 }
 
-async function sendSearchResults(chatId, user, query, { groupMode = false } = {}) {
+async function sendSearchResults(chatId, user, query, { groupMode = false, sourceType = 'text' } = {}) {
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   if (!groupMode) {
-    await send(chatId, `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`);
+    await send(chatId, sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`);
     try {
       const result = await resolveRecipeRequest(user.id, normalizedQuery);
       if (result.kind === 'existing') {
@@ -659,7 +659,7 @@ export async function handleMessage(message) {
   }
   if (savingRecipe && !content.text && !message.photo?.length) { await send(chatId, 'Пришлите ссылку, фото, текст или голосовое с рецептом. Для отмены — /cancel.'); return; }
   const intent = savingRecipe ? 'save' : detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
-  if (intent === 'search') { await sendSearchResults(chatId, user, content.text); return; }
+  if (intent === 'search') { await sendSearchResults(chatId, user, content.text, { sourceType: content.sourceType }); return; }
   if (intent === 'save') {
     try { if (await saveContent(message, user, content) && savingRecipe) restoreAfterRecipeSave(user.id, pending); }
     catch (error) { log('error', 'telegram_import_failed', { error, userId: user.id }); await send(chatId, `Не получилось сохранить: ${escapeHtml(error.message)}\n\nМожно прислать текст или скриншот рецепта.`); }
@@ -748,7 +748,7 @@ async function handleGroupMessage(message) {
     }
   }
   const intent = detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
-  if (intent === 'search') { await sendSearchResults(chatId, owner, content.text, { groupMode: true }); return; }
+  if (intent === 'search') { await sendSearchResults(chatId, owner, content.text, { groupMode: true, sourceType: content.sourceType }); return; }
   if (intent === 'save') {
     try { await saveContent(message, owner, content, { groupMode: true }); }
     catch (error) { log('error', 'telegram_group_import_failed', { error, userId: owner.id, chatId }); await send(chatId, `Не получилось сохранить: ${escapeHtml(error.message)}\n\nМожно прислать текст или скриншот рецепта.`); }

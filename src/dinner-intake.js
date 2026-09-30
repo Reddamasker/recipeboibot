@@ -1,4 +1,4 @@
-import { normalizeMealRequest, parseMealRequest, mergeMealRequests } from './meal-request.js';
+import { normalizeMealRequest, normalizeMealText, parseMealRequest, mergeMealRequests } from './meal-request.js';
 
 const itemText = (value) => String(value || '').normalize('NFKC').trim().toLocaleLowerCase('ru').replaceAll('ё', 'е')
   .replace(/^\d+(?:[.,]\d+)?\s*(?:кг|г|гр|мл|л|шт\.?|штуки?)\s*/iu, '')
@@ -124,7 +124,7 @@ export function combineDinnerIntakeExtraction(primary, fallback = {}) {
 const sizeWords = { одного: 1, двоих: 2, троих: 3, трое: 3, трех: 3, четырех: 4, четверых: 4, пятерых: 5, шестерых: 6 };
 
 export function parseDinnerIntakeFallback(text, { bareCategoriesAsLikes = false } = {}) {
-  const source = String(text || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').slice(0, 3000);
+  const source = normalizeMealText(text, 3000);
   const parts = source.split(/[,.!?;\n]+/u).map((part) => part.trim()).filter(Boolean);
   if (bareCategoriesAsLikes && source.length <= 160 && parts.length && !/\d|(?:^|\s)(?:аллерг|без|нельзя|не\s+ем|есть|дома|холодильник|продукт|остал|сегодня|хоч|приготов|давай|люб|нрав|ненавиж|дет|ребен|минут|час)\w*/u.test(source)) {
     const bareKeys = [...new Set(parts.flatMap((part) => TASTE_CATEGORIES.filter(([, pattern]) => pattern.test(part)).map(([key]) => key)))];
@@ -156,7 +156,13 @@ export function parseDinnerIntakeFallback(text, { bareCategoriesAsLikes = false 
     if (todayRequest) {
       const people = part.match(/(?:на|для|нас)\s+(\d{1,2}|одного|двоих|троих|трое|трех|четырех|четверых|пятерых|шестерых)/u);
       if (people) householdSize = Number(people[1]) || sizeWords[people[1]] || householdSize;
-      for (const [key, pattern] of TASTE_CATEGORIES) if (pattern.test(part)) requestedCategories.push(key);
+      for (const [key, pattern] of TASTE_CATEGORIES) {
+        const match = pattern.exec(part); pattern.lastIndex = 0;
+        if (!match) continue;
+        const prefix = part.slice(0, match.index);
+        const negated = /(?:^|\s)(?:не|без)\s*(?:хочу\s+|хотим\s+|нужен\s+|нужна\s+|нужно\s+|надо\s+)?$/u.test(prefix);
+        if (!negated) requestedCategories.push(key);
+      }
       mealRequest = mergeMealRequests(mealRequest, parseMealRequest(part));
       excluding = false; continue;
     }

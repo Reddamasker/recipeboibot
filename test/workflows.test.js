@@ -237,7 +237,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
           }
           const input = JSON.parse(body.input[0].content[0].text);
           assert.equal(body.text.format.name, 'requested_recipe_generation');
-          assert.equal(input.query, 'Дай рецепт стейка');
+          assert.equal(input.query, 'дай рецепт стейка');
           assert.equal(input.mealRequest.dish, 'стейка');
           return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ ...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'], discovery: null }) }), { status: 200 });
         }
@@ -354,6 +354,53 @@ test('voice path calls ASR once and keeps Telegram file identity for idempotency
   assert.equal(receivedFilename, 'file-1.ogg');
   assert.equal(interpreted.text, 'Найди те крылышки с мёдом');
   assert.equal(interpreted.sourceKey, 'telegram-voice:unique-1');
+});
+
+test('voice recipe search never echoes the raw transcript', async () => {
+  const originalFetch = globalThis.fetch;
+  const telegramUser = { id: 61502, first_name: 'Скрытая расшифровка' };
+  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), onboardingCompleted: true, tastePreferencesStatus: 'completed' });
+  const sent = []; const rawTranscript = 'Найди рис с овощами, эээ сетивицы';
+  globalThis.fetch = async (url, options = {}) => {
+    const address = String(url);
+    if (address.includes('/file/bot')) return new Response(Buffer.from('voice'));
+    if (address.endsWith('/getFile')) return { json: async () => ({ ok: true, result: { file_path: 'voice.ogg', file_size: 5 } }) };
+    if (address.includes('/v1/audio/transcriptions')) return Response.json({ text: rawTranscript });
+    if (address.includes('/v1/responses')) {
+      const body = JSON.parse(options.body);
+      if (body.text.format.name === 'meal_request_interpretation') return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'рис с овощами', kind: 'exact', confidence: 'high', dish: 'рис с овощами', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+      return semanticResponse(body, (candidate) => /рис с овощами/iu.test(candidate.title));
+    }
+    sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: { message_id: 72 } }) };
+  };
+  try {
+    await telegramModule.handleMessage({ chat: { id: telegramUser.id, type: 'private' }, from: telegramUser, voice: { file_id: 'voice-search', file_unique_id: 'voice-search-unique', duration: 6, mime_type: 'audio/ogg' } });
+    assert.ok(sent.some((message) => message.text === 'Подбираю рецепт по голосовому пожеланию…'));
+    assert.ok(sent.some((message) => message.caption?.includes('Рис с овощами')));
+    assert.equal(sent.some((message) => JSON.stringify(message).includes(rawTranscript) || JSON.stringify(message).includes('сетивицы')), false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('semantic validation retries one transient timeout and keeps the technical id out of the user message', async () => {
+  const originalFetch = globalThis.fetch;
+  const user = database.upsertTelegramUser({ id: 61501, first_name: 'Повтор проверки' });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) throw new DOMException('The operation was aborted', 'AbortError');
+    return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ candidates: [{ id: 'candidate-0', criteria: [{ index: 0, matches: true, confidence: 'high', evidence: 'Чечевица есть в составе.' }] }] }) }), { status: 200 });
+  };
+  try {
+    const recipe = { title: 'Чечевица с овощами', description: '', ingredients: [{ name: 'чечевица' }], steps: [{ text: 'Потушить.' }], tags: [] };
+    const mealRequest = { text: 'чечевица', kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['чечевица'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null };
+    const [verdict] = await openaiModule.validateRecipeCriteria({ userId: user.id, query: 'чечевица', mealRequest, recipes: [recipe] });
+    assert.equal(calls, 2);
+    assert.equal(verdict.accepted, true);
+    const message = openaiModule.providerFailureMessage({ errorCode: 'request_timeout', clientRequestId: 'secret-debug-id' }, 'recipe_semantic_validation', 20000);
+    assert.equal(message, 'Проверка условий рецепта не успела завершиться за 20 секунд. Повторите попытку позже.');
+    assert.doesNotMatch(message, /secret-debug-id|OpenAI/);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('Responses API failures preserve safe diagnostics and return an actionable error', async () => {
