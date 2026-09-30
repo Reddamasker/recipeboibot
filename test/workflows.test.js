@@ -1026,6 +1026,12 @@ test('recipe detail exposes sharing to the owner and a read-only public view', (
   assert.match(css, /\.detail-actions\.shared-actions \{ grid-template-columns: 1fr; \}/);
 });
 
+test('accepted dinner copy confirms that the choice is saved to the collection', () => {
+  const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
+  assert.match(app, /Рецепт сохранён в «Мои рецепты»/);
+  assert.match(app, /result\.savedRecipe[^\n]*state\.recipes/);
+});
+
 test('recipe cards expose only a confirmable delete control before opening the detail view', () => {
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
   const css = fs.readFileSync(path.resolve('public/styles.css'), 'utf8');

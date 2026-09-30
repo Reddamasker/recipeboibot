@@ -436,6 +436,52 @@ export function saveRecipeSuggestion(userId, id) {
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 
+const dinnerRecipeSourceKey = (recipeKey) => `dinner-choice:${recipeKey}`;
+const validRecipeImage = (image) => image && ['image/jpeg', 'image/png', 'image/webp'].includes(image.mime)
+  && Buffer.isBuffer(image.bytes) && image.bytes.length > 0 && image.bytes.length <= 5 * 1024 * 1024;
+
+function attachDinnerRecipeImage(userId, recipeKey, image) {
+  if (!validRecipeImage(image)) return null;
+  const row = db.prepare('SELECT id FROM recipes WHERE user_id=? AND source_key=?').get(userId, dinnerRecipeSourceKey(recipeKey));
+  if (!row) return null;
+  const thumbnailUrl = `${config.appUrl}/recipe-images/${row.id}`;
+  db.prepare('INSERT INTO recipe_images(recipe_id,mime,bytes) VALUES(?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET mime=excluded.mime,bytes=excluded.bytes')
+    .run(row.id, image.mime, image.bytes);
+  db.prepare('UPDATE recipes SET thumbnail_url=?,updated_at=? WHERE id=?').run(thumbnailUrl, now(), row.id);
+  return getRecipe(userId, row.id);
+}
+
+export function saveDinnerRecipeImage(userId, recipeKey, image) {
+  return attachDinnerRecipeImage(userId, recipeKey, image);
+}
+
+export function saveDinnerRecipe(userId, recipeKey, recipe, image = null, { restoreArchived = true } = {}) {
+  if (!recipe || recipe.id !== recipeKey) return null;
+  const ownRecipe = getRecipe(userId, recipeKey);
+  if (ownRecipe) return ownRecipe;
+  const sourceKey = dinnerRecipeSourceKey(recipeKey);
+  let saved = parseRecipe(db.prepare('SELECT * FROM recipes WHERE user_id=? AND source_key=?').get(userId, sourceKey));
+  if (saved) {
+    if (restoreArchived && saved.status === 'archived') {
+      db.prepare("UPDATE recipes SET status='ready',updated_at=? WHERE id=? AND user_id=?").run(now(), saved.id, userId);
+      saved = getRecipe(userId, saved.id);
+    }
+    return validRecipeImage(image) ? attachDinnerRecipeImage(userId, recipeKey, image) : saved;
+  }
+  const stableThumbnail = /^\/assets\/dinner\/[a-z0-9-]+\.jpg$/i.test(recipe.thumbnailUrl || '') || /^https:\/\//i.test(recipe.thumbnailUrl || '')
+    ? recipe.thumbnailUrl : null;
+  saved = createRecipe(userId, {
+    ...recipe,
+    origin: recipe.dinnerGenerated || recipe.origin === 'generated' ? 'generated' : 'imported',
+    status: 'ready',
+    sourceKey,
+    sourceType: recipe.dinnerGenerated || recipe.origin === 'generated' ? 'generated' : 'catalog',
+    sourceName: recipe.sourceName || (recipe.dinnerGenerated ? 'Создано для тебя' : 'Из подборки «Твоих рецептов»'),
+    thumbnailUrl: stableThumbnail
+  });
+  return validRecipeImage(image) ? attachDinnerRecipeImage(userId, recipeKey, image) : saved;
+}
+
 export function createRecipe(userId, input) {
   const id = randomUUID(), at = now();
   db.prepare(`INSERT INTO recipes(id,user_id,status,origin,title,description,servings,prep_minutes,cook_minutes,ingredients_json,steps_json,tags_json,warnings_json,source_url,source_key,source_type,source_name,thumbnail_url,notes,created_at,updated_at)

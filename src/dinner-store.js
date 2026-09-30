@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from './db.js';
+import { db, saveDinnerRecipe, saveDinnerRecipeImage } from './db.js';
 import { normalizeMealRequest } from './meal-request.js';
 
 db.exec(`
@@ -327,7 +327,29 @@ export function acceptedDinnerOptionId(userId, sessionId) {
 export function setDinnerOptionImage(id, state, image = null) {
   db.prepare('UPDATE dinner_options SET image_state=?,image_mime=COALESCE(?,image_mime),image_bytes=COALESCE(?,image_bytes) WHERE id=?')
     .run(state, image?.mime || null, image?.bytes || null, id);
+  if (state === 'ready' && image) {
+    const option = db.prepare('SELECT user_id,recipe_key FROM dinner_options WHERE id=?').get(id);
+    if (option) saveDinnerRecipeImage(option.user_id, option.recipe_key, image);
+  }
 }
 export function getDinnerOptionImage(id) {
   return db.prepare("SELECT image_mime AS mime,image_bytes AS bytes FROM dinner_options WHERE id=? AND image_state='ready'").get(id);
 }
+
+export function backfillAcceptedDinnerRecipes() {
+  let saved = 0;
+  for (const row of db.prepare(`SELECT o.user_id,o.recipe_key,o.option_json,o.image_mime,o.image_bytes
+    FROM dinner_options o JOIN dinner_recommendations r ON r.id=o.id
+    WHERE r.status='accepted'`).all()) {
+    try {
+      const recipe = JSON.parse(row.option_json)?.recipe;
+      const image = row.image_bytes ? { mime: row.image_mime, bytes: row.image_bytes } : null;
+      if (recipe && saveDinnerRecipe(row.user_id, row.recipe_key, recipe, image, { restoreArchived: false })) saved++;
+    } catch { /* A malformed historical option must not prevent startup. */ }
+  }
+  return saved;
+}
+
+// Choices made before automatic collection saving was introduced are repaired
+// once on startup. Archived recipes stay archived and are not resurrected.
+backfillAcceptedDinnerRecipes();

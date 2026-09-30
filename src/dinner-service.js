@@ -1,8 +1,8 @@
-import { listRecipes } from './db.js';
+import { listRecipes, saveDinnerRecipe } from './db.js';
 import { config } from './config.js';
 import { requireUnexpiredTrial } from './subscriptions.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
-import { findReusableDinnerSession, getDinnerOption, markDinnerSessionOpened } from './dinner-store.js';
+import { findReusableDinnerSession, getDinnerOption, getDinnerOptionImage, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
 import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, getDinnerContext, getDinnerHistory, getDinnerRecommendation, getDinnerRequestCategories, getDinnerSession, getFoodProfile, markDinnerCooked, openDinnerSession, rejectDinnerRecommendations, rejectedInSession, retryCountInSession, saveFoodProfile, setDinnerContext } from './dinner-store.js';
 import { normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
@@ -227,7 +227,9 @@ export function decideDinner(userId, recommendationId, decision) {
   const recipe = recipeForDecision(userId, row.recipe_key);
   if (decision === 'accepted' && row.status === 'shown' && (!recipe || !rankCandidates([recipe], dinnerContext(userId, row.session_id)).length)) throw badRequest('Ограничения изменились. Обновите варианты ужина.');
   const updated = decideDinnerRecommendation(userId, recommendationId, decision, recipe ? recipeCategories(recipe) : []);
-  return { status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
+  const image = updated.status === 'accepted' && updated.recipe_key.startsWith('dinner:') ? getDinnerOptionImage(recommendationId) : null;
+  const savedRecipe = updated.status === 'accepted' ? saveDinnerRecipe(userId, updated.recipe_key, recipe, image) : null;
+  return { status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, savedRecipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
 }
 
 export function setDinnerRejectionReason(userId, recommendationId, reason, details = {}) {

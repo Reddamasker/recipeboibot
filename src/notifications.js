@@ -47,7 +47,7 @@ export function selectNotificationDinner(userId, id, recommendationId) {
   if (decision.status !== 'accepted' || !decision.recipe) throw badRequest('Этот вариант уже недоступен');
   const chosen = chooseNotificationRecipe(userId, id, recommendationId, decision.recipeKey);
   if (!chosen) throw badRequest('Не удалось сохранить выбор');
-  return { delivery: chosen, recipe: decision.recipe, status: decision.status, alreadyChosen: false };
+  return { delivery: chosen, recipe: decision.recipe, savedRecipe: decision.savedRecipe, status: decision.status, alreadyChosen: false };
 }
 
 let cycleRunning = false;

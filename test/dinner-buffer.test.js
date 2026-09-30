@@ -9,10 +9,10 @@ process.env.OPENAI_TEXT_MODEL = 'test-model';
 process.env.TELEGRAM_BOT_TOKEN = 'test-bot-token';
 process.env.DINNER_LLM_ENABLED = 'true';
 process.env.DINNER_IMAGES_ENABLED = 'false';
-const { db, upsertTelegramUser, listRecipes, allowUser } = await import('../src/db.js');
+const { db, upsertTelegramUser, listRecipes, getRecipeImage, allowUser } = await import('../src/db.js');
 const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner } = await import('../src/dinner-service.js');
 const { SEED_RECIPES, hasExcludedIngredient, recipeCategories } = await import('../src/dinner.js');
-const { listDinnerOptions, setDinnerContext, setDinnerOptionImage } = await import('../src/dinner-store.js');
+const { backfillAcceptedDinnerRecipes, listDinnerOptions, setDinnerContext, setDinnerOptionImage } = await import('../src/dinner-store.js');
 const { validateGeneratedDinner } = await import('../src/dinner-buffer.js');
 const { extractDinnerIntake, generateDinnerRecipes } = await import('../src/openai.js');
 const { createServer } = await import('../src/server.js');
@@ -48,6 +48,11 @@ test('fresh client gets catalog recipes with existing images and no provider req
   assert.equal(db.prepare('SELECT count(*) n FROM ai_reservations').get().n, before);
   const next = await nextDinner(user.id, result.recommendations.map(o => o.id), { generate });
   assert.deepEqual(next.recommendations.map(o => o.id), result.reserve.map(o => o.id));
+  const accepted = decideDinner(user.id, next.recommendation.id, 'accepted');
+  assert.equal(accepted.savedRecipe.title, next.recommendation.recipe.title);
+  assert.equal(accepted.savedRecipe.thumbnailUrl, next.recommendation.recipe.thumbnailUrl);
+  assert.equal(accepted.savedRecipe.sourceKey, `dinner-choice:${next.recommendation.recipe.id}`);
+  assert.equal(listRecipes(user.id).length, 1);
 });
 
 test('all house recipes have a complete recipe and a reusable local JPEG', () => {
@@ -113,7 +118,23 @@ test('visible trio returns before reserve generation and reserve promotion does 
   assert.equal(getDinnerRecipe(user.id, selected.recipe.id).steps.length, 4);
   const stranger = fixture(603); assert.equal(getDinnerRecipe(stranger.id, selected.recipe.id), null);
   await assert.rejects(nextDinner(stranger.id, next.recommendations.map((o) => o.id), { catalogFirst: false, generate }), { status: 404 });
-  decideDinner(user.id, selected.id, 'accepted'); finishDinner(user.id, selected.id);
+  const accepted = decideDinner(user.id, selected.id, 'accepted');
+  assert.equal(accepted.savedRecipe.title, selected.recipe.title);
+  assert.equal(accepted.savedRecipe.origin, 'generated');
+  assert.equal(accepted.savedRecipe.sourceKey, `dinner-choice:${selected.recipe.id}`);
+  assert.equal(listRecipes(user.id).length, 1);
+  assert.equal(decideDinner(user.id, selected.id, 'accepted').savedRecipe.id, accepted.savedRecipe.id);
+  assert.equal(listRecipes(user.id).length, 1);
+  const jpeg = Buffer.from([0xff,0xd8,0xff,0x01,0xff,0xd9]);
+  setDinnerOptionImage(selected.id, 'ready', { mime: 'image/jpeg', bytes: jpeg });
+  const savedWithImage = listRecipes(user.id)[0];
+  assert.match(savedWithImage.thumbnailUrl, /\/recipe-images\//);
+  assert.deepEqual(Buffer.from(getRecipeImage(savedWithImage.id).bytes), jpeg);
+  db.prepare('DELETE FROM recipes WHERE id=?').run(savedWithImage.id);
+  assert.equal(listRecipes(user.id).length, 0);
+  assert.ok(backfillAcceptedDinnerRecipes() >= 1);
+  assert.equal(listRecipes(user.id).length, 1);
+  finishDinner(user.id, selected.id);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE recommendation_id=? AND event='recipe_cooked'").get(selected.id).n, 1);
 });
 

@@ -182,7 +182,7 @@ async function api(request, response, url) {
         log('warn', 'notification_choice_immediate_send_failed', { error, deliveryId: id });
       }
     }
-    return json(response, 200, { status: selected.status, sessionId: selected.delivery.sessionId, recipe: selected.recipe, telegramSent });
+    return json(response, 200, { status: selected.status, sessionId: selected.delivery.sessionId, recipe: selected.recipe, savedRecipe: selected.savedRecipe || null, telegramSent });
   }
   if (request.method === 'GET' && url.pathname === '/api/recipes') return json(response, 200, listRecipes(user.id));
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
