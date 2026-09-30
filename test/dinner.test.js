@@ -34,11 +34,11 @@ test('explicit likes and dislikes change ranking even with strong history, witho
   assert.deepEqual(rankCandidates([pasta], { profile: { ...profile, excludedIngredients: ['глютен'] } }), []);
 });
 
-test('taste onboarding persists independently, skip preserves answers, edits invalidate prepared dinner', async () => {
+test('completed chat onboarding does not repeat tastes; explicit answers and edits remain independent', async () => {
   const user = upsertTelegramUser({ id: 650, first_name: 'Вкусы' });
   assert.equal(startDinner(user.id).needsTastePreferences, true);
   updateDinnerProfile(user.id, { onboardingCompleted: true, excludedIngredients: ['орехи'], householdSize: 2 });
-  assert.equal(startDinner(user.id).needsTastePreferences, true, 'chat introduction does not answer taste questions');
+  assert.equal(startDinner(user.id).needsTastePreferences, false, 'completed chat introduction must not ask the same taste question again');
   updateDinnerProfile(user.id, { preferredCategories: { pasta: 1, fish: -1 }, tastePreferencesStatus: 'completed' });
   const session = startDinner(user.id);
   assert.equal(session.needsTastePreferences, false);

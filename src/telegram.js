@@ -7,7 +7,7 @@ import { parseMealRequest } from './meal-request.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
-import { confirmDinnerIntake, prefetchDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
+import { confirmDinnerIntake, prefetchDinner, recommendDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
@@ -65,8 +65,14 @@ function currentDinnerIntake(userId) {
   return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), mealRequest: getDinnerMealRequest(userId) });
 }
 function prepareDinner(userId) {
-  try { const session = startDinner(userId, { prefetchOnly: true }); if (!session.needsOnboarding) prefetchDinner(userId, session.sessionId); }
-  catch (error) { log('warn', 'telegram_dinner_prefetch_failed', { error: error.message }); }
+  try {
+    const session = startDinner(userId, { prefetchOnly: true });
+    if (!session.needsOnboarding) prefetchDinner(userId, session.sessionId);
+    return session;
+  } catch (error) {
+    log('warn', 'telegram_dinner_prefetch_failed', { error: error.message });
+    return null;
+  }
 }
 async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) {
   if (userId && !skipOnboarding && !getFoodProfile(userId).onboardingCompleted) {
@@ -81,6 +87,23 @@ let dinnerLaunchId = 0;
 function dinnerWebAppMarkup() {
   const url = webAppUrl({ view: 'dinner', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
   return url ? { inline_keyboard: [[{ text: 'Открыть варианты ужина', web_app: { url } }]] } : { inline_keyboard: [] };
+}
+function dinnerPreparingMarkup() {
+  return { inline_keyboard: [[{ text: 'Готовим рецепты', callback_data: 'dinner:preparing' }]] };
+}
+function dinnerUnavailableMarkup() {
+  return { inline_keyboard: [[{ text: 'Рецепты пока не готовы', callback_data: 'dinner:unavailable' }]] };
+}
+async function revealDinnerButton(chatId, messageId, userId, sessionId) {
+  if (!messageId || !sessionId) return;
+  try {
+    const dinner = await recommendDinner(userId, sessionId);
+    await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: dinner.recommendations.length ? dinnerWebAppMarkup() : dinnerUnavailableMarkup() });
+  } catch (error) {
+    log('warn', 'telegram_dinner_open_button_reveal_failed', { error: error.message, userId });
+    try { await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: dinnerUnavailableMarkup() }); }
+    catch {}
+  }
 }
 export async function sendDinnerProfilePrompt(chatId, userId) {
   await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true });
@@ -167,7 +190,7 @@ async function handleDinnerIntakeMessage(message, user, pending) {
 }
 
 async function skipDinnerIntake(chatId, userId, pending) {
-  if (pending.profileOnly) updateDinnerProfile(userId, { onboardingCompleted: true });
+  if (pending.profileOnly) updateDinnerProfile(userId, { onboardingCompleted: true, tastePreferencesStatus: 'skipped' });
   else clearDinnerContext(userId);
   clearPendingIntent(userId);
   prepareDinner(userId);
@@ -175,8 +198,12 @@ async function skipDinnerIntake(chatId, userId, pending) {
 
 export async function handleDinnerIntakeCallback(callback) {
   const data = String(callback.data || '');
-  if (!/^dinner:(?:skip|redo|confirm|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
+  if (!/^dinner:(?:skip|redo|confirm|preparing|unavailable|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  if (['dinner:preparing', 'dinner:unavailable'].includes(data)) {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: data === 'dinner:preparing' ? 'Рецепты ещё готовятся' : 'Не удалось подготовить рецепты. Попробуйте ещё раз позже.' });
+    return true;
+  }
   const pending = getPendingIntent(user.id);
   if (!pending || !['dinner-intake', 'dinner-confirm'].includes(pending.kind)) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот список уже неактуален', show_alert: true });
@@ -209,20 +236,25 @@ export async function handleDinnerIntakeCallback(callback) {
   if (pending.profileOnly && !pending.intake.availableIngredients.length) {
     const intake = pending.intake;
     const current = getFoodProfile(user.id), hasTasteAnswers = Object.keys(intake.preferredCategories || {}).length > 0 || Object.keys(intake.dishPreferences || {}).length > 0;
-    updateDinnerProfile(user.id, { householdType: intake.householdType, householdSize: intake.householdSize, hasChildren: intake.hasChildren, preferredMaxCookingTime: intake.maxMinutes, excludedIngredients: intake.excludedIngredients, preferredCategories: { ...current.preferredCategories, ...(intake.preferredCategories || {}) }, tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus, onboardingCompleted: true });
+    updateDinnerProfile(user.id, { householdType: intake.householdType, householdSize: intake.householdSize, hasChildren: intake.hasChildren, preferredMaxCookingTime: intake.maxMinutes, excludedIngredients: intake.excludedIngredients, preferredCategories: { ...current.preferredCategories, ...(intake.preferredCategories || {}) }, tastePreferencesStatus: current.tastePreferencesStatus === 'pending' ? hasTasteAnswers ? 'completed' : 'skipped' : current.tastePreferencesStatus, onboardingCompleted: true });
     updateDinnerProfile(user.id, { dishPreferences: { ...current.dishPreferences, ...intake.dishPreferences } });
     setDinnerContext(user.id, [], intake.requestedCategories || [], intake.mealRequest);
   } else confirmDinnerIntake(user.id, pending.intake);
-  prepareDinner(user.id);
+  const dinnerSession = prepareDinner(user.id);
   clearPendingIntent(user.id);
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Ответы сохранены' });
-  const replyMarkup = dinnerWebAppMarkup();
+  const replyMarkup = dinnerPreparingMarkup();
+  let messageId = callback.message.message_id;
   try {
     await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: callback.message.message_id, reply_markup: replyMarkup });
   } catch (error) {
     log('warn', 'telegram_dinner_open_button_edit_failed', { error: error.message, userId: user.id });
-    await send(chatId, 'Ответы сохранены. Варианты ужина уже готовятся.', { reply_markup: replyMarkup });
+    const message = await send(chatId, 'Ответы сохранены. Готовим рецепты.', { reply_markup: replyMarkup });
+    messageId = message?.message_id;
   }
+  const revealTask = revealDinnerButton(chatId, messageId, user.id, dinnerSession?.sessionId);
+  if (config.dinnerLlmEnabled) void revealTask;
+  else await revealTask;
   return true;
 }
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);

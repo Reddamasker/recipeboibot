@@ -53,7 +53,7 @@ export function confirmDinnerIntake(userId, input) {
     excludedIngredients: [...new Set([...current.excludedIngredients, ...intake.excludedIngredients])],
     preferredCategories: { ...current.preferredCategories, ...intake.preferredCategories },
     dishPreferences: { ...current.dishPreferences, ...intake.dishPreferences },
-    tastePreferencesStatus: current.tastePreferencesStatus === 'pending' && hasTasteAnswers ? 'completed' : current.tastePreferencesStatus,
+    tastePreferencesStatus: current.tastePreferencesStatus === 'pending' ? hasTasteAnswers ? 'completed' : 'skipped' : current.tastePreferencesStatus,
     onboardingCompleted: true
   });
   setDinnerContext(userId, intake.availableIngredients, intake.requestedCategories, intake.mealRequest);

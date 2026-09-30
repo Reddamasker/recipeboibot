@@ -590,7 +590,8 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.deepEqual(getDinnerContext(user.id), []);
     assert.equal(database.getPendingIntent(user.id), null);
     assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm);
-    assert.equal(sent.at(-2).text, 'Ответы сохранены');
+    assert.equal(sent.at(-3).text, 'Ответы сохранены');
+    assert.equal(sent.at(-2).reply_markup.inline_keyboard[0][0].text, 'Готовим рецепты');
     assert.equal(sent.at(-1).message_id, 401);
     assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Открыть варианты ужина');
     const dinnerUrl = new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url);
@@ -623,6 +624,31 @@ test('profile correction accepts a bare cuisine name as a preference', async () 
     assert.deepEqual(pending.intake.preferredCategories, { italian: 1 });
     assert.deepEqual(pending.intake.availableIngredients, []);
     assert.match(sent.at(-1).text, /Любим: италия/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('first profile confirmation without permanent tastes does not ask for them again', async () => {
+  const originalFetch = globalThis.fetch, sent = [];
+  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  const from = { id: 6496, first_name: 'Без вкусов' }, chat = { id: from.id, type: 'private' };
+  try {
+    await telegramModule.handleMessage({ chat, from, text: '/start' });
+    const user = database.getUserByTelegramId(from.id);
+    database.setPendingIntent(user.id, { kind: 'dinner-confirm', profileOnly: true, intake: {
+      availableIngredients: [], excludedIngredients: [], householdSize: 4, hasChildren: true, maxMinutes: null,
+      preferredCategories: {}, dishPreferences: {}, requestedCategories: ['rice'],
+      mealRequest: { text: 'что-нибудь с рисом, например карри', kind: 'open', confidence: 'high', dish: null, requiredIngredients: ['рис'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: 4 }
+    } });
+    const pending = database.getPendingIntent(user.id);
+    assert.equal(pending.profileOnly, true);
+    assert.deepEqual(pending.intake.preferredCategories, {});
+    await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-profile-without-tastes', data: 'dinner:confirm', message: { chat, message_id: 496 }, from });
+    const { getFoodProfile } = await import('../src/dinner-store.js');
+    assert.equal(getFoodProfile(user.id).tastePreferencesStatus, 'skipped');
+    assert.equal((await import('../src/dinner-service.js')).startDinner(user.id).needsTastePreferences, false);
+    assert.ok(sent.some((body) => body.reply_markup?.inline_keyboard[0][0].text === 'Готовим рецепты'));
+    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Рецепты пока не готовы');
+    assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app, undefined);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -693,7 +719,8 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-6403', data: 'dinner:confirm', message: { chat, message_id: 403 }, from });
     assert.equal(database.getPendingIntent(user.id), null);
     assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm);
-    assert.equal(sent.at(-2).text, 'Ответы сохранены');
+    assert.equal(sent.at(-3).text, 'Ответы сохранены');
+    assert.equal(sent.at(-2).reply_markup.inline_keyboard[0][0].text, 'Готовим рецепты');
     assert.equal(sent.at(-1).message_id, 403);
     assert.equal(new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url).searchParams.get('view'), 'dinner');
     const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');
@@ -821,6 +848,7 @@ test('reopening intake preserves a draft; completed profiles prepare dinner with
     await telegramModule.handleDinnerIntakeCallback({ id: 'confirm-resume', data: 'dinner:confirm', message: { chat, message_id: 408 }, from });
     await telegramModule.handleMyChatMember({ chat, from, old_chat_member: { status: 'kicked' }, new_chat_member: { status: 'member' } });
     assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm);
+    assert.equal(sent.at(-2).reply_markup.inline_keyboard[0][0].text, 'Готовим рецепты');
     assert.equal(sent.at(-1).message_id, 408);
     assert.equal(sent.at(-1).reply_markup.inline_keyboard[0][0].text, 'Открыть варианты ужина');
     assert.equal(database.getPendingIntent(user.id), null);

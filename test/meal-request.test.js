@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-process.env.DATABASE_PATH = path.resolve('data', `meal-request-${process.pid}.sqlite`);
+process.env.DATABASE_PATH = path.resolve('data', `meal-request-${process.pid}-${randomUUID()}.sqlite`);
 process.env.DINNER_LLM_ENABLED = 'true';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 process.env.OPENAI_API_KEY = 'test-key';

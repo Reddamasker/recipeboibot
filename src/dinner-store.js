@@ -100,7 +100,9 @@ export function getFoodProfile(userId) {
     excludedIngredients: parseJson(row.excluded_ingredients_json, []),
     preferredCategories,
     dishPreferences,
-    tastePreferencesStatus: row.taste_preferences_status === 'pending' && hasSavedTastes ? 'completed' : row.taste_preferences_status,
+    tastePreferencesStatus: row.taste_preferences_status === 'pending'
+      ? hasSavedTastes ? 'completed' : row.onboarding_completed ? 'skipped' : 'pending'
+      : row.taste_preferences_status,
     onboardingCompleted: Boolean(row.onboarding_completed)
   };
 }
