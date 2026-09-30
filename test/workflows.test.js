@@ -18,6 +18,7 @@ const telegramModule = await import('../src/telegram.js');
 const openaiModule = await import('../src/openai.js');
 const suggestions = await import('../src/suggestions.js');
 const dinnerStore = await import('../src/dinner-store.js');
+const { matchesMealRequest } = await import('../src/meal-request.js');
 
 test.after(() => {
   database.db.close();
@@ -29,6 +30,18 @@ const normalizedRecipe = (title = 'Крылышки с мёдом') => ({
   ingredients: [{ raw: 'куриные крылышки', name: 'куриные крылышки', quantity: null, unit: null, comment: null, confidence: 1 }],
   steps: [{ position: 1, text: 'Приготовить', confidence: 1 }], tags: ['курица'], warnings: [], sourceName: null
 });
+const testSemanticValidator = async ({ recipes, mealRequest, query = '' }) => recipes.map((recipe) => {
+  const light = /л[её]гк/iu.test(query) ? (recipe.tags || []).some((tag) => /л[её]гк/iu.test(tag)) : true;
+  const accepted = matchesMealRequest(recipe, mealRequest) && light;
+  return { recipe, accepted, preferredScore: accepted ? 100 : 0, failedCriteria: accepted ? [] : ['Нет смыслового соответствия'], evidence: [] };
+});
+const semanticResponse = (body, matches) => {
+  const input = JSON.parse(body.input[0].content[0].text);
+  return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ candidates: input.candidates.map((candidate, candidateIndex) => ({
+    id: candidate.id,
+    criteria: input.criteria.map((_, index) => ({ index, matches: Boolean(matches(candidate, candidateIndex, input)), confidence: 'high', evidence: candidate.title }))
+  })) }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
+};
 
 test('empty search proposes a recipe and saves it only after owner confirmation', async () => {
   const owner = database.upsertTelegramUser({ id: 6160, first_name: 'Автор' });
@@ -63,11 +76,24 @@ test('parallel empty searches share one generation request', async () => {
   assert.equal(a.id, b.id);
 });
 
+test('empty search does not treat a lexical hit as a semantic match', async () => {
+  const owner = database.upsertTelegramUser({ id: 6196, first_name: 'Смысловой поиск' });
+  database.createRecipe(owner.id, { ...normalizedRecipe('Паста для бутербродов'), status: 'ready' });
+  let generated = 0;
+  const suggestion = await suggestions.suggestForEmptySearch(owner.id, 'паста на ужин', {
+    generate: async () => { generated += 1; return { ...normalizedRecipe('Спагетти с томатами'), servings: 2, prepMinutes: 10, cookMinutes: 15 }; },
+    validate: async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: recipe.title === 'Спагетти с томатами', preferredScore: 100, failedCriteria: [], evidence: [] }))
+  });
+  assert.equal(generated, 1);
+  assert.equal(suggestion.recipe.title, 'Спагетти с томатами');
+});
+
 test('request uses saved and seed recipes before generating one unsaved recipe', async () => {
+  const resolve = (userId, query, options = {}) => suggestions.resolveRecipeRequest(userId, query, { ...options, validate: testSemanticValidator });
   const savedOwner = database.upsertTelegramUser({ id: 6172, first_name: 'Готовый рецепт' });
   const savedProposal = database.createRecipeSuggestion(savedOwner.id, 'бобовый рататуй', normalizedRecipe('Бобовый рататуй'));
   const saved = database.saveRecipeSuggestion(savedOwner.id, savedProposal.id);
-  const fromCollection = await suggestions.resolveRecipeRequest(savedOwner.id, 'Хочу бобовый рататуй', { generate: assert.fail });
+  const fromCollection = await resolve(savedOwner.id, 'Хочу бобовый рататуй', { generate: assert.fail });
   assert.equal(fromCollection.kind, 'existing');
   assert.equal(fromCollection.recipe.id, saved.id);
 
@@ -75,20 +101,20 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   const other = database.upsertTelegramUser({ id: 6171, first_name: 'Другой' });
   dinnerStore.saveFoodProfile(owner.id, { householdType: 'couple', householdSize: 2, hasChildren: false,
     preferredMaxCookingTime: 30, excludedIngredients: ['орехи'], preferredCategories: {}, onboardingCompleted: true });
-  const fromBase = await suggestions.resolveRecipeRequest(owner.id, 'рис с овощами', { generate: assert.fail });
+  const fromBase = await resolve(owner.id, 'рис с овощами', { generate: assert.fail });
   assert.equal(fromBase.kind, 'existing');
   assert.match(fromBase.recipe.id, /^seed:/);
-  const fromOneWord = await suggestions.resolveRecipeRequest(owner.id, 'Суп', { generate: assert.fail });
+  const fromOneWord = await resolve(owner.id, 'Суп', { generate: assert.fail });
   assert.equal(fromOneWord.kind, 'existing');
   assert.match(fromOneWord.recipe.title, /суп/iu);
-  const light = await suggestions.resolveRecipeRequest(owner.id, 'лёгкий ужин', { generate: assert.fail });
+  const light = await resolve(owner.id, 'лёгкий ужин', { generate: assert.fail });
   assert.equal(light.kind, 'existing');
   assert.ok(light.recipe.tags.some((tag) => /л[её]гк/iu.test(tag)));
 
   const familyOwner = database.upsertTelegramUser({ id: 6173, first_name: 'Семья' });
   dinnerStore.saveFoodProfile(familyOwner.id, { householdType: 'family', householdSize: 4, hasChildren: true,
     preferredMaxCookingTime: 120, excludedIngredients: [], preferredCategories: {}, onboardingCompleted: true });
-  const borscht = await suggestions.resolveRecipeRequest(familyOwner.id, 'борщ', { generate: assert.fail });
+  const borscht = await resolve(familyOwner.id, 'борщ', { generate: assert.fail });
   assert.equal(borscht.kind, 'existing');
   assert.equal(borscht.recipe.id, 'seed:borscht-beef');
   assert.ok(borscht.recipe.servings >= 4);
@@ -96,7 +122,7 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   const recipe = { ...normalizedRecipe('Арбузный суп'), servings: 2, prepMinutes: 10, cookMinutes: 15,
     ingredients: [{ name: 'арбуз', raw: 'арбуз', quantity: 300, unit: 'г', comment: null }] };
   let input;
-  const result = await suggestions.resolveRecipeRequest(owner.id, 'хочу арбузный суп', { generate: async (value) => { input = value; return recipe; } });
+  const result = await resolve(owner.id, 'хочу арбузный суп', { generate: async (value) => { input = value; return recipe; } });
   assert.equal(result.kind, 'generated');
   const suggestion = result.suggestion;
   assert.equal(input.query, 'хочу арбузный суп');
@@ -104,10 +130,10 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   assert.equal(database.listRecipes(owner.id).length, 0);
   assert.match(suggestion.query, /^request:/);
   assert.equal(database.saveRecipeSuggestion(other.id, suggestion.id), null);
-  const again = await suggestions.resolveRecipeRequest(owner.id, 'хочу арбузный суп', { generate: assert.fail });
+  const again = await resolve(owner.id, 'хочу арбузный суп', { generate: assert.fail });
   assert.equal(again.suggestion.id, suggestion.id);
-  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, 'арбузный салат', { generate: async () => ({ ...recipe, title: 'Ореховый салат', ingredients: [{ name: 'орехи' }] }) }), { status: 422 });
-  await assert.rejects(suggestions.resolveRecipeRequest(owner.id, 'арбузный крем', { generate: async () => ({ ...recipe, title: 'Долгий крем', cookMinutes: 35 }) }), { status: 422 });
+  await assert.rejects(resolve(owner.id, 'арбузный салат', { generate: async () => ({ ...recipe, title: 'Ореховый салат', ingredients: [{ name: 'орехи' }] }) }), { status: 422 });
+  await assert.rejects(resolve(owner.id, 'арбузный крем', { generate: async () => ({ ...recipe, title: 'Долгий крем', cookMinutes: 35 }) }), { status: 422 });
   const added = database.saveRecipeSuggestion(owner.id, suggestion.id);
   assert.equal(added.title, 'Арбузный суп');
   assert.equal(database.listRecipes(owner.id).length, 1);
@@ -152,13 +178,17 @@ test('private Telegram request generates only after no ready recipe and waits fo
   const telegramUser = { id: 6165, first_name: 'Поиск' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
   dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { soup: 1, fish: -1 }, tastePreferencesStatus: 'completed' });
-  const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
+  const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0, semanticCalls = 0;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('api.openai.com')) {
       aiCalls += 1;
       const body = JSON.parse(options.body);
       if (body.text.format.name === 'meal_request_interpretation') {
         return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
+      }
+      if (body.text.format.name === 'recipe_semantic_validation') {
+        semanticCalls += 1;
+        return semanticResponse(body, () => semanticCalls > 1);
       }
       assert.equal(body.text.format.name, 'requested_recipe_generation');
       assert.match(body.instructions, /preferredCategories/);
@@ -170,9 +200,9 @@ test('private Telegram request generates only after no ready recipe and waits fo
   };
   try {
     await telegramModule.handleMessage({ chat: { id: 6165, type: 'private' }, from: telegramUser, text: 'Найди суп с тыквой' });
-    assert.equal(aiCalls, 2);
+    assert.equal(aiCalls, 4);
     assert.equal(database.listRecipes(owner.id).length, 0);
-    assert.match(sent[0].text, /Составляю новый/);
+    assert.match(sent[0].text, /Подбираю рецепт/);
     const callback = { id: 'callback-private', message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser };
     const suggestionMessage = sent.find((message) => message.text?.includes('Суп с тыквой'));
     assert.match(suggestionMessage.text, /Создано в «Рецептах»/);
@@ -193,13 +223,17 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
       const tg = { id, first_name: 'Проверка формулировки' };
       const owner = database.upsertTelegramUser(tg); database.allowUser(owner.id);
       dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), onboardingCompleted: true, tastePreferencesStatus: 'completed' });
-      const sent = []; let calls = 0;
+      const sent = []; let calls = 0, semanticCalls = 0;
       globalThis.fetch = async (url, options) => {
         if (String(url).includes('api.openai.com')) {
           calls++;
           const body = JSON.parse(options.body);
           if (body.text.format.name === 'meal_request_interpretation') {
             return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+          }
+          if (body.text.format.name === 'recipe_semantic_validation') {
+            semanticCalls += 1;
+            return semanticResponse(body, () => semanticCalls > 1 && accepted);
           }
           const input = JSON.parse(body.input[0].content[0].text);
           assert.equal(body.text.format.name, 'requested_recipe_generation');
@@ -211,7 +245,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
         return { json: async () => ({ ok: true, result: { message_id: 71 } }) };
       };
       await telegramModule.handleMessage({ chat: { id, type: 'private' }, from: tg, text: 'Дай рецепт стейка' });
-      assert.equal(calls, 2);
+      assert.equal(calls, accepted ? 4 : 6);
       assert.equal(database.listRecipes(owner.id).length, 0);
       if (accepted) {
         assert.ok(sent.some((m) => m.text?.includes('Стейк из говядины') && m.reply_markup?.inline_keyboard[0][0].callback_data.startsWith('suggest:save:')));
@@ -261,16 +295,27 @@ test('intent detection searches short text and saves detailed recipe text', () =
   assert.equal(telegramModule.detectIntent('https://example.com/recipe', { hasUrl: true }), 'save');
 });
 
-test('plain private message chooses a ready recipe without an AI call', async () => {
+test('plain private message chooses a ready recipe after semantic validation', async () => {
   const telegramUser = { id: 6168, first_name: 'Обычный запрос' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
-  const originalFetch = globalThis.fetch; const sent = [];
-  globalThis.fetch = async (url, options) => { assert.doesNotMatch(String(url), /api\.openai\.com/); sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('api.openai.com')) {
+      aiCalls += 1;
+      const body = JSON.parse(options.body);
+      if (body.text.format.name === 'meal_request_interpretation') return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Рис с овощами', kind: 'exact', confidence: 'high', dish: 'рис с овощами', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+      assert.equal(body.text.format.name, 'recipe_semantic_validation');
+      return semanticResponse(body, (candidate) => /рис с овощами/iu.test(candidate.title));
+    }
+    sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) };
+  };
   try {
     await telegramModule.handleMessage({ chat: { id: 6168, type: 'private' }, from: telegramUser, text: 'Рис с овощами' });
-    assert.equal(sent.length, 2);
-    assert.match(sent[0].text, /Подобрал готовый рецепт/);
-    assert.match(sent[1].caption, /Рис с овощами/);
+    assert.equal(aiCalls, 2);
+    assert.equal(sent.length, 3);
+    assert.match(sent[0].text, /Подбираю рецепт/);
+    assert.match(sent[1].text, /Нашёл подходящий готовый рецепт/);
+    assert.match(sent[2].caption, /Рис с овощами/);
     assert.equal(database.getPendingIntent(owner.id), null);
     assert.equal(database.listRecipes(owner.id).length, 0);
   } finally { globalThis.fetch = originalFetch; }
@@ -280,7 +325,14 @@ test('a new search replaces an unanswered intent question', async () => {
   const telegramUser = { id: 6171, first_name: 'Новый запрос' };
   const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
   const originalFetch = globalThis.fetch; const sent = [];
-  globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('api.openai.com')) {
+      const body = JSON.parse(options.body);
+      if (body.text.format.name === 'meal_request_interpretation') return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Найди рис с овощами', kind: 'exact', confidence: 'high', dish: 'рис с овощами', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+      return semanticResponse(body, (candidate) => /рис с овощами/iu.test(candidate.title));
+    }
+    sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) };
+  };
   try {
     const message = { chat: { id: 6171, type: 'private' }, from: telegramUser };
     await telegramModule.handleMessage({ ...message, text: 'Найди рецепт и сохрани его' });

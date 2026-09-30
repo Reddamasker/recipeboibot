@@ -7,7 +7,7 @@ import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates,
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 import { needsSemanticValidation } from './meal-request.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 7, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 8, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const MAX_GENERATION_ATTEMPTS = 1;
 const fills = new Map(), imageTasks = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
@@ -88,7 +88,7 @@ function synchronize(userId, sessionId, context) {
 function fallbackFill(userId, sessionId, context, target = DINNER_BUFFER.total) {
   // An unjudged catalog recipe must never silently satisfy an open-ended
   // semantic request when the validator or generator is unavailable.
-  if (needsSemanticValidation(context.mealRequest)) return;
+  if (needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
   const previous = listDinnerOptions(userId, sessionId), excluded = [...context.rejected, ...previous.map((o) => o.recipe.id)];
   const candidates = [...context.saved, ...SEED_RECIPES].filter((r) => !duplicateDinner(r, previous.map((o) => o.recipe)));
   let ranked = rankCandidates(candidates, { ...context, rejected: excluded });
@@ -153,6 +153,8 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       const prior = listDinnerOptions(userId, sessionId);
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
       const attemptedTitles = [];
+      const semanticFailures = [];
+      let structurallyRejected = 0;
       const maxAttempts = context.requestedCategories.length || context.mealRequest ? MAX_GENERATION_ATTEMPTS : 1;
       let added = 0, attempts = 0;
       while (added < count && attempts < maxAttempts) {
@@ -165,13 +167,17 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
         const generated = Array.isArray(result?.recipes) ? result.recipes : [];
         attemptedTitles.push(...generated.map((item) => item?.recipe?.title).filter(Boolean));
         const structurallyValid = generated.slice(0, needed).map((item) => validateGeneratedDinner(item, context)).filter(Boolean);
-        const verdicts = await validate({ userId, query: context.mealRequest?.text || '', mealRequest: context.mealRequest,
+        structurallyRejected += Math.max(0, Math.min(generated.length, needed) - structurallyValid.length);
+        const verdicts = await validate({ userId, query: context.mealRequest?.text || '', mealRequest: context.mealRequest, requestedCategories: context.requestedCategories,
           recipes: structurallyValid.map((item) => item.recipe), profile: context.profile, recentTitles: context.recentRecipes });
         if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
         for (let index = 0; index < structurallyValid.length; index++) {
           if (activeCount(userId, sessionId) >= DINNER_BUFFER.total) break;
           const valid = structurallyValid[index];
-          if (!verdicts[index]?.accepted) continue;
+          if (!verdicts[index]?.accepted) {
+            semanticFailures.push({ title: valid.recipe.title, criteria: verdicts[index]?.failedCriteria || [] });
+            continue;
+          }
           if (!valid || duplicateDinner(valid.recipe, existing)) continue;
           if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === valid.role).length >= DINNER_BUFFER.total / DINNER_BUFFER.visible) continue;
           const id = randomUUID(); valid.recipe.id = `dinner:${id}`;
@@ -180,7 +186,8 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       }
       if (added < count) setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
       fallbackFill(userId, sessionId, context, active + count);
-      addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added, attempts } });
+      addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added, attempts, structurallyRejected,
+        semanticallyRejected: semanticFailures.length, semanticFailures: semanticFailures.slice(0, 8) } });
     } catch (error) {
       if (getDinnerSession(userId, sessionId) && dinnerContextKey(getContext()) === key) {
         setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);

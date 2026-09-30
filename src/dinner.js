@@ -1,4 +1,4 @@
-import { matchesMealRequest, containsFoodPhrase, matchesIngredientConstraint, recipeTextIngredients, isSpicy } from './meal-request.js';
+import { matchesMealRequest, matchesObjectiveMealRequest, containsFoodPhrase, matchesIngredientConstraint, recipeTextIngredients, isSpicy } from './meal-request.js';
 
 export const DINNER_WEIGHTS = Object.freeze({
   saved: 4, category: 2, timeFit: 1, servingsFit: 1, accepted: 0.7, cooked: 1.5,
@@ -144,7 +144,7 @@ export const totalMinutes = (recipe) => {
 
 export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
   if (rejected.includes(recipe.id) || hasExcludedIngredient(recipeTextIngredients(recipe), [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
-  if (!matchesMealRequest(recipe, mealRequest)) return null;
+  if (!matchesObjectiveMealRequest(recipe, mealRequest)) return null;
   if (profile.householdSize && (!Number.isInteger(recipe.servings) || recipe.servings < profile.householdSize)) return null;
   if (profile.hasChildren && isSpicy(recipe)) return null;
   if ((feedback.avoidTitles || []).some((title) => containsFoodPhrase(recipe.title, title))) return null;
@@ -155,8 +155,11 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
   const ingredientNames = (recipe.ingredients || []).map((item) => item.name || item.raw || item);
   const matchesRequestedCategory = (key) => categories.includes(key)
     || (key === 'meat' && ingredientNames.some((name) => matchesIngredientConstraint(name, 'мясо')));
-  if (requestedCategories.some((key) => !matchesRequestedCategory(key))) return null;
-  let score = recipe.userSaved ? DINNER_WEIGHTS.saved : 0;
+  // Lexical/category matches help retrieval only. They never reject a recipe:
+  // the semantic validator is the single authority for meaning.
+  const requestHint = requestedCategories.filter(matchesRequestedCategory).length * 6
+    + (mealRequest && matchesMealRequest(recipe, mealRequest) ? 8 : 0);
+  let score = (recipe.userSaved ? DINNER_WEIGHTS.saved : 0) + requestHint;
   const namedTaste = Object.entries(profile.dishPreferences || {}).reduce((sum, [dish, weight]) => sum + (matchesMealRequest(recipe, { dish }) ? weight : 0), 0);
   score += namedTaste * 8;
   const pantryMatch = pantryCoverage(recipe, pantry);

@@ -10,6 +10,8 @@ process.env.TEST_CONTOUR = 'true';
 process.env.TEST_BOT_USERNAME = 'recipeboi_test_bot';
 process.env.DINNER_LLM_ENABLED = 'false';
 process.env.DINNER_IMAGES_ENABLED = 'false';
+process.env.OPENAI_API_KEY = 'test-key';
+process.env.OPENAI_TEXT_MODEL = 'test-model';
 
 const { db, upsertTelegramUser, allowUser, createRecipe, recordAiAttempt } = await import('../src/db.js');
 const { createServer } = await import('../src/server.js');
@@ -98,6 +100,15 @@ test('test contour retains current tastes, specific recipe requests and mock che
   const dinner = await (await call('/api/dinner/open', 'POST', {})).json();
   assert.equal(dinner.needsTastePreferences, false);
   const recipe = createRecipe(user.id, { title: 'Суп', status: 'ready', ingredients: [{ name: 'картофель' }], steps: [{ text: 'Сварить до готовности' }], servings: 2, prepMinutes: 5, cookMinutes: 20 });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (!String(url).includes('api.openai.com')) return originalFetch(url, options);
+    const body = JSON.parse(options.body);
+    if (body.text.format.name === 'meal_request_interpretation') return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Суп', kind: 'exact', confidence: 'high', dish: 'суп', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
+    assert.equal(body.text.format.name, 'recipe_semantic_validation');
+    const input = JSON.parse(body.input[0].content[0].text);
+    return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ candidates: input.candidates.map((candidate) => ({ id: candidate.id, criteria: input.criteria.map((_, index) => ({ index, matches: candidate.title === 'Суп', confidence: 'high', evidence: candidate.title })) })) }) }), { status: 200 });
+  };
   const requested = await call('/api/recipe-request', 'POST', { query: 'Суп' });
   assert.equal(requested.status, 200);
   const result = await requested.json();
@@ -121,7 +132,8 @@ test('test contour retains current tastes, specific recipe requests and mock che
   assert.equal(monthAfter('2028-01-31T12:00:00Z'), '2028-02-29T12:00:00.000Z');
   assert.deepEqual((await (await call('/api/dinner/profile')).json()).preferredCategories, profile.preferredCategories);
   assert.equal((await (await call('/api/recipe-request', 'POST', { query: 'Суп' })).json()).recipe.id, recipe.id);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM ai_reservations').get().n, 0);
+  globalThis.fetch = originalFetch;
+  assert.equal(db.prepare('SELECT count(*) AS n FROM ai_reservations').get().n, 4);
 });
 
 test('every test user can reset only their own account data', async () => {

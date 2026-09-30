@@ -284,11 +284,24 @@ test('a request for today is mandatory for every visible dinner option', async (
   const generate = async (input) => {
     generationCounts.push(input.count);
     generatedFor.push(input.requestedCategories);
-    return generationCounts.length === 1 ? { recipes: [exact[0], ...batch().slice(1, 3)] } : { recipes: exact.slice(1) };
+    return { recipes: exact };
   };
-  const dinner = await recommendDinner(user.id, session.sessionId, { generate });
-  assert.deepEqual(generationCounts, [3]);
-  assert.deepEqual(generatedFor, [['asian', 'rice']]);
+  let validations = 0;
+  const validate = async ({ recipes, requestedCategories }) => {
+    validations++;
+    assert.deepEqual(requestedCategories, ['asian', 'rice']);
+    return recipes.map((recipe) => {
+      const categories = recipeCategories(recipe);
+      const accepted = requestedCategories.every((category) => categories.includes(category));
+      return { recipe, accepted, preferredScore: accepted ? 100 : 0, failedCriteria: accepted ? [] : ['Не соответствует категории'] };
+    });
+  };
+  const structuralContext = { profile: { householdSize: 2, excludedIngredients: [] }, pantry: [], requestedCategories: ['asian', 'rice'], mealRequest: null, feedback: {}, rejected: [], history: [], recentRecipes: [], library: [], categorySignals: {} };
+  assert.ok(validateGeneratedDinner(batch()[1], structuralContext), 'category meaning must not be rejected before semantic validation');
+  const dinner = await recommendDinner(user.id, session.sessionId, { generate, validate });
+  assert.ok(generationCounts.length >= 1 && generationCounts.every((count) => count === 3));
+  assert.ok(generatedFor.every((categories) => JSON.stringify(categories) === JSON.stringify(['asian', 'rice'])));
+  assert.ok(validations >= 1);
   assert.equal(dinner.recommendations.length, 3);
   assert.ok(dinner.recommendations.every(({ recipe }) => {
     const categories = recipeCategories(recipe);

@@ -136,8 +136,8 @@ test('rice is a saved taste while a wish for today is an imperative request', ()
 
   const exact = rankCandidates(SEED_RECIPES, { requestedCategories: today.requestedCategories });
   assert.ok(exact.length >= 1);
-  assert.ok(exact.every((candidate) => candidate.categories.includes('asian') && candidate.categories.includes('rice')));
-  assert.ok(!exact.some((candidate) => candidate.recipe.id === 'seed:keema-potato'));
+  assert.ok(exact[0].categories.includes('asian') && exact[0].categories.includes('rice'), 'category matches are retrieval hints');
+  assert.ok(exact.some((candidate) => candidate.recipe.id === 'seed:keema-potato'), 'nonmatches remain available for the semantic validator instead of being hard-rejected');
   assert.deepEqual(recipeCategories({ title: 'Салат с рисовым уксусом', ingredients: [{ name: 'рисовый уксус' }] }), ['salad']);
 });
 

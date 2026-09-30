@@ -61,7 +61,10 @@ test('expiry blocks premium operations without a payment provider while keeping 
   await assert.rejects(() => recommendDinner(user.id, 'unused'), { status: 402 });
   assert.throws(() => prefetchDinner(user.id, 'unused'), { status: 402 });
   let generated = false;
-  await assert.rejects(() => resolveRecipeRequest(user.id, 'Несуществующее блюдо', { generate: () => { generated = true; } }), { status: 402 });
+  await assert.rejects(() => resolveRecipeRequest(user.id, 'Несуществующее блюдо', {
+    generate: () => { generated = true; },
+    validate: async ({ recipes }) => recipes.map((candidate) => ({ recipe: candidate, accepted: false, preferredScore: 0, failedCriteria: ['Нет смыслового соответствия'], evidence: [] }))
+  }), { status: 402 });
   assert.equal(generated, false);
   archiveRecipe(user.id, recipe.id);
   assert.equal(canUseAutomaticImport(user.id), false);

@@ -139,9 +139,65 @@ export function matchesMealRequest(recipe, raw) {
   return true;
 }
 
-export function needsSemanticValidation(raw) {
+// Only facts that can be checked without interpreting language belong here.
+// Meaning (dish identity, ingredient equivalence, cuisine, method and other
+// qualities) is decided once by the semantic validator.
+export function matchesObjectiveMealRequest(recipe, raw) {
   const request = normalizeMealRequest(raw);
-  return Boolean(request && (request.semanticCriteria.length || request.kind === 'open'));
+  if (!request) return true;
+  if (request.servings && (!Number.isInteger(recipe.servings) || recipe.servings < request.servings)) return false;
+  if (request.maxMinutes && (!Number.isFinite(recipe.prepMinutes) || !Number.isFinite(recipe.cookMinutes) || recipe.prepMinutes + recipe.cookMinutes > request.maxMinutes)) return false;
+  return true;
+}
+
+const categoryCriteria = Object.freeze({
+  burger: 'Блюдо должно быть бургером', pizza: 'Блюдо должно быть пиццей', sushi: 'Блюдо должно быть суши или роллами',
+  shawarma: 'Блюдо должно быть шаурмой, шавермой или донером', wok: 'Блюдо должно быть приготовлено в стиле вок',
+  pasta: 'Паста или макароны должны быть основой блюда', barbecue: 'Блюдо должно быть шашлыком, люля или кебабом',
+  dessert: 'Блюдо должно быть десертом', breakfast: 'Блюдо должно подходить для завтрака', lunch: 'Блюдо должно подходить для обеда',
+  coffee: 'Напиток должен быть кофейным', georgian: 'Блюдо должно относиться к грузинской кухне', russian: 'Блюдо должно относиться к русской кухне',
+  eastern: 'Блюдо должно относиться к восточной кухне', chinese: 'Блюдо должно относиться к китайской кухне',
+  japanese: 'Блюдо должно относиться к японской кухне', caucasian: 'Блюдо должно относиться к кавказской кухне',
+  uzbek: 'Блюдо должно относиться к узбекской кухне', italian: 'Блюдо должно относиться к итальянской кухне',
+  european: 'Блюдо должно относиться к европейской кухне', rice: 'Рис должен быть настоящей основой или ингредиентом блюда',
+  asian: 'Блюдо должно быть узнаваемо азиатским по составу или способу приготовления', chicken: 'Курица должна быть основным мясным ингредиентом',
+  meat: 'Блюдо должно содержать настоящее мясо, а не растительный заменитель', fish: 'Рыба должна быть основным ингредиентом блюда',
+  soup: 'Блюдо должно быть супом', salad: 'Блюдо должно быть салатом', home: 'Блюдо должно быть узнаваемой домашней едой'
+});
+const categoryIngredientHints = Object.freeze({
+  pasta: /паст|макарон|спагет/iu, rice: /рис/iu, chicken: /куриц|курин/iu, meat: /мяс|говяд|свин|баранин|фарш|индейк/iu,
+  fish: /рыб|лосос|треск|тунц|форел/iu, soup: /суп/iu, salad: /салат/iu, pizza: /пицц/iu
+});
+
+export function semanticMealCriteria(raw, requestedCategories = [], query = '') {
+  const request = normalizeMealRequest(raw);
+  const criteria = [];
+  if (request?.dish) criteria.push({
+    description: `Рецепт должен быть именно блюдом «${request.dish}», а не другим блюдом с похожим ингредиентом`,
+    importance: request.confidence === 'low' ? 'preferred' : 'required', source: 'dish'
+  });
+  for (const value of request?.requiredIngredients || []) criteria.push({
+    description: `В фактическом составе рецепта должен присутствовать ингредиент «${value}» или общеупотребимый конкретный вид этой продуктовой группы`,
+    importance: 'required', source: 'requiredIngredient'
+  });
+  for (const method of request?.methods || []) criteria.push({
+    description: `Основной способ приготовления должен соответствовать условию «${method}»`, importance: 'required', source: 'method'
+  });
+  for (const criterion of request?.semanticCriteria || []) criteria.push({ ...criterion, source: 'semantic' });
+  for (const category of [...new Set(Array.isArray(requestedCategories) ? requestedCategories : [])]) {
+    const hint = categoryIngredientHints[category];
+    if (hint && (request?.requiredIngredients || []).some((item) => hint.test(item))) continue;
+    criteria.push({ description: categoryCriteria[category] || `Блюдо должно соответствовать категории «${category}»`, importance: 'required', source: 'requestedCategory' });
+  }
+  if (!criteria.length && request?.kind === 'open' && (query || request.text)) criteria.push({
+    description: `Рецепт должен соответствовать смыслу свободного пожелания «${String(query || request.text).slice(0, 300)}»`,
+    importance: 'required', source: 'openRequest'
+  });
+  return [...new Map(criteria.map((item) => [`${item.importance}:${item.description}`, item])).values()].slice(0, 16);
+}
+
+export function needsSemanticValidation(raw, requestedCategories = []) {
+  return semanticMealCriteria(raw, requestedCategories).length > 0;
 }
 
 export function recipeTextIngredients(recipe) {

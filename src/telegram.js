@@ -2,8 +2,7 @@ import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importText, importUrl, importYoutubePlaylist } from './importer.js';
 import { extractDinnerIntake, transcribeAudio } from './openai.js';
-import { findRequestedRecipe, resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
-import { parseMealRequest } from './meal-request.js';
+import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
 import { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
@@ -373,17 +372,14 @@ async function sendSearchResults(chatId, user, query, { groupMode = false } = {}
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   if (!groupMode) {
-    const localRequest = parseMealRequest(normalizedQuery);
-    const existing = localRequest?.semanticCriteria?.length ? null : findRequestedRecipe(user.id, normalizedQuery);
-    if (existing) {
-      await send(chatId, `Подобрал готовый рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>».`);
-      await sendRecipeCard(chatId, existing);
-      return [existing];
-    }
-    await send(chatId, `Подходящего готового рецепта по запросу «<b>${escapeHtml(normalizedQuery)}</b>» нет. Составляю новый…`);
+    await send(chatId, `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`);
     try {
       const result = await resolveRecipeRequest(user.id, normalizedQuery);
-      if (result.kind === 'existing') { await sendRecipeCard(chatId, result.recipe); return [result.recipe]; }
+      if (result.kind === 'existing') {
+        await send(chatId, 'Нашёл подходящий готовый рецепт.');
+        await sendRecipeCard(chatId, result.recipe);
+        return [result.recipe];
+      }
       await sendSuggestion(chatId, result.suggestion, { userId: user.id });
     } catch (error) {
       log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
