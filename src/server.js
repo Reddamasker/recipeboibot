@@ -22,6 +22,7 @@ import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer,
 import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
+import { ensureNutrition } from './nutrition-service.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -188,13 +189,13 @@ async function api(request, response, url) {
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
   if (request.method === 'GET' && url.pathname === '/api/dinner/profile') return json(response, 200, getFoodProfile(user.id));
   if (request.method === 'GET' && url.pathname.startsWith('/api/dinner/recipes/')) {
-    const recipe = getDinnerRecipe(user.id, decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length)));
+    const recipe = await ensureNutrition(user.id, getDinnerRecipe(user.id, decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length))));
     return json(response, recipe ? 200 : 404, recipe ? { ...recipe, pantryMatch: pantryCoverage(recipe, getDinnerContext(user.id)) } : { error: 'Рецепт не найден' });
   }
   const dinnerShare = url.pathname.match(/^\/api\/dinner\/recipes\/([^/]+)\/share$/);
   if (request.method === 'POST' && dinnerShare) {
     const key = decodeURIComponent(dinnerShare[1]);
-    const recipe = getDinnerRecipe(user.id, key);
+    const recipe = await ensureNutrition(user.id, getDinnerRecipe(user.id, key));
     const image = key.startsWith('dinner:') ? getDinnerOptionImage(key.slice(7)) : null;
     const token = recipe ? createDinnerRecipeShare(user.id, key, recipe, image) : null;
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
@@ -258,6 +259,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'GET' && /^\/api\/suggestions\/[0-9a-f-]{36}$/i.test(url.pathname)) {
     const suggestion = getRecipeSuggestion(user.id, url.pathname.split('/').at(-1));
+    if (suggestion) suggestion.recipe = await ensureNutrition(user.id, suggestion.recipe);
     return json(response, suggestion ? 200 : 404, suggestion || { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && url.pathname === '/api/suggestions') {
@@ -277,11 +279,14 @@ async function api(request, response, url) {
     return json(response, 200, recipe);
   }
   if (request.method === 'GET' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
-    const recipe = getRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1)));
+    const recipe = await ensureNutrition(user.id, getRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1))));
     return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && /^\/api\/recipes\/[^/]+\/share$/.test(url.pathname)) {
     const id = decodeURIComponent(url.pathname.split('/').at(-2));
+    const recipe = getRecipe(user.id, id);
+    if (!recipe) return json(response, 404, { error: 'Рецепт не найден' });
+    await ensureNutrition(user.id, recipe);
     const token = createRecipeShare(user.id, id);
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
@@ -310,7 +315,10 @@ async function api(request, response, url) {
   if (request.method === 'PUT' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
     const id = decodeURIComponent(url.pathname.split('/').at(-1)), existing = getRecipe(user.id, id);
     if (!existing) return json(response, 404, { error: 'Рецепт не найден' });
-    return json(response, 200, updateRecipe(user.id, id, cleanRecipeInput(await bodyJson(request), existing)));
+    const input = cleanRecipeInput(await bodyJson(request), existing);
+    const changed = input.servings !== existing.servings || JSON.stringify(input.ingredients) !== JSON.stringify(existing.ingredients) || JSON.stringify(input.steps) !== JSON.stringify(existing.steps);
+    const enriched = await ensureNutrition(user.id, { ...existing, ...input, nutrition: changed ? null : existing.nutrition });
+    return json(response, 200, updateRecipe(user.id, id, { ...input, nutrition: enriched.nutrition }));
   }
   if (request.method === 'DELETE' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) return json(response, archiveRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1))) ? 204 : 404, {});
   if (request.method === 'DELETE' && url.pathname === '/api/account') { deleteUserData(user.id); return json(response, 204, {}); }
@@ -402,7 +410,7 @@ export function createServer() {
         return response.end(image.bytes);
       }
       if (request.method === 'GET' && /^\/api\/shares\/[A-Za-z0-9_-]{32}$/.test(url.pathname)) {
-        const recipe = getSharedRecipe(url.pathname.split('/').at(-1));
+        const recipe = await ensureNutrition(null, getSharedRecipe(url.pathname.split('/').at(-1)));
         return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Ссылка на рецепт недоступна' });
       }
       if (url.pathname.startsWith('/api/')) return await api(request, response, url);

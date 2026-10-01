@@ -1,4 +1,5 @@
 // A request survives extraction, storage, generation and cache reuse unchanged.
+import { matchesNutritionLimits, normalizeNutritionLimits, nutritionLimitsSchema, parseNutritionLimits } from './nutrition.js';
 // Categories help ranking; they are not a substitute for the name of a dish.
 const clean = (value, limit = 500) => String(value || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').trim().slice(0, limit);
 const GLUED_NEGATED_DISH = /(?<![\p{L}\p{N}])не(?=(?:суп|борщ|похлеб|щи|салат|десерт|пицц|паст|макарон)\p{L}*)/giu;
@@ -23,8 +24,8 @@ export const mealRequestSchema = { type: ['object', 'null'], additionalPropertie
     description: { type: 'string' }, importance: { type: 'string', enum: ['required', 'preferred'] }
   }, required: ['description', 'importance'] } },
   excludedIngredients: { type: 'array', items: { type: 'string' } }, methods: { type: 'array', items: { type: 'string', enum: ['гриль', 'духовка', 'пар', 'сковорода'] } },
-  maxMinutes: { type: ['integer', 'null'] }, servings: { type: ['integer', 'null'] }
-}, required: ['text', 'kind', 'confidence', 'dish', 'requiredIngredients', 'semanticCriteria', 'excludedIngredients', 'methods', 'maxMinutes', 'servings'] };
+  maxMinutes: { type: ['integer', 'null'] }, servings: { type: ['integer', 'null'] }, nutritionLimits: nutritionLimitsSchema
+}, required: ['text', 'kind', 'confidence', 'dish', 'requiredIngredients', 'semanticCriteria', 'excludedIngredients', 'methods', 'maxMinutes', 'servings', 'nutritionLimits'] };
 const ignored = new Set(['с', 'со', 'из', 'и', 'по', 'на', 'в', 'для']);
 const forms = [
   /^(?:стейк|рибай|стриплойн|тибон|ribeye|steak)/u,
@@ -70,10 +71,11 @@ export function normalizeMealRequest(raw) {
   const dish = kind === 'open' ? '' : normalizedDish;
   const result = { text: clean(raw.text), kind, confidence, dish, requiredIngredients: list(raw.requiredIngredients),
     semanticCriteria: semanticCriteria(raw.semanticCriteria, raw.novelty),
+    nutritionLimits: normalizeNutritionLimits({ ...normalizeNutritionLimits(raw.nutritionLimits), ...parseNutritionLimits(raw.text || '').limits }),
     excludedIngredients: list(raw.excludedIngredients), methods: list(raw.methods),
     maxMinutes: Number.isInteger(raw.maxMinutes) && raw.maxMinutes >= 5 && raw.maxMinutes <= 180 ? raw.maxMinutes : null,
     servings: Number.isInteger(raw.servings) && raw.servings >= 1 && raw.servings <= 10 ? raw.servings : null };
-  return result.text || result.dish || result.requiredIngredients.length || result.excludedIngredients.length || result.methods.length || result.maxMinutes ? result : null;
+  return result.text || result.dish || result.requiredIngredients.length || result.excludedIngredients.length || result.methods.length || result.maxMinutes || result.nutritionLimits ? result : null;
 }
 
 // Strip conversational framing before extracting ingredients: otherwise a word
@@ -91,7 +93,8 @@ function stripRequestFraming(text) {
 export function parseMealRequest(text) {
   const source = normalizeMealText(text);
   if (!source) return null;
-  let rest = stripRequestFraming(source);
+  const nutrition = parseNutritionLimits(source);
+  let rest = stripRequestFraming(nutrition.stripped);
   const people = source.match(/(?:на|для)\s*(\d+|одного|двоих|троих|четверых|пятерых|шестерых)/u);
   const servings = people ? Number(people[1]) || ({ одного: 1, двоих: 2, троих: 3, четверых: 4, пятерых: 5, шестерых: 6 })[people[1]] : null;
   const excludedIngredients = [], requiredIngredients = [], methods = [], negativeDishCriteria = [];
@@ -120,7 +123,7 @@ export function parseMealRequest(text) {
     .replace(/[,.!?;:]+/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (/^(?:говядина|говядину|курица|курицу|свинина|свинину|рыба|рыбу|рис|фарш|индейка|индейку)$/u.test(rest)) { requiredIngredients.push(rest); rest = ''; }
   if (/^(?:мясо|азиатское|домашнее)$/u.test(rest)) rest = '';
-  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, semanticCriteria: negativeDishCriteria, excludedIngredients, methods, maxMinutes, servings });
+  return normalizeMealRequest({ text: source, kind: rest ? 'exact' : 'open', confidence: null, dish: rest, requiredIngredients, semanticCriteria: negativeDishCriteria, excludedIngredients, methods, maxMinutes, servings, nutritionLimits: nutrition.limits });
 }
 
 export function mergeMealRequests(before, patch, replace = false) {
@@ -130,12 +133,13 @@ export function mergeMealRequests(before, patch, replace = false) {
   if (!a) return b;
   return normalizeMealRequest({ text: `${a.text}; ${b.text}`, kind: b.dish ? b.kind : a.kind, confidence: b.dish ? b.confidence : a.confidence, dish: b.dish || a.dish, semanticCriteria: [...a.semanticCriteria, ...b.semanticCriteria],
     requiredIngredients: [...a.requiredIngredients, ...b.requiredIngredients], excludedIngredients: [...a.excludedIngredients, ...b.excludedIngredients],
-    methods: [...a.methods, ...b.methods], maxMinutes: b.maxMinutes ?? a.maxMinutes, servings: b.servings ?? a.servings });
+    methods: [...a.methods, ...b.methods], maxMinutes: b.maxMinutes ?? a.maxMinutes, servings: b.servings ?? a.servings, nutritionLimits: { ...a.nutritionLimits, ...b.nutritionLimits } });
 }
 
 export function matchesMealRequest(recipe, raw) {
   const request = normalizeMealRequest(raw);
   if (!request) return true;
+  if (!matchesNutritionLimits(recipe, request.nutritionLimits)) return false;
   if (request.servings && (!Number.isInteger(recipe.servings) || recipe.servings < request.servings)) return false;
   // Dish identity is checked in the title, never in a tag or a passing mention.
   // Low-confidence classification is a soft hint: hard filters must not turn
@@ -156,6 +160,7 @@ export function matchesMealRequest(recipe, raw) {
 export function matchesObjectiveMealRequest(recipe, raw) {
   const request = normalizeMealRequest(raw);
   if (!request) return true;
+  if (!matchesNutritionLimits(recipe, request.nutritionLimits)) return false;
   if (request.servings && (!Number.isInteger(recipe.servings) || recipe.servings < request.servings)) return false;
   if (request.maxMinutes && (!Number.isFinite(recipe.prepMinutes) || !Number.isFinite(recipe.cookMinutes) || recipe.prepMinutes + recipe.cookMinutes > request.maxMinutes)) return false;
   return true;

@@ -1,4 +1,4 @@
-import { listRecipes, saveDinnerRecipe } from './db.js';
+import { listRecipes, saveDinnerRecipe, withNutrition } from './db.js';
 import { config } from './config.js';
 import { getSubscriptionAccess, requireUnexpiredTrial, requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
 import { randomUUID } from 'node:crypto';
@@ -226,7 +226,7 @@ export async function nextDinner(userId, ids, options) {
   return recommendDinner(userId, result.sessionId, options);
 }
 
-export function getDinnerRecipe(userId, key) { return recipeForDecision(userId, key); }
+export function getDinnerRecipe(userId, key) { return withNutrition(recipeForDecision(userId, key)); }
 
 export function rejectDinnerBatch(userId, ids) {
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length || ids.some((id) => typeof id !== 'string')) throw badRequest('Неверные варианты ужина');

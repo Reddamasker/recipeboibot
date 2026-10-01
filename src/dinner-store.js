@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db, saveDinnerRecipe, saveDinnerRecipeImage } from './db.js';
+import { db, saveDinnerRecipe, saveDinnerRecipeImage, withNutrition } from './db.js';
 import { normalizeMealRequest } from './meal-request.js';
 
 db.exec(`
@@ -262,7 +262,7 @@ const parseOption = (row) => {
   if (!row) return null;
   const option = JSON.parse(row.option_json);
   return { ...option, id: row.id, state: row.state, imageState: row.image_state,
-    recipe: { ...option.recipe, ...(row.has_image ? { thumbnailUrl: `/dinner-images/${row.id}`, imageGenerated: true } : {}) } };
+    recipe: withNutrition({ ...option.recipe, ...(row.has_image ? { thumbnailUrl: `/dinner-images/${row.id}`, imageGenerated: true } : {}) }) };
 };
 export function listDinnerOptions(userId, sessionId) {
   return db.prepare(`SELECT ${optionColumns} FROM dinner_options o WHERE user_id=? AND session_id=? ORDER BY rowid`).all(userId, sessionId).map(parseOption);

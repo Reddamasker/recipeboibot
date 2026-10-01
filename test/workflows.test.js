@@ -122,6 +122,7 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   assert.ok(borscht.recipe.servings >= 4);
 
   const recipe = { ...normalizedRecipe('Арбузный суп'), servings: 2, prepMinutes: 10, cookMinutes: 15,
+    nutrition: { calories: 45, protein: 0.9, fat: 0.2, carbs: 11.4, basis: 'serving', source: 'calculated', servings: 2 },
     ingredients: [{ name: 'арбуз', raw: 'арбуз', quantity: 300, unit: 'г', comment: null }] };
   let input;
   const result = await resolve(owner.id, 'хочу арбузный суп', { generate: async (value) => { input = value; return recipe; } });
@@ -1134,7 +1135,8 @@ test('recipe detail exposes sharing to the owner and a read-only public view', (
   const css = fs.readFileSync(path.resolve('public/refinements.css'), 'utf8');
   assert.match(app, /id="share">Поделиться/);
   assert.match(app, /shared-recipe-images\\\/\[A-Za-z0-9_-\]\{32\}/);
-  assert.match(app, /detail-heading-tools[^`]*\$\{editButton\}/);
+  assert.match(app, /detail-management[^`]*\$\{editButton\}/);
+  assert.doesNotMatch(app, /detail-heading-tools/);
   assert.match(app, /\? '\/api\/dinner\/recipes' : '\/api\/recipes'/);
   assert.match(app, /\$\{route\}\/\$\{encodeURIComponent\(recipe\.id\)\}\/share/);
   assert.match(app, /\/api\/shares\/\$\{encodeURIComponent\(token\)\}/);

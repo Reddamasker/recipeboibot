@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
+import { recipeNutrition, normalizeNutrition, nutritionKey } from './nutrition.js';
 
 fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
 export const db = new DatabaseSync(config.databasePath);
@@ -172,6 +173,22 @@ ensureColumn('provider_requests', 'client_request_id', 'TEXT');
 ensureColumn('provider_requests', 'incomplete_reason', 'TEXT');
 ensureColumn('provider_requests', 'retry_after', 'TEXT');
 ensureColumn('recipe_suggestions', 'request_json', 'TEXT');
+ensureColumn('recipes', 'nutrition_json', 'TEXT');
+db.exec('CREATE TABLE IF NOT EXISTS recipe_nutrition_cache (recipe_key TEXT PRIMARY KEY, nutrition_json TEXT NOT NULL)');
+export function cachedNutrition(recipe) {
+  const row = db.prepare('SELECT nutrition_json FROM recipe_nutrition_cache WHERE recipe_key=?').get(nutritionKey(recipe));
+  try { return row ? normalizeNutrition(JSON.parse(row.nutrition_json), recipe) : null; } catch { return null; }
+}
+export function cacheNutrition(recipe, nutrition) {
+  const normalized = normalizeNutrition(nutrition, recipe);
+  if (!normalized) throw new Error('Некорректное КБЖУ');
+  db.prepare('INSERT INTO recipe_nutrition_cache(recipe_key,nutrition_json) VALUES(?,?) ON CONFLICT(recipe_key) DO UPDATE SET nutrition_json=excluded.nutrition_json').run(nutritionKey(recipe), JSON.stringify(normalized));
+  return normalized;
+}
+export function withNutrition(recipe) {
+  if (!recipe) return recipe;
+  return { ...recipe, nutrition: normalizeNutrition(recipe.nutrition, recipe) || cachedNutrition(recipe) || recipeNutrition(recipe) };
+}
 db.exec(`
 CREATE UNIQUE INDEX IF NOT EXISTS recipes_owner_source_key ON recipes(user_id, source_key) WHERE source_key IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_owner_source_key ON import_jobs(user_id, source_key) WHERE source_key IS NOT NULL;
@@ -201,9 +218,10 @@ for (const row of db.prepare('SELECT id,source_url,thumbnail_url FROM recipes WH
 }
 
 const now = () => new Date().toISOString();
-const parseRecipe = (row) => row ? ({
+const parseRecipe = (row) => row ? withNutrition({
   ...row,
   servings: row.servings ?? null,
+  nutrition: row.nutrition_json ? JSON.parse(row.nutrition_json) : null,
   prepMinutes: row.prep_minutes ?? null,
   cookMinutes: row.cook_minutes ?? null,
   ingredients: JSON.parse(row.ingredients_json),
@@ -391,7 +409,7 @@ const parseSuggestion = (row) => {
   if (!row) return null;
   let mealRequest = null;
   try { mealRequest = row.request_json ? JSON.parse(row.request_json) : null; } catch { /* legacy/corrupt metadata falls back to parsing the query */ }
-  return { id: row.id, query: row.query, mealRequest, recipe: { ...JSON.parse(row.recipe_json), ...(row.has_image ? { thumbnailUrl: `/suggestion-images/${row.id}`, imageGenerated: true } : {}) }, recipeId: row.recipe_id, createdAt: row.created_at };
+  return { id: row.id, query: row.query, mealRequest, recipe: withNutrition({ ...JSON.parse(row.recipe_json), ...(row.has_image ? { thumbnailUrl: `/suggestion-images/${row.id}`, imageGenerated: true } : {}) }), recipeId: row.recipe_id, createdAt: row.created_at };
 };
 export function getRecipeSuggestion(userId, id) {
   const row = db.prepare('SELECT s.*, EXISTS(SELECT 1 FROM recipe_suggestion_images i WHERE i.suggestion_id=s.id) AS has_image FROM recipe_suggestions s WHERE s.id=? AND s.user_id=?').get(id, userId);
@@ -491,6 +509,8 @@ export function createRecipe(userId, input) {
       JSON.stringify(input.tags || []), JSON.stringify(input.warnings || []), input.sourceUrl || null, input.sourceKey || null, input.sourceType || 'text', input.sourceName || null,
       input.thumbnailUrl || null, input.notes || '', at, at
     );
+  const nutrition = recipeNutrition(input);
+  if (nutrition) db.prepare('UPDATE recipes SET nutrition_json=? WHERE id=?').run(JSON.stringify(nutrition), id);
   return getRecipe(userId, id);
 }
 
@@ -530,6 +550,7 @@ const publicRecipe = (recipe, sharedBy, thumbnailUrl = recipe.thumbnailUrl) => (
   title: recipe.title,
   description: recipe.description,
   servings: recipe.servings,
+  nutrition: withNutrition(recipe).nutrition,
   prepMinutes: recipe.prepMinutes,
   cookMinutes: recipe.cookMinutes,
   ingredients: recipe.ingredients,
@@ -569,7 +590,7 @@ export function getSharedRecipe(token) {
   const dinner = db.prepare(`SELECT s.recipe_json,u.display_name AS shared_by
     FROM dinner_recipe_shares s JOIN users u ON u.id=s.user_id WHERE s.token=?`).get(String(token));
   if (!dinner) return null;
-  return { ...JSON.parse(dinner.recipe_json), sharedBy: dinner.shared_by };
+  return withNutrition({ ...JSON.parse(dinner.recipe_json), sharedBy: dinner.shared_by });
 }
 export function getSharedRecipeImage(token) {
   return db.prepare('SELECT image_mime AS mime,image_bytes AS bytes FROM dinner_recipe_shares WHERE token=? AND image_bytes IS NOT NULL').get(String(token));
@@ -578,11 +599,14 @@ export function updateRecipe(userId, id, input) {
   const current = getRecipe(userId, id);
   if (!current) return null;
   const next = { ...current, ...input };
+  const changed = next.servings !== current.servings || JSON.stringify(next.ingredients) !== JSON.stringify(current.ingredients) || JSON.stringify(next.steps) !== JSON.stringify(current.steps);
+  const nutrition = recipeNutrition(changed ? { ...next, nutrition: input.nutrition || null } : next);
   db.prepare(`UPDATE recipes SET status=?,title=?,description=?,servings=?,prep_minutes=?,cook_minutes=?,ingredients_json=?,steps_json=?,tags_json=?,warnings_json=?,source_url=?,source_name=?,notes=?,updated_at=? WHERE id=? AND user_id=?`).run(
     next.status, next.title, next.description || '', next.servings ?? null, next.prepMinutes ?? null, next.cookMinutes ?? null,
     JSON.stringify(next.ingredients || []), JSON.stringify(next.steps || []), JSON.stringify(next.tags || []), JSON.stringify(next.warnings || []),
     next.sourceUrl || null, next.sourceName || null, next.notes || '', now(), id, userId
   );
+  db.prepare('UPDATE recipes SET nutrition_json=? WHERE id=? AND user_id=?').run(nutrition ? JSON.stringify(nutrition) : null, id, userId);
   return getRecipe(userId, id);
 }
 export function archiveRecipe(userId, id) { return db.prepare("UPDATE recipes SET status='archived',updated_at=? WHERE id=? AND user_id=?").run(now(), id, userId).changes > 0; }

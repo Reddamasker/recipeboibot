@@ -389,7 +389,9 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
 async function sendFirstFreeRecipe(chatId, recipe) {
   const ingredients = (recipe.ingredients || []).map(item => [item.quantity, item.unit, item.name || item.raw].filter(value => value !== null && value !== undefined && value !== '').join(' ')).join('\n');
   const steps = (recipe.steps || []).map((step, index) => `${index + 1}. ${step.text || step}`).join('\n');
-  const detail = `${recipe.title}${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}`;
+  const n = recipe.nutrition;
+  const nutrition = n ? `\n${n.calories} ккал · Б ${n.protein} г · Ж ${n.fat} г · У ${n.carbs} г${n.source === 'calculated' ? '\nПримерный расчёт' : ''}` : '';
+  const detail = `${recipe.title}${nutrition}${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}`;
   await send(chatId, escapeHtml(detail.slice(0, 3500)), { reply_markup: recipeButton(recipe) });
 }
 

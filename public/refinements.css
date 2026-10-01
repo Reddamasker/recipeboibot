@@ -88,6 +88,18 @@ a.source-chip { min-height: 44px; }
 .detail-stat + .detail-stat { border-left: 1px solid var(--line); }
 .detail-stat strong { font: 700 22px/1 Georgia, serif; }
 .detail-stat span { overflow: hidden; color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.detail-stats { display: grid; grid-template-columns: 1.8fr 1fr 1.2fr; }
+.detail-stat { align-content: start; padding: 16px 10px; }
+.detail-stat > span { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.detail-nutrition strong small { font: 400 12px/1.2 Inter, "Segoe UI", system-ui, sans-serif; }
+.detail-macros { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 4px; }
+.detail-macros span { color: var(--ink); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; overflow: visible; }
+.detail-macros small { font-size: 11px; font-weight: 400; color: var(--muted); }
+.nutrition-note { color: var(--muted); font-size: 11px; }
+.nutrition-note summary { min-height: 44px; padding: 12px 0 8px; cursor: pointer; }
+.nutrition-note p { margin: 0; font-size: 12px; line-height: 1.5; }
+.detail-management { margin-top: 22px; display: flex; justify-content: flex-end; }
+@media (max-width: 370px) { .detail-stat { padding: 14px 4px; } .detail-macros { gap: 6px; } }
 .recipe-tags { margin-top: 17px; display: flex; flex-wrap: wrap; gap: 7px; }
 .recipe-tag { border: 0; border-radius: 999px; padding: 8px 11px; background: var(--lilac); color: var(--ink); font-size: 10px; font-weight: 800; cursor: pointer; }
 .recipe-tag:active { background: transparent; }

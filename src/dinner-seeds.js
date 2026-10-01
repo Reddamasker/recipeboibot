@@ -1,13 +1,15 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
+import { recipeNutrition } from './nutrition.js';
 const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null) => {
   const [prepMinutes, cookMinutes] = Array.isArray(timing) ? timing : [5, timing - 5];
-  return {
+  const recipe = {
     id: `seed:${id}`, title, description, prepMinutes, cookMinutes, servings,
     tags, mainIngredients, discovery, ingredients: ingredients.map(([name, quantity, unit]) => ({ name, raw: name, quantity, unit })),
     steps: steps.map((text, index) => ({ position: index + 1, text })),
     sourceName: 'Подборка «Твоих рецептов»', sourceUrl: null, thumbnailUrl: `/assets/dinner/${id}.jpg`,
     imageGenerated: true, origin: 'seed', userSaved: false
   };
+  return { ...recipe, nutrition: recipeNutrition(recipe) };
 };
 const chickenDone = 'Проверьте термометром: в самой толстой части курицы должно быть не менее 74 °C.';
 const meatDone = 'Доведите мясо минимум до 63 °C в середине и дайте ему отдохнуть 3 минуты перед подачей.';

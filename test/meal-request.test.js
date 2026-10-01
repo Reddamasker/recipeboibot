@@ -160,7 +160,7 @@ test('unusual minced-beef request is judged semantically instead of trusting rec
 test('generated recipe must pass an independent semantic verdict and retries once with feedback', async () => {
   const owner = user(), query = 'предложи необычное с романеско';
   const mealRequest = normalizeMealRequest({ text: query, kind: 'open', confidence: 'high', dish: '', requiredIngredients: ['романеско'], semanticCriteria: [{ description: 'необычное незаезженное блюдо', importance: 'required' }], excludedIngredients: [], methods: [], maxMinutes: null, servings: null });
-  const ordinary = { ...steak(), title: 'Романеско с фаршем', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'говяжий фарш', quantity: 300, unit: 'г' }] };
+  const ordinary = { ...steak(), nutrition: { calories: 180, protein: 16, fat: 11, carbs: 4, basis: 'serving', source: 'calculated', servings: 4 }, title: 'Романеско с фаршем', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'говяжий фарш', quantity: 300, unit: 'г' }] };
   let attempts = 0;
   await assert.rejects(suggestions.resolveRecipeRequest(owner.id, query, { interpret: async () => mealRequest,
     generate: async ({ validationFeedback }) => { attempts++; if (attempts === 2) assert.ok(validationFeedback.length); return { ...ordinary, discovery: 'Мы назвали это необычным' }; },
@@ -231,7 +231,7 @@ test('semantic dinner classifier overrides a deterministic false dish and preser
 test('classified request is persisted with a suggestion and reused without reclassifying wording', async () => {
   const owner = user(), query = 'собери уютный вариант с романеско на свой вкус';
   let interpretations = 0;
-  const riceRecipe = { ...steak(), title: 'Романеско с овощами', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'овощи', quantity: 300, unit: 'г' }], tags: ['vegetables'] };
+  const riceRecipe = { ...steak(), nutrition: { calories: 45, protein: 3, fat: 0.5, carbs: 8, basis: 'serving', source: 'calculated', servings: 4 }, title: 'Романеско с овощами', ingredients: [{ name: 'романеско', quantity: 300, unit: 'г' }, { name: 'овощи', quantity: 300, unit: 'г' }], tags: ['vegetables'] };
   const result = await suggestions.resolveRecipeRequest(owner.id, query, {
     interpret: async () => { interpretations++; return normalizeMealRequest({ text: query, kind: 'open', confidence: 'high', dish: 'уютный вариант', requiredIngredients: ['романеско'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }); },
     generate: async (input) => { assert.equal(input.mealRequest.kind, 'open'); assert.equal(input.mealRequest.dish, ''); return riceRecipe; }, validate: testSemanticValidator
@@ -255,7 +255,7 @@ test('semantic exact and low-confidence classifications have different title str
   const uncertainOwner = user();
   const result = await suggestions.resolveRecipeRequest(uncertainOwner.id, 'хочется чего-то вроде жаркого с трюфелем', {
     interpret: async () => normalizeMealRequest({ text: 'хочется чего-то вроде жаркого с трюфелем', kind: 'exact', confidence: 'low', dish: 'жаркое', requiredIngredients: ['трюфель'], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }),
-    generate: async () => ({ ...steak(), ingredients: [...steak().ingredients, { name: 'трюфель', quantity: 5, unit: 'г' }] }), validate: testSemanticValidator
+    generate: async () => ({ ...steak(), nutrition: { calories: 455, protein: 38, fat: 32, carbs: 1, basis: 'serving', source: 'calculated', servings: 4 }, ingredients: [...steak().ingredients, { name: 'трюфель', quantity: 5, unit: 'г' }] }), validate: testSemanticValidator
   });
   assert.equal(result.kind, 'generated');
   assert.equal(result.suggestion.mealRequest.confidence, 'low');
