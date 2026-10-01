@@ -5,7 +5,7 @@ import { extractDinnerIntake, transcribeAudio, interpretRecipeDialogue } from '.
 import { getRecipe, saveDinnerRecipe } from './db.js';
 import { getDinnerHistory } from './dinner-store.js';
 import { normalizeMealRequest, parseMealRequest } from './meal-request.js';
-import { getRecipeDialogue, getSuggestionDialogue, createRecipeDialogue, updateRecipeDialogue, activateRecipeDialogue, clearRecipeDialogue, localDialogueAction, refineDialogueRequest, rejectDialogueRecipe } from './recipe-dialogue.js';
+import { getRecipeDialogue, getSuggestionDialogue, createRecipeDialogue, updateRecipeDialogue, clearRecipeDialogue, localDialogueAction, refineDialogueRequest, rejectDialogueRecipe } from './recipe-dialogue.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
@@ -391,8 +391,10 @@ function dialogueButtons(userId, dialogue) {
   // Keep explicit save/skip semantics for generated proposals.
   if (dialogue.suggestionId && !dialogue.savedRecipeId && !dialogue.notSaved) rows.push([{ text: 'Сохранить', callback_data: `suggest:save:${dialogue.suggestionId}` }, { text: 'Не сохранять', callback_data: `suggest:skip:${dialogue.suggestionId}` }]);
   else if (!dialogue.suggestionId && !getRecipe(userId, dialogue.recipe.id)) rows.push([{ text: 'Сохранить', callback_data: `dialog:save:${dialogue.id}` }]);
-  rows.push([{ text: 'Другой вариант', callback_data: `dialog:other:${dialogue.id}` }]);
-  rows.push([{ text: 'Изменить пожелания', callback_data: `dialog:edit:${dialogue.id}` }]);
+  if (!dialogue.retired) {
+    rows.push([{ text: 'Не хочу', callback_data: `dialog:refuse:${dialogue.id}` }, { text: 'Другой вариант', callback_data: `dialog:other:${dialogue.id}` }]);
+    rows.push([{ text: 'Изменить пожелания', callback_data: `dialog:edit:${dialogue.id}` }]);
+  }
   if (dialogue.suggestionId && !dialogue.savedRecipeId) rows.push([{ text: 'Открыть рецепт', callback_data: `dialog:open:${dialogue.id}` }]);
   else {
     const url = webAppUrl({ recipe: dialogue.savedRecipeId || dialogue.recipe.id });
@@ -403,9 +405,40 @@ function dialogueButtons(userId, dialogue) {
 
 function rejectionButtons(dialogue) {
   return { inline_keyboard: [
+    [{ text: 'Не хочу', callback_data: `dialog:other:${dialogue.id}` }],
     [{ text: 'Долго готовить', callback_data: `dialog:slow:${dialogue.id}` }, { text: 'Нет продуктов', callback_data: `dialog:missing:${dialogue.id}` }],
-    [{ text: 'Недавно ели', callback_data: `dialog:recent:${dialogue.id}` }, { text: 'Не нравится', callback_data: `dialog:dislike:${dialogue.id}` }]
+    [{ text: 'Недавно ели', callback_data: `dialog:recent:${dialogue.id}` }, { text: 'Не нравится', callback_data: `dialog:dislike:${dialogue.id}` }],
+    [{ text: 'Отмена', callback_data: `dialog:cancel:${dialogue.id}` }]
   ] };
+}
+
+async function retireDialoguePrompt(chatId, userId, dialogue, text = 'Уточнение завершено.') {
+  if (!dialogue) return;
+  updateRecipeDialogue(userId, dialogue.id, { awaitingEdit: false, promptKind: null, promptMessageId: null });
+  if (!dialogue.promptMessageId) return;
+  try {
+    await telegram('editMessageText', { chat_id: chatId, message_id: dialogue.promptMessageId, text, reply_markup: { inline_keyboard: [] } });
+  } catch (error) { log('warn', 'telegram_dialogue_prompt_retire_failed', { userId, error }); }
+}
+
+async function retireDialogueCard(chatId, userId, dialogue) {
+  if (!dialogue) return;
+  const updated = updateRecipeDialogue(userId, dialogue.id, { retired: true });
+  if (!dialogue.messageId) return;
+  try {
+    await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: dialogue.messageId, reply_markup: dialogueButtons(userId, updated) });
+  } catch (error) { log('warn', 'telegram_dialogue_card_retire_failed', { userId, error }); }
+}
+
+async function sendDialoguePrompt(chatId, userId, dialogue, kind, text, reply_markup) {
+  await retireDialoguePrompt(chatId, userId, getRecipeDialogue(userId, dialogue.id), 'Предыдущее уточнение отменено.');
+  const sent = await send(chatId, text, { reply_markup });
+  updateRecipeDialogue(userId, dialogue.id, { promptKind: kind, promptMessageId: sent?.message_id || null,
+    awaitingEdit: kind === 'missing' ? 'missing' : kind === 'edit' });
+}
+
+function rememberDialogueCard(options, sent) {
+  if (options.dialogue) updateRecipeDialogue(options.userId, options.dialogue.id, { messageId: sent?.message_id || null });
 }
 
 async function sendRecipeCard(chatId, recipe, options = {}) {
@@ -413,10 +446,11 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
   const reply_markup = options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe, options);
   const photo = recipe.thumbnailUrl?.startsWith('/assets/dinner/') && config.appUrl ? new URL(recipe.thumbnailUrl, config.appUrl).toString() : recipe.thumbnailUrl;
   if (photo) {
-    try { await telegram('sendPhoto', { chat_id: chatId, photo, caption, parse_mode: 'HTML', reply_markup }); return; }
+    try { const sent = await telegram('sendPhoto', { chat_id: chatId, photo, caption, parse_mode: 'HTML', reply_markup }); rememberDialogueCard(options, sent); return; }
     catch (error) { log('warn', 'telegram_preview_failed', { error, recipeId: recipe.id }); }
   }
-  await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
+  const sent = await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
+  rememberDialogueCard(options, sent);
 }
 
 async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
@@ -426,7 +460,8 @@ async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
   const n = recipe.nutrition;
   const nutrition = n ? `\n${n.calories} ккал · Б ${n.protein} г · Ж ${n.fat} г · У ${n.carbs} г${n.source === 'calculated' ? '\nПримерный расчёт' : ''}` : '';
   const detail = `${recipe.title}${nutrition}${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}`;
-  await send(chatId, escapeHtml(detail.slice(0, 3500)), { reply_markup: options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe) });
+  const sent = await send(chatId, escapeHtml(detail.slice(0, 3500)), { reply_markup: options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe) });
+  rememberDialogueCard(options, sent);
 }
 
 function captureDinnerDialogue(userId, recipe) {
@@ -438,9 +473,12 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   if (!groupMode) {
-    await send(chatId, feedbackText || (sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`), { reply_markup: previous && feedbackText?.startsWith('Исключаю') ? rejectionButtons(previous) : mainKeyboard() });
+    const active = getRecipeDialogue(user.id);
+    await retireDialoguePrompt(chatId, user.id, active, 'Уточнение отменено: начат новый подбор.');
+    await send(chatId, feedbackText || (sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`), { reply_markup: mainKeyboard() });
     try {
       const result = await resolveRecipeRequest(user.id, normalizedQuery, { mealRequest, rejectedRecipes });
+      await retireDialogueCard(chatId, user.id, active);
       const dialogue = createRecipeDialogue(user.id, { query: result.query || normalizedQuery,
         mealRequest: result.mealRequest || parseMealRequest(normalizedQuery), rejectedRecipes,
         recipe: result.recipe || result.suggestion.recipe, suggestionId: result.suggestion?.id || null,
@@ -522,6 +560,8 @@ async function saveDialogueRecipe(chatId, user, dialogue) {
 }
 
 async function applyDialogueAction(chatId, user, dialogue, decision, text) {
+  await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id, dialogue.id),
+    ['replace', 'refine', 'new', 'reset'].includes(decision.action) ? 'Уточнение закрыто: продолжаем подбор.' : 'Уточнение закрыто.');
   if (decision.action === 'save') { await saveDialogueRecipe(chatId, user, dialogue); return; }
   if (decision.action === 'skip-save') {
     if (dialogue.suggestionId) clearMatchingSuggestionIntent(user.id, dialogue.suggestionId);
@@ -582,7 +622,7 @@ async function handleRecipeDialogueText(chatId, user, text, dialogue) {
 }
 
 export async function handleRecipeDialogueCallback(callback) {
-  const match = String(callback.data || '').match(/^dialog:(other|edit|open|save|slow|missing|recent|dislike):([0-9a-f-]{36})$/iu);
+  const match = String(callback.data || '').match(/^dialog:(refuse|other|edit|open|save|slow|missing|recent|dislike|cancel):([0-9a-f-]{36})$/iu);
   if (!match) return false;
   if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from?.id)) return true;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
@@ -590,20 +630,42 @@ export async function handleRecipeDialogueCallback(callback) {
   if (!dialogue) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт больше недоступен', show_alert: true }); return true;
   }
-  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   const active = getRecipeDialogue(user.id);
-  if (active && (active.taskId || active.id) === (dialogue.taskId || dialogue.id)) {
-    dialogue = { ...dialogue, rejectedRecipes: [...new Map([...(dialogue.rejectedRecipes || []), ...(active.rejectedRecipes || [])].map(item => [item.title, item])).values()] };
+  const action = match[1], readOrSave = ['open', 'save'].includes(action);
+  const reason = ['slow', 'missing', 'recent', 'dislike'].includes(action);
+  const fromPrompt = dialogue.promptMessageId && callback.message.message_id === dialogue.promptMessageId;
+  const staleCard = dialogue.messageId && callback.message.message_id !== dialogue.messageId && !fromPrompt;
+  if (!readOrSave && (!active || active.id !== dialogue.id || dialogue.retired || staleCard
+    || (reason && (dialogue.promptKind !== 'rejection' || !fromPrompt)) || (action === 'cancel' && !fromPrompt))) {
+    // Clean up legacy keyboards too; their message IDs were not stored by the
+    // earlier release, but the clicked callback gives us the exact message.
+    try {
+      if (reason || action === 'cancel') await telegram('editMessageText', { chat_id: chatId, message_id: callback.message.message_id,
+        text: 'Это уточнение закрыто. Продолжайте с последним рецептом.', reply_markup: { inline_keyboard: [] } });
+      else await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: callback.message.message_id,
+        reply_markup: dialogueButtons(user.id, { ...dialogue, retired: true }) });
+    } catch (error) { log('warn', 'telegram_stale_dialogue_buttons_cleanup_failed', { userId: user.id, error }); }
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id,
+      text: 'Это действие уже устарело. Используйте кнопки под последним рецептом.', show_alert: true });
+    return true;
   }
-  activateRecipeDialogue(user.id, dialogue.id);
-  if (match[1] === 'edit' || match[1] === 'missing') {
-    updateRecipeDialogue(user.id, dialogue.id, { awaitingEdit: match[1] === 'missing' ? 'missing' : true });
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  if (action === 'refuse') {
     clearPendingIntent(user.id);
-    await send(chatId, match[1] === 'missing'
+    await sendDialoguePrompt(chatId, user.id, dialogue, 'rejection',
+      `Не хотите «${escapeHtml(dialogue.recipe.title)}»? Можно выбрать причину или нажать «Не хочу» — подберу другой вариант с прежними условиями.`, rejectionButtons(dialogue));
+  } else if (action === 'cancel') {
+    await retireDialoguePrompt(chatId, user.id, dialogue, 'Уточнение отменено. Текущий рецепт и пожелания сохранены.');
+  } else if (action === 'edit' || action === 'missing') {
+    clearPendingIntent(user.id);
+    await sendDialoguePrompt(chatId, user.id, dialogue, action, action === 'missing'
       ? `Каких продуктов нет для «${escapeHtml(dialogue.recipe.title)}»? Напишите или скажите голосом — исключу их из текущего подбора.`
-      : `Текущие пожелания: <b>${escapeHtml(dialogue.query)}</b>.\nЧто изменить? Напишите или скажите голосом только изменения. Остальные условия сохраню.`);
-  } else if (match[1] === 'open') await sendFirstFreeRecipe(chatId, dialogue.recipe, { dialogue, userId: user.id });
-  else await handleRecipeDialogueText(chatId, user, ({ save: 'сохрани', slow: 'долго готовить', recent: 'недавно ели', dislike: 'не нравится' })[match[1]] || 'другой вариант', dialogue);
+      : `Текущие пожелания: <b>${escapeHtml(dialogue.query)}</b>.\nЧто изменить? Напишите или скажите голосом только изменения. Остальные условия сохраню.`,
+      { inline_keyboard: [[{ text: 'Отмена', callback_data: `dialog:cancel:${dialogue.id}` }]] });
+  } else if (action === 'open') {
+    // Opening an old recipe is read-only: it must not steal the active task.
+    await sendFirstFreeRecipe(chatId, dialogue.recipe, active?.id === dialogue.id ? { dialogue, userId: user.id } : {});
+  } else await handleRecipeDialogueText(chatId, user, ({ save: 'сохрани', slow: 'долго готовить', recent: 'недавно ели', dislike: 'не нравится' })[action] || 'другой вариант', dialogue);
   return true;
 }
 
@@ -806,12 +868,16 @@ export async function handleMessage(message) {
     if (isFirstStart) { await sendFirstDinnerEntry(chatId, user.id, 'start'); return; }
     const recentEntry = recentDinnerEntries.get(user.id);
     if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
+    await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: открыто главное меню.');
     await sendDinnerEntry(chatId, user.id);
     if (getFoodProfile(user.id).onboardingCompleted) await send(chatId, 'Выберите действие в меню или напишите, что хотите приготовить.', { reply_markup: mainKeyboard() });
     await sendTestOffer(chatId, user.id);
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
+  if (['/collection', '/preferences', '/save', '/dinner', '/ingredients'].includes(text)) {
+    await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: выбрано другое действие.');
+  }
   if (text === '/collection') {
     const url = webAppUrl({ view: 'collection' });
     await send(chatId, 'Ваши сохранённые рецепты.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть мои рецепты', web_app: { url } }]] } } : {}); return;
@@ -837,6 +903,11 @@ export async function handleMessage(message) {
     return;
   }
   if (text === '/cancel' && getRecipeDialogue(user.id)) {
+    const active = getRecipeDialogue(user.id);
+    if (active.promptKind) {
+      await retireDialoguePrompt(chatId, user.id, active, 'Уточнение отменено. Текущий рецепт и пожелания сохранены.');
+      return;
+    }
     clearPendingIntent(user.id); clearRecipeDialogue(user.id);
     await send(chatId, 'Подбор отменён. Можно начать новый через «Что приготовить».'); return;
   }

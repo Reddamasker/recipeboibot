@@ -103,8 +103,8 @@ test('dialogue survives another process and old cards remain owner scoped', asyn
   assert.equal(JSON.parse(child.stdout.trim()).id, later.id);
   await withProvider(async ({ sent }) => {
     await telegram.handleRecipeDialogueCallback({ id: 'edit-old', data: `dialog:edit:${d.id}`, from: u.from, message: { chat: u.chat, message_id: 1 } });
-    assert.ok(sent.at(-1).text.includes(request.text));
-    assert.equal(dialogueStore.getRecipeDialogue(u.owner.id).id, d.id);
+    assert.equal(sent.at(-1).show_alert, true);
+    assert.equal(dialogueStore.getRecipeDialogue(u.owner.id).id, later.id);
     await telegram.handleRecipeDialogueCallback({ id: 'foreign', data: `dialog:other:${d.id}`, from: other.from, message: { chat: other.chat, message_id: 1 } });
     assert.equal(sent.at(-1).show_alert, true);
     assert.equal(dialogueStore.getRecipeDialogue(other.owner.id), null);
@@ -225,14 +225,90 @@ test('missing ingredient and cooking time buttons refine their card without chan
   const d = dialogueStore.createRecipeDialogue(u.owner.id, { query: request.text, mealRequest: request,
     recipe: { ...recipe('Прежний вариант'), cookMinutes: 40 }, rejectedRecipes: [] });
   await withProvider(async () => {
-    await telegram.handleRecipeDialogueCallback({ id: 'missing', data: `dialog:missing:${d.id}`, from: u.from, message: { chat: u.chat, message_id: 1 } });
+    await telegram.handleRecipeDialogueCallback({ id: 'refuse', data: `dialog:refuse:${d.id}`, from: u.from, message: { chat: u.chat, message_id: 1 } });
+    const prompt = dialogueStore.getRecipeDialogue(u.owner.id);
+    await telegram.handleRecipeDialogueCallback({ id: 'missing', data: `dialog:missing:${d.id}`, from: u.from, message: { chat: u.chat, message_id: prompt.promptMessageId } });
     await telegram.handleMessage(u.message('рис'));
     const refined = dialogueStore.getRecipeDialogue(u.owner.id);
     assert.deepEqual(refined.mealRequest.excludedIngredients, ['рис']);
     assert.deepEqual(refined.mealRequest.requiredIngredients, ['фарш']);
-    await telegram.handleRecipeDialogueCallback({ id: 'slow', data: `dialog:slow:${d.id}`, from: u.from, message: { chat: u.chat, message_id: 1 } });
+    dialogueStore.updateRecipeDialogue(u.owner.id, refined.id, { recipe: { ...refined.recipe, cookMinutes: 40 } });
+    await telegram.handleRecipeDialogueCallback({ id: 'refuse-new', data: `dialog:refuse:${refined.id}`, from: u.from, message: { chat: u.chat, message_id: refined.messageId } });
+    const newPrompt = dialogueStore.getRecipeDialogue(u.owner.id);
+    await telegram.handleRecipeDialogueCallback({ id: 'slow', data: `dialog:slow:${refined.id}`, from: u.from, message: { chat: u.chat, message_id: newPrompt.promptMessageId } });
     assert.equal(dialogueStore.getRecipeDialogue(u.owner.id).mealRequest.maxMinutes, 30);
     assert.deepEqual(getFoodProfile(u.owner.id), before);
+  });
+});
+
+test('screenshot: an old refusal button cannot switch back to soboro after a new card', async () => {
+  const u = user();
+  await withProvider(async ({ sent, generations }) => {
+    await telegram.handleMessage(u.message('Подбери необычный ужин из фарша'));
+    const first = dialogueStore.getRecipeDialogue(u.owner.id);
+    const cb = (action, d, messageId = d.messageId) => ({ id: `${action}-${sent.length}`, data: `dialog:${action}:${d.id}`, from: u.from, message: { chat: u.chat, message_id: messageId } });
+    const firstCard = sent.find(item => item.caption?.includes(first.recipe.title) || item.text?.startsWith(`<b>${first.recipe.title}`));
+    assert.ok(firstCard.reply_markup.inline_keyboard.flat().some(item => item.text === 'Не хочу'));
+    await telegram.handleRecipeDialogueCallback(cb('other', first));
+    const second = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.notEqual(second.id, first.id);
+    assert.ok(sent.some(item => item.method === 'editMessageReplyMarkup' && item.message_id === first.messageId
+      && !item.reply_markup.inline_keyboard.flat().some(button => button.text === 'Другой вариант')));
+    // Legacy reason buttons from the previous release remain in Telegram history.
+    await telegram.handleRecipeDialogueCallback(cb('missing', first, 900));
+    assert.equal(sent.at(-1).show_alert, true);
+    assert.equal(dialogueStore.getRecipeDialogue(u.owner.id).id, second.id);
+    await telegram.handleRecipeDialogueCallback(cb('refuse', second));
+    const rejection = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.equal(rejection.promptKind, 'rejection');
+    assert.ok(sent.at(-1).reply_markup.inline_keyboard.flat().some(item => item.text === 'Не хочу'));
+    const before = generations.length;
+    await telegram.handleRecipeDialogueCallback(cb('missing', second, rejection.promptMessageId));
+    const missing = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.equal(missing.promptKind, 'missing');
+    assert.ok(sent.some(item => item.method === 'editMessageText' && item.message_id === rejection.promptMessageId));
+    await telegram.handleRecipeDialogueCallback(cb('other', second));
+    const third = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.notEqual(third.id, second.id);
+    assert.equal(third.promptKind, undefined);
+    assert.ok(sent.some(item => item.method === 'editMessageText' && item.message_id === missing.promptMessageId && item.reply_markup.inline_keyboard.length === 0));
+    const count = generations.length;
+    assert.ok(count > before);
+    await telegram.handleRecipeDialogueCallback(cb('other', second));
+    await telegram.handleRecipeDialogueCallback(cb('other', second, rejection.promptMessageId));
+    assert.equal(generations.length, count);
+    assert.equal(dialogueStore.getRecipeDialogue(u.owner.id).id, third.id);
+    await telegram.handleRecipeDialogueCallback(cb('open', first));
+    assert.equal(dialogueStore.getRecipeDialogue(u.owner.id).id, third.id);
+  });
+});
+
+test('one refusal prompt, optional generic refusal, and cancelling preserves the current recipe', async () => {
+  const u = user();
+  await withProvider(async ({ sent, calls }) => {
+    await telegram.handleMessage(u.message('Подбери необычный ужин из фарша'));
+    const first = dialogueStore.getRecipeDialogue(u.owner.id);
+    const cb = (action, id) => ({ id: `${action}-${sent.length}`, data: `dialog:${action}:${first.id}`, from: u.from, message: { chat: u.chat, message_id: id } });
+    await telegram.handleRecipeDialogueCallback(cb('refuse', first.messageId));
+    const older = dialogueStore.getRecipeDialogue(u.owner.id);
+    await telegram.handleRecipeDialogueCallback(cb('refuse', first.messageId));
+    const newer = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.notEqual(older.promptMessageId, newer.promptMessageId);
+    assert.ok(sent.some(item => item.method === 'editMessageText' && item.message_id === older.promptMessageId));
+    const count = calls.length;
+    await telegram.handleRecipeDialogueCallback(cb('other', older.promptMessageId));
+    assert.equal(sent.at(-1).show_alert, true);
+    assert.equal(calls.length, count);
+    await telegram.handleRecipeDialogueCallback(cb('cancel', newer.promptMessageId));
+    const cancelled = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.equal(cancelled.id, first.id);
+    assert.equal(cancelled.promptKind, null);
+    assert.equal(cancelled.awaitingEdit, false);
+    assert.deepEqual(cancelled.rejectedRecipes, []);
+    await telegram.handleRecipeDialogueCallback(cb('refuse', first.messageId));
+    const latest = dialogueStore.getRecipeDialogue(u.owner.id);
+    await telegram.handleRecipeDialogueCallback(cb('other', latest.promptMessageId));
+    assert.notEqual(dialogueStore.getRecipeDialogue(u.owner.id).id, first.id);
   });
 });
 
