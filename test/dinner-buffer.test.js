@@ -13,7 +13,7 @@ const { db, upsertTelegramUser: rawUpsertTelegramUser, listRecipes, getRecipeIma
 const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner } = await import('../src/dinner-service.js');
 const { SEED_RECIPES, hasExcludedIngredient, recipeCategories } = await import('../src/dinner.js');
 const { backfillAcceptedDinnerRecipes, listDinnerOptions, setDinnerContext, setDinnerOptionImage } = await import('../src/dinner-store.js');
-const { validateGeneratedDinner } = await import('../src/dinner-buffer.js');
+const { validateGeneratedDinner, rotateDinnerCandidates, dinnerContextKey } = await import('../src/dinner-buffer.js');
 const { extractDinnerIntake, generateDinnerRecipes } = await import('../src/openai.js');
 const { startTrial } = await import('../src/subscriptions.js');
 const upsertTelegramUser = (telegram) => { const user = rawUpsertTelegramUser(telegram); startTrial(user.id); return user; };
@@ -415,4 +415,42 @@ test('AI dinner intake extracts explicit likes and dislikes separately from excl
     assert.equal(result.replaceRequestedCategories, true);
     assert.deepEqual(result.excludedIngredients, ['орехи']);
   } finally { globalThis.fetch = original; }
+});
+
+
+test('dinner rotation avoids recent titles across IDs and reuses oldest only when needed', () => {
+  const now = Date.now();
+  const ranked = SEED_RECIPES.slice(0, 8).map((recipe, i) => ({ recipe, score: 100 - i }));
+  const shown = ranked.slice(0, 5).map((item, i) => ({ recipe: { ...item.recipe, id: 'other:' + i }, createdAt: new Date(now - (i + 1) * 86400000).toISOString() }));
+  assert.deepEqual(rotateDinnerCandidates(ranked, shown, now), ranked.slice(5));
+  assert.deepEqual(rotateDinnerCandidates(ranked.slice(0, 6), shown, now), [ranked[5], ranked[4], ranked[3]]);
+  assert.deepEqual(rotateDinnerCandidates(ranked, shown, now + 8 * 86400000), ranked);
+});
+
+test('saved collection changes invalidate dinner buffer but history does not', () => {
+  const context = { profile: {}, pantry: [], saved: [SEED_RECIPES[0]] };
+  const key = dinnerContextKey(context);
+  assert.notEqual(key, dinnerContextKey({ ...context, saved: [...context.saved, SEED_RECIPES[1]] }));
+  assert.notEqual(key, dinnerContextKey({ ...context, saved: [{ ...context.saved[0], cookMinutes: 99 }] }));
+  assert.equal(key, dinnerContextKey({ ...context, recentShownRecipes: [{ recipe: SEED_RECIPES[0], createdAt: new Date().toISOString() }] }));
+});
+
+
+test('new dinner sessions rotate visible dishes while reopening keeps the current choice', async () => {
+  const user = upsertTelegramUser({ id: 62999, first_name: 'Rotation' });
+  updateDinnerProfile(user.id, { onboardingCompleted: true });
+  const generate = async () => { throw new Error('catalog should suffice'); };
+  const titles = new Set();
+  for (let day = 0; day < 3; day++) {
+    const session = startDinner(user.id).sessionId;
+    const result = await recommendDinner(user.id, session, { generate });
+    assert.equal(result.recommendations.length, 3);
+    for (const option of result.recommendations) {
+      assert.equal(titles.has(option.recipe.title), false);
+      titles.add(option.recipe.title);
+    }
+    const reopened = await recommendDinner(user.id, startDinner(user.id).sessionId, { generate });
+    assert.deepEqual(reopened.recommendations.map(o => o.id), result.recommendations.map(o => o.id));
+    db.prepare('UPDATE dinner_sessions SET opened_at=? WHERE id=?').run(new Date(Date.now() - 7 * 3600000).toISOString(), session);
+  }
 });

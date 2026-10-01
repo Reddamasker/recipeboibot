@@ -8,13 +8,13 @@ import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinner
 import { needsSemanticValidation } from './meal-request.js';
 import { recipeNutrition } from './nutrition.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 9, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 10, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const MAX_GENERATION_ATTEMPTS = 1;
 const fills = new Map(), imageTasks = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
 let activeImages = 0;
 const imageQueue = [];
-export const dinnerContextKey = ({ profile, pantry, requestedCategories = [], mealRequest = null, feedback = { simpleOnly: false, unavailableIngredients: [], avoidTitles: [] } }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories, mealRequest, feedback })).digest('hex');
+export const dinnerContextKey = ({ profile, pantry, requestedCategories = [], mealRequest = null, saved = [], feedback = { simpleOnly: false, unavailableIngredients: [], avoidTitles: [] } }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories, mealRequest, feedback, saved: saved.map(r => [r.id, r.title, r.ingredients, r.steps, r.servings, r.prepMinutes, r.cookMinutes]) })).digest('hex');
 const titleKey = (recipe) => String(recipe.title || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 export function duplicateDinner(recipe, existing) {
   const title = titleKey(recipe), words = new Set(title.split(' ').filter((w) => w.length > 3));
@@ -24,6 +24,17 @@ export function duplicateDinner(recipe, existing) {
     const overlap = [...words].filter((w) => other.has(w)).length;
     return Math.min(words.size, other.size) >= 3 && overlap / new Set([...words, ...other]).size >= 0.8;
   });
+}
+
+// Rotate across sessions and IDs, including saved copies of catalog dishes.
+export function rotateDinnerCandidates(ranked, recentShownRecipes = [], now = Date.now()) {
+  const lastShown = recipe => recentShownRecipes.reduce((last, shown) =>
+    duplicateDinner(recipe, [shown.recipe]) ? Math.max(last, Date.parse(shown.createdAt) || 0) : last, 0);
+  const fresh = ranked.filter(item => now - lastShown(item.recipe) >= 7 * 86400000);
+  if (fresh.length >= DINNER_BUFFER.visible) return fresh;
+  const repeated = ranked.filter(item => !fresh.includes(item))
+    .sort((a, b) => lastShown(a.recipe) - lastShown(b.recipe) || b.score - a.score);
+  return [...fresh, ...repeated.slice(0, DINNER_BUFFER.visible - fresh.length)];
 }
 
 export function validateGeneratedDinner(item, context) {
@@ -94,7 +105,7 @@ function fallbackFill(userId, sessionId, context, target = DINNER_BUFFER.total) 
   if (needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
   const previous = listDinnerOptions(userId, sessionId), excluded = [...context.rejected, ...previous.map((o) => o.recipe.id)];
   const candidates = [...context.saved, ...SEED_RECIPES].filter((r) => !duplicateDinner(r, previous.map((o) => o.recipe)));
-  let ranked = rankCandidates(candidates, { ...context, rejected: excluded });
+  let ranked = rotateDinnerCandidates(rankCandidates(candidates, { ...context, rejected: excluded }), context.recentShownRecipes);
   if (!context.pantry.length) ranked.sort((a, b) => Number(b.recipe.userSaved) - Number(a.recipe.userSaved) || b.score - a.score);
   while (ranked.length && activeCount(userId, sessionId) < target) {
     const preferredCategories = context.profile.preferredCategories || {};
@@ -164,7 +175,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
         attempts++;
         const needed = count - added;
         const result = await generate({ userId, count: needed, roles: missingRoles(userId, sessionId, needed), profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
-          requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, recentRecipes: [...context.recentRecipes, ...context.library.slice(0, 8).map((r) => r.title)].slice(0, 20),
+          requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, recentRecipes: [...context.recentRecipes, ...(context.recentShownRecipes || []).map(r => r.recipe.title)].slice(0, 20),
           rejectedTitles: [...prior.map((o) => o.recipe.title), ...attemptedTitles].slice(-40) });
         if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
         const generated = Array.isArray(result?.recipes) ? result.recipes : [];
@@ -181,7 +192,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
             semanticFailures.push({ title: valid.recipe.title, criteria: verdicts[index]?.failedCriteria || [] });
             continue;
           }
-          if (!valid || duplicateDinner(valid.recipe, existing)) continue;
+          if (!valid || duplicateDinner(valid.recipe, [...existing, ...(context.recentShownRecipes || []).filter(r => Date.now() - Date.parse(r.createdAt) < 7 * 86400000).map(r => r.recipe)])) continue;
           if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === valid.role).length >= DINNER_BUFFER.total / DINNER_BUFFER.visible) continue;
           const id = randomUUID(); valid.recipe.id = `dinner:${id}`;
           if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }

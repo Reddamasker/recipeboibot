@@ -159,12 +159,14 @@ export function dinnerContext(userId, sessionId) {
   const sessionMax = tooLong.length ? Math.max(5, Math.min(...tooLong) - 5) : null;
   const recentRecipes = history.filter((event) => ['recipe_cooked','recommendation_accepted'].includes(event.event) && Date.now() - Date.parse(event.createdAt) < 7 * 86400000)
     .slice(0, 20).map((event) => recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean);
+  const recentShownRecipes = history.filter(event => event.event === 'recommendation_shown')
+    .map(event => ({ recipe: recipeForDecision(userId, event.recipeKey), createdAt: event.createdAt })).filter(item => item.recipe);
   const reasons = history.filter((event) => event.sessionId === sessionId && event.event === 'dinner_rejection_reason');
   const feedback = { simpleOnly: reasons.some((event) => event.detail.reason === 'too_hard'),
     unavailableIngredients: [...new Set(reasons.flatMap((event) => event.detail.missingIngredients || []))],
     avoidTitles: history.filter((event) => event.event === 'dinner_rejection_reason' && ((event.sessionId === sessionId && ['not_today', 'other'].includes(event.detail.reason)) || (event.detail.reason === 'recently_ate' && Date.now() - Date.parse(event.createdAt) < 7 * 86400000))).map((event) => recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean) };
   return { profile: sessionMax ? { ...profile, preferredMaxCookingTime: Math.min(profile.preferredMaxCookingTime || Infinity, sessionMax) } : profile,
-    pantry, requestedCategories, mealRequest, feedback, library, saved, history, recentRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
+    pantry, requestedCategories, mealRequest, feedback, library, saved, history, recentRecipes, recentShownRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
 }
 
 function bufferResponse(userId, sessionId, buffer) {
