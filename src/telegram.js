@@ -34,9 +34,9 @@ const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: ch
 const mainKeyboard = () => {
   const dinnerUrl = webAppUrl({ view: 'dinner' }), collectionUrl = webAppUrl({ view: 'collection' });
   return { inline_keyboard: [
-    [{ text: '◇ Что на сегодня', ...(dinnerUrl ? { web_app: { url: dinnerUrl } } : { callback_data: 'menu:dinner' }) }],
-    [{ text: '› Хочу конкретное блюдо', callback_data: 'menu:find' }],
-    [{ text: '≡ Мои рецепты', ...(collectionUrl ? { web_app: { url: collectionUrl } } : { callback_data: 'menu:collection' }) }]
+    [{ text: 'Что на сегодня 🍽️', ...(dinnerUrl ? { web_app: { url: dinnerUrl } } : { callback_data: 'menu:dinner' }) }],
+    [{ text: 'Хочу конкретное блюдо 🎤', callback_data: 'menu:find' }],
+    [{ text: 'Мои рецепты 📖', ...(collectionUrl ? { web_app: { url: collectionUrl } } : { callback_data: 'menu:collection' }) }]
   ] };
 };
 
