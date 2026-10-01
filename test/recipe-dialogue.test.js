@@ -168,11 +168,16 @@ test('menu opens the daily trio, starts a separate dish request and opens collec
     assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=dinner/);
     database.setPendingIntent(u.owner.id, { kind: 'recipe-save' });
     dialogueStore.createRecipeDialogue(u.owner.id, { query: request.text, recipe: recipe('Первый'), mealRequest: request });
-    await telegram.handleMessage(u.message('Хочу конкретное блюдо'));
+    assert.equal(await telegram.handleMainMenuCallback({ id: 'foreign-menu', data: 'menu:find', from: { ...u.from, id: u.from.id + 1000 }, message: { chat: u.chat } }), false);
+    assert.equal(await telegram.handleMainMenuCallback({ id: 'dish-menu', data: 'menu:find', from: u.from, message: { chat: u.chat } }), true);
     assert.equal(dialogueStore.getRecipeDialogue(u.owner.id), null);
     assert.equal(database.getPendingIntent(u.owner.id), null);
     assert.match(sent.at(-1).text, /Надиктуйте голосовым сообщением/);
-    assert.deepEqual(sent.at(-1).reply_markup.keyboard.flat().map(button => button.text), ['Что на сегодня', 'Хочу конкретное блюдо', 'Мои рецепты']);
+    const buttons = sent.at(-1).reply_markup.inline_keyboard.flat();
+    assert.deepEqual(buttons.map(button => button.text), ['◇ Что на сегодня', '› Хочу конкретное блюдо', '≡ Мои рецепты']);
+    assert.match(buttons[0].web_app.url, /view=dinner/);
+    assert.equal(buttons[1].callback_data, 'menu:find');
+    assert.match(buttons[2].web_app.url, /view=collection/);
     await telegram.handleMessage(u.message('Мои рецепты'));
     assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=collection/);
     await telegram.handleMessage(u.message('/save'));

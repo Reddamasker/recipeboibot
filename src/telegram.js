@@ -30,8 +30,23 @@ async function telegram(method, body = {}) {
   return payload.result;
 }
 
-const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: mainKeyboard() } : {}), ...extra });
-const mainKeyboard = () => ({ keyboard: [[{ text: 'Что на сегодня' }], [{ text: 'Хочу конкретное блюдо' }], [{ text: 'Мои рецепты' }]], resize_keyboard: true, is_persistent: true });
+const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: { remove_keyboard: true } } : {}), ...extra });
+const mainKeyboard = () => {
+  const dinnerUrl = webAppUrl({ view: 'dinner' }), collectionUrl = webAppUrl({ view: 'collection' });
+  return { inline_keyboard: [
+    [{ text: '◇ Что на сегодня', ...(dinnerUrl ? { web_app: { url: dinnerUrl } } : { callback_data: 'menu:dinner' }) }],
+    [{ text: '› Хочу конкретное блюдо', callback_data: 'menu:find' }],
+    [{ text: '≡ Мои рецепты', ...(collectionUrl ? { web_app: { url: collectionUrl } } : { callback_data: 'menu:collection' }) }]
+  ] };
+};
+
+export async function handleMainMenuCallback(callback) {
+  const match = String(callback.data || '').match(/^menu:(dinner|find|collection)$/);
+  if (!match || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  await handleMessage({ from: callback.from, chat: callback.message.chat, text: `/${match[1]}` });
+  return true;
+}
 async function sendTestOffer(chatId, userId, force = false) {
   const mock = config.testContour && !billingAvailable();
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
@@ -870,7 +885,10 @@ export async function handleMessage(message) {
     if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
     await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: открыто главное меню.');
     await sendDinnerEntry(chatId, user.id);
-    if (getFoodProfile(user.id).onboardingCompleted) await send(chatId, 'Выберите действие в меню или напишите, что хотите приготовить.', { reply_markup: mainKeyboard() });
+    if (getFoodProfile(user.id).onboardingCompleted) {
+      await send(chatId, 'Выберите действие в меню или напишите, что хотите приготовить.');
+      await send(chatId, '<b>Твои рецепты</b>', { reply_markup: mainKeyboard() });
+    }
     await sendTestOffer(chatId, user.id);
     return;
   }
@@ -1070,7 +1088,7 @@ export async function startTelegramPolling() {
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
           else if (update.callback_query) {
-            if (!await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+            if (!await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
           }
           else await handleMessage(update.message);
           completeUpdate(update.update_id);

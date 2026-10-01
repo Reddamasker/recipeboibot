@@ -641,19 +641,20 @@ test('first Start restores chat introduction without requiring ingredients; skip
     assert.match(sent[0].text, /<b>Запишите голосовое сообщение<\/b>/);
     assert.match(sent[0].text, /микрофон справа от поля ввода/);
     assert.match(sent[0].text, /какие блюда вы обычно любите и что хотите именно сегодня/);
-    assert.ok(sent[0].reply_markup.keyboard.some(row => row.some(button => button.text === 'Что на сегодня')));
+    assert.equal(sent[0].reply_markup.remove_keyboard, true);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
     assert.match(sent[1].text, /Давай подберём ужин специально для тебя/);
     const messagesBeforeSkip = sent.filter((body) => body.chat_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
-    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeSkip + 1);
-    assert.ok(sent.at(-1).reply_markup.keyboard);
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeSkip + 2);
+    assert.equal(sent.at(-2).reply_markup.remove_keyboard, true);
+    assert.ok(sent.at(-1).reply_markup.inline_keyboard);
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /назовите продукты/);
     assert.match(sent.at(-1).text, /<b>Запишите голосовое сообщение<\/b>/);
-    assert.ok(sent.at(-1).reply_markup.keyboard.some(row => row.some(button => button.text === 'Что на сегодня')));
+    assert.equal(sent.at(-1).reply_markup.remove_keyboard, true);
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, false);
     assert.ok(sent.every((body) => !/код приглашения/i.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
@@ -710,8 +711,8 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.ok(dinnerUrl.searchParams.has('launch'));
     activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
-    assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm + 1);
-    assert.ok(sent.at(-1).reply_markup.keyboard);
+    assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm + 2);
+    assert.ok(sent.at(-1).reply_markup.inline_keyboard);
     await telegramModule.handleDinnerIntakeCallback({ id: 'stale-skip', data: 'dinner:skip', message: { chat }, from });
     assert.equal(sent.at(-1).show_alert, true);
     assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['орехов']);
@@ -922,7 +923,7 @@ test('onboarding restart marker keeps account access and opens intake on the nex
       assert.equal(database.getUserByTelegramId(from.id).is_allowed, 1);
       assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
       assert.match(sent.at(-1).text, /<b>Запишите голосовое сообщение<\/b>/);
-      assert.ok(sent.at(-1).reply_markup.keyboard.some(row => row.some(button => button.text === 'Хочу конкретное блюдо')));
+      assert.equal(sent.at(-1).reply_markup.remove_keyboard, true);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -1012,8 +1013,8 @@ test('dinner deep link introduces a new client and restores the main menu after 
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6402).id).profileOnly, true);
     await telegramModule.handleMessage({ ...message, text: '/skip' });
     await telegramModule.handleMessage(message);
-    assert.equal(sent.filter((body) => body.chat_id).length, 2);
-    assert.ok(sent.at(-1).reply_markup.keyboard);
+    assert.equal(sent.filter((body) => body.chat_id).length, 3);
+    assert.ok(sent.at(-1).reply_markup.inline_keyboard);
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
 });
