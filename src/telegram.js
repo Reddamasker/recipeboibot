@@ -1,7 +1,11 @@
 import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
-import { extractDinnerIntake, transcribeAudio } from './openai.js';
+import { extractDinnerIntake, transcribeAudio, interpretRecipeDialogue } from './openai.js';
+import { getRecipe, saveDinnerRecipe } from './db.js';
+import { getDinnerHistory } from './dinner-store.js';
+import { normalizeMealRequest, parseMealRequest } from './meal-request.js';
+import { getRecipeDialogue, getSuggestionDialogue, createRecipeDialogue, updateRecipeDialogue, activateRecipeDialogue, clearRecipeDialogue, localDialogueAction, refineDialogueRequest, rejectDialogueRecipe } from './recipe-dialogue.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { log } from './log.js';
 import { ensureRecipeImage } from './recipe-images.js';
@@ -26,7 +30,8 @@ async function telegram(method, body = {}) {
   return payload.result;
 }
 
-const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...extra });
+const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: mainKeyboard() } : {}), ...extra });
+const mainKeyboard = () => ({ keyboard: [[{ text: 'Что приготовить' }, { text: 'Мои рецепты' }], [{ text: 'Сохранить рецепт' }, { text: 'Мои предпочтения' }]], resize_keyboard: true, is_persistent: true });
 async function sendTestOffer(chatId, userId, force = false) {
   const mock = config.testContour && !billingAvailable();
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
@@ -99,7 +104,7 @@ async function revealDinnerButton(chatId, messageId, userId, sessionId) {
     const dinner = await recommendDinner(userId, sessionId);
     await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: dinner.recommendations.length ? dinnerWebAppMarkup() : dinnerUnavailableMarkup() });
     if (dinner.firstFreeRecipe && dinner.recommendation) {
-      await sendFirstFreeRecipe(chatId, dinner.recommendation.recipe);
+      await sendFirstFreeRecipe(chatId, dinner.recommendation.recipe, { userId });
       await sendTestOffer(chatId, userId);
     }
   } catch (error) {
@@ -109,7 +114,7 @@ async function revealDinnerButton(chatId, messageId, userId, sessionId) {
       const recipe = first?.recommendation?.recipe || first?.recipe;
       if (recipe) {
         await send(chatId, 'Первый бесплатный рецепт уже подготовлен. Показываю его ещё раз. Для нового подбора активируйте пробный период или подписку.');
-        await sendFirstFreeRecipe(chatId, recipe);
+        await sendFirstFreeRecipe(chatId, recipe, { userId });
       }
       await sendTestOffer(chatId, userId, true);
       await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
@@ -308,6 +313,11 @@ export async function configureTelegramMenuButton() {
   const url = webAppUrl();
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Открыть приложение', web_app: { url } } });
+  await telegram('setMyCommands', { commands: [
+    { command: 'dinner', description: 'Что приготовить' }, { command: 'collection', description: 'Мои рецепты' },
+    { command: 'save', description: 'Сохранить рецепт' }, { command: 'preferences', description: 'Мои предпочтения' },
+    { command: 'cancel', description: 'Отменить текущее действие' }, { command: 'help', description: 'Как пользоваться ботом' }
+  ], scope: { type: 'all_private_chats' } });
 }
 
 export async function sendNotificationReminder(delivery) {
@@ -321,8 +331,9 @@ export async function sendNotificationReminder(delivery) {
 export async function sendNotificationRecipeLink(delivery, recipe) {
   const url = webAppUrl({ recipe: recipe.id });
   if (!url) throw new Error('APP_URL is not configured for notifications');
+  const dialogue = delivery.userId ? captureDinnerDialogue(delivery.userId, recipe) : null;
   await send(delivery.telegramId, `<b>Выбрано: ${escapeHtml(recipe.title)}</b>\n\nСсылка на рецепт — в кнопке ниже.`, {
-    reply_markup: { inline_keyboard: [[{ text: 'Открыть рецепт', web_app: { url } }]] }
+    reply_markup: dialogue ? dialogueButtons(delivery.userId, dialogue) : { inline_keyboard: [[{ text: 'Открыть рецепт', web_app: { url } }]] }
   });
 }
 
@@ -375,9 +386,31 @@ function recipeButton(recipe, { groupMode = false } = {}) {
   return url ? { inline_keyboard: [[{ text: 'Открыть рецепт', web_app: { url } }]] } : undefined;
 }
 
+function dialogueButtons(userId, dialogue) {
+  const rows = [];
+  // Keep explicit save/skip semantics for generated proposals.
+  if (dialogue.suggestionId && !dialogue.savedRecipeId && !dialogue.notSaved) rows.push([{ text: 'Сохранить', callback_data: `suggest:save:${dialogue.suggestionId}` }, { text: 'Не сохранять', callback_data: `suggest:skip:${dialogue.suggestionId}` }]);
+  else if (!dialogue.suggestionId && !getRecipe(userId, dialogue.recipe.id)) rows.push([{ text: 'Сохранить', callback_data: `dialog:save:${dialogue.id}` }]);
+  rows.push([{ text: 'Другой вариант', callback_data: `dialog:other:${dialogue.id}` }]);
+  rows.push([{ text: 'Изменить пожелания', callback_data: `dialog:edit:${dialogue.id}` }]);
+  if (dialogue.suggestionId && !dialogue.savedRecipeId) rows.push([{ text: 'Открыть рецепт', callback_data: `dialog:open:${dialogue.id}` }]);
+  else {
+    const url = webAppUrl({ recipe: dialogue.savedRecipeId || dialogue.recipe.id });
+    rows.push([url ? { text: 'Открыть рецепт', web_app: { url } } : { text: 'Открыть рецепт', callback_data: `dialog:open:${dialogue.id}` }]);
+  }
+  return { inline_keyboard: rows };
+}
+
+function rejectionButtons(dialogue) {
+  return { inline_keyboard: [
+    [{ text: 'Долго готовить', callback_data: `dialog:slow:${dialogue.id}` }, { text: 'Нет продуктов', callback_data: `dialog:missing:${dialogue.id}` }],
+    [{ text: 'Недавно ели', callback_data: `dialog:recent:${dialogue.id}` }, { text: 'Не нравится', callback_data: `dialog:dislike:${dialogue.id}` }]
+  ] };
+}
+
 async function sendRecipeCard(chatId, recipe, options = {}) {
   const caption = `<b>${escapeHtml(recipe.title)}</b>${recipe.sourceName ? `\n${escapeHtml(recipe.sourceName)}` : ''}`;
-  const reply_markup = recipeButton(recipe, options);
+  const reply_markup = options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe, options);
   const photo = recipe.thumbnailUrl?.startsWith('/assets/dinner/') && config.appUrl ? new URL(recipe.thumbnailUrl, config.appUrl).toString() : recipe.thumbnailUrl;
   if (photo) {
     try { await telegram('sendPhoto', { chat_id: chatId, photo, caption, parse_mode: 'HTML', reply_markup }); return; }
@@ -386,30 +419,41 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
   await send(chatId, `${caption}\n<i>У источника нет доступного превью.</i>`, { reply_markup });
 }
 
-async function sendFirstFreeRecipe(chatId, recipe) {
+async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
+  if (options.userId && !options.dialogue) options = { ...options, dialogue: captureDinnerDialogue(options.userId, recipe) };
   const ingredients = (recipe.ingredients || []).map(item => [item.quantity, item.unit, item.name || item.raw].filter(value => value !== null && value !== undefined && value !== '').join(' ')).join('\n');
   const steps = (recipe.steps || []).map((step, index) => `${index + 1}. ${step.text || step}`).join('\n');
   const n = recipe.nutrition;
   const nutrition = n ? `\n${n.calories} ккал · Б ${n.protein} г · Ж ${n.fat} г · У ${n.carbs} г${n.source === 'calculated' ? '\nПримерный расчёт' : ''}` : '';
   const detail = `${recipe.title}${nutrition}${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}`;
-  await send(chatId, escapeHtml(detail.slice(0, 3500)), { reply_markup: recipeButton(recipe) });
+  await send(chatId, escapeHtml(detail.slice(0, 3500)), { reply_markup: options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe) });
 }
 
-async function sendSearchResults(chatId, user, query, { groupMode = false, sourceType = 'text' } = {}) {
+function captureDinnerDialogue(userId, recipe) {
+  const mealRequest = getDinnerMealRequest(userId) || normalizeMealRequest({ text: 'Подбери ужин', kind: 'open' });
+  return createRecipeDialogue(userId, { query: mealRequest.text, mealRequest, recipe, rejectedRecipes: [], messages: [{ role: 'assistant', text: recipe.title }] });
+}
+
+async function sendSearchResults(chatId, user, query, { groupMode = false, sourceType = 'text', dialogue: previous = null, mealRequest = null, rejectedRecipes = [], feedbackText = null } = {}) {
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   if (!groupMode) {
-    await send(chatId, sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`);
+    await send(chatId, feedbackText || (sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`), { reply_markup: previous && feedbackText?.startsWith('Исключаю') ? rejectionButtons(previous) : mainKeyboard() });
     try {
-      const result = await resolveRecipeRequest(user.id, normalizedQuery);
+      const result = await resolveRecipeRequest(user.id, normalizedQuery, { mealRequest, rejectedRecipes });
+      const dialogue = createRecipeDialogue(user.id, { query: result.query || normalizedQuery,
+        mealRequest: result.mealRequest || parseMealRequest(normalizedQuery), rejectedRecipes,
+        recipe: result.recipe || result.suggestion.recipe, suggestionId: result.suggestion?.id || null,
+        taskId: previous?.taskId || previous?.id || null,
+        messages: [...(previous?.messages || []), { role: 'user', text: normalizedQuery }, { role: 'assistant', text: (result.recipe || result.suggestion.recipe).title }].slice(-8) });
       if (result.kind === 'existing') {
         await send(chatId, 'Нашёл подходящий готовый рецепт.');
-        if (result.firstFreeRecipe) await sendFirstFreeRecipe(chatId, result.recipe);
-        else await sendRecipeCard(chatId, result.recipe);
+        if (result.firstFreeRecipe) await sendFirstFreeRecipe(chatId, result.recipe, { dialogue, userId: user.id });
+        else await sendRecipeCard(chatId, result.recipe, { dialogue, userId: user.id });
         await sendTestOffer(chatId, user.id);
         return [result.recipe];
       }
-      await sendSuggestion(chatId, result.suggestion, { userId: user.id });
+      await sendSuggestion(chatId, result.suggestion, { userId: user.id, dialogue });
       await sendTestOffer(chatId, user.id);
     } catch (error) {
       log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
@@ -430,13 +474,14 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
   return results;
 }
 
-async function sendSuggestion(chatId, suggestion, { groupMode = false, userId = null } = {}) {
+async function sendSuggestion(chatId, suggestion, { groupMode = false, userId = null, dialogue = null } = {}) {
   const recipe = suggestion.recipe;
   const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
   const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
   const detail = `${recipe.title}\nСоздано в «Рецептах»${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
-  const buttons = { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
+  const buttons = dialogue ? dialogueButtons(userId, dialogue) : { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
   const sent = await send(chatId, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
+  if (dialogue) updateRecipeDialogue(userId, dialogue.id, { messageId: sent?.message_id || null });
   if (!groupMode && userId) setPendingIntent(userId, { kind: 'recipe-suggestion', suggestionId: suggestion.id, messageId: sent?.message_id || null });
 }
 
@@ -452,6 +497,114 @@ async function removeSuggestionButtons(chatId, messageId, userId) {
   } catch (error) {
     log('warn', 'telegram_suggestion_buttons_remove_failed', { error: error.message, userId, chatId, messageId });
   }
+}
+
+async function saveDialogueRecipe(chatId, user, dialogue) {
+  let recipe;
+  if (dialogue.suggestionId) {
+    const suggestion = getRecipeSuggestion(user.id, dialogue.suggestionId);
+    if (!suggestion) { await send(chatId, 'Предложение больше недоступно. Попросите подобрать рецепт ещё раз.'); return; }
+    assertSuggestionCurrent(user.id, suggestion);
+    recipe = saveRecipeSuggestion(user.id, dialogue.suggestionId);
+    clearMatchingSuggestionIntent(user.id, dialogue.suggestionId);
+  } else {
+    assertSuggestionCurrent(user.id, { query: dialogue.query, mealRequest: dialogue.mealRequest, recipe: dialogue.recipe });
+    recipe = saveDinnerRecipe(user.id, dialogue.recipe.id, dialogue.recipe);
+  }
+  if (!recipe) { await send(chatId, 'Не удалось сохранить рецепт. Попробуйте ещё раз.'); return; }
+  const updated = updateRecipeDialogue(user.id, dialogue.id, { savedRecipeId: recipe.id });
+  if (dialogue.messageId) {
+    try { await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: dialogue.messageId, reply_markup: dialogueButtons(user.id, updated) }); }
+    catch (error) { log('warn', 'telegram_dialogue_buttons_update_failed', { userId: user.id, error }); }
+  }
+  void ensureRecipeImage(user.id, recipe);
+  await send(chatId, `Сохранено: <b>${escapeHtml(recipe.title)}</b>.`, { reply_markup: recipeButton(recipe) });
+}
+
+async function applyDialogueAction(chatId, user, dialogue, decision, text) {
+  if (decision.action === 'save') { await saveDialogueRecipe(chatId, user, dialogue); return; }
+  if (decision.action === 'skip-save') {
+    if (dialogue.suggestionId) clearMatchingSuggestionIntent(user.id, dialogue.suggestionId);
+    await send(chatId, 'Рецепт не добавлен. Можно выбрать другой вариант или изменить пожелания.');
+    return;
+  }
+  if (decision.action === 'reset') {
+    clearRecipeDialogue(user.id); clearPendingIntent(user.id);
+    await send(chatId, 'Начнём новый подбор. Что хотите приготовить?', { reply_markup: mainKeyboard() }); return;
+  }
+  if (decision.action === 'new') {
+    clearPendingIntent(user.id);
+    await sendSearchResults(chatId, user, decision.query || text); return;
+  }
+  if (decision.action === 'preference') {
+    await handleDinnerIntakeMessage({ chat: { id: chatId }, text }, user,
+      { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: true });
+    return;
+  }
+  if (decision.action === 'replace' || decision.action === 'refine') {
+    const mealRequest = decision.patch ? refineDialogueRequest(dialogue, decision.patch)
+      : normalizeMealRequest(decision.mealRequest) || dialogue.mealRequest;
+    const query = decision.action === 'refine' ? mealRequest?.text || decision.query || dialogue.query : dialogue.query;
+    const rejectedRecipes = rejectDialogueRecipe(dialogue);
+    // Repeated taps on this card must not bring back its rejected recipe.
+    updateRecipeDialogue(user.id, dialogue.id, { rejectedRecipes, awaitingEdit: false });
+    clearPendingIntent(user.id);
+    await sendSearchResults(chatId, user, query, { dialogue, mealRequest, rejectedRecipes,
+      feedbackText: decision.action === 'replace'
+        ? `Исключаю «${escapeHtml(dialogue.recipe.title)}». Подбираю другой вариант с прежними условиями: <b>${escapeHtml(dialogue.query)}</b>.`
+        : `Учитываю изменения. Подбираю рецепт: <b>${escapeHtml(query)}</b>.` });
+    return;
+  }
+  const answer = decision.answer?.trim() || 'Хотите другой вариант, изменить условия или задать вопрос об этом рецепте?';
+  updateRecipeDialogue(user.id, dialogue.id, { awaitingEdit: false,
+    messages: [...(dialogue.messages || []), { role: 'user', text }, { role: 'assistant', text: answer }].slice(-8) });
+  await send(chatId, escapeHtml(answer.slice(0, 3500)));
+}
+
+async function handleRecipeDialogueText(chatId, user, text, dialogue) {
+  let decision = localDialogueAction(text);
+  if (dialogue.awaitingEdit === 'missing' && !decision) decision = localDialogueAction(`без ${text}`);
+  try {
+    if (!decision) {
+      requireRecipeEntry(user.id);
+      decision = await interpretRecipeDialogue({ userId: user.id, text, dialogue, profile: getFoodProfile(user.id), history: getDinnerHistory(user.id) });
+    }
+    if (decision.action === 'replace' && /долго готовить|быстрее/iu.test(text)) {
+      const minutes = (dialogue.recipe.prepMinutes || 0) + (dialogue.recipe.cookMinutes || 0);
+      decision = { action: 'refine', patch: normalizeMealRequest({ text: `до ${Math.max(5, Math.min(30, minutes - 5))} минут`, kind: 'open', maxMinutes: Math.max(5, Math.min(30, minutes - 5)) }) };
+    }
+    await applyDialogueAction(chatId, user, dialogue, decision, text);
+  } catch (error) {
+    log('error', 'telegram_dialogue_failed', { error, userId: user.id });
+    if (error.status === 402) await sendTestOffer(chatId, user.id, true);
+    else await send(chatId, 'Не получилось обработать ответ. Контекст сохранён. Повторите сообщение или воспользуйтесь кнопками под рецептом.');
+  }
+}
+
+export async function handleRecipeDialogueCallback(callback) {
+  const match = String(callback.data || '').match(/^dialog:(other|edit|open|save|slow|missing|recent|dislike):([0-9a-f-]{36})$/iu);
+  if (!match) return false;
+  if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from?.id)) return true;
+  const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  let dialogue = getRecipeDialogue(user.id, match[2]);
+  if (!dialogue) {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт больше недоступен', show_alert: true }); return true;
+  }
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  const active = getRecipeDialogue(user.id);
+  if (active && (active.taskId || active.id) === (dialogue.taskId || dialogue.id)) {
+    dialogue = { ...dialogue, rejectedRecipes: [...new Map([...(dialogue.rejectedRecipes || []), ...(active.rejectedRecipes || [])].map(item => [item.title, item])).values()] };
+  }
+  activateRecipeDialogue(user.id, dialogue.id);
+  if (match[1] === 'edit' || match[1] === 'missing') {
+    updateRecipeDialogue(user.id, dialogue.id, { awaitingEdit: match[1] === 'missing' ? 'missing' : true });
+    clearPendingIntent(user.id);
+    await send(chatId, match[1] === 'missing'
+      ? `Каких продуктов нет для «${escapeHtml(dialogue.recipe.title)}»? Напишите или скажите голосом — исключу их из текущего подбора.`
+      : `Текущие пожелания: <b>${escapeHtml(dialogue.query)}</b>.\nЧто изменить? Напишите или скажите голосом только изменения. Остальные условия сохраню.`);
+  } else if (match[1] === 'open') await sendFirstFreeRecipe(chatId, dialogue.recipe, { dialogue, userId: user.id });
+  else await handleRecipeDialogueText(chatId, user, ({ save: 'сохрани', slow: 'долго готовить', recent: 'недавно ели', dislike: 'не нравится' })[match[1]] || 'другой вариант', dialogue);
+  return true;
 }
 
 export async function handleSuggestionCallback(callback) {
@@ -473,7 +626,9 @@ export async function handleSuggestionCallback(callback) {
   if (match[2] === 'skip') {
     clearMatchingSuggestionIntent(userId, match[3]);
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт не добавлен' });
-    await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
+    const dialogue = !groupMode && match[1] === 'suggest' ? getSuggestionDialogue(userId, match[3]) : null;
+    const updated = dialogue ? updateRecipeDialogue(userId, dialogue.id, { notSaved: true }) : null;
+    await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: updated ? dialogueButtons(userId, updated) : { inline_keyboard: [] } });
     if (match[1] === 'offer') await send(chat.id, 'Напишите другой запрос — поищу ещё в коллекции.');
     return;
   }
@@ -498,7 +653,9 @@ export async function handleSuggestionCallback(callback) {
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт добавлен' });
   void ensureRecipeImage(userId, savedRecipe);
   const recipe = savedRecipe;
-  await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } });
+  const dialogue = !groupMode ? getSuggestionDialogue(userId, match[3]) : null;
+  const updated = dialogue ? updateRecipeDialogue(userId, dialogue.id, { savedRecipeId: recipe.id }) : null;
+  await telegram('editMessageReplyMarkup', { chat_id: chat.id, message_id: callback.message.message_id, reply_markup: updated ? dialogueButtons(userId, updated) : { inline_keyboard: [] } });
   await send(chat.id, `Сохранено: <b>${escapeHtml(recipe.title)}</b>. Рецепт теперь в ${groupMode ? 'коллекции владельца группы' : 'вашей коллекции'}.`, { reply_markup: recipeButton(recipe, { groupMode }) });
   if (!groupMode) await sendTestOffer(chat.id, userId);
 }
@@ -613,7 +770,9 @@ export async function handleMessage(message) {
   if (message.chat?.type !== 'private') return;
   const chatId = message.chat.id;
   const user = resolvePrivateTelegramUser(message.from);
-  const text = message.text?.trim() || message.caption?.trim() || '';
+  let text = message.text?.trim() || message.caption?.trim() || '';
+  const menuCommands = { 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
+  text = menuCommands[text] || text;
   if (config.testContour && text === '/test_reset') {
     await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;
@@ -648,10 +807,21 @@ export async function handleMessage(message) {
     const recentEntry = recentDinnerEntries.get(user.id);
     if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
     await sendDinnerEntry(chatId, user.id);
+    if (getFoodProfile(user.id).onboardingCompleted) await send(chatId, 'Выберите действие в меню или напишите, что хотите приготовить.', { reply_markup: mainKeyboard() });
     await sendTestOffer(chatId, user.id);
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
+  if (text === '/collection') {
+    const url = webAppUrl({ view: 'collection' });
+    await send(chatId, 'Ваши сохранённые рецепты.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть мои рецепты', web_app: { url } }]] } } : {}); return;
+  }
+  if (text === '/preferences') { clearPendingIntent(user.id); await sendDinnerProfilePrompt(chatId, user.id); return; }
+  if (text === '/save') {
+    const previous = getPendingIntent(user.id);
+    if (previous?.kind !== 'recipe-save') setPendingIntent(user.id, { kind: 'recipe-save', resumeIntent: previous });
+    await send(chatId, 'Пришлите ссылку, фото, текст рецепта или продиктуйте его голосом. Для отмены — /cancel.'); return;
+  }
   const saveEntry = getPendingIntent(user.id);
   if (saveEntry?.kind === 'recipe-save' && text === '/cancel') {
     restoreAfterRecipeSave(user.id, saveEntry);
@@ -660,8 +830,17 @@ export async function handleMessage(message) {
   }
   if (saveEntry?.kind === 'recipe-save' && (text === '/dinner' || text === '/ingredients')) restoreAfterRecipeSave(user.id, saveEntry);
   if (text === '/ingredients') { await sendDinnerIntakePrompt(chatId, user.id); return; }
-  if (text === '/dinner') { await sendDinnerEntry(chatId, user.id); return; }
-  if (text === '/help') { await send(chatId, 'Короткий текст ищу в вашей коллекции. Подробный текст с ингредиентами и шагами, ссылку или фото сохраняю как рецепт. С активным доступом можно отправить публичный плейлист YouTube — обработаю до 30 роликов. Можно явно написать «Сохрани рецепт: …» или «Найди …». Если в сообщении есть и просьба найти, и просьба сохранить, я уточню цель.'); return; }
+  if (text === '/dinner') {
+    clearRecipeDialogue(user.id); clearPendingIntent(user.id);
+    if (!getFoodProfile(user.id).onboardingCompleted) await sendDinnerProfilePrompt(chatId, user.id);
+    else await send(chatId, 'Что хотите приготовить? Назовите продукты и пожелания текстом или голосом.', { reply_markup: mainKeyboard() });
+    return;
+  }
+  if (text === '/cancel' && getRecipeDialogue(user.id)) {
+    clearPendingIntent(user.id); clearRecipeDialogue(user.id);
+    await send(chatId, 'Подбор отменён. Можно начать новый через «Что приготовить».'); return;
+  }
+  if (text === '/help') { await send(chatId, 'Выберите действие в меню: «Что приготовить», «Мои рецепты», «Сохранить рецепт» или «Мои предпочтения». После предложения можно написать «другой вариант», «без риса», «быстрее», «на троих» или задать вопрос о рецепте. Условия подбора сохраняются. Ссылку, фото или подробный текст с ингредиентами и шагами сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …».'); return; }
   if (text === '/usage') { await send(chatId, usageMessage(user.id)); return; }
   if (text === '/delete_data CONFIRM') { deleteUserData(user.id); await send(chatId, 'Ваши рецепты и профиль удалены.'); return; }
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }
@@ -669,8 +848,9 @@ export async function handleMessage(message) {
   const pending = getPendingIntent(user.id);
   const savingRecipe = pending?.kind === 'recipe-save';
   if (pending && ['dinner-intake', 'dinner-confirm'].includes(pending.kind) && await handleDinnerIntakeMessage(message, user, pending)) return;
-  if (pending && !savingRecipe && await handlePendingChoice(message, user, pending)) return;
-  if (pending && !savingRecipe) clearPendingIntent(user.id);
+  const dialogue = getRecipeDialogue(user.id);
+  if (pending && !savingRecipe && (!dialogue || pending.kind !== 'recipe-suggestion') && await handlePendingChoice(message, user, pending)) return;
+  if (pending && !savingRecipe && !dialogue) clearPendingIntent(user.id);
 
   let content = { text, sourceType: 'text', sourceKey: undefined, url: extractSharedUrl(text) };
   if (message.voice || message.audio) {
@@ -684,8 +864,15 @@ export async function handleMessage(message) {
       return;
     }
   }
+  if (!savingRecipe && !message.photo?.length && !content.url && dialogue && (detectIntent(content.text) !== 'save' || localDialogueAction(content.text)) && !/^\/(?:find|search)\s/iu.test(content.text)) {
+    await handleRecipeDialogueText(chatId, user, content.text, dialogue); return;
+  }
+  if (!savingRecipe && !dialogue && !message.photo?.length && !content.url && ['replace', 'refine', 'skip-save'].includes(localDialogueAction(content.text)?.action)) {
+    await send(chatId, 'Не вижу, к какому рецепту относится ответ. Напишите, что хотите приготовить, или нажмите кнопку под нужным рецептом.'); return;
+  }
   const isDinnerFollowup = /^(?:кстати(?=\s|[,.!]|$)|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$|(?:сегодня|на\s+сегодня|на\s+ужин)(?=\s|[,.!]|$)|хоч(?:у|ем|ется)(?=\s|[,.!]|$)|давай(?:те)?\s+приготов)/iu.test(content.text.trim());
-  if (!savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
+  const isDirectMealRequest = /^(?:сегодня|на\s+сегодня|на\s+ужин|хоч(?:у|ем|ется)|давай(?:те)?\s+приготов)(?=\s|[,.!]|$)/iu.test(content.text.trim());
+  if (!savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && !isDirectMealRequest && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
     await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: !getDinnerContext(user.id).length });
     return;
   }
@@ -808,7 +995,7 @@ export async function startTelegramPolling() {
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
           else if (update.callback_query) {
-            if (!await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+            if (!await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
           }
           else await handleMessage(update.message);
           completeUpdate(update.update_id);
