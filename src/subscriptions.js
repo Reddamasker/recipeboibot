@@ -1,5 +1,7 @@
 import { db } from './db.js';
 import { config } from './config.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 
 // Only trusted server administration/payment integrations may write this table.
 db.exec(`CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -16,6 +18,75 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_trials (
   starts_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS first_recipe_results (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  request_key TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  result_json TEXT
+);`);
+const firstRecipeContext = new AsyncLocalStorage();
+const firstRecipeInFlight = new Map();
+const tableExists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
+
+export function getFirstRecipeStatus(userId) {
+  const row = db.prepare('SELECT * FROM first_recipe_results WHERE user_id=?').get(userId);
+  const historical = Boolean(db.prepare("SELECT 1 FROM recipes WHERE user_id=? AND status IN ('ready','archived') LIMIT 1").get(userId)
+    || (tableExists('recipe_suggestions') && db.prepare('SELECT 1 FROM recipe_suggestions WHERE user_id=? LIMIT 1').get(userId))
+    || (tableExists('dinner_events') && db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recommendation_shown' LIMIT 1").get(userId)));
+  const usedAccess = hasUsedTrialOrPromo(userId) || Boolean(db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id=?').get(userId));
+  return { available: !row && !historical && !usedAccess, delivered: Boolean(row?.result_json) || historical,
+    pending: Boolean(row && !row.result_json), usedAccess };
+}
+
+export function canReceiveFirstRecipe(userId) {
+  return getSubscriptionAccess(userId).active || getFirstRecipeStatus(userId).available
+    || firstRecipeContext.getStore() === userId;
+}
+
+export function requireRecipeEntry(userId) {
+  if (canReceiveFirstRecipe(userId)) return;
+  if (getFirstRecipeStatus(userId).pending) throw Object.assign(new Error('Первый рецепт ещё готовится. Дождитесь результата.'), { status: 409 });
+  requireUnexpiredTrial(userId);
+}
+
+// One successful result shared by requests, dinner and import. Failed attempts do not use it.
+export async function withFirstRecipe(userId, requestKey, operation, succeeded = () => true) {
+  if (getSubscriptionAccess(userId).active || firstRecipeContext.getStore() === userId) return operation();
+  const running = firstRecipeInFlight.get(userId);
+  if (running) {
+    if (running.key === requestKey) return running.promise;
+    throw Object.assign(new Error('Первый рецепт ещё готовится. Дождитесь результата.'), { status: 409 });
+  }
+  let row = db.prepare('SELECT * FROM first_recipe_results WHERE user_id=?').get(userId);
+  if (row?.result_json && row.request_key === requestKey && !getFirstRecipeStatus(userId).usedAccess) return JSON.parse(row.result_json);
+  if (row && !row.result_json && Date.now() - Date.parse(row.started_at) > 10 * 60_000) {
+    db.prepare('DELETE FROM first_recipe_results WHERE user_id=? AND owner=? AND result_json IS NULL').run(userId, row.owner);
+    row = null;
+  }
+  if (row && !row.result_json) throw Object.assign(new Error('Первый рецепт ещё готовится. Дождитесь результата.'), { status: 409 });
+  if (!getFirstRecipeStatus(userId).available) requireUnexpiredTrial(userId);
+  const owner = randomUUID();
+  const claimed = db.prepare('INSERT OR IGNORE INTO first_recipe_results(user_id,request_key,owner,started_at) VALUES(?,?,?,?)')
+    .run(userId, requestKey, owner, new Date().toISOString()).changes;
+  if (!claimed) throw Object.assign(new Error('Первый рецепт ещё готовится. Дождитесь результата.'), { status: 409 });
+  const promise = firstRecipeContext.run(userId, async () => {
+    try {
+      const result = await operation();
+      const completed = succeeded(result);
+      const delivered = completed ? { ...result, firstFreeRecipe: true } : result;
+      if (completed) db.prepare('UPDATE first_recipe_results SET result_json=? WHERE user_id=? AND owner=?').run(JSON.stringify(delivered), userId, owner);
+      else db.prepare('DELETE FROM first_recipe_results WHERE user_id=? AND owner=?').run(userId, owner);
+      return delivered;
+    } catch (error) {
+      db.prepare('DELETE FROM first_recipe_results WHERE user_id=? AND owner=? AND result_json IS NULL').run(userId, owner);
+      throw error;
+    } finally { firstRecipeInFlight.delete(userId); }
+  });
+  firstRecipeInFlight.set(userId, { key: requestKey, promise });
+  return promise;
+}
 
 export function getTrialStatus(userId, at = new Date()) {
   const trial = db.prepare('SELECT starts_at,expires_at FROM user_trials WHERE user_id=?').get(userId);

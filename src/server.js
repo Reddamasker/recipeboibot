@@ -5,7 +5,7 @@ import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSharedRecipeImage, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
-import { importText, importUrl, importYoutubePlaylist } from './importer.js';
+import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
@@ -14,13 +14,13 @@ import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
-import { canUseTestImport, cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
+import { cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
 import { sendNotificationRecipeLink } from './telegram.js';
-import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
+import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
-import { getSubscriptionAccess, startTrial, requireUnexpiredTrial } from './subscriptions.js';
+import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
 const publicDir = path.resolve('public');
@@ -243,7 +243,7 @@ async function api(request, response, url) {
     return json(response, 200, await resolveRecipeRequest(user.id, input.query));
   }
   if (request.method === 'POST' && url.pathname === '/api/recipe-request/transcribe') {
-    requireUnexpiredTrial(user.id);
+    requireRecipeEntry(user.id);
     rateLimit(`ai:${user.id}`, 8, 60_000);
     const input = await bodyJson(request, 2_900_000);
     const mime = String(input.mime || '').split(';')[0].toLowerCase();
@@ -286,8 +286,6 @@ async function api(request, response, url) {
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && url.pathname === '/api/import') {
-    const canImport = config.testContour && !billingAvailable() ? canUseTestImport(user.id) : canUseAutomaticImport(user.id);
-    if (!canImport) requireUnexpiredTrial(user.id);
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
     if (input.kind === 'url') {

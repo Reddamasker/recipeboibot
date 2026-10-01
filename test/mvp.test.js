@@ -153,7 +153,7 @@ test('playlist import API requires active paid access before fetching YouTube', 
       body: JSON.stringify({ kind: 'url', value: 'https://www.youtube.com/playlist?list=PLMKH9rJBrNkyqFQ9BoHhivNs8A4FvRiX0' })
     });
     assert.equal(response.status, 402);
-    assert.match((await response.json()).error, /пробный период/);
+    assert.match((await response.json()).error, /активной подпиской/);
     assert.equal(database.listRecipes(user.id).length, 0);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });

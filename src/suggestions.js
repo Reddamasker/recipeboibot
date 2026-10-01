@@ -4,7 +4,7 @@ import { getFoodProfile } from './dinner-store.js';
 import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, recipeCategories } from './dinner.js';
 import { generateRecipe, generateRequestedRecipe, interpretMealRequest, validateRecipeCriteria } from './openai.js';
 import { ensureSuggestionImage } from './recipe-images.js';
-import { requireUnexpiredTrial } from './subscriptions.js';
+import { requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
 import { normalizeMealRequest, parseMealRequest, matchesMealRequest, matchesObjectiveMealRequest, needsSemanticValidation, recipeTextIngredients, isSpicy } from './meal-request.js';
 import { parseDinnerIntakeFallback } from './dinner-intake.js';
 import { log } from './log.js';
@@ -67,7 +67,7 @@ function requestedRecipes(userId, query, contextOverride = null) {
 }
 
 async function generateSuggestion(userId, query, generate, validate, requested, contextOverride = null) {
-  requireUnexpiredTrial(userId);
+  requireRecipeEntry(userId);
   const context = contextOverride || requestContext(userId, query), { normalized, understood, profile, excluded, maxMinutes, mealRequest } = context;
   const suggestionKey = requested ? requestSuggestionKey(userId, normalized) : normalized;
   const cached = findRecipeSuggestion(userId, suggestionKey);
@@ -115,7 +115,7 @@ async function interpretedContext(userId, query, interpret) {
 }
 
 export async function suggestForEmptySearch(userId, query, { generate = generateRecipe, interpret = generate === generateRecipe ? interpretMealRequest : null, validate = generate === generateRecipe ? validateRecipeCriteria : acceptRecipeCriteria } = {}) {
-  requireUnexpiredTrial(userId);
+  return withFirstRecipe(userId, `search:${String(query).trim()}`, async () => {
   const context = await interpretedContext(userId, query, interpret);
   const existing = searchRecipes(userId, context.normalized).filter((recipe) => recipe.status === 'ready' && validRecipe(recipe, context)).slice(0, 8);
   if (existing.length) {
@@ -124,10 +124,11 @@ export async function suggestForEmptySearch(userId, query, { generate = generate
     if (verdicts.some((verdict) => verdict.accepted)) throw Object.assign(new Error('В коллекции уже есть подходящие рецепты'), { status: 409 });
   }
   return generateSuggestion(userId, query, generate, validate, false, context);
+  });
 }
 
 export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe, interpret = generate === generateRequestedRecipe ? interpretMealRequest : null, validate = generate === generateRequestedRecipe ? validateRecipeCriteria : acceptRecipeCriteria } = {}) {
-  requireUnexpiredTrial(userId);
+  return withFirstRecipe(userId, `request:${String(query).trim()}`, async () => {
   const normalized = String(query || '').trim().slice(0, 500);
   const cached = findRecipeSuggestion(userId, requestSuggestionKey(userId, normalized));
   if (cached && validRecipe(cached.recipe, requestContext(userId, normalized, cached.mealRequest), true)) {
@@ -144,4 +145,5 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
     if (accepted) return { kind: 'existing', query: context.understood, recipe: accepted.recipe };
   }
   return { kind: 'generated', query: context.understood, suggestion: await generateSuggestion(userId, query, generate, validate, true, context) };
+  });
 }

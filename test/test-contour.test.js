@@ -57,7 +57,7 @@ test.after(async () => {
 
 test('test contour uses the real seven-day entitlement without creating a mock payment', () => {
   const fresh = upsertTelegramUser({ id: 6971956680, first_name: 'Trial' });
-  assert.equal(canUseTestImport(fresh.id), false);
+  assert.equal(canUseTestImport(fresh.id), true);
   startTrial(fresh.id);
   const status = mockPaymentStatus(fresh.id);
   assert.equal(status.active, true);

@@ -5,6 +5,15 @@ import { normalizeRecipe } from './openai.js';
 import { safeFetchText } from './security.js';
 import { youtubePlaylist, youtubeVideo, extractYoutubePlaylist, extractYoutubeSource, YOUTUBE_PLAYLIST_LIMIT } from './youtube.js';
 import { socialVideo, extractSocialVideoSource } from './social-video.js';
+import { withFirstRecipe } from './subscriptions.js';
+
+export function importTextWithAccess(userId, text, options = {}) {
+  const key = options.sourceKey || (options.image?.buffer ? digest(options.image.buffer) : digest(String(text)));
+  return withFirstRecipe(userId, `import:${key}`, () => importText(userId, text, options), result => ['created', 'existing'].includes(result.state));
+}
+export function importUrlWithAccess(userId, input) {
+  return withFirstRecipe(userId, `import-url:${normalizeSourceUrl(input).sourceKey}`, () => importUrl(userId, input), result => ['created', 'existing'].includes(result.state));
+}
 
 const decodeHtml = (text) => text.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
 const digest = (value) => crypto.createHash('sha256').update(value).digest('hex');

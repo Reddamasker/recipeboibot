@@ -88,6 +88,7 @@ function notificationEntry() {
 
 function offerBanner() {
   const payment = state.payment;
+  if (payment?.firstRecipe?.available || payment?.firstRecipe?.pending) return '';
   if (payment?.trial?.eligible || payment?.trial?.used) {
     if (payment.active && payment.accessSource !== 'trial') return '';
     const active = payment.active;
@@ -116,12 +117,13 @@ function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(
 
 function home() {
   const recent = state.recipes.slice(0, 4);
+  const firstRecipe = state.payment?.firstRecipe?.available;
   root.innerHTML = `${header()}<main class="home-page">
     <section class="home-choice" aria-label="Выбор блюда">
       <h1>Что приготовить <em>сегодня?</em></h1>
-      <p>Выбери, нужна подборка из трёх идей или один рецепт под конкретное пожелание.</p>
+      <p>${firstRecipe ? 'Начни с одного рецепта: подберу ужин или блюдо под конкретное пожелание.' : 'Выбери, нужна подборка из трёх идей или один рецепт под конкретное пожелание.'}</p>
       <div class="home-choice-actions">
-        <button id="choose" class="home-choice-button primary accent" type="button"><span><strong>Подборка рецептов</strong><small>Три разных варианта на сегодня</small></span><span aria-hidden="true">→</span></button>
+        <button id="choose" class="home-choice-button primary accent" type="button"><span><strong>${firstRecipe ? 'Подобрать первый рецепт' : 'Подборка рецептов'}</strong><small>${firstRecipe ? 'Один подходящий вариант на сегодня' : 'Три разных варианта на сегодня'}</small></span><span aria-hidden="true">→</span></button>
         <button id="specific-recipe" class="home-choice-button secondary" type="button"><span><strong>Хочу конкретный рецепт</strong><small>Напиши или надиктуй, что приготовить</small></span><span aria-hidden="true">→</span></button>
       </div>
     </section>
@@ -162,6 +164,7 @@ async function showRequestedRecipe(event, { query: suppliedQuery = '', hideRawQu
   button.innerHTML = '<span class="loader"></span> Подбираю…';
   try {
     const result = await api('/api/recipe-request', { method: 'POST', body: JSON.stringify({ query }) });
+    await refresh();
     const params = new URLSearchParams(location.search);
     if (params.get('view') !== 'request' || (!hideRawQuery && params.get('q') !== query)) return;
     state.query = String(result.query || '').trim();
@@ -361,6 +364,8 @@ async function loadDinnerRecommendation() {
     state.dinner.preparing = result.preparing;
     state.dinner.imagesPending = result.imagesPending;
     state.dinner.notice = result.notice;
+    state.dinner.firstFreeRecipe = Boolean(result.firstFreeRecipe);
+    if (result.firstFreeRecipe) await refresh();
     dinnerView();
     scheduleDinnerPrefetch(dinner);
   } catch (error) { if (state.dinner !== dinner) return; dinner.loading = false; if (error.status === 402) { await refresh(); openOffer(); return; } dinner.message = error.message; dinnerView(); toast(error.message); }
@@ -369,6 +374,7 @@ async function loadDinnerRecommendation() {
 let dinnerPollTimer;
 function scheduleDinnerPrefetch(dinner) {
   clearTimeout(dinnerPollTimer);
+  if (dinner?.firstFreeRecipe) return;
   if (dinner !== state.dinner || dinner.accepted || (!dinner.preparing && !dinner.imagesPending && dinner.reserve?.length >= 3)) return;
   dinnerPollTimer = setTimeout(async () => {
     if (dinner !== state.dinner || dinner.accepted || new URLSearchParams(location.search).get('view') !== 'dinner') return;
@@ -410,6 +416,7 @@ async function showNextDinner() {
   } catch (error) {
     if (state.dinner !== dinner) return;
     dinner.recommendations = previous; dinner.recommendation = previous[0]; dinner.reserve = previousReserve; dinner.switching = false;
+    if (error.status === 402) { await refresh(); openOffer(); return; }
     dinnerView(); toast(error.message);
   }
 }
@@ -475,7 +482,7 @@ function dinnerView() {
     : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Рецепт сохранён в «Мои рецепты» и останется под рукой.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
     : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
-  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted && !dinner?.askingReason ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${dinner?.requestSaving ? 'disabled' : ''}><button class="secondary" type="submit" ${dinner?.requestSaving ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${dinner?.requestSaving ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${dinner?.cooked ? offerBanner() : ''}</main>`;
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted && !dinner?.askingReason ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${dinner?.requestSaving ? 'disabled' : ''}><button class="secondary" type="submit" ${dinner?.requestSaving ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${dinner?.requestSaving ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));

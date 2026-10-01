@@ -46,3 +46,13 @@ test('trial offer and expiry remain visible even when the payment provider is no
   sandbox.state.payment.trial = { used: true, eligible: false };
   assert.match(sandbox.offerBanner(), /Пробный период закончился/);
 });
+
+test('a fresh user sees no trial sales banner until the first recipe is delivered', () => {
+  const sandbox = { state: { payment: { available: true, firstRecipe: { available: true, delivered: false }, trial: { eligible: true, used: false } } }, esc: String };
+  vm.runInNewContext(source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer')), sandbox);
+  assert.equal(sandbox.offerBanner(), '');
+  sandbox.state.payment.firstRecipe = { available: false, pending: true, delivered: false };
+  assert.equal(sandbox.offerBanner(), '');
+  sandbox.state.payment.firstRecipe = { available: false, pending: false, delivered: true };
+  assert.match(sandbox.offerBanner(), /Попробовать 7 дней бесплатно/);
+});

@@ -1,6 +1,9 @@
 import { listRecipes, saveDinnerRecipe } from './db.js';
 import { config } from './config.js';
-import { requireUnexpiredTrial } from './subscriptions.js';
+import { getSubscriptionAccess, requireUnexpiredTrial, requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
+import { randomUUID } from 'node:crypto';
+import { resolveRecipeRequest } from './suggestions.js';
+import { insertDinnerOption, promoteDinnerOptions, invalidateDinnerBuffer, currentDinnerOptions } from './dinner-store.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, getDinnerOptionImage, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
@@ -74,7 +77,7 @@ export function startDinner(userId, { prefetchOnly = false } = {}) {
 }
 
 export async function changeDinnerRequest(userId, query, { interpret = interpretMealRequest } = {}) {
-  requireUnexpiredTrial(userId);
+  requireRecipeEntry(userId);
   if (typeof query !== 'string' || query.length > 500) throw badRequest('Пожелание должно быть не длиннее 500 символов');
   const intake = query.trim() ? parseDinnerIntakeFallback(`сегодня хочу ${query.trim()}`) : {};
   intake.mealRequest = parseMealRequest(query);
@@ -184,8 +187,27 @@ function bufferResponse(userId, sessionId, buffer) {
 }
 
 export async function recommendDinner(userId, sessionId, options) {
+  if (!getSubscriptionAccess(userId).active) {
+    return withFirstRecipe(userId, `dinner:${sessionId}`, async () => {
+      const context = dinnerContext(userId, sessionId);
+      let recipe;
+      if (context.mealRequest?.text || context.requestedCategories.length) {
+        const query = context.mealRequest?.text || context.requestedCategories.map(key => DINNER_CATEGORIES.find(([id]) => id === key)?.[1]).filter(Boolean).join(', ');
+        const result = await resolveRecipeRequest(userId, query);
+        recipe = result.recipe || result.suggestion?.recipe;
+      } else recipe = rankCandidates(SEED_RECIPES, context)[0]?.recipe;
+      if (!recipe) throw Object.assign(new Error('Не нашёл подходящий рецепт. Уточни пожелание и попробуй ещё раз.'), { status: 422 });
+      const id = randomUUID();
+      recipe = { ...recipe, id: recipe.id || `dinner:${id}` };
+      invalidateDinnerBuffer(userId, sessionId, dinnerContextKey(context));
+      insertDinnerOption(userId, sessionId, { id, recipe, role: 'familiar', categories: recipeCategories(recipe), method: 'first_recipe' }, recipe.title);
+      const current = promoteDinnerOptions(userId, sessionId, [id]);
+      return { ...bufferResponse(userId, sessionId, { current, reserve: [], preparing: false }), firstFreeRecipe: true, imagesPending: false };
+    });
+  }
   requireUnexpiredTrial(userId);
   const context = dinnerContext(userId, sessionId);
+  if (currentDinnerOptions(userId, sessionId).some(option => option.method === 'first_recipe')) invalidateDinnerBuffer(userId, sessionId, dinnerContextKey(context));
   const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
   const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
   return bufferResponse(userId, sessionId, buffer);

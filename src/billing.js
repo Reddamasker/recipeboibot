@@ -2,7 +2,7 @@ import { createHash, randomUUID, timingSafeEqual, verify as verifySignature } fr
 import { readFileSync } from 'node:fs';
 import { db } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess, getTrialStatus, hasUsedTrialOrPromo, monthsAfter } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, hasUsedTrialOrPromo, monthsAfter } from './subscriptions.js';
 import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './promos.js';
 import { publicSubscriptionPlans, subscriptionPeriodLabel, subscriptionPlan } from './plans.js';
 import { log } from './log.js';
@@ -84,7 +84,7 @@ function hasFirstValue(userId) {
   if (db.prepare("SELECT 1 FROM recipes WHERE user_id=? AND status='ready' LIMIT 1").get(userId)) return 'saved';
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='dinner_events'").get()
       && db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recipe_cooked' LIMIT 1").get(userId)) return 'cooked';
-  return null;
+  return getFirstRecipeStatus(userId).delivered ? 'received' : null;
 }
 
 function assignmentFor(userId, at = new Date()) {
@@ -108,7 +108,7 @@ export function billingAvailable() {
 }
 
 export function canUseAutomaticImport(userId, at = new Date()) {
-  return getSubscriptionAccess(userId, at).active;
+  return getSubscriptionAccess(userId, at).active || (!hasUsedTrialOrPromo(userId, at) && getFirstRecipeStatus(userId).available);
 }
 
 export function getBillingOffer(userId, at = new Date()) {
@@ -122,6 +122,7 @@ export function getBillingOffer(userId, at = new Date()) {
     available: config.robokassaConfigured,
     active: access.active,
     accessSource: access.source,
+    firstRecipe: getFirstRecipeStatus(userId),
     trial: { ...trial, eligible: !trial.used && !access.active },
     expiresAt: access.expiresAt,
     hasFirstRecipe: Boolean(firstValue),
@@ -136,7 +137,7 @@ export function getBillingOffer(userId, at = new Date()) {
 }
 
 export function recordBillingExposure(userId, at = new Date()) {
-  if (!config.robokassaConfigured || !hasFirstValue(userId)) return false;
+  if (!hasFirstValue(userId)) return false;
   assignmentFor(userId, at);
   return db.prepare('UPDATE payment_experiment_assignments SET exposed_at=? WHERE user_id=? AND experiment_key=? AND exposed_at IS NULL')
     .run(nowIso(at), userId, config.paymentExperimentKey).changes > 0;
