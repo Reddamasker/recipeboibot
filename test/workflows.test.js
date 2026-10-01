@@ -13,6 +13,8 @@ process.env.DINNER_LLM_ENABLED = 'false';
 process.env.APP_URL = 'https://recipes.example.test';
 
 const database = await import('../src/db.js');
+const { startTrial } = await import('../src/subscriptions.js');
+const activeUser = (telegram) => { const user = database.upsertTelegramUser(telegram); startTrial(user.id); return user; };
 const importer = await import('../src/importer.js');
 const telegramModule = await import('../src/telegram.js');
 const openaiModule = await import('../src/openai.js');
@@ -44,8 +46,8 @@ const semanticResponse = (body, matches) => {
 };
 
 test('empty search proposes a recipe and saves it only after owner confirmation', async () => {
-  const owner = database.upsertTelegramUser({ id: 6160, first_name: 'Автор' });
-  const other = database.upsertTelegramUser({ id: 6161, first_name: 'Другой' });
+  const owner = activeUser({ id: 6160, first_name: 'Автор' });
+  const other = activeUser({ id: 6161, first_name: 'Другой' });
   dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { home: 1, asian: -1 }, tastePreferencesStatus: 'completed' });
   let calls = 0, generationInput;
   const generate = async (input) => { calls += 1; generationInput = input; return { ...normalizedRecipe('Новый ужин с фасолью'), servings: 2, prepMinutes: 10, cookMinutes: 15, ingredients: [{ name: 'фасоль', raw: 'фасоль' }] }; };
@@ -65,7 +67,7 @@ test('empty search proposes a recipe and saves it only after owner confirmation'
 });
 
 test('parallel empty searches share one generation request', async () => {
-  const owner = database.upsertTelegramUser({ id: 6164, first_name: 'Параллельно' });
+  const owner = activeUser({ id: 6164, first_name: 'Параллельно' });
   let release; const gate = new Promise((resolve) => { release = resolve; }); let calls = 0;
   const generate = async () => { calls += 1; await gate; return { ...normalizedRecipe('Пирог с яблоком'), servings: 2, prepMinutes: 10, cookMinutes: 15, ingredients: [{ name: 'яблоко', raw: 'яблоко' }] }; };
   const first = suggestions.suggestForEmptySearch(owner.id, 'пирог с яблоком', { generate });
@@ -77,7 +79,7 @@ test('parallel empty searches share one generation request', async () => {
 });
 
 test('empty search does not treat a lexical hit as a semantic match', async () => {
-  const owner = database.upsertTelegramUser({ id: 6196, first_name: 'Смысловой поиск' });
+  const owner = activeUser({ id: 6196, first_name: 'Смысловой поиск' });
   database.createRecipe(owner.id, { ...normalizedRecipe('Паста для бутербродов'), status: 'ready' });
   let generated = 0;
   const suggestion = await suggestions.suggestForEmptySearch(owner.id, 'паста на ужин', {
@@ -90,15 +92,15 @@ test('empty search does not treat a lexical hit as a semantic match', async () =
 
 test('request uses saved and seed recipes before generating one unsaved recipe', async () => {
   const resolve = (userId, query, options = {}) => suggestions.resolveRecipeRequest(userId, query, { ...options, validate: testSemanticValidator });
-  const savedOwner = database.upsertTelegramUser({ id: 6172, first_name: 'Готовый рецепт' });
+  const savedOwner = activeUser({ id: 6172, first_name: 'Готовый рецепт' });
   const savedProposal = database.createRecipeSuggestion(savedOwner.id, 'бобовый рататуй', normalizedRecipe('Бобовый рататуй'));
   const saved = database.saveRecipeSuggestion(savedOwner.id, savedProposal.id);
   const fromCollection = await resolve(savedOwner.id, 'Хочу бобовый рататуй', { generate: assert.fail });
   assert.equal(fromCollection.kind, 'existing');
   assert.equal(fromCollection.recipe.id, saved.id);
 
-  const owner = database.upsertTelegramUser({ id: 6170, first_name: 'Рецепт по запросу' });
-  const other = database.upsertTelegramUser({ id: 6171, first_name: 'Другой' });
+  const owner = activeUser({ id: 6170, first_name: 'Рецепт по запросу' });
+  const other = activeUser({ id: 6171, first_name: 'Другой' });
   dinnerStore.saveFoodProfile(owner.id, { householdType: 'couple', householdSize: 2, hasChildren: false,
     preferredMaxCookingTime: 30, excludedIngredients: ['орехи'], preferredCategories: {}, onboardingCompleted: true });
   const fromBase = await resolve(owner.id, 'рис с овощами', { generate: assert.fail });
@@ -111,7 +113,7 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
   assert.equal(light.kind, 'existing');
   assert.ok(light.recipe.tags.some((tag) => /л[её]гк/iu.test(tag)));
 
-  const familyOwner = database.upsertTelegramUser({ id: 6173, first_name: 'Семья' });
+  const familyOwner = activeUser({ id: 6173, first_name: 'Семья' });
   dinnerStore.saveFoodProfile(familyOwner.id, { householdType: 'family', householdSize: 4, hasChildren: true,
     preferredMaxCookingTime: 120, excludedIngredients: [], preferredCategories: {}, onboardingCompleted: true });
   const borscht = await resolve(familyOwner.id, 'борщ', { generate: assert.fail });
@@ -140,7 +142,7 @@ test('request uses saved and seed recipes before generating one unsaved recipe',
 });
 
 test('group suggestion can only be added by the collection owner', async () => {
-  const owner = database.upsertTelegramUser({ id: 6162, first_name: 'Владелец' });
+  const owner = activeUser({ id: 6162, first_name: 'Владелец' });
   database.setGroupAccessByTelegramId(6162, true);
   database.activateTelegramGroup(owner.id, { id: -61620, type: 'group', title: 'Семья' });
   const proposal = database.createRecipeSuggestion(owner.id, 'пирог с грушей', { ...normalizedRecipe('Грушевый пирог'), ingredients: [{ name: 'груша', raw: 'груша' }] });
@@ -159,7 +161,7 @@ test('group suggestion can only be added by the collection owner', async () => {
 });
 
 test('group search offer rejects a non-owner before generation', async () => {
-  const owner = database.upsertTelegramUser({ id: 6166, first_name: 'Владелец' });
+  const owner = activeUser({ id: 6166, first_name: 'Владелец' });
   database.setGroupAccessByTelegramId(6166, true);
   database.activateTelegramGroup(owner.id, { id: -61660, type: 'group', title: 'Семья' });
   const offerId = database.createSearchOffer(owner.id, 'ужин');
@@ -176,7 +178,7 @@ test('group search offer rejects a non-owner before generation', async () => {
 
 test('private Telegram request generates only after no ready recipe and waits for save', async () => {
   const telegramUser = { id: 6165, first_name: 'Поиск' };
-  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const owner = activeUser(telegramUser); database.allowUser(owner.id);
   dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { soup: 1, fish: -1 }, tastePreferencesStatus: 'completed' });
   const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0, semanticCalls = 0;
   globalThis.fetch = async (url, options) => {
@@ -221,7 +223,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
   try {
     for (const [id, title, accepted] of [[7991, 'Стейк из говядины', true], [7992, 'Гуляш из говядины', false]]) {
       const tg = { id, first_name: 'Проверка формулировки' };
-      const owner = database.upsertTelegramUser(tg); database.allowUser(owner.id);
+      const owner = activeUser(tg); database.allowUser(owner.id);
       dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), onboardingCompleted: true, tastePreferencesStatus: 'completed' });
       const sent = []; let calls = 0, semanticCalls = 0;
       globalThis.fetch = async (url, options) => {
@@ -262,7 +264,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
 
 test('plain Нет declines the pending suggestion instead of becoming a recipe request', async () => {
   const telegramUser = { id: 6190, first_name: 'Отказ текстом' };
-  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const owner = activeUser(telegramUser); database.allowUser(owner.id);
   const proposal = database.createRecipeSuggestion(owner.id, 'request:пирог', normalizedRecipe('Пирог с грушей'));
   database.setPendingIntent(owner.id, { kind: 'recipe-suggestion', suggestionId: proposal.id, messageId: 41 });
   const originalFetch = globalThis.fetch; const calls = [];
@@ -297,7 +299,7 @@ test('intent detection searches short text and saves detailed recipe text', () =
 
 test('plain private message chooses a ready recipe after semantic validation', async () => {
   const telegramUser = { id: 6168, first_name: 'Обычный запрос' };
-  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const owner = activeUser(telegramUser); database.allowUser(owner.id);
   const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('api.openai.com')) {
@@ -323,7 +325,7 @@ test('plain private message chooses a ready recipe after semantic validation', a
 
 test('a new search replaces an unanswered intent question', async () => {
   const telegramUser = { id: 6171, first_name: 'Новый запрос' };
-  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const owner = activeUser(telegramUser); database.allowUser(owner.id);
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('api.openai.com')) {
@@ -346,7 +348,7 @@ test('a new search replaces an unanswered intent question', async () => {
 
 test('voice path calls ASR once and keeps Telegram file identity for idempotency', async () => {
   let transcriptions = 0; let receivedFilename;
-  const interpreted = await telegramModule.interpretVoice({ voice: { duration: 9, file_id: 'file-1', file_unique_id: 'unique-1', mime_type: 'audio/ogg' } }, { id: 'u1' }, {
+  const interpreted = await telegramModule.interpretVoice({ voice: { duration: 9, file_id: 'file-1', file_unique_id: 'unique-1', mime_type: 'audio/ogg' } }, activeUser({ id: 6599, first_name: 'ASR' }), {
     download: async () => ({ buffer: Buffer.from('ogg'), path: 'voice/file-1.oga' }),
     transcribe: async ({ filename }) => { transcriptions += 1; receivedFilename = filename; return 'Найди те крылышки с мёдом'; }
   });
@@ -359,7 +361,7 @@ test('voice path calls ASR once and keeps Telegram file identity for idempotency
 test('voice recipe search never echoes the raw transcript', async () => {
   const originalFetch = globalThis.fetch;
   const telegramUser = { id: 61502, first_name: 'Скрытая расшифровка' };
-  const owner = database.upsertTelegramUser(telegramUser); database.allowUser(owner.id);
+  const owner = activeUser(telegramUser); database.allowUser(owner.id);
   dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), onboardingCompleted: true, tastePreferencesStatus: 'completed' });
   const sent = []; const rawTranscript = 'Найди рис с овощами, эээ сетивицы';
   globalThis.fetch = async (url, options = {}) => {
@@ -384,7 +386,7 @@ test('voice recipe search never echoes the raw transcript', async () => {
 
 test('semantic validation retries one transient timeout and keeps the technical id out of the user message', async () => {
   const originalFetch = globalThis.fetch;
-  const user = database.upsertTelegramUser({ id: 61501, first_name: 'Повтор проверки' });
+  const user = activeUser({ id: 61501, first_name: 'Повтор проверки' });
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
@@ -405,7 +407,7 @@ test('semantic validation retries one transient timeout and keeps the technical 
 
 test('Responses API failures preserve safe diagnostics and return an actionable error', async () => {
   const originalFetch = globalThis.fetch;
-  const user = database.upsertTelegramUser({ id: 6150, first_name: 'Диагностика' });
+  const user = activeUser({ id: 6150, first_name: 'Диагностика' });
   globalThis.fetch = async (_url, options) => {
     assert.match(options.headers['x-client-request-id'], /^[0-9a-f-]{36}$/i);
     assert.equal(JSON.parse(options.body).max_output_tokens, 10000);
@@ -439,7 +441,7 @@ test('Responses API failures preserve safe diagnostics and return an actionable 
 
 test('incomplete and malformed structured responses are distinguished', async () => {
   const originalFetch = globalThis.fetch;
-  const user = database.upsertTelegramUser({ id: 6151, first_name: 'Структура' });
+  const user = activeUser({ id: 6151, first_name: 'Структура' });
   const payloads = [
     { id: 'resp_incomplete', model: 'test-model', status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, usage: { input_tokens: 11, input_tokens_details: { cached_tokens: 3 }, output_tokens: 17, output_tokens_details: { reasoning_tokens: 13 }, total_tokens: 28 }, output: [] },
     { id: 'resp_bad_json', model: 'test-model', status: 'completed', usage: { input_tokens: 12, output_tokens: 5 }, output_text: '{not json' }
@@ -465,7 +467,7 @@ test('/usage reports exact monitored tokens without an AI call', async () => {
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
     const telegramId = 6152;
-    const user = database.upsertTelegramUser({ id: telegramId, first_name: 'Мониторинг' });
+    const user = activeUser({ id: telegramId, first_name: 'Мониторинг' });
     database.allowUser(user.id);
     database.recordProviderRequest({ userId: user.id, operation: 'recipe_extraction', model: 'test-model', inputUnits: 120, outputUnits: 80, reasoningUnits: 30, cachedInputUnits: 20, totalUnits: 200, usageComplete: true, status: 'ok', clientRequestId: 'client-test' });
     await telegramModule.handleMessage({ chat: { id: telegramId, type: 'private' }, from: { id: telegramId, first_name: 'Мониторинг' }, text: '/usage' });
@@ -481,8 +483,8 @@ test('/usage reports exact monitored tokens without an AI call', async () => {
 });
 
 test('parallel and repeated imports create one recipe and one AI call per user', async () => {
-  const alice = database.upsertTelegramUser({ id: 6101, first_name: 'Алиса' });
-  const bob = database.upsertTelegramUser({ id: 6102, first_name: 'Боб' });
+  const alice = activeUser({ id: 6101, first_name: 'Алиса' });
+  const bob = activeUser({ id: 6102, first_name: 'Боб' });
   let release; const gate = new Promise((resolve) => { release = resolve; }); let calls = 0;
   const normalize = async () => { calls += 1; await gate; return normalizedRecipe(); };
   const first = importer.importText(alice.id, 'мой рецепт', { sourceKey: 'telegram-text:same', normalize });
@@ -498,7 +500,7 @@ test('parallel and repeated imports create one recipe and one AI call per user',
 });
 
 test('different sources with similar titles are never merged', async () => {
-  const user = database.upsertTelegramUser({ id: 6201, first_name: 'Маша' });
+  const user = activeUser({ id: 6201, first_name: 'Маша' });
   const normalize = async () => normalizedRecipe('Куриные крылышки');
   await importer.importText(user.id, 'source one', { sourceKey: 'url:https://example.test/one', normalize });
   await importer.importText(user.id, 'source two', { sourceKey: 'url:https://example.test/two', normalize });
@@ -506,7 +508,7 @@ test('different sources with similar titles are never merged', async () => {
 });
 
 test('failed process and Telegram update can be reclaimed safely', () => {
-  const user = database.upsertTelegramUser({ id: 6301, first_name: 'Ира' });
+  const user = activeUser({ id: 6301, first_name: 'Ира' });
   const claim = database.claimImport(user.id, { sourceType: 'url', sourceKey: 'url:https://example.test/recover', sourceUrl: 'https://example.test/recover', label: 'example.test' });
   database.updateJob(claim.job.id, 'normalizing');
   assert.ok(database.interruptActiveJobs() >= 1);
@@ -547,6 +549,7 @@ test('save deep link imports short text without dinner onboarding or recipe gene
     return { json: async () => ({ ok: true, result: {} }) };
   };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start save' });
     const user = database.getUserByTelegramId(from.id);
     assert.equal(user.is_allowed, 1);
@@ -564,12 +567,14 @@ test('save deep link imports short text without dinner onboarding or recipe gene
 test('save entry retains dinner draft across repeated entry, unsupported input and cancellation', async () => {
   const originalFetch = globalThis.fetch, sent = [];
   const from = { id: 6581, first_name: 'Черновик' }, chat = { id: from.id, type: 'private' };
-  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const user = activeUser(from); database.allowUser(user.id);
   const draft = { kind: 'dinner-intake', profileOnly: true, intake: { householdSize: 3, excludedIngredients: ['орехи'] } };
   database.setPendingIntent(user.id, draft);
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start save' });
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start@Recipeboibot save' });
     assert.deepEqual(database.getPendingIntent(user.id).resumeIntent, draft);
     await telegramModule.handleMessage({ chat, from, sticker: { file_id: 'unsupported' } });
@@ -577,7 +582,9 @@ test('save entry retains dinner draft across repeated entry, unsupported input a
     await telegramModule.handleMessage({ chat, from, text: '/cancel' });
     assert.deepEqual(database.getPendingIntent(user.id), draft);
     assert.match(sent.at(-1).text, /отменено/);
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start save' });
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
     assert.equal(database.getPendingIntent(user.id).intake.householdSize, 3);
@@ -587,7 +594,7 @@ test('save entry retains dinner draft across repeated entry, unsupported input a
 test('save entry survives extraction failure and restores the previous draft after retry', async () => {
   const originalFetch = globalThis.fetch;
   const from = { id: 6582, first_name: 'Повтор' }, chat = { id: from.id, type: 'private' };
-  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const user = activeUser(from); database.allowUser(user.id);
   const draft = { kind: 'dinner-intake', profileOnly: true, intake: { householdSize: 2 } };
   database.setPendingIntent(user.id, draft);
   let fail = true;
@@ -600,6 +607,7 @@ test('save entry survives extraction failure and restores the previous draft aft
     return { json: async () => ({ ok: true, result: {} }) };
   };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start save' });
     await telegramModule.handleMessage({ chat, from, text: 'Крылышки с мёдом для двоих' });
     assert.equal(database.getPendingIntent(user.id).kind, 'recipe-save');
@@ -655,6 +663,7 @@ test('profile introduction accepts partial text, missing size, correction and co
   const from = { id: 6491, first_name: 'Знакомство' }, chat = { id: from.id, type: 'private' };
   const { getFoodProfile, getDinnerContext } = await import('../src/dinner-store.js');
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     const user = database.getUserByTelegramId(from.id);
     assert.equal(getFoodProfile(user.id).onboardingCompleted, false);
@@ -669,6 +678,7 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.doesNotMatch(sent.at(-1).text, /Есть дома/);
     await telegramModule.handleDinnerIntakeCallback({ id: 'profile-redo', data: 'dinner:redo', message: { chat }, from });
     await telegramModule.handleMessage({ chat, from, text: 'До 60 минут.' });
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     const pending = database.getPendingIntent(user.id);
     assert.equal(pending.profileOnly, true);
@@ -696,6 +706,7 @@ test('profile introduction accepts partial text, missing size, correction and co
     const dinnerUrl = new URL(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url);
     assert.equal(dinnerUrl.searchParams.get('view'), 'dinner');
     assert.ok(dinnerUrl.searchParams.has('launch'));
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm);
     await telegramModule.handleDinnerIntakeCallback({ id: 'stale-skip', data: 'dinner:skip', message: { chat }, from });
@@ -713,6 +724,7 @@ test('profile correction accepts a bare cuisine name as a preference', async () 
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   const from = { id: 6495, first_name: 'Кухня' }, chat = { id: from.id, type: 'private' };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     await telegramModule.handleMessage({ chat, from, text: 'На одного.' });
     assert.match(sent.at(-1).text, /Любим: не указано/);
@@ -731,6 +743,7 @@ test('first profile confirmation without permanent tastes does not ask for them 
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   const from = { id: 6496, first_name: 'Без вкусов' }, chat = { id: from.id, type: 'private' };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     const user = database.getUserByTelegramId(from.id);
     database.setPendingIntent(user.id, { kind: 'dinner-confirm', profileOnly: true, intake: {
@@ -763,6 +776,7 @@ test('first profile voice message goes to confirmation without asking for produc
   };
   const from = { id: 6492, first_name: 'Голосовое знакомство' }, chat = { id: from.id, type: 'private' };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     await telegramModule.handleMessage({ chat, from, voice: { file_id: 'profile-voice', duration: 15 } });
     const pending = database.getPendingIntent(database.getUserByTelegramId(from.id).id);
@@ -798,6 +812,7 @@ test('first voice intake confirms pantry and restrictions before opening dinner'
   };
   try {
     const from = { id: 6403, first_name: 'Голос' }, chat = { id: 6403, type: 'private' };
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleMessage({ chat, from, voice: { file_id: 'voice-1', duration: 45, mime_type: 'audio/ogg' } });
@@ -840,6 +855,7 @@ test('text intake asks for missing household size before confirmation', async ()
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
     const from = { id: 6404, first_name: 'Текст' }, chat = { id: 6404, type: 'private' };
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
     await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleMessage({ chat, from, text: 'Есть яйца, сыр, без грибов' });
@@ -861,6 +877,7 @@ test('multi-message onboarding and the correction button retain earlier answers'
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   const from = { id: 6409, first_name: 'Дополнение' }, chat = { id: 6409, type: 'private' };
   try {
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
     await telegramModule.handleMessage({ chat, from, text: '/ingredients' });
     await telegramModule.handleMessage({ chat, from, text: 'Есть курица, рис. На троих, до 30 минут.' });
@@ -895,7 +912,7 @@ test('onboarding restart marker keeps account access and opens intake on the nex
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
     const from = { id: 6406, first_name: 'Повторный вход' }, chat = { id: 6406, type: 'private' };
-    const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+    const user = activeUser(from); database.allowUser(user.id);
     for (const text of ['/start', '/start dinner']) {
       database.setPendingIntent(user.id, { kind: 'dinner-onboarding-restart' });
       await telegramModule.handleMessage({ chat, from, text });
@@ -919,6 +936,7 @@ test('unblocking restores introduction and the accompanying Start does not dupli
     assert.equal(user.is_allowed, 1);
     assert.equal(database.getPendingIntent(user.id).profileOnly, true);
     assert.match(sent[0].text, /Давай подберём ужин специально для тебя/);
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
     assert.equal(sent.length, 1);
     const otherFrom = { id: 6410, first_name: 'Первый вход' }, otherChat = { id: 6410, type: 'private' };
@@ -933,10 +951,11 @@ test('reopening intake preserves a draft; completed profiles prepare dinner with
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   const from = { id: 6408, first_name: 'Продолжение' }, chat = { id: 6408, type: 'private' };
-  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const user = activeUser(from); database.allowUser(user.id);
   const intake = { availableIngredients: ['курица', 'рис'], excludedIngredients: ['грибы'], householdSize: 3, hasChildren: true, maxMinutes: 30 };
   try {
     database.setPendingIntent(user.id, { kind: 'dinner-confirm', intake });
+    activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start dinner' });
     assert.match(sent.at(-1).text, /Проверьте/);
     assert.deepEqual(database.getPendingIntent(user.id).intake, intake);
@@ -957,7 +976,7 @@ test('reopening intake preserves a draft; completed profiles prepare dinner with
 test('polling completes a dinner callback without routing it as an absent message', async () => {
   const originalFetch = globalThis.fetch;
   const from = { id: 6405, first_name: 'Polling' }, chat = { id: 6405, type: 'private' };
-  const user = database.upsertTelegramUser(from); database.allowUser(user.id);
+  const user = activeUser(from); database.allowUser(user.id);
   database.setPendingIntent(user.id, { kind: 'dinner-intake' });
   let polls = 0; const calls = [];
   globalThis.fetch = async (url, options) => {
@@ -1014,7 +1033,7 @@ test('group access is denied by default, allows three active groups, and frees a
     assert.equal(database.getActiveTelegramGroup(-65020), null);
 
     calls.length = 0;
-    const owner = database.upsertTelegramUser({ id: 6501, first_name: 'Владелец' });
+    const owner = activeUser({ id: 6501, first_name: 'Владелец' });
     database.setGroupAccessByTelegramId(6501, true);
     for (const chatId of [-65011, -65012, -65013]) {
       await telegramModule.handleMyChatMember({
@@ -1054,7 +1073,7 @@ test('an active group uses its owner collection and leaves after access is revok
     return { json: async () => ({ ok: true, result: {} }) };
   };
   try {
-    const owner = database.upsertTelegramUser({ id: 6510, first_name: 'Хозяин коллекции' });
+    const owner = activeUser({ id: 6510, first_name: 'Хозяин коллекции' });
     database.setGroupAccessByTelegramId(6510, true);
     database.activateTelegramGroup(owner.id, { id: -65100, type: 'group', title: 'Семейная' });
     database.createRecipe(owner.id, { status: 'ready', title: 'Курица с лимоном', ingredients: [{ name: 'курица', raw: 'курица' }], steps: [{ position: 1, text: 'Запечь' }] });

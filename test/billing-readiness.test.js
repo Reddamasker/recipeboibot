@@ -49,7 +49,7 @@ test('required billing accepts a complete provider configuration', () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
-test('required billing closes the second automatic import until access is active', () => {
+test('automatic import requires active access even before the first recipe', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'recipeboibot-billing-readiness-'));
   const database = path.join(directory, 'recipes.sqlite').replaceAll('\\', '/');
   const source = `
@@ -77,6 +77,6 @@ test('required billing closes the second automatic import until access is active
   }, source);
   rmSync(directory, { force: true, recursive: true });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split(/\r?\n/), ['true', 'false', 'true']);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/), ['false', 'false', 'true']);
 });
 

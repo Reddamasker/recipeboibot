@@ -67,6 +67,7 @@ test('private fresh profile shares authenticated bot/API identity and preserves 
     assert.equal((await (await fetch(base + '/api/me', { headers })).json()).id, mode.testUserId);
     assert.deepEqual((await (await fetch(base + '/api/library', { headers })).json()).recipes, []);
     assert.equal((await fetch(base + '/api/recipes/' + recipe.id, { headers })).status, 404);
+    assert.equal((await fetch(base + '/api/billing/trial', { method: 'POST', headers, body: '{}' })).status, 200);
     const session = await (await fetch(base + '/api/dinner/open', { method: 'POST', headers, body: '{}' })).json();
     const choices = await (await fetch(base + '/api/dinner/recommend', { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId }) })).json();
     assert.equal(choices.recommendations.length, 3);

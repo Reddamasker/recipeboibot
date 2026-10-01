@@ -108,10 +108,7 @@ export function billingAvailable() {
 }
 
 export function canUseAutomaticImport(userId, at = new Date()) {
-  if (hasUsedTrialOrPromo(userId, at)) return getSubscriptionAccess(userId, at).active;
-  if (!config.billingRequired) return true;
-  const offer = getBillingOffer(userId, at);
-  return !offer.hasFirstRecipe || offer.active;
+  return getSubscriptionAccess(userId, at).active;
 }
 
 export function getBillingOffer(userId, at = new Date()) {

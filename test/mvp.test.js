@@ -153,7 +153,7 @@ test('playlist import API requires active paid access before fetching YouTube', 
       body: JSON.stringify({ kind: 'url', value: 'https://www.youtube.com/playlist?list=PLMKH9rJBrNkyqFQ9BoHhivNs8A4FvRiX0' })
     });
     assert.equal(response.status, 402);
-    assert.match((await response.json()).error, /активной подпиской/);
+    assert.match((await response.json()).error, /пробный период/);
     assert.equal(database.listRecipes(user.id).length, 0);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
@@ -241,7 +241,9 @@ test('trusted nginx client IP keeps unrelated visitors in separate rate-limit bu
 
 test('Mini App voice request transcribes a short spoken dish and allows its microphone', async () => {
   const telegramUser = { id: 9410, first_name: 'Голос' };
+  const { startTrial } = await import('../src/subscriptions.js');
   const owner = database.upsertTelegramUser(telegramUser);
+  startTrial(owner.id);
   database.allowUser(owner.id);
   const initData = security.makeTelegramInitData(telegramUser, process.env.TELEGRAM_BOT_TOKEN);
   const server = createServer(); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

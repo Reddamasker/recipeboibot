@@ -94,10 +94,7 @@ export function claimMockOffer(userId) {
 }
 
 export function canUseTestImport(userId) {
-  if (!config.testContour) return true;
-  const status = mockPaymentStatus(userId);
-  if (hasUsedTrialOrPromo(userId)) return status.active;
-  return !status.hasFirstRecipe || status.active;
+  return getSubscriptionAccess(userId).active;
 }
 
 export function createMockOrder(userId, method, autoRenew = false, promoCode, periodMonths = 1) {

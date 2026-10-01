@@ -20,7 +20,7 @@ import { openNotificationDinner, selectNotificationDinner } from './notification
 import { sendNotificationRecipeLink } from './telegram.js';
 import { billingAvailable, cancelAutoRenew, canUseAutomaticImport, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
-import { getSubscriptionAccess, startTrial } from './subscriptions.js';
+import { getSubscriptionAccess, startTrial, requireUnexpiredTrial } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
 const publicDir = path.resolve('public');
@@ -243,6 +243,7 @@ async function api(request, response, url) {
     return json(response, 200, await resolveRecipeRequest(user.id, input.query));
   }
   if (request.method === 'POST' && url.pathname === '/api/recipe-request/transcribe') {
+    requireUnexpiredTrial(user.id);
     rateLimit(`ai:${user.id}`, 8, 60_000);
     const input = await bodyJson(request, 2_900_000);
     const mime = String(input.mime || '').split(';')[0].toLowerCase();
@@ -285,9 +286,8 @@ async function api(request, response, url) {
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && url.pathname === '/api/import') {
-    const billing = config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id);
     const canImport = config.testContour && !billingAvailable() ? canUseTestImport(user.id) : canUseAutomaticImport(user.id);
-    if (!canImport) return json(response, 402, { error: billing.trial?.used ? 'Пробный период закончился. Оформите подписку, чтобы продолжить автоматический импорт.' : `Для следующего автоматического импорта откройте предложение за ${billing.offer.priceRub} ₽`, offerPath: '/?view=offer' });
+    if (!canImport) requireUnexpiredTrial(user.id);
     rateLimit(`ai:${user.id}`, 8, 60_000); const input = await bodyJson(request);
     let outcome;
     if (input.kind === 'url') {
@@ -411,6 +411,6 @@ export function createServer() {
       if (serveStatic(request, response, url.pathname)) return;
       if (!path.extname(url.pathname)) return serveStatic(request, response, '/index.html');
       json(response, 404, { error: 'Не найдено' });
-    } catch (error) { log('error', 'http_error', { error, method: request.method, path: url.pathname }); json(response, error.status || 500, { error: error.status && error.status < 500 ? error.message : 'Сервис временно недоступен' }); }
+    } catch (error) { log('error', 'http_error', { error, method: request.method, path: url.pathname }); json(response, error.status || 500, { error: error.status && error.status < 500 ? error.message : 'Сервис временно недоступен', ...(error.status === 402 ? { offerPath: '/?view=offer' } : {}) }); }
   });
 }

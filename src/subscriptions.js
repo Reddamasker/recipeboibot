@@ -81,8 +81,11 @@ export function requireNotificationSubscription(userId, at = new Date()) {
 }
 
 export function requireUnexpiredTrial(userId, at = new Date()) {
-  if (hasUsedTrialOrPromo(userId, at) && !getSubscriptionAccess(userId, at).active) {
-    throw Object.assign(new Error('Бесплатный период закончился. Оформите подписку, чтобы продолжить.'), { status: 402 });
+  if (!getSubscriptionAccess(userId, at).active) {
+    const message = hasUsedTrialOrPromo(userId, at)
+      ? 'Бесплатный период закончился. Оформите подписку, чтобы продолжить.'
+      : 'Начните бесплатный пробный период на 7 дней или оформите подписку, чтобы продолжить.';
+    throw Object.assign(new Error(message), { status: 402, offerPath: '/?view=offer' });
   }
 }
 

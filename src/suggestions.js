@@ -115,6 +115,7 @@ async function interpretedContext(userId, query, interpret) {
 }
 
 export async function suggestForEmptySearch(userId, query, { generate = generateRecipe, interpret = generate === generateRecipe ? interpretMealRequest : null, validate = generate === generateRecipe ? validateRecipeCriteria : acceptRecipeCriteria } = {}) {
+  requireUnexpiredTrial(userId);
   const context = await interpretedContext(userId, query, interpret);
   const existing = searchRecipes(userId, context.normalized).filter((recipe) => recipe.status === 'ready' && validRecipe(recipe, context)).slice(0, 8);
   if (existing.length) {
@@ -126,6 +127,7 @@ export async function suggestForEmptySearch(userId, query, { generate = generate
 }
 
 export async function resolveRecipeRequest(userId, query, { generate = generateRequestedRecipe, interpret = generate === generateRequestedRecipe ? interpretMealRequest : null, validate = generate === generateRequestedRecipe ? validateRecipeCriteria : acceptRecipeCriteria } = {}) {
+  requireUnexpiredTrial(userId);
   const normalized = String(query || '').trim().slice(0, 500);
   const cached = findRecipeSuggestion(userId, requestSuggestionKey(userId, normalized));
   if (cached && validRecipe(cached.recipe, requestContext(userId, normalized, cached.mealRequest), true)) {

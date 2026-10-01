@@ -16,15 +16,60 @@ process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser, allowUser, createRecipe, getRecipe, archiveRecipe } = await import('../src/db.js');
 const { startTrial, getTrialStatus, getSubscriptionAccess, grantSubscription, requireNotificationSubscription } = await import('../src/subscriptions.js');
 const { getBillingOffer, canUseAutomaticImport } = await import('../src/billing.js');
-const { canUsePlaylistImport } = await import('../src/telegram.js');
+const { canUsePlaylistImport, interpretVoice } = await import('../src/telegram.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 const { recommendDinner, prefetchDinner } = await import('../src/dinner-service.js');
-const { resolveRecipeRequest } = await import('../src/suggestions.js');
+const { resolveRecipeRequest, suggestForEmptySearch } = await import('../src/suggestions.js');
+const { canUseTestImport } = await import('../src/contour-sandbox.js');
 const { saveNotificationSchedule, getNotificationSchedule } = await import('../src/notification-store.js');
 let serial = 610000100;
 function fresh() { const telegram = { id: serial++, first_name: 'Trial' }; const user = upsertTelegramUser(telegram); allowUser(user.id); return { user, telegram }; }
 test.after(() => { db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
+
+test('unstarted trial cannot bypass access checks, cached recipes or AI entry points', async () => {
+  const { user } = fresh();
+  const adapters = { generate: assert.fail, interpret: assert.fail, validate: assert.fail };
+  assert.equal(canUseAutomaticImport(user.id), false);
+  assert.equal(canUseTestImport(user.id), false);
+  assert.equal(canUsePlaylistImport(user.id), false);
+  await assert.rejects(() => recommendDinner(user.id, 'unused'), { status: 402 });
+  assert.throws(() => prefetchDinner(user.id, 'unused'), { status: 402 });
+  await assert.rejects(() => resolveRecipeRequest(user.id, 'Суп', adapters), { status: 402 });
+  await assert.rejects(() => suggestForEmptySearch(user.id, 'Суп', adapters), { status: 402 });
+  await assert.rejects(() => interpretVoice({ voice: { duration: 10, file_id: 'unused' } }, user,
+    { download: assert.fail, transcribe: assert.fail }), { status: 402 });
+  startTrial(user.id);
+  const cached = await resolveRecipeRequest(user.id, 'рис с овощами', { generate: assert.fail });
+  assert.equal(cached.kind, 'existing');
+  db.prepare('UPDATE user_trials SET starts_at=?,expires_at=? WHERE user_id=?').run('2026-01-01', '2026-01-08', user.id);
+  await assert.rejects(() => resolveRecipeRequest(user.id, 'рис с овощами', adapters), { status: 402 });
+});
+
+test('HTTP rejects paid actions before trial activation but preserves library access', async () => {
+  const { user, telegram } = fresh();
+  createRecipe(user.id, { title: 'Сохранённый рецепт', status: 'ready' });
+  const server = createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const headers = { authorization: `tma ${makeTelegramInitData(telegram, process.env.TELEGRAM_BOT_TOKEN)}`, 'content-type': 'application/json' };
+  try {
+    for (const [path, method, input] of [
+      ['/api/import', 'POST', {}], ['/api/recipe-request', 'POST', { query: 'Суп' }],
+      ['/api/suggestions', 'POST', { query: 'Суп' }], ['/api/recipe-request/transcribe', 'POST', {}],
+      ['/api/dinner/recommend', 'POST', { sessionId: 'unused' }], ['/api/dinner/request', 'PUT', { query: 'Суп' }]
+    ]) {
+      const response = await fetch(base + path, { method, headers, body: JSON.stringify(input) });
+      assert.equal(response.status, 402, path);
+      assert.match((await response.json()).error, /Начните бесплатный пробный период/);
+    }
+    assert.equal((await fetch(base + '/api/library', { headers })).status, 200);
+    assert.equal(getTrialStatus(user.id).used, false);
+    assert.equal((await fetch(base + '/api/billing/trial', { method: 'POST', headers, body: '{}' })).status, 200);
+    assert.equal(canUseAutomaticImport(user.id), true);
+    assert.equal(canUseTestImport(user.id), true);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
 
 test('trial starts only on request, lasts exactly seven days and survives retries and process restart', () => {
   const { user } = fresh();

@@ -74,6 +74,7 @@ export function startDinner(userId, { prefetchOnly = false } = {}) {
 }
 
 export async function changeDinnerRequest(userId, query, { interpret = interpretMealRequest } = {}) {
+  requireUnexpiredTrial(userId);
   if (typeof query !== 'string' || query.length > 500) throw badRequest('Пожелание должно быть не длиннее 500 символов');
   const intake = query.trim() ? parseDinnerIntakeFallback(`сегодня хочу ${query.trim()}`) : {};
   intake.mealRequest = parseMealRequest(query);

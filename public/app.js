@@ -168,7 +168,7 @@ async function showRequestedRecipe(event, { query: suppliedQuery = '', hideRawQu
     if (result.kind === 'existing') await openRecipe(result.recipe.id, true);
     else if (result.kind === 'generated') recipeDetail({ ...result.suggestion.recipe, origin: 'generated', sourceName: 'Создано в «Рецептах»' }, { suggestion: result.suggestion });
     else throw new Error('Не получилось подобрать рецепт');
-  } catch (error) { toast(error.message); }
+  } catch (error) { if (error.status === 402) { await refresh(); openOffer(); } else toast(error.message); }
   finally { button.disabled = false; button.textContent = 'Подобрать рецепт'; }
 }
 
@@ -203,7 +203,7 @@ async function toggleRequestRecording(event) {
         const result = await api('/api/recipe-request/transcribe', { method: 'POST', body: JSON.stringify({ mime, value }) });
         const form = document.querySelector('#home-search-form');
         if (form) { status.textContent = 'Пожелание записано. Подбираю рецепт…'; await showRequestedRecipe({ preventDefault() {}, currentTarget: form }, { query: result.text, hideRawQuery: true }); }
-      } catch (error) { status.textContent = ''; toast(error.message); }
+      } catch (error) { status.textContent = ''; if (error.status === 402) { await refresh(); openOffer(); } else toast(error.message); }
       finally { button.disabled = false; }
     };
     recorder.start();
@@ -363,7 +363,7 @@ async function loadDinnerRecommendation() {
     state.dinner.notice = result.notice;
     dinnerView();
     scheduleDinnerPrefetch(dinner);
-  } catch (error) { if (state.dinner !== dinner) return; dinner.loading = false; dinner.message = error.message; dinnerView(); toast(error.message); }
+  } catch (error) { if (state.dinner !== dinner) return; dinner.loading = false; if (error.status === 402) { await refresh(); openOffer(); return; } dinner.message = error.message; dinnerView(); toast(error.message); }
 }
 
 let dinnerPollTimer;

@@ -57,6 +57,7 @@ test.after(async () => {
 
 test('test contour uses the real seven-day entitlement without creating a mock payment', () => {
   const fresh = upsertTelegramUser({ id: 6971956680, first_name: 'Trial' });
+  assert.equal(canUseTestImport(fresh.id), false);
   startTrial(fresh.id);
   const status = mockPaymentStatus(fresh.id);
   assert.equal(status.active, true);
@@ -88,6 +89,7 @@ test('test contour mirrors discounted three-month and annual access periods', ()
 });
 
 test('test contour retains current tastes, specific recipe requests and mock checkout together', async () => {
+  startTrial(user.id);
   const me = await (await call('/api/me')).json();
   assert.equal(me.testContour, true);
   const initial = await (await call('/api/dinner/open', 'POST', {})).json();
@@ -117,7 +119,8 @@ test('test contour retains current tastes, specific recipe requests and mock che
   const payment = await (await call('/api/test/payment')).json();
   assert.equal(payment.hasFirstRecipe, true);
   const schedule = { enabled: true, weekdays: [1], time: '18:00', timezone: 'Europe/Moscow' };
-  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 402);
+  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 200);
+  db.prepare('UPDATE user_trials SET starts_at=?,expires_at=? WHERE user_id=?').run('2026-01-01', '2026-01-08', user.id);
   const created = await call('/api/test/orders', 'POST', { method: 'sbp' });
   assert.equal(created.status, 201);
   const order = await created.json();

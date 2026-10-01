@@ -19,7 +19,8 @@ const { parseDinnerIntakeFallback, combineDinnerIntakeExtraction } = await impor
 const { rankCandidates, recipeCategories, SEED_RECIPES } = await import('../src/dinner.js');
 const { dinnerContextKey } = await import('../src/dinner-buffer.js');
 let serial = 7000;
-const user = () => db.upsertTelegramUser({ id: serial++, first_name: 'Контракт' });
+const { startTrial } = await import('../src/subscriptions.js');
+const user = () => { const owner = db.upsertTelegramUser({ id: serial++, first_name: 'Контракт' }); startTrial(owner.id); return owner; };
 const steak = () => ({ title: 'Стейк из говядины', description: 'Стейк на сковороде', servings: 4, prepMinutes: 5, cookMinutes: 20,
   ingredients: [{ name: 'говядина', quantity: 800, unit: 'г' }, { name: 'растительное масло', quantity: 10, unit: 'мл' }],
   steps: [{ text: 'Обсушите говядину и нарежьте на стейки.' }, { text: 'Разогрейте сковороду с растительным маслом.' }, { text: 'Обжарьте стейки с двух сторон до готовности.' }, { text: 'Дайте мясу отдохнуть перед подачей.' }], tags: ['мясо'], warnings: [] });

@@ -7,11 +7,13 @@ process.env.DATABASE_PATH = path.resolve('data', `dinner-test-${process.pid}.sql
 process.env.TELEGRAM_BOT_TOKEN = '123456:test-secret';
 process.env.DINNER_LLM_ENABLED = 'false';
 
-const { db, upsertTelegramUser, allowUser, createRecipe } = await import('../src/db.js');
+const { db, upsertTelegramUser: rawUpsertTelegramUser, allowUser, createRecipe } = await import('../src/db.js');
 const { hasExcludedIngredient, isDinnerCandidate, pantryCoverage, rankCandidates, recipeCategories, selectDinnerChoices, shortlistDinnerCandidates, SEED_RECIPES } = await import('../src/dinner.js');
 const { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } = await import('../src/dinner-intake.js');
 const { confirmDinnerIntake, recommendDinner, rejectDinnerBatch, startDinner, updateDinnerProfile } = await import('../src/dinner-service.js');
 const { getFoodProfile } = await import('../src/dinner-store.js');
+const { startTrial } = await import('../src/subscriptions.js');
+const upsertTelegramUser = (telegram) => { const user = rawUpsertTelegramUser(telegram); startTrial(user.id); return user; };
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 
