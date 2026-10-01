@@ -641,7 +641,7 @@ test('first Start restores chat introduction without requiring ingredients; skip
     assert.match(sent[0].text, /<b>Запишите голосовое сообщение<\/b>/);
     assert.match(sent[0].text, /микрофон справа от поля ввода/);
     assert.match(sent[0].text, /какие блюда вы обычно любите и что хотите именно сегодня/);
-    assert.ok(sent[0].reply_markup.keyboard.some(row => row.some(button => button.text === 'Что приготовить')));
+    assert.ok(sent[0].reply_markup.keyboard.some(row => row.some(button => button.text === 'Что на сегодня')));
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, true);
     assert.match(sent[1].text, /Давай подберём ужин специально для тебя/);
     const messagesBeforeSkip = sent.filter((body) => body.chat_id).length;
@@ -653,7 +653,7 @@ test('first Start restores chat introduction without requiring ingredients; skip
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /назовите продукты/);
     assert.match(sent.at(-1).text, /<b>Запишите голосовое сообщение<\/b>/);
-    assert.ok(sent.at(-1).reply_markup.keyboard.some(row => row.some(button => button.text === 'Что приготовить')));
+    assert.ok(sent.at(-1).reply_markup.keyboard.some(row => row.some(button => button.text === 'Что на сегодня')));
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6401).id).profileOnly, false);
     assert.ok(sent.every((body) => !/код приглашения/i.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
@@ -922,7 +922,7 @@ test('onboarding restart marker keeps account access and opens intake on the nex
       assert.equal(database.getUserByTelegramId(from.id).is_allowed, 1);
       assert.equal(database.getPendingIntent(user.id).kind, 'dinner-intake');
       assert.match(sent.at(-1).text, /<b>Запишите голосовое сообщение<\/b>/);
-      assert.ok(sent.at(-1).reply_markup.keyboard.some(row => row.some(button => button.text === 'Мои предпочтения')));
+      assert.ok(sent.at(-1).reply_markup.keyboard.some(row => row.some(button => button.text === 'Хочу конкретное блюдо')));
     }
   } finally { globalThis.fetch = originalFetch; }
 });

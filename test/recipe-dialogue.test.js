@@ -157,22 +157,29 @@ test('skip saving differs from rejecting the dish and text save is not an import
   });
 });
 
-test('menu starts a new task and offers collection, explicit import and profile', async () => {
+test('menu opens the daily trio, starts a separate dish request and opens collection', async () => {
   const u = user();
   const { saveFoodProfile, getFoodProfile } = await import('../src/dinner-store.js');
   saveFoodProfile(u.owner.id, { ...getFoodProfile(u.owner.id), householdSize: 2, onboardingCompleted: true });
   dialogueStore.createRecipeDialogue(u.owner.id, { query: request.text, recipe: recipe('Первый'), mealRequest: request });
   await withProvider(async ({ sent, calls }) => {
-    await telegram.handleMessage(u.message('Что приготовить'));
+    await telegram.handleMessage(u.message('Что на сегодня'));
     assert.equal(dialogueStore.getRecipeDialogue(u.owner.id), null);
-    assert.match(sent.at(-1).text, /Что хотите приготовить/);
+    assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=dinner/);
+    database.setPendingIntent(u.owner.id, { kind: 'recipe-save' });
+    dialogueStore.createRecipeDialogue(u.owner.id, { query: request.text, recipe: recipe('Первый'), mealRequest: request });
+    await telegram.handleMessage(u.message('Хочу конкретное блюдо'));
+    assert.equal(dialogueStore.getRecipeDialogue(u.owner.id), null);
+    assert.equal(database.getPendingIntent(u.owner.id), null);
+    assert.match(sent.at(-1).text, /Надиктуйте голосовым сообщением/);
+    assert.deepEqual(sent.at(-1).reply_markup.keyboard.flat().map(button => button.text), ['Что на сегодня', 'Хочу конкретное блюдо', 'Мои рецепты']);
     await telegram.handleMessage(u.message('Мои рецепты'));
     assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=collection/);
-    await telegram.handleMessage(u.message('Сохранить рецепт'));
+    await telegram.handleMessage(u.message('/save'));
     assert.equal(database.getPendingIntent(u.owner.id).kind, 'recipe-save');
     await telegram.handleMessage(u.message('/cancel'));
     assert.equal(database.getPendingIntent(u.owner.id), null);
-    await telegram.handleMessage(u.message('Мои предпочтения'));
+    await telegram.handleMessage(u.message('/preferences'));
     assert.equal(database.getPendingIntent(u.owner.id).profileOnly, true);
     assert.equal(calls.length, 0);
   });

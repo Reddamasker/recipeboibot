@@ -31,7 +31,7 @@ async function telegram(method, body = {}) {
 }
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: mainKeyboard() } : {}), ...extra });
-const mainKeyboard = () => ({ keyboard: [[{ text: 'Что приготовить' }, { text: 'Мои рецепты' }], [{ text: 'Сохранить рецепт' }, { text: 'Мои предпочтения' }]], resize_keyboard: true, is_persistent: true });
+const mainKeyboard = () => ({ keyboard: [[{ text: 'Что на сегодня' }], [{ text: 'Хочу конкретное блюдо' }], [{ text: 'Мои рецепты' }]], resize_keyboard: true, is_persistent: true });
 async function sendTestOffer(chatId, userId, force = false) {
   const mock = config.testContour && !billingAvailable();
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
@@ -314,7 +314,7 @@ export async function configureTelegramMenuButton() {
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Открыть приложение', web_app: { url } } });
   await telegram('setMyCommands', { commands: [
-    { command: 'dinner', description: 'Что приготовить' }, { command: 'collection', description: 'Мои рецепты' },
+    { command: 'dinner', description: 'Что на сегодня' }, { command: 'collection', description: 'Мои рецепты' },
     { command: 'save', description: 'Сохранить рецепт' }, { command: 'preferences', description: 'Мои предпочтения' },
     { command: 'cancel', description: 'Отменить текущее действие' }, { command: 'help', description: 'Как пользоваться ботом' }
   ], scope: { type: 'all_private_chats' } });
@@ -833,7 +833,7 @@ export async function handleMessage(message) {
   const chatId = message.chat.id;
   const user = resolvePrivateTelegramUser(message.from);
   let text = message.text?.trim() || message.caption?.trim() || '';
-  const menuCommands = { 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
+  const menuCommands = { 'Что на сегодня': '/dinner', 'Хочу конкретное блюдо': '/find', 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
   text = menuCommands[text] || text;
   if (config.testContour && text === '/test_reset') {
     await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
@@ -875,7 +875,7 @@ export async function handleMessage(message) {
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
-  if (['/collection', '/preferences', '/save', '/dinner', '/ingredients'].includes(text)) {
+  if (['/collection', '/preferences', '/save', '/dinner', '/find', '/ingredients'].includes(text)) {
     await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: выбрано другое действие.');
   }
   if (text === '/collection') {
@@ -898,8 +898,12 @@ export async function handleMessage(message) {
   if (text === '/ingredients') { await sendDinnerIntakePrompt(chatId, user.id); return; }
   if (text === '/dinner') {
     clearRecipeDialogue(user.id); clearPendingIntent(user.id);
-    if (!getFoodProfile(user.id).onboardingCompleted) await sendDinnerProfilePrompt(chatId, user.id);
-    else await send(chatId, 'Что хотите приготовить? Назовите продукты и пожелания текстом или голосом.', { reply_markup: mainKeyboard() });
+    await send(chatId, 'Подборка из трёх рецептов с учётом ваших вкусов и ограничений.', { reply_markup: dinnerWebAppMarkup() });
+    return;
+  }
+  if (text === '/find') {
+    clearRecipeDialogue(user.id); clearPendingIntent(user.id);
+    await send(chatId, 'Надиктуйте голосовым сообщением, какое блюдо хотите приготовить. Можно написать название текстом.', { reply_markup: mainKeyboard() });
     return;
   }
   if (text === '/cancel' && getRecipeDialogue(user.id)) {
@@ -909,9 +913,9 @@ export async function handleMessage(message) {
       return;
     }
     clearPendingIntent(user.id); clearRecipeDialogue(user.id);
-    await send(chatId, 'Подбор отменён. Можно начать новый через «Что приготовить».'); return;
+    await send(chatId, 'Подбор отменён. Можно начать новый через «Хочу конкретное блюдо».'); return;
   }
-  if (text === '/help') { await send(chatId, 'Выберите действие в меню: «Что приготовить», «Мои рецепты», «Сохранить рецепт» или «Мои предпочтения». После предложения можно написать «другой вариант», «без риса», «быстрее», «на троих» или задать вопрос о рецепте. Условия подбора сохраняются. Ссылку, фото или подробный текст с ингредиентами и шагами сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …».'); return; }
+  if (text === '/help') { await send(chatId, 'Выберите действие в меню: «Что на сегодня» — подборка из трёх рецептов, «Хочу конкретное блюдо» — назовите блюдо голосом или текстом, «Мои рецепты» — сохранённая коллекция. После предложения можно написать «другой вариант», «без риса», «быстрее», «на троих» или задать вопрос о рецепте. Условия подбора сохраняются. Ссылку, фото или подробный текст с ингредиентами и шагами сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …».'); return; }
   if (text === '/usage') { await send(chatId, usageMessage(user.id)); return; }
   if (text === '/delete_data CONFIRM') { deleteUserData(user.id); await send(chatId, 'Ваши рецепты и профиль удалены.'); return; }
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }
