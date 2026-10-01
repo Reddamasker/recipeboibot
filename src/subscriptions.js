@@ -30,6 +30,11 @@ const firstRecipeContext = new AsyncLocalStorage();
 const firstRecipeInFlight = new Map();
 const tableExists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 
+export function getFirstRecipeResult(userId) {
+  const row = db.prepare('SELECT result_json FROM first_recipe_results WHERE user_id=?').get(userId);
+  return row?.result_json ? JSON.parse(row.result_json) : null;
+}
+
 export function getFirstRecipeStatus(userId) {
   const row = db.prepare('SELECT * FROM first_recipe_results WHERE user_id=?').get(userId);
   const historical = Boolean(db.prepare("SELECT 1 FROM recipes WHERE user_id=? AND status IN ('ready','archived') LIMIT 1").get(userId)

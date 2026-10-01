@@ -190,6 +190,17 @@ test('a first Telegram launch provides the recipe before sending the trial offer
     assert.equal(getTrialStatus(user.id).used, false);
     assert.equal(getFirstRecipeStatus(user.id).delivered, true);
     assert.equal(getPendingIntent(user.id), null);
+    sent.length = 0;
+    setPendingIntent(user.id, { kind: 'dinner-confirm', intake: {
+      householdSize: 2, hasChildren: false, maxMinutes: 30, availableIngredients: [], excludedIngredients: [], requestedCategories: ['caucasian'], mealRequest: { text: 'хочу приготовить кавказскую кухню', kind: 'open' }
+    } });
+    await handleDinnerIntakeCallback({ id: 'second-confirm', data: 'dinner:confirm', from, message: { chat, message_id: 102 } });
+    const replayIndex = sent.findIndex(body => /Ингредиенты\n[\s\S]*Приготовление\n/.test(body.text || ''));
+    const replayOfferIndex = sent.findIndex(body => /Попробуйте 7 дней бесплатно/.test(body.text || ''));
+    assert.ok(replayIndex >= 0);
+    assert.ok(replayOfferIndex > replayIndex);
+    assert.equal(sent.some(body => JSON.stringify(body).includes('Рецепты пока не готовы')), false);
+    assert.equal(getTrialStatus(user.id).used, false);
   } finally { globalThis.fetch = originalFetch; }
 });
 

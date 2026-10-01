@@ -12,7 +12,7 @@ import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
-import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe } from './subscriptions.js';
+import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
@@ -104,6 +104,17 @@ async function revealDinnerButton(chatId, messageId, userId, sessionId) {
     }
   } catch (error) {
     log('warn', 'telegram_dinner_open_button_reveal_failed', { error: error.message, userId });
+    if (error.status === 402) {
+      const first = getFirstRecipeResult(userId);
+      const recipe = first?.recommendation?.recipe || first?.recipe;
+      if (recipe) {
+        await send(chatId, 'Первый бесплатный рецепт уже подготовлен. Показываю его ещё раз. Для нового подбора активируйте пробный период или подписку.');
+        await sendFirstFreeRecipe(chatId, recipe);
+      }
+      await sendTestOffer(chatId, userId, true);
+      await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
+      return;
+    }
     try { await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: dinnerUnavailableMarkup() }); }
     catch {}
   }
