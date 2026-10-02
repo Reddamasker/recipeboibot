@@ -24,7 +24,6 @@ const fail = (message, status = 400) => Object.assign(new Error(message), { stat
 const exists = table => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
 const botUsername = () => config.testContour ? config.testBotUsername : 'Recipeboibot';
 const slugPattern = /^[a-z0-9][a-z0-9_-]{0,39}$/;
-export const isFunnelOwner = telegramId => String(telegramId) === config.analyticsOwnerId;
 
 export function campaignLink(slug) {
   return `${config.appUrl}/go/${slug}`;
@@ -38,7 +37,7 @@ export function createCampaign(slug, name = slug) {
 }
 function getCampaign(slug) {
   const campaign = db.prepare('SELECT * FROM acquisition_campaigns WHERE slug=?').get(slug);
-  if (!campaign) throw fail('Рекламная ссылка не найдена. Создайте её командой /adlink.', 404);
+  if (!campaign) throw fail('Рекламная ссылка не найдена. Создайте размещение в дашборде.', 404);
   return campaign;
 }
 export function setCampaignStats(slug, impressions, reach = null) {
@@ -118,7 +117,7 @@ export function funnelReport(slug = 'all') {
   const impressions = campaign ? campaign.impressions : campaigns.length && campaigns.every(c => c.impressions !== null) ? campaigns.reduce((sum, c) => sum + c.impressions, 0) : null;
   return {
     generatedAt: new Date().toISOString(), trackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='tracking_since'").get().value,
-    contour: config.testContour ? 'test' : 'main', campaign: campaign || null, campaigns,
+    contour: config.testContour ? 'test' : 'main', preview: config.dashboardPreview, campaign: campaign || null, campaigns,
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered,
     convertedClicks,
     conversions: { clickFromImpression: percentage(clicks, impressions), startFromClick: campaign ? percentage(convertedClicks, clicks) : null,
@@ -128,46 +127,4 @@ export function funnelReport(slug = 'all') {
     testPaidUsers: excludedPayments.filter(p => p.is_test === 1 && ids.has(p.user_id)).length,
     unclassifiedPaidUsers: excludedPayments.filter(p => p.is_test === null && ids.has(p.user_id)).length
   };
-}
-
-export function formatFunnel(report) {
-  const value = n => n === null ? 'нет данных' : String(n);
-  const pct = n => n === null ? '' : ` (${n}%)`;
-  const t = report.totals, o = report.ordered, c = report.conversions;
-  const lines = [`Воронка: ${report.campaign?.name || 'все пользователи'}`, `Контур: ${report.contour === 'main' ? 'основной' : 'тестовый'}. За всё время.`, '',
-    `Показы рекламы: ${value(report.impressions)}`, `Охват: ${value(report.reach)}`,
-    `Переходы по рекламным ссылкам: ${report.clicks}${pct(c.clickFromImpression)}`,
-    `Запустили бота: ${o.starts}${pct(c.startFromClick)}`, `Получили первый рецепт: ${o.firstRecipe}${pct(c.firstRecipeFromStart)}`,
-    `Затем запустили триал: ${o.trial}${pct(c.trialAfterRecipe)}`, `Затем оплатили: ${o.paid}${pct(c.paidAfterTrial)}`, '',
-    `Все достигнутые этапы: рецепт ${t.firstRecipe}, триал ${t.trial}, оплата ${t.paid}.`,
-    'В цепочке каждый следующий этап пройден после предыдущего. Оплата напрямую учитывается в общем числе оплат.',
-    'Первый рецепт — получен готовый результат или подборка, не факт приготовления. Переходы — запросы ссылки, не уникальные люди; открытие чата не подтверждается.',
-    'Показы и охват берутся из статистики размещения.'];
-  if (!report.campaign) lines.push('Общий запуск включает органику; конверсия переход → запуск доступна по отдельной ссылке.');
-  lines.push(`Переходы учитываются с ${new Date(report.trackingSince).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Старые клики не восстановлены.`);
-  if (report.returningStarts) lines.push(`Повторные пользователи по ссылке: ${report.returningStarts}; в новые запуски не включены.`);
-  if (report.historicalStartsWithoutDate) lines.push(`Старые запуски без точной даты: ${report.historicalStartsWithoutDate}; рекламный источник неизвестен.`);
-  if (report.testPaidUsers || report.unclassifiedPaidUsers) lines.push(`Исключены из оплат: тестовые ${report.testPaidUsers}, старые без отметки режима ${report.unclassifiedPaidUsers}.`);
-  if (report.campaign) lines.push(`Рекламная ссылка: ${campaignLink(report.campaign.slug)}`);
-  else if (report.campaigns.length) lines.push(`Размещения: ${report.campaigns.slice(0, 20).map(c => c.slug).join(', ')}${report.campaigns.length > 20 ? `; всего ${report.campaigns.length}` : ''}`);
-  lines.push('', '/funnel код — отчёт по размещению', '/adlink код Название — создать ссылку', '/adstats код показы [охват] — обновить общий итог, не прибавить');
-  return lines.join('\n');
-}
-
-export function funnelCommand(telegramId, text) {
-  const command = String(text).match(/^\/(funnel|adlink|adstats)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?$/i);
-  if (!command) return null;
-  if (!isFunnelOwner(telegramId)) return 'Отчёт доступен только владельцу бота.';
-  try {
-    const args = (command[2] || '').trim().split(/\s+/).filter(Boolean);
-    if (command[1].toLowerCase() === 'adlink') {
-      const row = createCampaign(args[0], args.slice(1).join(' '));
-      return `Рекламная ссылка: ${row.name}\n${campaignLink(row.slug)}\n\nИспользуйте эту ссылку в размещении. /funnel ${row.slug} — воронка. /adstats ${row.slug} показы [охват] — статистика площадки.`;
-    }
-    if (command[1].toLowerCase() === 'adstats') {
-      if (args.length < 2 || args.length > 3 || args.slice(1).some(arg => !/^\d+$/.test(arg))) throw fail('Формат: /adstats код общее_число_показов [охват]');
-      setCampaignStats(args[0], Number(args[1]), args[2] === undefined ? null : Number(args[2]));
-    } else if (args.length > 1) throw fail('Формат: /funnel [код]');
-    return formatFunnel(funnelReport(args[0] || 'all'));
-  } catch (error) { if (error.status) return error.message; throw error; }
 }

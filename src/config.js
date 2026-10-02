@@ -38,6 +38,7 @@ export const config = Object.freeze({
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   feedbackChatId: process.env.FEEDBACK_CHAT_ID || '6971956699',
   analyticsOwnerId: process.env.ANALYTICS_OWNER_ID || '6971956699',
+  dashboardPreview: process.env.DASHBOARD_PREVIEW === 'true' && process.env.NODE_ENV !== 'production',
   telegramPolling: process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',

@@ -1,0 +1,40 @@
+// Isolated dashboard demo: no production database, Telegram polling or AI.
+import fs from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+process.env.DATABASE_PATH = './data/funnel-preview.sqlite';
+process.env.DASHBOARD_PREVIEW = 'true';
+process.env.NODE_ENV = 'development';
+process.env.APP_URL = 'http://127.0.0.1:3091';
+process.env.TELEGRAM_BOT_TOKEN = 'local-preview-only';
+process.env.TELEGRAM_POLLING = 'false';
+process.env.DINNER_LLM_ENABLED = 'false';
+process.env.DINNER_IMAGES_ENABLED = 'false';
+process.env.OPENAI_API_KEY = 'local-preview-disabled';
+const { createServer } = await import('../src/server.js');
+const { db, upsertTelegramUser, allowUser, createRecipe } = await import('../src/db.js');
+const { createCampaign, setCampaignStats, recordBotStart } = await import('../src/funnel.js');
+const { startTrial } = await import('../src/subscriptions.js');
+const { createDashboardPassword } = await import('../src/funnel-auth.js');
+const since = '2026-10-01T08:00:00.000Z';
+const placements = [['kitchen-oct', 'Канал «Домашняя кухня»', 12400, 9100, 380], ['telegram-oct', 'Telegram — октябрь', 8300, 6100, 220], ['friends', 'Рекомендации и друзья', 2700, null, 90]];
+for (const [slug, name, impressions, reach, clicks] of placements) {
+  createCampaign(slug, name); setCampaignStats(slug, impressions, reach);
+  const count = db.prepare('SELECT COUNT(*) AS n FROM acquisition_clicks WHERE campaign=?').get(slug).n;
+  for (let i = count; i < clicks; i++) db.prepare('INSERT INTO acquisition_clicks(token,campaign,created_at) VALUES(?,?,?)').run(randomBytes(18).toString('base64url'), slug, since);
+}
+for (let i = 0; i < 60; i++) {
+  const user = upsertTelegramUser({ id: 999500000 + i, first_name: 'Демо пользователь' });
+  const slug = placements[i < 32 ? 0 : i < 51 ? 1 : 2][0];
+  const clicks = db.prepare('SELECT token FROM acquisition_clicks WHERE campaign=? ORDER BY token').all(slug);
+  if (!db.prepare('SELECT 1 FROM acquisition_starts WHERE user_id=?').get(user.id)) recordBotStart(user, `/start ad_${clicks[i].token}`, new Date(since));
+  allowUser(user.id);
+  if (i < 44 && !db.prepare('SELECT 1 FROM recipes WHERE user_id=?').get(user.id)) {
+    const recipe = createRecipe(user.id, { status: 'ready', title: 'Демонстрационный рецепт' });
+    db.prepare('UPDATE recipes SET created_at=? WHERE id=?').run('2026-10-01T08:01:00.000Z', recipe.id);
+  }
+  if (i < 20) startTrial(user.id, new Date('2026-10-01T08:02:00.000Z'));
+  if (i < 13 && !db.prepare('SELECT 1 FROM payment_orders WHERE user_id=?').get(user.id)) db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,status,created_at,updated_at,paid_at,is_test) VALUES(?,?,'demo','demo',19900,'initial','paid',?,?,?,0)`).run(randomUUID(), user.id, since, '2026-10-01T08:03:00.000Z', '2026-10-01T08:03:00.000Z');
+}
+const access = { url: 'http://127.0.0.1:3091/dashboard', password: createDashboardPassword(), demo: true };
+fs.writeFileSync('data/funnel-preview-access.json', JSON.stringify(access));
+createServer().listen(3091, '127.0.0.1', () => console.log(`DASHBOARD_PREVIEW=${access.url}; access: data/funnel-preview-access.json`));

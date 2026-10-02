@@ -20,9 +20,9 @@ process.env.ANALYTICS_OWNER_ID = '6971956699';
 const { db, upsertTelegramUser, allowUser, createRecipe, deleteUserData } = await import('../src/db.js');
 const { startTrial, withFirstRecipe } = await import('../src/subscriptions.js');
 const { createPaymentOrder, processRobokassaResult } = await import('../src/billing.js');
-const { createCampaign, setCampaignStats, advertisingRedirect, recordBotStart, funnelReport, funnelCommand, formatFunnel } = await import('../src/funnel.js');
+const { createCampaign, setCampaignStats, advertisingRedirect, recordBotStart, funnelReport } = await import('../src/funnel.js');
+const { createDashboardPassword, openDashboardSession, closeDashboardSession, dashboardSessionValid } = await import('../src/funnel-auth.js');
 const { createServer } = await import('../src/server.js');
-const { makeTelegramInitData } = await import('../src/security.js');
 const { handleMessage } = await import('../src/telegram.js');
 let sequence = 93000;
 const fixture = () => { const sender = { id: ++sequence, first_name: 'Воронка' }; return { sender, user: upsertTelegramUser(sender) }; };
@@ -109,11 +109,7 @@ test('unknown ad statistics stay null; reach is never summed across placements; 
   recordBotStart(user, '/start'); allowUser(user.id);
   assert.equal(funnelReport().reach, null);
   assert.equal(funnelReport().impressions, null);
-  assert.match(formatFunnel(funnelReport()), /Показы рекламы: нет данных/);
-  assert.equal(funnelCommand('1', '/adlink denied'), 'Отчёт доступен только владельцу бота.');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM acquisition_campaigns WHERE slug=?').get('denied').n, 0);
-  assert.match(funnelCommand('6971956699', '/adlink channel_1 Канал & тест'), /https:\/\/funnel.example.test\/go\/channel_1/);
-  assert.match(funnelCommand('6971956699', '/adstats channel_1 0'), /Показы рекламы: 0/);
+  assert.ok(funnelReport().trackingSince);
 });
 
 test('trial and manual access are not payments; test and legacy orders cannot inflate paid users', () => {
@@ -134,7 +130,20 @@ test('trial and manual access are not payments; test and legacy orders cannot in
   assert.equal(funnelReport('payments').ordered.paid, 0);
 });
 
-test('owner report is protected over signed HTTP auth; redirect counts only GET; chat responds only to requester', async () => {
+test('dashboard sessions use hashes, expire and revoke; password rotation ends all sessions', () => {
+  const password = createDashboardPassword();
+  assert.throws(() => openDashboardSession('incorrect'), { status: 401 });
+  const session = openDashboardSession(password, 1000);
+  assert.equal(dashboardSessionValid(session, 1001), true);
+  assert.equal(dashboardSessionValid(session, 1000 + 7 * 86400000), false);
+  assert.equal(db.prepare('SELECT token_hash FROM funnel_sessions').get().token_hash.includes(session), false);
+  closeDashboardSession(session); assert.equal(dashboardSessionValid(session, 1001), false);
+  const active = openDashboardSession(password); createDashboardPassword();
+  assert.equal(dashboardSessionValid(active), false);
+  assert.throws(() => openDashboardSession(password), { status: 401 });
+});
+
+test('dashboard requires password and cookie, rejects cross-origin writes, and supports placement management', async () => {
   const server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const original = globalThis.fetch, calls = [];
@@ -143,21 +152,33 @@ test('owner report is protected over signed HTTP auth; redirect counts only GET;
     return original(url, options);
   };
   try {
-    assert.equal((await fetch(`${base}/api/admin/funnel`)).status, 401);
-    const { sender, user } = fixture(); allowUser(user.id);
-    const header = account => ({ authorization: `tma ${makeTelegramInitData(account, process.env.TELEGRAM_BOT_TOKEN)}` });
-    assert.equal((await fetch(`${base}/api/admin/funnel`, { headers: header(sender) })).status, 403);
-    const owner = { id: 6971956699, first_name: 'Владелец' };
-    assert.equal((await fetch(`${base}/api/admin/funnel`, { headers: header(owner) })).status, 200);
+    const password = createDashboardPassword();
+    assert.equal((await fetch(`${base}/dashboard`)).status, 200);
+    assert.equal((await fetch(`${base}/api/dashboard/funnel`)).status, 401);
+    const post = { method: 'POST', headers: { 'content-type': 'application/json', 'x-funnel-request': '1' }, body: JSON.stringify({ password }) };
+    assert.equal((await fetch(`${base}/api/dashboard/login`, { ...post, body: JSON.stringify({ password: 'bad' }) })).status, 401);
+    assert.equal((await fetch(`${base}/api/dashboard/login`, { ...post, headers: { ...post.headers, origin: 'https://evil.example' } })).status, 403);
+    const login = await fetch(`${base}/api/dashboard/login`, post);
+    assert.equal(login.status, 200);
+    assert.match(login.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+    const cookie = login.headers.get('set-cookie').split(';')[0], headers = { ...post.headers, cookie };
+    const response = await fetch(`${base}/api/dashboard/funnel?campaign=chain`, { headers });
+    assert.equal(response.status, 200); assert.equal((await response.json()).totals.paid, 1);
+    assert.equal((await fetch(`${base}/api/dashboard/campaigns`, { method: 'POST', headers: { cookie }, body: JSON.stringify({ slug: 'denied' }) })).status, 403);
+    const create = await fetch(`${base}/api/dashboard/campaigns`, { method: 'POST', headers, body: JSON.stringify({ slug: 'channel_1', name: 'Канал & тест' }) });
+    assert.equal(create.status, 201); assert.match((await create.json()).link, /\/go\/channel_1$/);
+    assert.equal((await fetch(`${base}/api/dashboard/stats`, { method: 'PUT', headers, body: JSON.stringify({ slug: 'channel_1', impressions: 100, reach: 50 }) })).status, 200);
+    assert.equal(funnelReport('channel_1').impressions, 100);
     const before = funnelReport('redirect').clicks;
     assert.equal((await fetch(`${base}/go/redirect`, { method: 'HEAD', redirect: 'manual' })).status, 302);
     assert.equal(funnelReport('redirect').clicks, before);
     const redirect = await fetch(`${base}/go/redirect`, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0' } });
     assert.equal(redirect.status, 302); assert.match(redirect.headers.get('location'), /start=ad_/);
     assert.equal((await fetch(`${base}/go/does-not-exist`, { redirect: 'manual' })).status, 404);
-    await handleMessage({ from: owner, chat: { id: owner.id, type: 'private' }, text: '/funnel chain' });
-    assert.equal(calls.length, 1); assert.equal(calls[0].chat_id, owner.id); assert.match(calls[0].text, /Затем оплатили: 1/);
-    await handleMessage({ from: sender, chat: { id: sender.id, type: 'private' }, text: '/funnel' });
-    assert.equal(calls.length, 2); assert.match(calls[1].text, /только владельцу/);
+    const { sender } = fixture(), payload = tokenFrom(advertisingRedirect('channel_1'));
+    await handleMessage({ from: sender, chat: { id: sender.id, type: 'private' }, text: `/start ${payload}` });
+    assert.equal(funnelReport('channel_1').totals.starts, 1);
+    assert.equal((await fetch(`${base}/api/dashboard/logout`, { method: 'POST', headers, body: '{}' })).status, 200);
+    assert.equal((await fetch(`${base}/api/dashboard/funnel`, { headers })).status, 401);
   } finally { globalThis.fetch = original; await new Promise(resolve => server.close(resolve)); }
 });

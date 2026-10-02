@@ -24,7 +24,8 @@ import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
-import { advertisingRedirect, funnelReport, isFunnelOwner } from './funnel.js';
+import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats, funnelReport } from './funnel.js';
+import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -111,10 +112,6 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
-  if (request.method === 'GET' && url.pathname === '/api/admin/funnel') {
-    if (!isFunnelOwner(request.telegramUser.id)) return json(response, 403, { error: 'Отчёт доступен только владельцу бота.' });
-    return json(response, 200, funnelReport(url.searchParams.get('campaign') || 'all'));
-  }
   if (request.method === 'POST' && url.pathname === '/api/feedback') {
     const input = await bodyJson(request, 16000);
     const result = await submitFeedback(user.id, request.telegramUser, { ...input, source: 'app' }, sendFeedbackNotification);
@@ -361,6 +358,37 @@ export function createServer() {
       const robokassaResult = url.pathname === '/api/payments/robokassa/result' && ['GET', 'POST'].includes(request.method);
       rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (url.pathname === '/dashboard' || url.pathname === '/dashboard/') return serveStatic(request, response, '/dashboard.html');
+      if (url.pathname.startsWith('/api/dashboard/')) {
+        const cookie = String(request.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith('funnel_session='))?.slice(15);
+        if (request.method !== 'GET') {
+          if (request.headers['x-funnel-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
+        }
+        const sessionCookie = token => `funnel_session=${token}; HttpOnly; SameSite=Strict; Path=/api/dashboard; Max-Age=${token ? 604800 : 0}${config.production ? '; Secure' : ''}`;
+        if (request.method === 'POST' && url.pathname === '/api/dashboard/login') {
+          rateLimit(`dashboard-login:${clientIp(request)}`, 5, 15 * 60000);
+          const input = await bodyJson(request, 1000);
+          const token = openDashboardSession(input.password);
+          response.setHeader('set-cookie', sessionCookie(token));
+          return json(response, 200, { ok: true });
+        }
+        if (!dashboardSessionValid(cookie)) return json(response, 401, { error: 'Войдите в дашборд' });
+        if (request.method === 'POST' && url.pathname === '/api/dashboard/logout') {
+          closeDashboardSession(cookie); response.setHeader('set-cookie', sessionCookie(''));
+          return json(response, 200, { ok: true });
+        }
+        if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') return json(response, 200, funnelReport(url.searchParams.get('campaign') || 'all'));
+        if (request.method === 'POST' && url.pathname === '/api/dashboard/campaigns') {
+          const input = await bodyJson(request, 2000), campaign = createCampaign(input.slug, input.name);
+          return json(response, 201, { ...campaign, link: campaignLink(campaign.slug) });
+        }
+        if (request.method === 'PUT' && url.pathname === '/api/dashboard/stats') {
+          const input = await bodyJson(request, 2000);
+          setCampaignStats(input.slug, input.impressions, input.reach ?? null);
+          return json(response, 200, { ok: true });
+        }
+        return json(response, 404, { error: 'Не найдено' });
+      }
       if (url.pathname.startsWith('/go/')) {
         const location = advertisingRedirect(url.pathname.slice(4), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
         securityHeaders(response);

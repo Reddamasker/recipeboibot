@@ -19,7 +19,7 @@ import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBilling
 import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
-import { funnelCommand, recordBotStart } from './funnel.js';
+import { recordBotStart } from './funnel.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
@@ -861,8 +861,6 @@ export async function handleMessage(message) {
   let text = message.text?.trim() || message.caption?.trim() || '';
   const menuCommands = { 'Что на сегодня': '/dinner', 'Хочу конкретное блюдо': '/find', 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
   text = menuCommands[text] || text;
-  const analyticsReply = funnelCommand(message.from.id, text);
-  if (analyticsReply !== null) { await send(chatId, escapeHtml(analyticsReply)); return; }
   recordBotStart(user, text);
   const feedbackEntry = getPendingIntent(user.id);
   const feedbackStart = text === '/feedback' || text === 'Обратная связь' || /^\/start(?:@[A-Za-z0-9_]+)?\s+feedback\s*$/i.test(text);
