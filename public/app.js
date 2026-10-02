@@ -245,7 +245,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
   try {
     const notificationId = !forceOnboarding ? new URLSearchParams(location.search).get('notification') : null;
     const session = await api(notificationId ? `/api/notifications/${encodeURIComponent(notificationId)}/open` : '/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
-    state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], mealRequest: session.mealRequest || null, needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, askingReason: false, loading: false };
+    state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], mealRequest: session.mealRequest || null, needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, dislikeId: null, loading: false };
     if (session.acceptedOption) { dinnerView(); return; }
     if (forceOnboarding) await showDinnerOnboarding();
     else if (session.needsTastePreferences) showDinnerTastePreferences();
@@ -380,7 +380,7 @@ async function loadDinnerRecommendation() {
     state.dinner.mealRequest = result.mealRequest || null;
     state.dinner.message = result.message;
     state.dinner.accepted = false;
-    state.dinner.askingReason = false;
+    state.dinner.dislikeId = null;
     state.dinner.rejectedCount = result.rejectedCount || 0;
     state.dinner.retryCount = result.retryCount || 0;
     state.dinner.reserve = result.reserve || [];
@@ -401,13 +401,14 @@ function scheduleDinnerPrefetch(dinner) {
   if (dinner !== state.dinner || dinner.accepted || (!dinner.preparing && !dinner.imagesPending && dinner.reserve?.length >= 3)) return;
   dinnerPollTimer = setTimeout(async () => {
     if (dinner !== state.dinner || dinner.accepted || new URLSearchParams(location.search).get('view') !== 'dinner') return;
+    const revision = dinner.revision || 0;
     try {
       const result = await api('/api/dinner/prefetch', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }), signal: AbortSignal.timeout(12000) });
-      if (dinner !== state.dinner || dinner.switching || dinner.accepted) return;
+      if (dinner !== state.dinner || dinner.switching || dinner.accepted || revision !== (dinner.revision || 0)) return;
       if (!result.recommendations.length && result.reserve?.length) return loadDinnerRecommendation();
       const imagesChanged = JSON.stringify(dinner.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl])) !== JSON.stringify(result.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl]));
       Object.assign(dinner, { reserve: result.reserve || [], preparing: result.preparing, imagesPending: result.imagesPending, notice: result.notice });
-      if (imagesChanged) { dinner.recommendations = result.recommendations; dinner.recommendation = result.recommendation; dinner.message = result.message; if (!dinner.askingReason) dinnerView(); }
+      if (imagesChanged) { dinner.recommendations = result.recommendations; dinner.recommendation = result.recommendation; dinner.message = result.message; dinnerView(); }
       // Stop polling an exhausted offline fallback; an explicit retry can restart generation.
       if (result.preparing || result.imagesPending || result.reserve?.length >= 3) scheduleDinnerPrefetch(dinner);
     } catch {
@@ -417,30 +418,26 @@ function scheduleDinnerPrefetch(dinner) {
   }, 3000);
 }
 
-async function showNextDinner() {
-  const dinner = state.dinner;
-  if (!dinner || dinner.switching) return;
-  const previous = dinner.recommendations;
-  const previousReserve = dinner.reserve;
-  dinner.lastRejectedId = previous[0]?.id;
-  dinner.lastRejectedIds = previous.map((option) => option.id);
+async function replaceDinnerCard(reason) {
+  const dinner = state.dinner, id = dinner?.dislikeId;
+  if (!id || dinner.switching || dinner.requestSaving) return;
   dinner.switching = true;
+  dinner.revision = (dinner.revision || 0) + 1;
   clearTimeout(dinnerPollTimer);
-  // The full reserve is already in memory: change the screen before sending the request.
-  if (dinner.reserve?.length) {
-    dinner.recommendations = dinner.reserve; dinner.recommendation = dinner.reserve[0]; dinner.reserve = [];
-  }
   dinnerView();
   try {
-    const result = await api('/api/dinner/next', { method: 'POST', body: JSON.stringify({ ids: previous.map((o) => o.id) }) });
+    const result = await api(`/api/dinner/recommendations/${id}/replace`, { method: 'POST', body: JSON.stringify({ reason }) });
     if (state.dinner !== dinner) return;
-    Object.assign(dinner, result, { switching: false, askingReason: false, accepted: false });
-    dinnerView(); scheduleDinnerPrefetch(dinner);
+    Object.assign(dinner, result, { switching: false, dislikeId: null });
+    dinnerView();
+    scheduleDinnerPrefetch(dinner);
   } catch (error) {
     if (state.dinner !== dinner) return;
-    dinner.recommendations = previous; dinner.recommendation = previous[0]; dinner.reserve = previousReserve; dinner.switching = false;
+    dinner.switching = false;
+    dinnerView();
+    scheduleDinnerPrefetch(dinner);
     if (error.status === 402) { await refresh(); openOffer(); return; }
-    dinnerView(); toast(error.message);
+    toast(error.message);
   }
 }
 
@@ -488,7 +485,10 @@ function dinnerChoiceCard(option, index) {
   const reason = [discovery || option.role === 'familiar' || option.role === 'quick' ? pitch.label : pitch.reason, minutes ? `${minutes} мин` : null].filter(Boolean).join(' · ');
   const missing = option.pantryMatch?.missing?.length ? `<p class="dinner-menu-missing">Докупить: ${esc(option.pantryMatch.missing.join(', '))}</p>` : '';
   const servingNote = state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
-  return `<li class="dinner-menu-item"><button type="button" class="dinner-menu-card" ${state.dinner?.switching ? 'disabled' : ''} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div></li>`;
+  const disabled = state.dinner?.switching || state.dinner?.requestSaving ? 'disabled' : '';
+  const askingReason = state.dinner?.dislikeId === option.id;
+  const rejection = askingReason ? `<div class="dinner-card-rejection" role="group" aria-label="Почему не подходит: ${esc(recipe.title)}"><p>${state.dinner?.switching ? 'Заменяю этот рецепт…' : 'Почему не подходит?'}</p><div class="dinner-card-reasons">${[['not_today','Не хочу сегодня'],['dislike','Такое не люблю'],['missing_ingredients','Нет ингредиентов']].map(([key, label]) => `<button type="button" class="dinner-option" data-dinner-reason="${key}" ${disabled}>${label}</button>`).join('')}</div><button type="button" class="manual-save" data-dinner-cancel ${disabled}>Отмена</button></div>` : '';
+  return `<li class="dinner-menu-item"><button type="button" class="dinner-menu-card" ${disabled} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div><button type="button" class="dinner-card-dislike" data-dinner-dislike="${esc(option.id)}" aria-label="Дизлайк: ${esc(recipe.title)}" aria-expanded="${askingReason}" ${disabled}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V3H4v11h3Zm0-10h10a2 2 0 0 1 2 1.6l1 6A2 2 0 0 1 18 14h-5l1 4a2 2 0 0 1-2 3l-5-7" /></svg><span>Не подходит</span></button>${rejection}</li>`;
 }
 
 function updateDinnerIngredients() {
@@ -507,12 +507,11 @@ function dinnerView() {
   if (state.onboarding) return onboardingView();
   const dinner = state.dinner, items = dinner?.recommendations || [];
   const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
-  const content = dinner?.askingReason ? `<section class="dinner-decision"><div class="eyebrow">ПОМОГИ УТОЧНИТЬ ВЫБОР</div><h1>Почему не подходит?</h1><div class="dinner-options">${[['too_long','Долго'],['not_today','Не хочется'],['recently_ate','Недавно ел'],['missing_ingredients','Нет ингредиентов'],['too_hard','Слишком сложно'],['other','Другое']].map(([key, label]) => `<button class="dinner-option" data-reason="${key}">${label}</button>`).join('')}</div>${dinner.missingIngredientsForm ? '<form id="missing-ingredients-form"><label for="missing-ingredients">Каких продуктов нет?</label><input class="field" id="missing-ingredients" maxlength="500" placeholder="Например: рис, грибы" required><button class="secondary">Учесть и подобрать</button></form>' : ''}<button class="manual-save" id="reason-skip">Пропустить</button></section>`
-    : !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
+  const content = !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.firstFreeRecipe ? firstDinnerRecipeDetails(recipe)
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Рецепт сохранён в «Мои рецепты» и останется под рукой.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
-    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions"><button class="secondary" id="dinner-reject-batch" ${dinner.switching ? 'disabled' : ''}>${dinner.switching ? 'Обновляю варианты…' : 'Показать другие варианты'}</button>${dinner.retryCount >= 2 && dinner.lastRejectedId ? '<button class="manual-save" id="dinner-reason-open">Почему предыдущие не подошли?</button>' : ''}${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
-  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted && !dinner?.askingReason ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${dinner?.requestSaving ? 'disabled' : ''}><button class="secondary" type="submit" ${dinner?.requestSaving ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${dinner?.requestSaving ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
+    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
+  root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}><button class="secondary" type="submit" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
   document.querySelector('#dinner-settings')?.addEventListener('click', () => beginDinner(true));
@@ -520,36 +519,28 @@ function dinnerView() {
   document.querySelector('#dinner-retry')?.addEventListener('click', () => beginDinner());
   document.querySelector('#dinner-tastes')?.addEventListener('click', showDinnerTastePreferences);
   document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
-  document.querySelector('#dinner-reject-batch')?.addEventListener('click', showNextDinner);
-  document.querySelector('#dinner-reason-open')?.addEventListener('click', () => { dinner.askingReason = true; dinnerView(); });
-  const saveReason = async (reason, missingIngredients = []) => {
-    try {
-      const result = await api(`/api/dinner/recommendations/${dinner.lastRejectedId}/reason`, { method: 'POST', body: JSON.stringify({ reason, ids: dinner.lastRejectedIds || [dinner.lastRejectedId], missingIngredients }) });
-      if (result.needsIngredients) return;
-      dinner.missingIngredientsForm = false;
-      await loadDinnerRecommendation();
-    } catch (error) { toast(error.message); }
-  };
-  document.querySelectorAll('[data-reason]').forEach((button) => button.onclick = () => {
-    if (button.dataset.reason === 'missing_ingredients') { dinner.missingIngredientsForm = true; dinnerView(); }
-    else if (button.dataset.reason === 'other') { dinner.askingReason = false; dinnerView(); document.querySelector('#dinner-request-text')?.focus(); }
-    else void saveReason(button.dataset.reason);
+  document.querySelectorAll('[data-dinner-dislike]').forEach((button) => button.onclick = () => {
+    if (dinner.switching || dinner.requestSaving) return;
+    dinner.dislikeId = dinner.dislikeId === button.dataset.dinnerDislike ? null : button.dataset.dinnerDislike;
+    dinnerView();
+    document.querySelector('[data-dinner-reason]')?.focus();
   });
-  document.querySelector('#missing-ingredients-form')?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const items = document.querySelector('#missing-ingredients').value.split(',').map((v) => v.trim()).filter(Boolean);
-    if (items.length) void saveReason('missing_ingredients', items);
+  document.querySelectorAll('[data-dinner-reason]').forEach((button) => button.onclick = () => void replaceDinnerCard(button.dataset.dinnerReason));
+  document.querySelector('[data-dinner-cancel]')?.addEventListener('click', () => {
+    const id = dinner.dislikeId;
+    dinner.dislikeId = null;
+    dinnerView();
+    document.querySelector('[data-dinner-dislike="' + id + '"]')?.focus();
   });
   document.querySelector('#dinner-request-text')?.addEventListener('input', (event) => { dinner.requestDraft = event.target.value; });
   const changeRequest = async (query) => {
-    if (dinner.requestSaving) return;
+    if (dinner.requestSaving || dinner.switching) return;
     dinner.requestSaving = true; dinnerView();
     try { await api('/api/dinner/request', { method: 'PUT', body: JSON.stringify({ query }) }); await beginDinner(); }
     catch (error) { dinner.requestSaving = false; dinnerView(); toast(error.message); }
   };
   document.querySelector('#dinner-request-form')?.addEventListener('submit', (event) => { event.preventDefault(); void changeRequest(document.querySelector('#dinner-request-text').value); });
   document.querySelector('#dinner-request-clear')?.addEventListener('click', () => changeRequest(''));
-  document.querySelector('#reason-skip')?.addEventListener('click', () => { dinner.askingReason = false; dinnerView(); });
   document.querySelectorAll('[data-dinner-full]').forEach((button) => button.onclick = () => { const selected = items.find((option) => option.id === button.dataset.dinnerFull); openRecipe(selected.recipe.id, true); });
   document.querySelector('#dinner-full-recipe')?.addEventListener('click', () => { openRecipe(recipe.id, true); });
   document.querySelector('#dinner-start-cooking')?.addEventListener('click', () => { if (recipe.steps?.length) cookMode(recipe, () => markDinnerCooked(item.id)); else openRecipe(recipe.id, true); });
