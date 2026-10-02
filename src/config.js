@@ -37,6 +37,7 @@ export const config = Object.freeze({
   databasePath: path.resolve(process.env.DATABASE_PATH || './data/recipes.sqlite'),
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   feedbackChatId: process.env.FEEDBACK_CHAT_ID || '6971956699',
+  analyticsOwnerId: process.env.ANALYTICS_OWNER_ID || '6971956699',
   telegramPolling: process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',

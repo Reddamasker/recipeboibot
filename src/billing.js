@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS payment_recurring (
 
 if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'promo_code')) db.exec('ALTER TABLE payment_orders ADD COLUMN promo_code TEXT');
 if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE payment_orders ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
+// NULL keeps historical orders explicitly unclassified; current settings cannot
+// prove which mode was used for a payment created before this migration.
+if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'is_test')) db.exec('ALTER TABLE payment_orders ADD COLUMN is_test INTEGER CHECK(is_test IN (0,1))');
 if (!db.prepare('PRAGMA table_info(payment_recurring)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE payment_recurring ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
 
 const nowIso = (at = new Date()) => at.toISOString();
@@ -183,9 +186,9 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
   const timestamp = nowIso(at);
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code,period_months)
-      VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?,?)`)
-      .run(id, userId, config.paymentExperimentKey, promo ? 'promo_99' : `period_${plan.months}_price_${plan.priceRub}`, promo ? 199 : plan.priceRub * 100, autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months);
+    db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code,period_months,is_test)
+      VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?,?,?)`)
+      .run(id, userId, config.paymentExperimentKey, promo ? 'promo_99' : `period_${plan.months}_price_${plan.priceRub}`, promo ? 199 : plan.priceRub * 100, autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months, config.robokassaTest || config.testContour ? 1 : 0);
     if (promo) reservePromo(userId, promo.code, id);
     db.exec('COMMIT');
   } catch (cause) { db.exec('ROLLBACK'); throw cause; }
@@ -369,9 +372,9 @@ function createRecurringOrder(row, at) {
   const assignment = db.prepare('SELECT * FROM payment_experiment_assignments WHERE user_id=? AND experiment_key=?').get(row.user_id, config.paymentExperimentKey);
   const id = randomUUID();
   const timestamp = nowIso(at);
-  db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,parent_inv_id,auto_renew,status,created_at,updated_at,period_months)
-    VALUES(?,?,?,?,?,'recurring',?,1,'pending',?,?,?)`)
-    .run(id, row.user_id, config.paymentExperimentKey, assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp, row.period_months || 1);
+  db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,parent_inv_id,auto_renew,status,created_at,updated_at,period_months,is_test)
+    VALUES(?,?,?,?,?,'recurring',?,1,'pending',?,?,?,?)`)
+    .run(id, row.user_id, config.paymentExperimentKey, assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp, row.period_months || 1, config.robokassaTest || config.testContour ? 1 : 0);
   return db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id);
 }
 

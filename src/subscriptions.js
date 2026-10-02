@@ -27,6 +27,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS first_recipe_results (
   result_json TEXT
 );`);
 const firstRecipeContext = new AsyncLocalStorage();
+if (!db.prepare('PRAGMA table_info(first_recipe_results)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE first_recipe_results ADD COLUMN completed_at TEXT');
 const firstRecipeInFlight = new Map();
 const tableExists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 
@@ -81,7 +82,7 @@ export async function withFirstRecipe(userId, requestKey, operation, succeeded =
       const result = await operation();
       const completed = succeeded(result);
       const delivered = completed ? { ...result, firstFreeRecipe: true } : result;
-      if (completed) db.prepare('UPDATE first_recipe_results SET result_json=? WHERE user_id=? AND owner=?').run(JSON.stringify(delivered), userId, owner);
+      if (completed) db.prepare('UPDATE first_recipe_results SET result_json=?,completed_at=? WHERE user_id=? AND owner=?').run(JSON.stringify(delivered), new Date().toISOString(), userId, owner);
       else db.prepare('DELETE FROM first_recipe_results WHERE user_id=? AND owner=?').run(userId, owner);
       return delivered;
     } catch (error) {

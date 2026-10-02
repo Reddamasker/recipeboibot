@@ -24,6 +24,7 @@ import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
+import { advertisingRedirect, funnelReport, isFunnelOwner } from './funnel.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -110,6 +111,10 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  if (request.method === 'GET' && url.pathname === '/api/admin/funnel') {
+    if (!isFunnelOwner(request.telegramUser.id)) return json(response, 403, { error: 'Отчёт доступен только владельцу бота.' });
+    return json(response, 200, funnelReport(url.searchParams.get('campaign') || 'all'));
+  }
   if (request.method === 'POST' && url.pathname === '/api/feedback') {
     const input = await bodyJson(request, 16000);
     const result = await submitFeedback(user.id, request.telegramUser, { ...input, source: 'app' }, sendFeedbackNotification);
@@ -356,6 +361,12 @@ export function createServer() {
       const robokassaResult = url.pathname === '/api/payments/robokassa/result' && ['GET', 'POST'].includes(request.method);
       rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (url.pathname.startsWith('/go/')) {
+        const location = advertisingRedirect(url.pathname.slice(4), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
+        securityHeaders(response);
+        response.writeHead(302, { location, 'cache-control': 'no-store' });
+        return response.end();
+      }
       if (url.pathname === '/readyz') {
         const billingReady = !config.billingRequired || billingAvailable();
         return json(response, billingReady ? 200 : 503, {
