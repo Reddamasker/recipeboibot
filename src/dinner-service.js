@@ -115,6 +115,7 @@ function categorySignals(recipes, history) {
 function recommendationReasons(chosen, profile, signals, history) {
   const reasons = [];
   if (chosen.minutes !== null) reasons.push(`${chosen.minutes} минут`);
+  else reasons.push('Полное время не указано');
   if (chosen.recipe.userSaved) reasons.push('Ты сохранил этот рецепт');
   if (!chosen.categories.some((key) => profile.preferredCategories[key] < 0) && chosen.categories.some((key) => (signals[key] || 0) + (profile.preferredCategories[key] || 0) >= 0.5)) reasons.push('Подходит под твои предпочтения');
   if (profile.householdType === 'family' && chosen.recipe.servings >= 3) reasons.push('Подходит для семьи');
@@ -128,7 +129,9 @@ function recommendationPitch({ candidate, role }, choices) {
   if (role === 'familiar') return candidate.recipe.userSaved
     ? { label: 'Сохранённое', reason: 'Ты сохранил этот рецепт' }
     : { label: 'На сегодня', reason: 'Из нашей подборки' };
-  if (role === 'quick') return { label: 'Быстро', reason: `${candidate.minutes} мин` };
+  if (role === 'quick') return candidate.minutes !== null
+    ? { label: 'Быстро', reason: `${candidate.minutes} мин` }
+    : { label: 'Ещё вариант', reason: 'Полное время не указано' };
   if (role === 'variety') {
     if (candidate.recipe.discovery) return { label: 'Попробовать новое', reason: candidate.recipe.discovery };
     const otherCategories = new Set(choices.filter((choice) => choice.role !== 'variety').flatMap((choice) => choice.candidate.categories));

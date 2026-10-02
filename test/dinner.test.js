@@ -108,6 +108,50 @@ test('scoring applies food exclusions, time limits, saved preference and recent 
   assert.deepEqual(rankCandidates([pasta], { rejected: ['a'] }), []);
 });
 
+test('saved imports with unknown metadata survive profile preferences but keep explicit limits and exclusions', () => {
+  const profile = { householdSize: 4, hasChildren: true, preferredMaxCookingTime: 30, excludedIngredients: ['грибы'] };
+  const rice = { id: 'youtube-rice', title: 'Рис с курицей', userSaved: true, servings: 4, prepMinutes: null, cookMinutes: null,
+    ingredients: [{ name: 'куриная грудка' }, { name: 'рис' }], steps: [{ text: 'Приготовить рис.' }, { text: 'Обжарить курицу и смешать с рисом.' }] };
+  const pasta = { ...rice, id: 'youtube-pasta', title: 'Паста с лососем', cookMinutes: 25 };
+  const unknownPortions = { ...rice, id: 'youtube-portions', servings: null };
+  const ranked = rankCandidates([rice, pasta, unknownPortions], { profile });
+  assert.equal(ranked.length, 3);
+  assert.ok(ranked.every(candidate => candidate.minutes === null), 'partial times cannot claim a quick total');
+  assert.deepEqual(rankCandidates([{ ...rice, userSaved: false }], { profile }), [], 'unsaved recipes retain metadata requirements');
+  for (const recipe of [rice, pasta, unknownPortions]) {
+    assert.deepEqual(rankCandidates([recipe], { profile, mealRequest: { text: 'Строго до 30 минут', kind: 'open', maxMinutes: 30 } }), []);
+  }
+  assert.deepEqual(rankCandidates([unknownPortions], { profile, mealRequest: { text: 'На четверых', kind: 'open', servings: 4 } }), []);
+  for (const recipe of [{ ...rice, cookMinutes: 105 }, { ...rice, prepMinutes: 7, cookMinutes: 300 }, { ...rice, servings: 1 },
+    { ...rice, steps: [{ text: 'Смешать всё. Конкретный способ приготовления не указан.' }] },
+    { ...rice, ingredients: [{ name: 'грибы' }] }, { ...rice, ingredients: [{ name: 'чили-масло' }] }]) {
+    assert.deepEqual(rankCandidates([recipe], { profile }), [], recipe.title);
+  }
+});
+
+test('saved YouTube recipes appear in the family trio without guessed times or portions', async () => {
+  const user = upsertTelegramUser({ id: 653, first_name: 'Импорт' });
+  updateDinnerProfile(user.id, { householdSize: 4, hasChildren: true, preferredMaxCookingTime: 30,
+    excludedIngredients: ['грибы'], preferredCategories: { pasta: 1, chicken: 1 }, onboardingCompleted: true });
+  const imported = createRecipe(user.id, { status: 'ready', title: 'Рис с курицей в медово-чесночном соусе', servings: 4,
+    prepMinutes: null, cookMinutes: null, sourceType: 'url', sourceUrl: 'https://www.youtube.com/watch?v=sew6BNhyuRc',
+    ingredients: [{ name: 'курица' }, { name: 'рис' }], steps: [{ text: 'Сварить рис.' }, { text: 'Обжарить курицу и смешать с рисом.' }] });
+  const session = startDinner(user.id);
+  const first = await recommendDinner(user.id, session.sessionId);
+  const option = first.recommendations.find(o => o.recipe.id === imported.id);
+  assert.ok(option, 'a saved import must reach the visible trio');
+  assert.equal(option.recipe.prepMinutes, null);
+  assert.equal(option.recipe.cookMinutes, null);
+  assert.match(option.reasons.join(' '), /Полное время не указано/);
+  assert.notEqual(option.pitch.label, 'Быстро');
+  assert.deepEqual((await recommendDinner(user.id, session.sessionId)).recommendations.map(o => o.id), first.recommendations.map(o => o.id));
+  const unknown = createRecipe(user.id, { status: 'ready', title: 'Домашняя паста с томатами', servings: null, prepMinutes: null, cookMinutes: 20,
+    sourceType: 'url', sourceUrl: 'https://www.youtube.com/watch?v=wVHNa9EWDCU', ingredients: [{ name: 'паста' }, { name: 'томаты' }], steps: [{ text: 'Сварить пасту.' }, { text: 'Смешать пасту с томатами.' }] });
+  const next = await recommendDinner(user.id, session.sessionId);
+  assert.ok(next.recommendations.some(o => o.recipe.id === unknown.id));
+  assert.equal(next.recommendations.find(o => o.recipe.id === unknown.id).recipe.servings, null);
+});
+
 test('generic meat exclusions and requests cover concrete meats without merging preference facets', () => {
   const recipe = (name) => ({ title: `Блюдо с ${name}`, ingredients: [{ name }], steps: [{ text: 'Приготовьте.' }] });
   for (const meat of ['говядина', 'свинина', 'куриное филе', 'индейка', 'баранина']) {
@@ -133,6 +177,14 @@ test('dinner trio gives a saved, quick and different option', () => {
   assert.equal(choices[0].candidate.recipe.id, 'saved');
   assert.equal(choices[1].candidate.recipe.id, 'fast');
   assert.equal(choices[2].candidate.recipe.id, 'new');
+});
+
+test('quick slot uses confirmed cooking time when saved imports have unknown duration', () => {
+  const unknown = { recipe: { id: 'unknown', userSaved: true }, score: 10, minutes: null, categories: ['pasta'] };
+  const otherUnknown = { ...unknown, recipe: { id: 'other', userSaved: true }, score: 9 };
+  const timed = { recipe: { id: 'timed' }, score: 1, minutes: 20, categories: ['home'] };
+  const choices = selectDinnerChoices([unknown, otherUnknown, timed], [], { preferredCategories: { pasta: 1 } });
+  assert.equal(choices.find(choice => choice.role === 'quick').candidate.recipe.id, 'timed');
 });
 
 test('voice intake separates pantry, people, children, food exclusions, time and tastes', () => {

@@ -132,7 +132,7 @@ test('dinner cards open recipes and offer a separate dislike action', () => {
   const handler = source.slice(source.indexOf('function dinnerChoiceCard('), source.indexOf('\nfunction updateDinnerIngredients'));
   const sandbox = {
     state: { dinner: { profile: { householdSize: 2 } } },
-    totalTime: () => 25,
+    cookingTimeLabel: () => '25 мин',
     safeImage: () => '',
     esc: (value) => String(value),
   };
@@ -158,6 +158,23 @@ test('dinner cards open recipes and offer a separate dislike action', () => {
   assert.doesNotMatch(source.slice(source.indexOf('function dinnerView()'), source.indexOf('async function acceptDinnerItem')), /dinner-reject-batch|dinner-reason-open|missing-ingredients-form/);
 });
 
+test('dinner cards identify partial time and unknown portions instead of promising a quick meal', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const helpers = source.slice(source.indexOf('const totalTime ='), source.indexOf('const initial ='));
+  const handler = source.slice(source.indexOf('function dinnerChoiceCard('), source.indexOf('\nfunction updateDinnerIngredients'));
+  const sandbox = { state: { dinner: { profile: { householdSize: 4 } } }, safeImage: () => '', esc: String };
+  vm.runInNewContext(helpers + handler, sandbox);
+  const card = recipe => sandbox.dinnerChoiceCard({ id: 'saved', role: 'familiar', recipe: { title: 'Личный рецепт', ...recipe },
+    pitch: { label: 'Сохранённое' } }, 0);
+  assert.match(card({ prepMinutes: null, cookMinutes: 25 }), /25 мин готовки · подготовка не указана/);
+  assert.match(card({ prepMinutes: 5, cookMinutes: null }), /5 мин подготовки · готовка не указана/);
+  assert.match(card({ prepMinutes: null, cookMinutes: null }), /Время не указано/);
+  assert.match(card({}), /Порции не указаны — проверь количество продуктов/);
+  const complete = card({ prepMinutes: 0, cookMinutes: 25, servings: 4 });
+  assert.match(complete, /Сохранённое · 25 мин/);
+  assert.doesNotMatch(complete, /не указано|не указаны|null|Быстро/);
+});
+
 test('current dinner request appears only in its editable field', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   assert.match(source, /value="\$\{esc\(dinner\?\.requestDraft \?\? dinner\?\.mealRequest\?\.text \?\? ''\)\}"/);
@@ -168,7 +185,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.50/);
+  assert.match(document, /app\.js\?v=dinner-10\.51/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),

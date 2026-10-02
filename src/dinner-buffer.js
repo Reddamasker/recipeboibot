@@ -8,7 +8,7 @@ import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinner
 import { needsSemanticValidation } from './meal-request.js';
 import { recipeNutrition } from './nutrition.js';
 
-export const DINNER_BUFFER = Object.freeze({ version: 10, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
+export const DINNER_BUFFER = Object.freeze({ version: 11, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const MAX_GENERATION_ATTEMPTS = 1;
 const fills = new Map(), imageTasks = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));

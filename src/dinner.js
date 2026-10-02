@@ -163,16 +163,24 @@ export const totalMinutes = (recipe) => {
   const values = [recipe.prepMinutes, recipe.cookMinutes].filter((value) => Number.isFinite(value));
   return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
 };
+export const hasCompleteCookingTime = (recipe) => [recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite);
 
 export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
   if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
   if (!matchesObjectiveMealRequest(recipe, mealRequest)) return null;
-  if (profile.householdSize && (!Number.isInteger(recipe.servings) || recipe.servings < profile.householdSize)) return null;
+  // Relax timing metadata only for usable recipes, not incomplete imports
+  // containing a generic ingredient list and a single placeholder instruction.
+  if (recipe.userSaved && !hasCompleteCookingTime(recipe) && ((recipe.ingredients?.length || 0) < 2 || (recipe.steps?.length || 0) < 2)) return null;
+  // Imported favourites often omit portions and preparation time. Missing
+  // metadata is not evidence that a saved recipe cannot suit this household.
+  // Today's explicit limits are still checked by matchesObjectiveMealRequest.
+  if (profile.householdSize && (Number.isInteger(recipe.servings) ? recipe.servings < profile.householdSize : !recipe.userSaved)) return null;
   if (profile.hasChildren && isSpicy(recipe)) return null;
   if ((feedback.avoidTitles || []).some((title) => containsFoodPhrase(recipe.title, title))) return null;
   if (feedback.simpleOnly && ((recipe.ingredients?.length || 0) > 8 || (recipe.steps?.length || 0) > 6 || /лепите|слепите|фарширу|фритюр/iu.test((recipe.steps || []).map((s) => s.text || s).join(' ')))) return null;
-  const minutes = totalMinutes(recipe);
-  if (profile.preferredMaxCookingTime && (![recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) || minutes > profile.preferredMaxCookingTime)) return null;
+  const knownMinutes = totalMinutes(recipe);
+  const minutes = hasCompleteCookingTime(recipe) ? knownMinutes : null;
+  if (profile.preferredMaxCookingTime && ((knownMinutes !== null && knownMinutes > profile.preferredMaxCookingTime) || (minutes === null && !recipe.userSaved))) return null;
   const categories = recipeCategories(recipe);
   const ingredientNames = (recipe.ingredients || []).map((item) => item.name || item.raw || item);
   const matchesRequestedCategory = (key) => categories.includes(key)
@@ -262,7 +270,9 @@ export function selectDinnerChoices(candidates, history = [], { preferTop = fals
   const preferred = preferenceChoice(everyday, preferredCategories);
   add(preferred || (preferTop ? everyday.find((item) => item.pantryMatch?.missing.length === 0) || everyday[0] : everyday.find((item) => item.recipe.userSaved) || everyday[0]), 'familiar');
   const remaining = () => candidates.filter((item) => !chosen.some((choice) => choice.candidate.recipe.id === item.recipe.id));
-  const quick = remaining().filter((item) => item !== discovery);
+  const remainingQuick = remaining().filter((item) => item !== discovery);
+  const timedQuick = remainingQuick.filter((item) => item.minutes !== null);
+  const quick = timedQuick.length ? timedQuick : remainingQuick;
   add(quick.sort((a, b) => uncoveredPreferenceFit(b, preferredCategories, chosen.map((item) => item.candidate)) - uncoveredPreferenceFit(a, preferredCategories, chosen.map((item) => item.candidate))
     || (a.minutes ?? Infinity) - (b.minutes ?? Infinity) || b.score - a.score)[0], 'quick');
   const variety = remaining().filter((item) => !item.recipe.userSaved && uncooked(item, history))

@@ -24,6 +24,13 @@ async function publicApi(path) {
   return value;
 }
 const totalTime = (recipe) => (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0);
+const cookingTimeLabel = (recipe) => {
+  const prep = Number.isFinite(recipe.prepMinutes), cook = Number.isFinite(recipe.cookMinutes);
+  if (prep && cook) return `${totalTime(recipe)} мин`;
+  if (cook) return `${recipe.cookMinutes} мин готовки · подготовка не указана`;
+  if (prep) return `${recipe.prepMinutes} мин подготовки · готовка не указана`;
+  return 'Время не указано';
+};
 const initial = () => (state.me?.displayName || 'Я').trim()[0]?.toLocaleUpperCase('ru') || 'Я';
 const ingredientText = (item) => [item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '').join(' ');
 const safeImage = (value) => /^https:\/\//i.test(value || '') || (/^\/(?:recipe|dinner|suggestion)-images\/[0-9a-f-]{36}$/i.test(value || '') || /^\/shared-recipe-images\/[A-Za-z0-9_-]{32}$/.test(value || '') || /^\/assets\/dinner\/[a-z0-9-]+\.jpg$/i.test(value || '')) ? esc(value) : '';
@@ -58,7 +65,7 @@ function header() {
 
 function card(recipe) {
   const image = safeImage(recipe.thumbnailUrl);
-  return `<article class="card"><button class="card-open" data-recipe="${esc(recipe.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"><div class="card-art ${image ? 'has-image' : 'fallback'}">${image ? `<img src="${image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${recipe.origin === 'generated' ? 'Фото пока нет' : 'Превью<br>недоступно'}</span>`}<span class="badge">${esc(recipe.origin === 'generated' ? 'Создано в «Рецептах»' : recipe.sourceName || 'Личный рецепт')}</span></div><div class="card-body"><h3>${esc(recipe.title)}</h3><div class="meta">${totalTime(recipe) ? `<span>${totalTime(recipe)} мин</span>` : '<span>Время не указано</span>'}${recipe.ingredients?.length ? `<span>${recipe.ingredients.length} ингредиентов</span>` : ''}</div></div></button><button class="card-remove" type="button" data-remove-recipe="${esc(recipe.id)}" aria-label="Удалить рецепт: ${esc(recipe.title)}">×</button></article>`;
+  return `<article class="card"><button class="card-open" data-recipe="${esc(recipe.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"><div class="card-art ${image ? 'has-image' : 'fallback'}">${image ? `<img src="${image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${recipe.origin === 'generated' ? 'Фото пока нет' : 'Превью<br>недоступно'}</span>`}<span class="badge">${esc(recipe.origin === 'generated' ? 'Создано в «Рецептах»' : recipe.sourceName || 'Личный рецепт')}</span></div><div class="card-body"><h3>${esc(recipe.title)}</h3><div class="meta"><span>${esc(cookingTimeLabel(recipe))}</span>${recipe.ingredients?.length ? `<span>${recipe.ingredients.length} ингредиентов</span>` : ''}</div></div></button><button class="card-remove" type="button" data-remove-recipe="${esc(recipe.id)}" aria-label="Удалить рецепт: ${esc(recipe.title)}">×</button></article>`;
 }
 
 function jobCard(job) {
@@ -479,12 +486,13 @@ function onboardingView() {
 function dinnerChoiceCard(option, index) {
   const recipe = option.recipe;
   const image = safeImage(recipe.thumbnailUrl);
-  const minutes = totalTime(recipe);
   const pitch = option.pitch || { label: index === 0 ? 'На сегодня' : 'Ещё вариант', reason: option.reasons?.[0] || '' };
   const discovery = option.role === 'variety' && recipe.discovery;
-  const reason = [discovery || option.role === 'familiar' || option.role === 'quick' ? pitch.label : pitch.reason, minutes ? `${minutes} мин` : null].filter(Boolean).join(' · ');
+  const reason = [discovery || option.role === 'familiar' || option.role === 'quick' ? pitch.label : pitch.reason, cookingTimeLabel(recipe)].filter(Boolean).join(' · ');
   const missing = option.pantryMatch?.missing?.length ? `<p class="dinner-menu-missing">Докупить: ${esc(option.pantryMatch.missing.join(', '))}</p>` : '';
-  const servingNote = state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
+  const servingNote = state.dinner?.profile?.householdSize && !Number.isInteger(recipe.servings)
+    ? '<p class="dinner-menu-ingredients">Порции не указаны — проверь количество продуктов</p>'
+    : state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
   const disabled = state.dinner?.switching || state.dinner?.requestSaving ? 'disabled' : '';
   const askingReason = state.dinner?.dislikeId === option.id;
   const rejection = askingReason ? `<div class="dinner-card-rejection" role="group" aria-label="Почему не подходит: ${esc(recipe.title)}"><p>${state.dinner?.switching ? 'Заменяю этот рецепт…' : 'Почему не подходит?'}</p><div class="dinner-card-reasons">${[['not_today','Не хочу сегодня'],['dislike','Такое не люблю'],['missing_ingredients','Нет ингредиентов']].map(([key, label]) => `<button type="button" class="dinner-option" data-dinner-reason="${key}" ${disabled}>${label}</button>`).join('')}</div><button type="button" class="manual-save" data-dinner-cancel ${disabled}>Отмена</button></div>` : '';
@@ -919,7 +927,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
   const nutritionNumber = value => Number.isFinite(value) ? new Intl.NumberFormat('ru', { maximumFractionDigits: 1 }).format(value) : '—';
   const nutritionStat = n ? `<div class="detail-stat detail-nutrition" aria-label="КБЖУ на порцию"><strong>${nutritionNumber(n.calories)} <small>ккал</small></strong><div class="detail-macros"><span>Б ${nutritionNumber(n.protein)}</span><span>Ж ${nutritionNumber(n.fat)}</span><span>У ${nutritionNumber(n.carbs)} <small>г</small></span></div></div>` : '<div class="detail-stat detail-nutrition"><span>Расчёт КБЖУ</span></div>';
   const stats = [nutritionStat,
-    `<div class="detail-stat"><strong>${[r.prepMinutes, r.cookMinutes].some(Number.isFinite) ? totalTime(r) : '—'}</strong><span>минут</span></div>`,
+    `<div class="detail-stat"><strong>${[r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? totalTime(r) : '—'}</strong><span>${[r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? 'минут' : 'полное время не указано'}</span></div>`,
     `<div class="detail-stat"><strong>${r.ingredients?.length || 0}</strong><span>ингредиентов</span></div>`
   ].join('');
   const nutritionNote = n ? `<details class="nutrition-note"><summary>${n.source === 'recipe' ? 'Из исходного рецепта' : 'Примерный расчёт'}</summary><p>Значения на одну порцию.${n.source === 'calculated' ? ' Рассчитано по ингредиентам, включая масло и соусы.' : ''}${n.assumptions?.length ? ' ' + n.assumptions.map(esc).join(' ') : ''}${n.servings && !r.servings ? ' Число порций для расчёта: ' + esc(n.servings) + '.' : ''}</p></details>` : '';
