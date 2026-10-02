@@ -205,6 +205,7 @@ export function decideDinnerRecommendation(userId, id, decision, categories) {
     const row = getDinnerRecommendation(userId, id);
     if (!row) { db.exec('COMMIT'); return null; }
     if (row.status === 'shown') {
+      if (decision === 'accepted' && acceptedDinnerOptionId(userId, row.session_id)) throw Object.assign(new Error('Ужин уже выбран. Открой новую подборку.'), { status: 409 });
       db.prepare('UPDATE dinner_recommendations SET status=?,decided_at=? WHERE id=?').run(decision, now(), id);
       const event = decision === 'accepted' ? 'recommendation_accepted' : 'recommendation_rejected';
       const context = { sessionId: row.session_id, recommendationId: id, recipeKey: row.recipe_key };

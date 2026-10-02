@@ -100,3 +100,16 @@ test('replacement HTTP route requires a reason and changes one authenticated car
     assert.equal(result.recommendations[2].id, initial.recommendations[2].id);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test('choosing dinner is idempotent and a second card cannot become another accepted dinner', async () => {
+  const user = fixture(), session = startDinner(user.id);
+  const initial = await recommendDinner(user.id, session.sessionId);
+  const selected = decideDinner(user.id, initial.recommendations[1].id, 'accepted');
+  assert.equal(selected.status, 'accepted'); assert.ok(selected.savedRecipe.id);
+  assert.equal(decideDinner(user.id, initial.recommendations[1].id, 'accepted').savedRecipe.id, selected.savedRecipe.id);
+  assert.throws(() => decideDinner(user.id, initial.recommendations[0].id, 'accepted'), { status: 409 });
+  assert.equal(getDinnerRecommendation(user.id, initial.recommendations[0].id).status, 'shown');
+  assert.equal(getDinnerRecommendation(user.id, initial.recommendations[2].id).status, 'shown');
+  assert.equal(db.prepare("SELECT id FROM dinner_recommendations WHERE user_id=? AND session_id=? AND status='accepted'").get(user.id, session.sessionId).id, initial.recommendations[1].id);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE user_id=? AND event='recommendation_accepted'").get(user.id).n, 1);
+});

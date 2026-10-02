@@ -143,6 +143,8 @@ test('dinner cards open recipes and offer a separate dislike action', () => {
   assert.match(familiar, /Докупить: паста/);
   assert.doesNotMatch(familiar, /говяжий фарш|<p class="dinner-menu-ingredients">/);
   assert.match(familiar, /class="dinner-menu-card"[^>]*data-dinner-full="a"/);
+  assert.match(familiar, /data-dinner-swipe="a"/);
+  assert.match(familiar, /data-dinner-like="a"[^>]*aria-label="Выбрать на ужин:/);
   assert.match(familiar, /aria-label="Открыть рецепт: Ужин"/);
   assert.match(familiar, /data-dinner-dislike="a"/);
   assert.doesNotMatch(familiar, /dinner-menu-index|data-dinner-accept|dinner-menu-actions|Готовим|>Рецепт</);
@@ -188,7 +190,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.52/);
+  assert.match(document, /app\.js\?v=dinner-10\.53/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),

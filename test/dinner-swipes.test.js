@@ -1,0 +1,97 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const source = fs.readFileSync('public/app.js', 'utf8');
+function fixture() {
+  const listeners = {}, classes = new Set(), styles = new Map(), label = {};
+  let accepted = 0, rejected = 0, active = false, enabled = true, capture;
+  const card = {
+    querySelector: () => label, getBoundingClientRect: () => ({ width: 300 }),
+    classList: { add: value => classes.add(value), remove: (...values) => values.forEach(value => classes.delete(value)), toggle: (value, enabled) => enabled ? classes.add(value) : classes.delete(value) },
+    style: { setProperty: (key, value) => styles.set(key, value), removeProperty: key => styles.delete(key) },
+    addEventListener: (key, fn) => { listeners[key] = fn; },
+    setPointerCapture: id => { capture = id; }, hasPointerCapture: id => capture === id,
+    releasePointerCapture: () => { capture = null; listeners.lostpointercapture(); },
+  };
+  const sandbox = {};
+  vm.runInNewContext(source.slice(source.indexOf('function bindDinnerSwipe('), source.indexOf('\nfunction updateDinnerIngredients')), sandbox);
+  sandbox.bindDinnerSwipe(card, { canStart: () => enabled, onAccept: () => accepted++, onReject: () => rejected++, onActive: value => { active = value; } });
+  const opener = { closest() { return this; }, matches: () => true };
+  function event(overrides = {}) {
+    return { pointerId: 1, isPrimary: true, button: 0, clientX: 150, clientY: 100, target: opener,
+      prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, ...overrides };
+  }
+  const send = (type, overrides) => { const input = event(overrides); listeners[type](input); return input; };
+  return { send, styles, classes, label, get result() { return { accepted, rejected, active }; }, disable: () => { enabled = false; } };
+}
+
+test('horizontal swipe chooses one dinner or opens rejection; the following click cannot open a recipe', () => {
+  for (const direction of [-1, 1]) {
+    const f = fixture(); f.send('pointerdown');
+    const movement = f.send('pointermove', { clientX: 150 + direction * 100, clientY: 105 });
+    assert.equal(movement.prevented, true);
+    assert.equal(f.label.textContent, direction > 0 ? 'Готовим' : 'Не подходит');
+    assert.equal(f.classes.has('is-swiping'), true);
+    f.send('pointerup', { clientX: 150 + direction * 100, clientY: 105 });
+    assert.deepEqual(f.result, { accepted: direction > 0 ? 1 : 0, rejected: direction < 0 ? 1 : 0, active: false });
+    assert.equal(f.styles.size, 0);
+    const click = f.send('click'); assert.equal(click.prevented, true); assert.equal(click.stopped, true);
+    f.send('pointerup'); assert.equal(f.result.accepted + f.result.rejected, 1);
+  }
+});
+
+test('tap, short drag, vertical scroll and cancelled gesture never select or reject', () => {
+  for (const [dx, dy, cancel] of [[0, 0, false], [35, 3, false], [10, 100, false], [100, 75, false], [120, 0, true]]) {
+    const f = fixture(); f.send('pointerdown');
+    f.send('pointermove', { clientX: 150 + dx, clientY: 100 + dy });
+    f.send(cancel ? 'pointercancel' : 'pointerup', { clientX: 150 + dx, clientY: 100 + dy });
+    assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+    assert.equal(f.classes.has('is-swiping'), false);
+    if (!dx && !dy) assert.equal(f.send('click').prevented, false);
+  }
+});
+
+test('swipes ignore action buttons, secondary pointers and gestures while a request is pending', () => {
+  for (const blocked of ['button', 'secondary', 'pending', 'changed']) {
+    const f = fixture();
+    if (blocked === 'pending') f.disable();
+    f.send('pointerdown', blocked === 'button' ? { target: { closest: () => ({ matches: () => false }) } } : blocked === 'secondary' ? { isPrimary: false } : {});
+    f.send('pointermove', { clientX: 270 });
+    if (blocked === 'changed') f.disable();
+    f.send('pointerup', { clientX: 270 });
+    assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+  }
+});
+
+test('dragging back cancels selection and a deliberate next tap remains available', () => {
+  const f = fixture(); f.send('pointerdown');
+  f.send('pointermove', { clientX: 270 });
+  f.send('pointerup', { clientX: 156 });
+  assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+  assert.equal(f.send('click').prevented, true);
+  f.send('pointerdown'); f.send('pointerup');
+  assert.equal(f.send('click').prevented, false);
+});
+
+test('right swipe selection blocks duplicates, uses notification routing and recovers on failure', async () => {
+  const handler = source.slice(source.indexOf('async function acceptDinnerItem('), source.indexOf('\nasync function cookFromDinnerDetail'));
+  for (const notification of [false, true]) for (const success of [false, true]) {
+    const option = { id: 'b', recipe: { id: 'seed:b' } }, dinner = { recommendations: [{ id: 'a' }, option, { id: 'c' }], notificationId: notification ? 'notice' : null };
+    let requests = 0, url, settle;
+    const sandbox = { state: { dinner, recipes: [] }, dinnerPollTimer: null, clearTimeout() {}, dinnerView() {}, scheduleDinnerPrefetch() {}, toast() {},
+      api(path) { requests++; url = path; return new Promise((resolve, reject) => { settle = () => success ? resolve({ status: 'accepted', savedRecipe: { id: 'saved' } }) : reject(new Error('offline')); }); } };
+    vm.runInNewContext(handler, sandbox);
+    const pending = sandbox.acceptDinnerItem(option);
+    assert.equal(dinner.switching, true);
+    assert.equal(await sandbox.acceptDinnerItem({ id: 'a' }), false);
+    assert.equal(requests, 1);
+    assert.equal(url, notification ? '/api/notifications/notice/select' : '/api/dinner/recommendations/b/accept');
+    settle(); assert.equal(await pending, success);
+    assert.equal(dinner.switching, false);
+    assert.equal(Boolean(dinner.accepted), success);
+    assert.equal(dinner.recommendations.length, 3);
+    assert.equal(sandbox.state.recipes.length, success ? 1 : 0);
+  }
+});

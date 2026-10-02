@@ -412,6 +412,7 @@ function scheduleDinnerPrefetch(dinner) {
     try {
       const result = await api('/api/dinner/prefetch', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }), signal: AbortSignal.timeout(12000) });
       if (dinner !== state.dinner || dinner.switching || dinner.accepted || revision !== (dinner.revision || 0)) return;
+      if (dinner.gestureActive) { scheduleDinnerPrefetch(dinner); return; }
       if (!result.recommendations.length && result.reserve?.length) return loadDinnerRecommendation();
       const imagesChanged = JSON.stringify(dinner.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl])) !== JSON.stringify(result.recommendations.map((o) => [o.id,o.recipe.thumbnailUrl]));
       Object.assign(dinner, { reserve: result.reserve || [], preparing: result.preparing, imagesPending: result.imagesPending, notice: result.notice });
@@ -529,7 +530,64 @@ function dinnerChoiceCard(option, index) {
     : state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
   const disabled = state.dinner?.switching || state.dinner?.requestSaving ? 'disabled' : '';
   const askingReason = state.dinner?.dislikeId === option.id;
-  return `<li class="dinner-menu-item"><button type="button" class="dinner-menu-card" ${disabled} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><div class="dinner-menu-heading"><p class="dinner-menu-reason">${esc(reason)}</p><button type="button" class="dinner-card-dislike" data-dinner-dislike="${esc(option.id)}" aria-label="Дизлайк: ${esc(recipe.title)}" title="Не подходит" aria-haspopup="dialog" aria-expanded="${askingReason}" ${disabled}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V3H4v11h3Zm0-10h10a2 2 0 0 1 2 1.6l1 6A2 2 0 0 1 18 14h-5l1 4a2 2 0 0 1-2 3l-5-7" /></svg></button></div><div class="dinner-menu-body"><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div></li>`;
+  return `<li class="dinner-menu-item" data-dinner-swipe="${esc(option.id)}"><button type="button" class="dinner-menu-card" ${disabled} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><span class="dinner-swipe-label" data-dinner-swipe-label aria-hidden="true"></span><div class="dinner-menu-heading"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-card-actions"><button type="button" class="dinner-card-dislike" data-dinner-dislike="${esc(option.id)}" aria-label="Дизлайк: ${esc(recipe.title)}" title="Не подходит" aria-haspopup="dialog" aria-expanded="${askingReason}" ${disabled}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V3H4v11h3Zm0-10h10a2 2 0 0 1 2 1.6l1 6A2 2 0 0 1 18 14h-5l1 4a2 2 0 0 1-2 3l-5-7" /></svg></button><button type="button" class="dinner-card-like" data-dinner-like="${esc(option.id)}" aria-label="Выбрать на ужин: ${esc(recipe.title)}" title="Выбрать на ужин" ${disabled}><svg viewBox="0 0 24 24" aria-hidden="true"><path transform="rotate(180 12 12)" d="M7 14V3H4v11h3Zm0-10h10a2 2 0 0 1 2 1.6l1 6A2 2 0 0 1 18 14h-5l1 4a2 2 0 0 1-2 3l-5-7" /></svg></button></div></div><div class="dinner-menu-body"><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div></li>`;
+}
+
+function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
+  let gesture = null, suppressClickUntil = 0;
+  const label = card.querySelector('[data-dinner-swipe-label]');
+  const reset = () => {
+    const previous = gesture; gesture = null;
+    card.classList.remove('is-swiping', 'swipe-left', 'swipe-right');
+    card.style.removeProperty('--dinner-swipe-x');
+    card.style.removeProperty('--dinner-swipe-strength');
+    if (previous) {
+      onActive(false);
+      if (card.hasPointerCapture?.(previous.id)) card.releasePointerCapture(previous.id);
+    }
+  };
+  card.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0) return;
+    suppressClickUntil = 0;
+    const control = event.target.closest('button, a, input, textarea, select');
+    if (!canStart() || (control && !control.matches('[data-dinner-full]'))) return;
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, horizontal: false };
+    onActive(true);
+  });
+  card.addEventListener('pointermove', event => {
+    if (!gesture || gesture.id !== event.pointerId) return;
+    gesture.dx = event.clientX - gesture.x; gesture.dy = event.clientY - gesture.y;
+    const x = Math.abs(gesture.dx), y = Math.abs(gesture.dy);
+    if (!gesture.horizontal) {
+      if (y > 10 && y > x) { suppressClickUntil = Date.now() + 500; reset(); return; }
+      if (x < 12 || x < y * 1.4) return;
+      gesture.horizontal = true;
+      card.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    const width = card.getBoundingClientRect().width;
+    card.classList.add('is-swiping');
+    card.classList.toggle('swipe-right', gesture.dx > 0);
+    card.classList.toggle('swipe-left', gesture.dx < 0);
+    card.style.setProperty('--dinner-swipe-x', `${Math.max(-width * .55, Math.min(width * .55, gesture.dx))}px`);
+    card.style.setProperty('--dinner-swipe-strength', String(Math.min(1, x / Math.min(90, width * .27))));
+    label.textContent = gesture.dx > 0 ? 'Готовим' : 'Не подходит';
+  }, { passive: false });
+  card.addEventListener('pointerup', event => {
+    if (!gesture || gesture.id !== event.pointerId) return;
+    const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y, horizontal = gesture.horizontal;
+    const width = card.getBoundingClientRect().width;
+    if (horizontal) suppressClickUntil = Date.now() + 500;
+    const commit = horizontal && Math.abs(dx) >= Math.min(90, width * .27) && Math.abs(dx) > Math.abs(dy) * 1.4;
+    reset();
+    if (commit && canStart()) { if (dx > 0) onAccept(); else onReject(); }
+  });
+  const cancel = () => { if (gesture?.horizontal) suppressClickUntil = Date.now() + 500; reset(); };
+  card.addEventListener('pointercancel', cancel);
+  card.addEventListener('lostpointercapture', cancel);
+  card.addEventListener('click', event => {
+    if (Date.now() < suppressClickUntil) { suppressClickUntil = 0; event.preventDefault(); event.stopPropagation(); }
+  }, true);
 }
 
 function updateDinnerIngredients() {
@@ -551,7 +609,7 @@ function dinnerView() {
   const content = !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.firstFreeRecipe ? firstDinnerRecipeDetails(recipe)
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Рецепт сохранён в «Мои рецепты» и останется под рукой.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
-    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
+    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1><p class="dinner-swipe-hint" role="status">${dinner.acceptingId ? 'Выбираю рецепт…' : 'Вправо — готовим, влево — не подходит'}</p>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}><button class="secondary" type="submit" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
@@ -560,13 +618,22 @@ function dinnerView() {
   document.querySelector('#dinner-retry')?.addEventListener('click', () => beginDinner());
   document.querySelector('#dinner-tastes')?.addEventListener('click', showDinnerTastePreferences);
   document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
-  document.querySelectorAll('[data-dinner-dislike]').forEach((button) => button.onclick = () => {
+  const dislike = selected => {
     if (dinner.switching || dinner.requestSaving) return;
-    const selected = items.find(option => option.id === button.dataset.dinnerDislike);
     if (!selected) return;
     dinner.dislikeId = selected.id;
-    button.setAttribute('aria-expanded', 'true');
+    document.querySelector(`[data-dinner-dislike="${selected.id}"]`)?.setAttribute('aria-expanded', 'true');
     openDinnerDislikeSheet(selected);
+  };
+  document.querySelectorAll('[data-dinner-dislike]').forEach(button => button.onclick = () => dislike(items.find(option => option.id === button.dataset.dinnerDislike)));
+  document.querySelectorAll('[data-dinner-like]').forEach(button => button.onclick = () => void acceptDinnerItem(items.find(option => option.id === button.dataset.dinnerLike)));
+  document.querySelectorAll('[data-dinner-swipe]').forEach(card => {
+    const selected = items.find(option => option.id === card.dataset.dinnerSwipe);
+    bindDinnerSwipe(card, {
+      canStart: () => state.dinner === dinner && !dinner.switching && !dinner.requestSaving && !dinner.accepted && !modalStack.length,
+      onAccept: () => void acceptDinnerItem(selected), onReject: () => dislike(selected),
+      onActive: active => { dinner.gestureActive = active; },
+    });
   });
   document.querySelector('#dinner-request-text')?.addEventListener('input', (event) => { dinner.requestDraft = event.target.value; });
   const changeRequest = async (query) => {
@@ -584,17 +651,26 @@ function dinnerView() {
 }
 
 async function acceptDinnerItem(option) {
-  if (!option || !state.dinner) return false;
+  const dinner = state.dinner;
+  if (!option || !dinner || dinner.switching || dinner.requestSaving || dinner.accepted) return false;
+  dinner.switching = true;
+  dinner.acceptingId = option.id;
+  dinner.revision = (dinner.revision || 0) + 1;
+  clearTimeout(dinnerPollTimer);
+  dinnerView();
   try {
-    const result = await api(state.dinner.notificationId ? `/api/notifications/${encodeURIComponent(state.dinner.notificationId)}/select` : `/api/dinner/recommendations/${option.id}/accept`, { method: 'POST', body: state.dinner.notificationId ? JSON.stringify({ recommendationId: option.id }) : '{}' });
+    const result = await api(dinner.notificationId ? `/api/notifications/${encodeURIComponent(dinner.notificationId)}/select` : `/api/dinner/recommendations/${option.id}/accept`, { method: 'POST', body: dinner.notificationId ? JSON.stringify({ recommendationId: option.id }) : '{}' });
+    if (state.dinner !== dinner) return false;
     if (result.status !== 'accepted') throw new Error('Этот вариант уже недоступен');
     if (result.savedRecipe) state.recipes = [result.savedRecipe, ...state.recipes.filter((recipe) => recipe.id !== result.savedRecipe.id)];
-    state.dinner.recommendation = option;
-    state.dinner.accepted = true;
+    Object.assign(dinner, { recommendation: option, accepted: true, switching: false, acceptingId: null });
     dinnerView();
-    if (state.dinner.notificationId) toast(result.telegramSent ? 'Ссылка на рецепт отправлена в Telegram' : 'Выбор сохранён. Ссылка скоро придёт в Telegram.');
+    if (dinner.notificationId) toast(result.telegramSent ? 'Ссылка на рецепт отправлена в Telegram' : 'Выбор сохранён. Ссылка скоро придёт в Telegram.');
     return true;
-  } catch (error) { toast(error.message); return false; }
+  } catch (error) {
+    if (state.dinner === dinner) { dinner.switching = false; dinner.acceptingId = null; dinnerView(); scheduleDinnerPrefetch(dinner); toast(error.message); }
+    return false;
+  }
 }
 
 async function cookFromDinnerDetail(recipe) {

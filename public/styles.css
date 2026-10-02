@@ -193,8 +193,12 @@ header {
 .trial-instructions small { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .dinner-picks { max-width: 680px; }
 .dinner-picks h1 { margin-bottom: 22px; }
-.dinner-menu { margin: 0; border: 1px solid var(--line); border-radius: 22px; padding: 0 24px; background: var(--paper); box-shadow: 0 12px 32px rgba(48,37,55,.045); list-style: none; }
-.dinner-menu-item { position: relative; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.dinner-menu { margin: 0; border: 1px solid var(--line); border-radius: 22px; padding: 0 24px; overflow: hidden; background: var(--paper); box-shadow: 0 12px 32px rgba(48,37,55,.045); list-style: none; }
+.dinner-menu-item { position: relative; padding: 20px 0; border-bottom: 1px solid var(--line); touch-action: pan-y pinch-zoom; transition: transform .2s ease; }
+.dinner-menu-item.is-swiping { z-index: 2; border-radius: 16px; background: var(--paper); transform: translateX(var(--dinner-swipe-x)); transition: none; user-select: none; }
+.dinner-swipe-hint { margin: -10px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.dinner-swipe-label { position: absolute; z-index: 3; top: 12px; left: 12px; border: 2px solid #337146; border-radius: 8px; padding: 7px 10px; background: var(--paper); color: #337146; font-size: 13px; font-weight: 700; opacity: var(--dinner-swipe-strength, 0); transform: rotate(-6deg); pointer-events: none; }
+.swipe-left .dinner-swipe-label { left: auto; right: 12px; border-color: var(--berry); color: var(--berry-dark); transform: rotate(6deg); }
 .dinner-menu-item:last-child { border-bottom: 0; }
 .dinner-menu-card { position: absolute; inset: 5px -10px; width: calc(100% + 20px); border: 0; border-radius: 16px; padding: 0; background: transparent; cursor: pointer; transition: background-color .16s ease; }
 .dinner-menu-card:hover { background: var(--lilac-soft); }
@@ -208,10 +212,12 @@ header {
 .dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-heading { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 8px; pointer-events: none; }
 .dinner-menu-heading .dinner-menu-reason { margin: 0; }
-.dinner-card-dislike { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-right: -8px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--muted); cursor: pointer; pointer-events: auto; }
-.dinner-card-dislike svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dinner-card-actions { display: flex; flex: none; margin-right: -8px; pointer-events: auto; }
+.dinner-card-dislike, .dinner-card-like { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--muted); cursor: pointer; pointer-events: auto; }
+.dinner-card-dislike svg, .dinner-card-like svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .dinner-card-dislike:hover, .dinner-card-dislike[aria-expanded="true"] { color: var(--berry-dark); background: var(--lilac-soft); }
-.dinner-card-dislike:disabled { cursor: wait; opacity: .6; }
+.dinner-card-like:hover { color: #337146; background: #edf5ef; }
+.dinner-card-dislike:disabled, .dinner-card-like:disabled { cursor: wait; opacity: .6; }
 .overlay.dinner-dislike-overlay { background: rgba(48,37,55,.28); backdrop-filter: blur(2px); }
 .sheet.dinner-dislike-sheet { width: min(440px, 100%); padding: 12px 22px calc(22px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; }
 .dinner-dislike-sheet .sheet-handle { width: 34px; height: 4px; margin-bottom: 14px; }
