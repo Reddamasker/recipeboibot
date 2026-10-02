@@ -68,6 +68,9 @@ function jobCard(job) {
 }
 
 function bindCommon() {
+  const main = root.querySelector('main');
+  if (main && !document.querySelector('#feedback-form') && !main.querySelector('[data-feedback-link]')) main.insertAdjacentHTML('beforeend', '<p class="feedback-footer"><a href="/?view=feedback" data-feedback-link>Обратная связь</a></p>');
+  document.querySelectorAll('[data-feedback-link]').forEach(el => el.addEventListener('click', event => { event.preventDefault(); closeOverlay(); setRoute({ view: 'feedback' }); feedbackPage(); }));
   document.querySelectorAll('a[href="/?view=promo"]').forEach(el => el.addEventListener('click', event => { event.preventDefault(); setRoute({ view: 'promo' }); promoPage(); }));
   document.querySelector('[data-home]')?.addEventListener('click', () => { setRoute({}, {}); render(); });
   document.querySelector('#settings')?.addEventListener('click', settingsSheet);
@@ -658,7 +661,8 @@ async function notificationSettingsPage() {
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
-  if (view === 'promo') promoPage();
+  if (view === 'feedback') feedbackPage();
+  else if (view === 'promo') promoPage();
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && state.payment?.available) paymentResultPage();
@@ -1046,6 +1050,10 @@ function settingsSheet() {
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="secondary" id="promo-settings">Ввести промокод</button><button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
   el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
+  const feedbackLink = document.createElement('button');
+  feedbackLink.className = 'secondary'; feedbackLink.textContent = 'Обратная связь';
+  el.querySelector('#delete-account').before(feedbackLink);
+  feedbackLink.onclick = () => { closeOverlay(); setRoute({ view: 'feedback' }); feedbackPage(); };
   el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
   el.querySelector('#subscription-settings')?.addEventListener('click', openOffer);
   el.querySelector('#promo-settings').onclick = () => { closeOverlay(); setRoute({ view: 'promo' }); promoPage(); };
@@ -1059,6 +1067,35 @@ function settingsSheet() {
     } catch (error) { toast(error.message); }
   });
   el.querySelector('#delete-account').onclick = async () => { if (!confirm('Безвозвратно удалить профиль и все рецепты?')) return; await api('/api/account', { method: 'DELETE' }); location.reload(); };
+}
+
+function feedbackPage() {
+  clearTimeout(dinnerPollTimer); clearTimeout(paymentPollTimer);
+  state.feedbackRequestKey ||= crypto.randomUUID();
+  root.innerHTML = `${header()}<main class="offer-page feedback-page"><button class="back-link" id="feedback-back">К рецептам</button><div class="offer-hero"><h1>Обратная связь</h1><p>Есть вопрос, предложение или жалоба? Напишите здесь — сообщение получит владелец сервиса.</p></div><section class="offer-plan"><form id="feedback-form"><label for="feedback-message">Ваше сообщение</label><textarea id="feedback-message" rows="7" maxlength="3000" required placeholder="Расскажите, что случилось или что можно улучшить" aria-describedby="feedback-help">${esc(state.feedbackDraft || '')}</textarea><p class="help" id="feedback-help">До 3000 символов. Вместе с сообщением отправим ваше имя и Telegram-профиль, чтобы с вами могли связаться.</p><p id="feedback-error" class="feedback-error" role="alert" hidden></p><button class="primary accent" type="submit">Отправить</button></form></section></main>`;
+  bindCommon(); resetPageScroll();
+  document.querySelector('#feedback-back').onclick = () => { setRoute({}); void render(); };
+  const form = document.querySelector('#feedback-form'), textarea = document.querySelector('#feedback-message');
+  textarea.oninput = () => { state.feedbackDraft = textarea.value; };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const button = form.querySelector('[type=submit]'), error = form.querySelector('#feedback-error');
+    if (button.disabled) return;
+    const message = textarea.value.trim();
+    if (!message) { error.textContent = 'Напишите сообщение.'; error.hidden = false; textarea.focus(); return; }
+    button.disabled = true; button.textContent = 'Отправляю…'; error.hidden = true;
+    try {
+      const result = await api('/api/feedback', { method: 'POST', body: JSON.stringify({ message, requestKey: state.feedbackRequestKey }), signal: AbortSignal.timeout(20000) });
+      state.feedbackDraft = ''; state.feedbackRequestKey = null;
+      if (!form.isConnected) return;
+      form.innerHTML = `<h2>Спасибо за обратную связь</h2><p role="status">${result.delivered ? 'Сообщение отправлено владельцу.' : 'Сообщение сохранено и будет доставлено владельцу, когда связь восстановится.'}</p><button class="secondary" type="button" id="feedback-new">Написать ещё</button>`;
+      document.querySelector('#feedback-new').onclick = feedbackPage;
+    } catch (failure) {
+      if (!form.isConnected) return;
+      error.textContent = failure.name === 'TimeoutError' ? 'Не удалось получить подтверждение. Нажмите «Отправить» ещё раз.' : failure.message;
+      error.hidden = false; button.disabled = false; button.textContent = 'Отправить';
+    }
+  };
 }
 
 const paymentMoney = (value) => Number(value).toLocaleString('ru-RU', { minimumFractionDigits: Number(value) % 1 ? 2 : 0, maximumFractionDigits: 2 });

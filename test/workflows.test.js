@@ -625,7 +625,8 @@ test('landing save promises use the dedicated entry and the quiz is removed', ()
   const script = fs.readFileSync('public/landing.js', 'utf8');
   const links = [...html.matchAll(/href="(https:\/\/t\.me\/Recipeboibot[^\"]*)"/g)];
   assert.ok(links.length >= 3);
-  assert.ok(links.every((match) => new URL(match[1]).searchParams.get('start') === 'save'));
+  assert.ok(links.filter(match => !match[0].includes('start=feedback')).every((match) => new URL(match[1]).searchParams.get('start') === 'save'));
+  assert.match(html, /href="https:\/\/t\.me\/Recipeboibot\?start=feedback">Обратная связь/);
   assert.match(html, /Твои рецепты — главная/);
   assert.doesNotMatch(html + script, /lp-quiz/);
 });

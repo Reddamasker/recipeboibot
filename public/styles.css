@@ -475,3 +475,9 @@ button:disabled { cursor: wait; opacity: .5; }
 .dinner-request label { font-weight: 600; }
 #liked-dishes, #disliked-dishes { margin: 8px 0 20px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+.feedback-footer { margin: 28px 0 16px; text-align: center; font-size: 14px; }
+.feedback-footer a { color: var(--muted, #62606b); text-underline-offset: 3px; }
+.feedback-page form { display: grid; gap: 14px; }
+.feedback-page textarea { width: 100%; min-width: 0; min-height: 180px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; line-height: 1.5; resize: vertical; }
+.feedback-page .help { margin: 0; }
+.feedback-error { color: #a12f39; overflow-wrap: anywhere; }

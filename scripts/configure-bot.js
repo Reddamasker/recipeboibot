@@ -17,6 +17,7 @@ await call('setMyCommands', { commands: [
   { command: 'find', description: 'Найти рецепт: /find курица до 30 минут' },
   { command: 'usage', description: 'Расход AI-запросов и токенов' },
   { command: 'help', description: 'Как пользоваться и получить помощь' },
+  { command: 'feedback', description: 'Обратная связь: вопрос, предложение или жалоба' },
   { command: 'privacy', description: 'Какие данные сохраняются' },
   { command: 'terms', description: 'Условия закрытого теста' }
 ] });

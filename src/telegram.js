@@ -18,6 +18,7 @@ import { canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } fr
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
 import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
+import { submitFeedback } from './feedback.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
@@ -36,12 +37,13 @@ const mainKeyboard = () => {
   return { inline_keyboard: [
     [{ text: 'Что на сегодня 🍽️', ...(dinnerUrl ? { web_app: { url: dinnerUrl } } : { callback_data: 'menu:dinner' }) }],
     [{ text: 'Хочу конкретное блюдо 🎤', callback_data: 'menu:find' }],
-    [{ text: 'Мои рецепты 📖', ...(collectionUrl ? { web_app: { url: collectionUrl } } : { callback_data: 'menu:collection' }) }]
+    [{ text: 'Мои рецепты 📖', ...(collectionUrl ? { web_app: { url: collectionUrl } } : { callback_data: 'menu:collection' }) }],
+    [{ text: 'Обратная связь', ...(webAppUrl({ view: 'feedback' }) ? { web_app: { url: webAppUrl({ view: 'feedback' }) } } : { callback_data: 'menu:feedback' }) }]
   ] };
 };
 
 export async function handleMainMenuCallback(callback) {
-  const match = String(callback.data || '').match(/^menu:(dinner|find|collection)$/);
+  const match = String(callback.data || '').match(/^menu:(dinner|find|collection|feedback)$/);
   if (!match || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   await handleMessage({ from: callback.from, chat: callback.message.chat, text: `/${match[1]}` });
@@ -331,8 +333,16 @@ export async function configureTelegramMenuButton() {
   await telegram('setMyCommands', { commands: [
     { command: 'dinner', description: 'Что на сегодня' }, { command: 'collection', description: 'Мои рецепты' },
     { command: 'save', description: 'Сохранить рецепт' }, { command: 'preferences', description: 'Мои предпочтения' },
+    { command: 'feedback', description: 'Обратная связь: вопрос, предложение или жалоба' },
     { command: 'cancel', description: 'Отменить текущее действие' }, { command: 'help', description: 'Как пользоваться ботом' }
   ], scope: { type: 'all_private_chats' } });
+}
+
+export async function sendFeedbackNotification(row) {
+  if (!config.telegramToken || config.telegramToken === 'local-preview-only') throw new Error('Feedback delivery unavailable');
+  const name = escapeHtml(row.display_name);
+  const sender = `<a href="tg://user?id=${row.telegram_id}">${name}</a>${row.username ? ` (@${escapeHtml(row.username)})` : ''}`;
+  await send(config.feedbackChatId, `<b>Обратная связь${config.testContour ? ' · тестовый бот' : ''}</b>\n\nОт: ${sender}\nTelegram ID: ${row.telegram_id}\nИсточник: ${row.source === 'telegram' ? 'чат бота' : 'приложение'}\nОбращение: ${row.id}\n\n${escapeHtml(row.message)}`, { link_preview_options: { is_disabled: true } });
 }
 
 export async function sendNotificationReminder(delivery) {
@@ -850,6 +860,29 @@ export async function handleMessage(message) {
   let text = message.text?.trim() || message.caption?.trim() || '';
   const menuCommands = { 'Что на сегодня': '/dinner', 'Хочу конкретное блюдо': '/find', 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
   text = menuCommands[text] || text;
+  const feedbackEntry = getPendingIntent(user.id);
+  const feedbackStart = text === '/feedback' || text === 'Обратная связь' || /^\/start(?:@[A-Za-z0-9_]+)?\s+feedback\s*$/i.test(text);
+  const restoreFeedbackIntent = () => { clearPendingIntent(user.id); if (feedbackEntry?.resumeIntent) setPendingIntent(user.id, feedbackEntry.resumeIntent); };
+  if (feedbackStart) {
+    if (text.startsWith('/start')) allowUser(user.id);
+    if (feedbackEntry?.kind !== 'feedback') setPendingIntent(user.id, { kind: 'feedback', resumeIntent: feedbackEntry });
+    const url = webAppUrl({ view: 'feedback' });
+    await send(chatId, '<b>Обратная связь</b>\n\nНапишите вопрос, предложение или жалобу одним текстовым сообщением — до 3000 символов. Владелец получит текст и ваш Telegram-профиль.\n\n/cancel — отменить.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть форму', web_app: { url } }]] } } : {});
+    return;
+  }
+  if (feedbackEntry?.kind === 'feedback') {
+    if (text === '/cancel') { restoreFeedbackIntent(); await send(chatId, 'Обратная связь отменена. Предыдущее действие сохранено.'); return; }
+    if (text.startsWith('/')) restoreFeedbackIntent();
+    else {
+      if (!message.text?.trim()) { await send(chatId, 'Напишите обращение текстом. Для отмены — /cancel.'); return; }
+      try {
+        const result = await submitFeedback(user.id, message.from, { message: message.text, requestKey: `telegram:${chatId}:${message.message_id}`, source: 'telegram' }, sendFeedbackNotification);
+        restoreFeedbackIntent();
+        await send(chatId, result.delivered ? 'Спасибо. Сообщение отправлено владельцу.' : 'Спасибо. Сообщение сохранено и будет доставлено владельцу, когда связь восстановится.');
+      } catch (error) { await send(chatId, escapeHtml(error.status ? error.message : 'Не получилось сохранить обращение. Попробуйте ещё раз.')); }
+      return;
+    }
+  }
   if (config.testContour && text === '/test_reset') {
     await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;

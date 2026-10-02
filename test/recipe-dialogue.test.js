@@ -174,10 +174,11 @@ test('menu opens the daily trio, starts a separate dish request and opens collec
     assert.equal(database.getPendingIntent(u.owner.id), null);
     assert.match(sent.at(-1).text, /Надиктуйте голосовым сообщением/);
     const buttons = sent.at(-1).reply_markup.inline_keyboard.flat();
-    assert.deepEqual(buttons.map(button => button.text), ['Что на сегодня 🍽️', 'Хочу конкретное блюдо 🎤', 'Мои рецепты 📖']);
+    assert.deepEqual(buttons.map(button => button.text), ['Что на сегодня 🍽️', 'Хочу конкретное блюдо 🎤', 'Мои рецепты 📖', 'Обратная связь']);
     assert.match(buttons[0].web_app.url, /view=dinner/);
     assert.equal(buttons[1].callback_data, 'menu:find');
     assert.match(buttons[2].web_app.url, /view=collection/);
+    assert.match(buttons[3].web_app.url, /view=feedback/);
     await telegram.handleMessage(u.message('Мои рецепты'));
     assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=collection/);
     await telegram.handleMessage(u.message('/save'));

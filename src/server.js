@@ -17,7 +17,8 @@ import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextD
 import { cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
-import { sendNotificationRecipeLink } from './telegram.js';
+import { sendNotificationRecipeLink, sendFeedbackNotification } from './telegram.js';
+import { submitFeedback, restoreFeedbackConversation } from './feedback.js';
 import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
@@ -86,6 +87,7 @@ function authenticate(request) {
   const header = request.headers.authorization || '';
   if (!header.startsWith('tma ')) throw Object.assign(new Error('Откройте приложение из Telegram'), { status: 401 });
   const telegramUser = validateTelegramInitData(header.slice(4), config.telegramToken);
+  request.telegramUser = telegramUser;
   const user = resolvePrivateTelegramUser(telegramUser);
   if (!user.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
   rateLimit(`user:${user.id}`);
@@ -108,6 +110,12 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  if (request.method === 'POST' && url.pathname === '/api/feedback') {
+    const input = await bodyJson(request, 16000);
+    const result = await submitFeedback(user.id, request.telegramUser, { ...input, source: 'app' }, sendFeedbackNotification);
+    restoreFeedbackConversation(user.id);
+    return json(response, 201, result);
+  }
   if (request.method === 'POST' && url.pathname === '/api/billing/promo/quote') {
     const input = await bodyJson(request, 1000);
     return json(response, 200, promoQuote(user.id, input.code));
