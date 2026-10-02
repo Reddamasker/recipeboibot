@@ -536,6 +536,17 @@ function dinnerChoiceCard(option, index) {
 function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
   let gesture = null, suppressClickUntil = 0;
   const label = card.querySelector('[data-dinner-swipe-label]');
+  const recordMotion = event => {
+    for (const point of [...(event.getCoalescedEvents?.() || []), event]) {
+      const time = Number.isFinite(point.timeStamp) ? point.timeStamp : 0;
+      const last = gesture.samples.at(-1);
+      if (last && time < last.time) continue;
+      if (last && time === last.time) last.x = point.clientX;
+      else gesture.samples.push({ x: point.clientX, time });
+    }
+    const cutoff = gesture.samples.at(-1).time - 120;
+    gesture.samples = gesture.samples.filter(point => point.time >= cutoff).slice(-48);
+  };
   const reset = () => {
     const previous = gesture; gesture = null;
     card.classList.remove('is-swiping', 'swipe-left', 'swipe-right');
@@ -551,21 +562,23 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
     suppressClickUntil = 0;
     const control = event.target.closest('button, a, input, textarea, select');
     if (!canStart() || (control && !control.matches('[data-dinner-full]'))) return;
-    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, horizontal: false };
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, horizontal: false, width: card.getBoundingClientRect().width, samples: [] };
+    recordMotion(event);
     onActive(true);
   });
   card.addEventListener('pointermove', event => {
     if (!gesture || gesture.id !== event.pointerId) return;
+    recordMotion(event);
     gesture.dx = event.clientX - gesture.x; gesture.dy = event.clientY - gesture.y;
     const x = Math.abs(gesture.dx), y = Math.abs(gesture.dy);
     if (!gesture.horizontal) {
       if (y > 10 && y > x) { suppressClickUntil = Date.now() + 500; reset(); return; }
-      if (x < 12 || x < y * 1.4) return;
+      if (x < 8 || x < y * 1.4) return;
       gesture.horizontal = true;
       card.setPointerCapture(event.pointerId);
     }
     event.preventDefault();
-    const width = card.getBoundingClientRect().width;
+    const width = gesture.width;
     card.classList.add('is-swiping');
     card.classList.toggle('swipe-right', gesture.dx > 0);
     card.classList.toggle('swipe-left', gesture.dx < 0);
@@ -575,10 +588,19 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
   }, { passive: false });
   card.addEventListener('pointerup', event => {
     if (!gesture || gesture.id !== event.pointerId) return;
-    const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y, horizontal = gesture.horizontal;
-    const width = card.getBoundingClientRect().width;
+    recordMotion(event);
+    const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
+    const directional = Math.abs(dx) > Math.abs(dy) * 1.4;
+    const horizontal = gesture.horizontal || (Math.abs(dx) >= 8 && directional);
+    const first = gesture.samples[0], last = gesture.samples.at(-1);
+    const elapsed = last.time - first.time;
+    const velocity = elapsed > 0 ? (last.x - first.x) / elapsed : 0;
+    const tail = gesture.samples.slice(0, -1).reverse().find(point => Math.abs(last.x - point.x) >= 4);
+    // A short flick uses recent speed; pauses and movement back toward the
+    // starting point cannot turn an unfinished drag into a selection.
+    const flick = Math.abs(dx) >= 32 && Math.abs(velocity) >= .45 && velocity * dx > 0 && tail && (last.x - tail.x) * dx > 0;
     if (horizontal) suppressClickUntil = Date.now() + 500;
-    const commit = horizontal && Math.abs(dx) >= Math.min(90, width * .27) && Math.abs(dx) > Math.abs(dy) * 1.4;
+    const commit = horizontal && directional && (Math.abs(dx) >= Math.min(90, gesture.width * .27) || flick);
     reset();
     if (commit && canStart()) { if (dx > 0) onAccept(); else onReject(); }
   });

@@ -70,6 +70,51 @@ test('horizontal swipe chooses one dinner or opens rejection; the following clic
   }
 });
 
+test('a short fast flick in either direction commits without a long slow drag', () => {
+  for (const direction of [-1, 1]) {
+    const f = fixture(); f.send('pointerdown', { timeStamp: 1000 });
+    f.send('pointermove', { clientX: 150 + direction * 20, timeStamp: 1025 });
+    f.send('pointermove', { clientX: 150 + direction * 48, timeStamp: 1055 });
+    f.send('pointerup', { clientX: 150 + direction * 48, timeStamp: 1070 });
+    assert.deepEqual(f.result, { accepted: direction > 0 ? 1 : 0, rejected: direction < 0 ? 1 : 0, active: false });
+    assert.equal(f.send('click').prevented, true);
+  }
+});
+
+test('release coordinates still recognize a horizontal swipe without delivered move events', () => {
+  for (const direction of [-1, 1]) for (const distance of [48, 110]) {
+    const f = fixture(); f.send('pointerdown', { timeStamp: 1000 });
+    f.send('pointerup', { clientX: 150 + direction * distance, clientY: 103, timeStamp: 1070 });
+    assert.deepEqual(f.result, { accepted: direction > 0 ? 1 : 0, rejected: direction < 0 ? 1 : 0, active: false });
+    assert.equal(f.send('click').prevented, true);
+  }
+});
+
+test('short slow drags, tiny flicks, diagonals, a pause and reversing direction do not commit', () => {
+  const paths = [
+    [[48, 0, 300], [48, 0, 320]],
+    [[25, 0, 20], [25, 0, 30]],
+    [[48, 40, 40], [48, 40, 60]],
+    [[48, 0, 40], [48, 0, 240]],
+    [[120, 0, 30], [40, 0, 60], [40, 0, 70]],
+  ];
+  for (const path of paths) for (const direction of [-1, 1]) {
+    const f = fixture(); f.send('pointerdown', { timeStamp: 1000 });
+    path.forEach(([dx, dy, time], index) => f.send(index === path.length - 1 ? 'pointerup' : 'pointermove', { clientX: 150 + direction * dx, clientY: 100 + dy, timeStamp: 1000 + time }));
+    assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+  }
+});
+
+test('recent speed recognizes a flick after holding the card and uses coalesced movement when available', () => {
+  for (const coalesced of [false, true]) {
+    const f = fixture(); f.send('pointerdown', { timeStamp: 1000 });
+    if (!coalesced) f.send('pointermove', { clientX: 165, timeStamp: 2010 });
+    f.send('pointermove', { clientX: 198, timeStamp: 2060, ...(coalesced ? { getCoalescedEvents: () => [{ clientX: 165, timeStamp: 2010 }] } : {}) });
+    f.send('pointerup', { clientX: 198, timeStamp: 2070 });
+    assert.deepEqual(f.result, { accepted: 1, rejected: 0, active: false });
+  }
+});
+
 test('tap, short drag, vertical scroll and cancelled gesture never select or reject', () => {
   for (const [dx, dy, cancel] of [[0, 0, false], [35, 3, false], [10, 100, false], [100, 75, false], [120, 0, true]]) {
     const f = fixture(); f.send('pointerdown');
