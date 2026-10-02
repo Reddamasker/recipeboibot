@@ -425,18 +425,51 @@ function scheduleDinnerPrefetch(dinner) {
   }, 3000);
 }
 
-async function replaceDinnerCard(reason) {
+function dinnerDislikeSheetContent(option) {
+  return `<div class="dislike-sheet-head"><h2>Почему не подходит?</h2><button type="button" class="dislike-sheet-close" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div><p class="dislike-sheet-recipe">${esc(option.recipe.title)}</p><div class="dislike-sheet-reasons">${[['not_today','Не хочу сегодня'],['dislike','Такое не люблю'],['missing_ingredients','Нет ингредиентов']].map(([key, label]) => `<button type="button" class="dislike-sheet-reason" data-dinner-reason="${key}"><span>${label}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>`).join('')}</div><p class="dislike-sheet-status" role="status" aria-live="polite" hidden></p>`;
+}
+
+function openDinnerDislikeSheet(option) {
+  const dinner = state.dinner;
+  const panel = overlay(dinnerDislikeSheetContent(option), 'dinner-dislike-sheet');
+  panel.classList.add('dinner-dislike-overlay');
+  panel.querySelector('[data-close]').onclick = () => {
+    if (dinner.switching) return;
+    dinner.dislikeId = null;
+    document.querySelector(`[data-dinner-dislike="${option.id}"]`)?.setAttribute('aria-expanded', 'false');
+    unmountModal(panel);
+  };
+  panel.querySelectorAll('[data-dinner-reason]').forEach(button => button.onclick = () => {
+    if (dinner.switching) return;
+    button.classList.add('is-selected');
+    void replaceDinnerCard(button.dataset.dinnerReason, panel);
+  });
+}
+
+function setDinnerDislikeBusy(panel, busy, message) {
+  panel.querySelectorAll('button').forEach(button => { button.disabled = busy; });
+  panel.querySelector('.sheet').setAttribute('aria-busy', String(busy));
+  const status = panel.querySelector('.dislike-sheet-status');
+  status.textContent = message;
+  status.hidden = !message;
+  status.setAttribute('role', busy ? 'status' : 'alert');
+  if (!busy) panel.querySelector('.is-selected')?.classList.remove('is-selected');
+}
+
+async function replaceDinnerCard(reason, panel = null) {
   const dinner = state.dinner, id = dinner?.dislikeId;
   if (!id || dinner.switching || dinner.requestSaving) return;
   dinner.switching = true;
   dinner.revision = (dinner.revision || 0) + 1;
   clearTimeout(dinnerPollTimer);
   dinnerView();
+  if (panel) setDinnerDislikeBusy(panel, true, 'Заменяю рецепт…');
   try {
     const result = await api(`/api/dinner/recommendations/${id}/replace`, { method: 'POST', body: JSON.stringify({ reason }) });
     if (state.dinner !== dinner) return;
     Object.assign(dinner, result, { switching: false, dislikeId: null });
     dinnerView();
+    if (panel) unmountModal(panel);
     scheduleDinnerPrefetch(dinner);
   } catch (error) {
     if (state.dinner !== dinner) return;
@@ -444,7 +477,8 @@ async function replaceDinnerCard(reason) {
     dinnerView();
     scheduleDinnerPrefetch(dinner);
     if (error.status === 402) { await refresh(); openOffer(); return; }
-    toast(error.message);
+    if (panel) setDinnerDislikeBusy(panel, false, error.message);
+    else toast(error.message);
   }
 }
 
@@ -495,8 +529,7 @@ function dinnerChoiceCard(option, index) {
     : state.dinner?.profile?.householdSize && recipe.servings && recipe.servings < state.dinner.profile.householdSize ? `<p class="dinner-menu-ingredients">Рецепт на ${recipe.servings} чел. — увеличь количество продуктов</p>` : '';
   const disabled = state.dinner?.switching || state.dinner?.requestSaving ? 'disabled' : '';
   const askingReason = state.dinner?.dislikeId === option.id;
-  const rejection = askingReason ? `<div class="dinner-card-rejection" role="group" aria-label="Почему не подходит: ${esc(recipe.title)}"><p>${state.dinner?.switching ? 'Заменяю этот рецепт…' : 'Почему не подходит?'}</p><div class="dinner-card-reasons">${[['not_today','Не хочу сегодня'],['dislike','Такое не люблю'],['missing_ingredients','Нет ингредиентов']].map(([key, label]) => `<button type="button" class="dinner-option" data-dinner-reason="${key}" ${disabled}>${label}</button>`).join('')}</div><button type="button" class="manual-save" data-dinner-cancel ${disabled}>Отмена</button></div>` : '';
-  return `<li class="dinner-menu-item"><button type="button" class="dinner-menu-card" ${disabled} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><div class="dinner-menu-body"><p class="dinner-menu-reason">${esc(reason)}</p><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div><button type="button" class="dinner-card-dislike" data-dinner-dislike="${esc(option.id)}" aria-label="Дизлайк: ${esc(recipe.title)}" aria-expanded="${askingReason}" ${disabled}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V3H4v11h3Zm0-10h10a2 2 0 0 1 2 1.6l1 6A2 2 0 0 1 18 14h-5l1 4a2 2 0 0 1-2 3l-5-7" /></svg><span>Не подходит</span></button>${rejection}</li>`;
+  return `<li class="dinner-menu-item"><button type="button" class="dinner-menu-card" ${disabled} data-dinner-full="${esc(option.id)}" aria-label="Открыть рецепт: ${esc(recipe.title)}"></button><div class="dinner-menu-heading"><p class="dinner-menu-reason">${esc(reason)}</p><button type="button" class="dinner-card-dislike" data-dinner-dislike="${esc(option.id)}" aria-label="Дизлайк: ${esc(recipe.title)}" title="Не подходит" aria-haspopup="dialog" aria-expanded="${askingReason}" ${disabled}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14V3H4v11h3Zm0-10h10a2 2 0 0 1 2 1.6l1 6A2 2 0 0 1 18 14h-5l1 4a2 2 0 0 1-2 3l-5-7" /></svg></button></div><div class="dinner-menu-body"><div class="dinner-menu-title"><h2>${esc(recipe.title)}</h2>${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : ''}</div>${discovery ? `<p class="dinner-menu-ingredients">${esc(pitch.reason)}</p>` : ''}${missing}${servingNote}</div></li>`;
 }
 
 function updateDinnerIngredients() {
@@ -529,16 +562,11 @@ function dinnerView() {
   document.querySelector('#dinner-onboarding')?.addEventListener('click', showDinnerOnboarding);
   document.querySelectorAll('[data-dinner-dislike]').forEach((button) => button.onclick = () => {
     if (dinner.switching || dinner.requestSaving) return;
-    dinner.dislikeId = dinner.dislikeId === button.dataset.dinnerDislike ? null : button.dataset.dinnerDislike;
-    dinnerView();
-    document.querySelector('[data-dinner-reason]')?.focus();
-  });
-  document.querySelectorAll('[data-dinner-reason]').forEach((button) => button.onclick = () => void replaceDinnerCard(button.dataset.dinnerReason));
-  document.querySelector('[data-dinner-cancel]')?.addEventListener('click', () => {
-    const id = dinner.dislikeId;
-    dinner.dislikeId = null;
-    dinnerView();
-    document.querySelector('[data-dinner-dislike="' + id + '"]')?.focus();
+    const selected = items.find(option => option.id === button.dataset.dinnerDislike);
+    if (!selected) return;
+    dinner.dislikeId = selected.id;
+    button.setAttribute('aria-expanded', 'true');
+    openDinnerDislikeSheet(selected);
   });
   document.querySelector('#dinner-request-text')?.addEventListener('input', (event) => { dinner.requestDraft = event.target.value; });
   const changeRequest = async (query) => {
@@ -718,7 +746,7 @@ function modalTabStops(dialog) {
 function mountModal(element, dialog, onDismiss, initialFocus = null) {
   const opener = document.activeElement;
   // Remember an equivalent control too: dinner polling can repaint the page behind a dialog.
-  const openerKey = ['id', 'data-recipe', 'data-dinner-full', 'data-home'].find((key) => opener?.hasAttribute(key));
+  const openerKey = ['id', 'data-recipe', 'data-dinner-full', 'data-dinner-dislike', 'data-home'].find((key) => opener?.hasAttribute(key));
   const openerValue = openerKey ? opener.getAttribute(openerKey) : null;
   const record = { element, dialog, opener, openerKey, openerValue, background: [] };
   dialog.setAttribute('role', 'dialog');

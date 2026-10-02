@@ -206,14 +206,31 @@ header {
 .dinner-menu-title img { width: 84px; height: 84px; flex: none; border-radius: 14px; object-fit: cover; }
 .dinner-menu-ingredients { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
-.dinner-card-dislike { position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin-top: 12px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--muted); cursor: pointer; }
+.dinner-menu-heading { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 8px; pointer-events: none; }
+.dinner-menu-heading .dinner-menu-reason { margin: 0; }
+.dinner-card-dislike { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-right: -8px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--muted); cursor: pointer; pointer-events: auto; }
 .dinner-card-dislike svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .dinner-card-dislike:hover, .dinner-card-dislike[aria-expanded="true"] { color: var(--berry-dark); background: var(--lilac-soft); }
 .dinner-card-dislike:disabled { cursor: wait; opacity: .6; }
-.dinner-card-rejection { position: relative; margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--lilac-soft); }
-.dinner-card-rejection p { margin: 0 0 10px; font-weight: 700; }
-.dinner-card-reasons { display: flex; flex-wrap: wrap; gap: 8px; }
-.dinner-card-reasons .dinner-option { min-height: 44px; padding: 10px 12px; }
+.overlay.dinner-dislike-overlay { background: rgba(48,37,55,.28); backdrop-filter: blur(2px); }
+.sheet.dinner-dislike-sheet { width: min(440px, 100%); padding: 12px 22px calc(22px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; }
+.dinner-dislike-sheet .sheet-handle { width: 34px; height: 4px; margin-bottom: 14px; }
+.dislike-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dislike-sheet-head h2 { font: 600 22px/1.25 Inter, "Segoe UI", system-ui, sans-serif; letter-spacing: -.025em; }
+.dislike-sheet-close { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; background: var(--lilac-soft); color: var(--muted); cursor: pointer; }
+.dislike-sheet-close svg, .dislike-sheet-reason svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dislike-sheet-recipe { margin: 4px 0 20px; color: var(--muted); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.dislike-sheet-reasons { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; }
+.dislike-sheet-reason { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px; padding: 16px; border: 0; border-bottom: 1px solid var(--line); background: var(--paper); font-size: 16px; line-height: 1.3; text-align: left; cursor: pointer; }
+.dislike-sheet-reason:last-child { border-bottom: 0; }
+.dislike-sheet-reason svg { flex: none; color: var(--muted); }
+.dislike-sheet-reason.is-selected, .dislike-sheet-reason:active { background: var(--lilac-soft); color: var(--berry-dark); }
+.dislike-sheet-reason:focus-visible { outline-offset: -4px; }
+.dislike-sheet-status { margin: 14px 0 0; color: var(--muted); font-size: 14px; line-height: 1.4; }
+.dislike-sheet-status[role="alert"] { color: var(--berry-dark); }
+.dinner-dislike-sheet [data-modal-heading]:focus { text-decoration: none; }
+@media (hover: hover) { .dislike-sheet-reason:not(:disabled):hover { background: var(--lilac-soft); } }
+@media (min-width: 620px) { .sheet.dinner-dislike-sheet { border-radius: 26px; } }
 .dinner-picks .dinner-actions { margin-top: 14px; }
 .dinner-picks .dinner-actions .secondary { min-height: 44px; border: 0; background: transparent; color: var(--berry-dark); font-size: 12px; }
 
