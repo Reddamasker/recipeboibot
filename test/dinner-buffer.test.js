@@ -205,6 +205,17 @@ test('generated validation rejects allergies, missing base, invalid amounts, slo
   assert.ok(validateGeneratedDinner(unusual, unusualContext));
 });
 
+test('generated dinner accepts absent-food prose while still rejecting positive hidden mentions', () => {
+  const item = batch()[0];
+  const context = { profile: { householdSize: 4, excludedIngredients: ['соевый соус'], preferredMaxCookingTime: 30 }, pantry: [], requestedCategories: [], feedback: {}, rejected: [], history: [], categorySignals: {} };
+  item.recipe.title += ' без соевого соуса';
+  item.recipe.ingredients[0].comment = 'без соевого соуса';
+  item.recipe.steps[0].text += ' Соевый соус не добавляйте.';
+  assert.ok(validateGeneratedDinner(item, context));
+  item.recipe.steps[0].text += ' Затем добавьте соевый соус.';
+  assert.equal(validateGeneratedDinner(item, context), null);
+});
+
 test('full generated detail is private and its generated illustration is served from the stored bytes', async () => {
   const user = fixture(610); allowUser(user.id);
   const result = await recommendDinner(user.id, startDinner(user.id).sessionId, { catalogFirst: false, generate: async () => ({ recipes: batch() }) });

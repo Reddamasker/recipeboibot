@@ -5,7 +5,7 @@ import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, recipeCategories } f
 import { generateRecipe, generateRequestedRecipe, interpretMealRequest, validateRecipeCriteria } from './openai.js';
 import { ensureSuggestionImage } from './recipe-images.js';
 import { requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
-import { normalizeMealRequest, parseMealRequest, matchesMealRequest, matchesObjectiveMealRequest, needsSemanticValidation, recipeTextIngredients, isSpicy } from './meal-request.js';
+import { normalizeMealRequest, parseMealRequest, matchesMealRequest, matchesObjectiveMealRequest, isSpicy } from './meal-request.js';
 import { parseDinnerIntakeFallback } from './dinner-intake.js';
 import { log } from './log.js';
 import { ensureNutrition } from './nutrition-service.js';
@@ -40,17 +40,21 @@ function requestContext(userId, query, mealRequestOverride = null, rejectedRecip
       || (item.recipeKey.startsWith('dinner:') ? getDinnerOption(userId, item.recipeKey.slice(7))?.recipe : null))?.title || null, cookedAt: item.createdAt }));
   return { normalized, understood, profile, mealRequest, excluded, maxMinutes, requestedCategories, rejectedRecipes, cookingHistory };
 }
-function validRecipe(recipe, context, generated = false) {
+function recipeFailures(recipe, context, generated = false) {
   const { profile, mealRequest, excluded, maxMinutes } = context;
   const minutes = totalMinutes(recipe);
-  return Boolean(recipe.title?.trim() && recipe.ingredients?.length && recipe.steps?.length &&
-    !excludedDialogueRecipe(recipe, context.rejectedRecipes) &&
-    matchesObjectiveMealRequest(recipe, mealRequest) && !hasExcludedIngredient(recipeTextIngredients(recipe), excluded) &&
-    (maxMinutes === Infinity || ([recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) && minutes <= maxMinutes)) &&
-    (!profile.householdSize || (Number.isInteger(recipe.servings) && recipe.servings >= profile.householdSize)) &&
-    (!profile.hasChildren || !isSpicy(recipe)) &&
-    (!generated || (Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 0 && Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 0 && minutes >= 5 && Number.isInteger(recipe.servings) && recipe.servings >= 1)));
+  const failures = [];
+  if (!recipe.title?.trim() || !recipe.ingredients?.length || !recipe.steps?.length) failures.push('Нужен полный рецепт с названием, ингредиентами и шагами.');
+  if (excludedDialogueRecipe(recipe, context.rejectedRecipes)) failures.push('Пользователь уже отклонил это блюдо. Предложи другое блюдо, сохранив условия запроса.');
+  if (!matchesObjectiveMealRequest(recipe, mealRequest)) failures.push('Соблюдай числовые ограничения запроса на время, порции и КБЖУ. Пересчитай значения.');
+  for (const value of excluded) if (hasExcludedIngredient(recipe, [value])) failures.push(`Исключи продукт «${value}» из ингредиентов и приготовления.`);
+  if (maxMinutes !== Infinity && (![recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) || minutes > maxMinutes)) failures.push(`Общее время подготовки и приготовления должно быть не более ${maxMinutes} минут.`);
+  if (profile.householdSize && (!Number.isInteger(recipe.servings) || recipe.servings < profile.householdSize)) failures.push(`Нужно не меньше ${profile.householdSize} порций.`);
+  if (profile.hasChildren && isSpicy(recipe)) failures.push('Для семьи с детьми исключи острый перец и острые соусы.');
+  if (generated && !(Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 0 && Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 0 && minutes >= 5 && Number.isInteger(recipe.servings) && recipe.servings >= 1)) failures.push('Укажи корректное целое число порций и реалистичное время подготовки и приготовления.');
+  return failures;
 }
+const validRecipe = (recipe, context, generated = false) => recipeFailures(recipe, context, generated).length === 0;
 const invalidRequest = () => Object.assign(new Error('Рецепт не соответствует запросу или текущим ограничениям. Уточните пожелание и попробуйте ещё раз.'), { status: 422 });
 
 export function assertSuggestionCurrent(userId, suggestion) {
@@ -97,19 +101,17 @@ async function generateSuggestion(userId, query, generate, validate, requested, 
   if (inFlight.has(key)) return inFlight.get(key);
   const task = (async () => {
     const recentTitles = [...(context.rejectedRecipes || []).map(item => item.title), ...listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 20).map((recipe) => recipe.title)];
-    const generationProfile = { ...profile, excludedIngredients: excluded, preferredMaxCookingTime: Number.isFinite(maxMinutes) ? maxMinutes : null };
-    const attempts = context.rejectedRecipes?.length || mealRequest?.nutritionLimits || needsSemanticValidation(mealRequest, context.requestedCategories) ? 2 : 1;
+    let generationProfile = { ...profile, excludedIngredients: excluded, preferredMaxCookingTime: Number.isFinite(maxMinutes) ? maxMinutes : null };
+    const attempts = 2;
     let recipe = null, validationFeedback = [];
     for (let attempt = 0; attempt < attempts; attempt++) {
       const candidate = await ensureNutrition(userId, await generate({ userId, query: understood, mealRequest, profile: generationProfile, recentTitles, validationFeedback }));
       // A profile may change while the provider is responding.
-      if (!validRecipe(candidate, requestContext(userId, normalized, mealRequest, context.rejectedRecipes), true)) {
-        if (excludedDialogueRecipe(candidate, context.rejectedRecipes)) {
-          validationFeedback = ['Пользователь уже отклонил это блюдо. Предложи другое блюдо, сохранив все условия запроса.'];
-          continue;
-        }
-        if (!mealRequest?.nutritionLimits) throw invalidRequest();
-        validationFeedback = ['Рецепт нарушает числовые ограничения времени, порций или КБЖУ. Исправь состав и пересчитай значения.'];
+      const current = requestContext(userId, normalized, mealRequest, context.rejectedRecipes);
+      validationFeedback = recipeFailures(candidate, current, true);
+      if (validationFeedback.length) {
+        log('warn', 'requested_recipe_rejected', { userId, attempt: attempt + 1, title: candidate.title, reasons: validationFeedback });
+        generationProfile = { ...current.profile, excludedIngredients: current.excluded, preferredMaxCookingTime: Number.isFinite(current.maxMinutes) ? current.maxMinutes : null };
         continue;
       }
       const [verdict] = await validate({ userId, query: understood, mealRequest, requestedCategories: context.requestedCategories, recipes: [candidate], profile: generationProfile, recentTitles, rejectedRecipes: context.rejectedRecipes, cookingHistory: context.cookingHistory });

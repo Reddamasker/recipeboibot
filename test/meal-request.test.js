@@ -341,7 +341,7 @@ test('cached suggestion and save revalidate changed exclusions, children, portio
   assert.throws(() => suggestions.assertSuggestionCurrent(owner.id, first.suggestion), { status: 422 });
   let calls = 0;
   await assert.rejects(suggestions.resolveRecipeRequest(owner.id, 'стейк', { generate: async () => { calls++; return steak(); }, validate: testSemanticValidator }), { status: 422 });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   for (const patch of [{ excludedIngredients: [], householdSize: 5 }, { householdSize: 2, preferredMaxCookingTime: 10 }]) {
     service.updateDinnerProfile(owner.id, patch);
     assert.throws(() => suggestions.assertSuggestionCurrent(owner.id, first.suggestion), { status: 422 });
@@ -356,6 +356,60 @@ test('generation response is checked again if profile changed while awaiting pro
     service.updateDinnerProfile(owner.id, { excludedIngredients: ['говядина'] }); return steak();
   }, validate: testSemanticValidator }), { status: 422 });
   assert.equal(db.findRecipeSuggestion(owner.id, 'request:стейк'), null);
+});
+
+test('wings without soy sauce pass generation, cache and save checks with the family profile', async () => {
+  const owner = user();
+  service.updateDinnerProfile(owner.id, { householdSize: 4, hasChildren: true, preferredMaxCookingTime: 30, excludedIngredients: ['грибы'] });
+  const mealRequest = normalizeMealRequest({ text: 'Сегодня хочу куриных крыльев; без соевого соуса', kind: 'exact', dish: 'куриные крылья', requiredIngredients: ['куриные крылья'], excludedIngredients: ['соевый соус'] });
+  const recipe = { ...steak(), title: 'Куриные крылья без соевого соуса', ingredients: [{ name: 'куриные крылья', quantity: 1200, unit: 'г' }, { name: 'растительное масло', quantity: 10, unit: 'мл' }], steps: [{ text: 'Обжарьте крылья с маслом до полной готовности. Соевый соус не добавляйте.' }] };
+  let calls = 0;
+  const options = { mealRequest, generate: async () => { calls++; return recipe; }, validate: testSemanticValidator };
+  const result = await suggestions.resolveRecipeRequest(owner.id, mealRequest.text, options);
+  assert.equal(result.suggestion.recipe.title, recipe.title);
+  assert.doesNotThrow(() => suggestions.assertSuggestionCurrent(owner.id, result.suggestion));
+  const cached = await suggestions.resolveRecipeRequest(owner.id, mealRequest.text, options);
+  assert.equal(calls, 1);
+  assert.equal(cached.suggestion.id, result.suggestion.id);
+});
+
+test('objective rejection retries once with specific feedback and does not cache an invalid candidate', async () => {
+  const owner = user();
+  service.updateDinnerProfile(owner.id, { householdSize: 4, preferredMaxCookingTime: 30, excludedIngredients: ['соевый соус'] });
+  const safe = { ...steak(), title: 'Стейк без соевого соуса' };
+  let calls = 0;
+  const result = await suggestions.resolveRecipeRequest(owner.id, 'стейк', { validate: testSemanticValidator,
+    generate: async ({ validationFeedback }) => {
+      calls++;
+      if (calls === 1) return { ...safe, cookMinutes: 40, ingredients: [...safe.ingredients, { name: 'соевый соус', quantity: 10, unit: 'мл' }] };
+      assert.ok(validationFeedback.some(reason => reason.includes('соевый соус')));
+      assert.ok(validationFeedback.some(reason => reason.includes('30 минут')));
+      return safe;
+    } });
+  assert.equal(calls, 2);
+  assert.equal(result.suggestion.recipe.cookMinutes, 20);
+  assert.equal(result.suggestion.recipe.ingredients.some(item => item.name === 'соевый соус'), false);
+  const failing = user();
+  service.updateDinnerProfile(failing.id, { excludedIngredients: ['говядина'] });
+  calls = 0;
+  await assert.rejects(suggestions.resolveRecipeRequest(failing.id, 'стейк', { generate: async () => { calls++; return steak(); }, validate: testSemanticValidator }), { status: 422 });
+  assert.equal(calls, 2);
+  assert.equal(db.db.prepare('SELECT count(*) AS total FROM recipe_suggestions WHERE user_id=?').get(failing.id).total, 0);
+});
+
+test('retry uses a profile changed while awaiting the first generation', async () => {
+  const owner = user();
+  let calls = 0;
+  const result = await suggestions.resolveRecipeRequest(owner.id, 'стейк', { validate: testSemanticValidator,
+    generate: async ({ profile, validationFeedback }) => {
+      calls++;
+      if (calls === 1) { service.updateDinnerProfile(owner.id, { preferredMaxCookingTime: 15 }); return steak(); }
+      assert.equal(profile.preferredMaxCookingTime, 15);
+      assert.ok(validationFeedback.some(reason => reason.includes('15 минут')));
+      return { ...steak(), prepMinutes: 5, cookMinutes: 10 };
+    } });
+  assert.equal(calls, 2);
+  assert.equal(result.suggestion.recipe.cookMinutes, 10);
 });
 
 test('insufficient portions and spicy child meals are filtered before all ranking bonuses', () => {

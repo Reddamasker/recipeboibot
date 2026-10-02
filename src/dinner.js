@@ -1,4 +1,4 @@
-import { matchesMealRequest, matchesObjectiveMealRequest, containsFoodPhrase, matchesIngredientConstraint, recipeTextIngredients, isSpicy } from './meal-request.js';
+import { matchesMealRequest, matchesObjectiveMealRequest, containsFoodPhrase, matchesIngredientConstraint, isSpicy } from './meal-request.js';
 
 export const DINNER_WEIGHTS = Object.freeze({
   saved: 4, category: 2, timeFit: 1, servingsFit: 1, accepted: 0.7, cooked: 1.5,
@@ -130,10 +130,32 @@ export function hasExcludedIngredient(recipe, excluded = []) {
     const forbidden = ingredient(raw);
     if (!forbidden) return false;
     const alias = Object.entries(aliases).find(([key, pattern]) => pattern.test(forbidden) || forbidden.includes(key))?.[1];
-    return names.some((name) => matchesIngredientConstraint(name, forbidden)
+    const matches = (name) => matchesIngredientConstraint(name, forbidden)
       || name.includes(forbidden)
       || (forbidden.length >= 4 && name.split(' ').some((word) => word.startsWith(forbidden.slice(0, Math.min(5, forbidden.length - 1)))))
-      || (alias && alias.test(name)));
+      || Boolean(alias && alias.test(name));
+    // Ingredient entries remain authoritative even if the title claims absence.
+    if (names.some(matches)) return true;
+    const foodWord = (word) => forbidden.split(' ').some(part => containsFoodPhrase(word, part)) || Boolean(alias && alias.test(word));
+    const references = [recipe.title, ...(recipe.ingredients || []).map(item => item.comment), ...(recipe.steps || []).map(step => step.text || step)].filter(Boolean);
+    return references.some((reference) => {
+      let text = String(reference).toLocaleLowerCase('ru').replaceAll('ё', 'е');
+      // Remove only the food words immediately governed by an explicit absence
+      // or prohibition. Later positive mentions must remain visible to the check.
+      text = text.replace(/(?<![\p{L}\p{N}])(?:без|не\s+(?:добавля(?:йте|й|ть)|использу(?:йте|й)|использовать|кладите))\s+([\p{L}]+(?:\s+[\p{L}]+){0,5})/gu, (whole, phrase) => {
+        const words = phrase.split(' ');
+        let count = 0;
+        while (count < words.length && foodWord(words[count])) count++;
+        return count ? ` ${words.slice(count).join(' ')}` : whole;
+      });
+      text = text.replace(/([\p{L}]+(?:\s+[\p{L}]+){0,5})\s+не\s+(?:добавля(?:йте|й|ть)|использу(?:йте|й)|использовать|кладите)(?!\p{L})/gu, (whole, phrase) => {
+        const words = phrase.split(' ');
+        let count = words.length;
+        while (count > 0 && foodWord(words[count - 1])) count--;
+        return count < words.length ? ` ${words.slice(0, count).join(' ')}` : whole;
+      });
+      return matches(ingredient(text));
+    });
   });
 }
 
@@ -143,7 +165,7 @@ export const totalMinutes = (recipe) => {
 };
 
 export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
-  if (rejected.includes(recipe.id) || hasExcludedIngredient(recipeTextIngredients(recipe), [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
+  if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
   if (!matchesObjectiveMealRequest(recipe, mealRequest)) return null;
   if (profile.householdSize && (!Number.isInteger(recipe.servings) || recipe.servings < profile.householdSize)) return null;
   if (profile.hasChildren && isSpicy(recipe)) return null;

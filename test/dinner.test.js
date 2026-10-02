@@ -36,6 +36,25 @@ test('explicit likes and dislikes change ranking even with strong history, witho
   assert.deepEqual(rankCandidates([pasta], { profile: { ...profile, excludedIngredients: ['глютен'] } }), []);
 });
 
+test('food exclusions distinguish absence in prose from actual ingredients and positive instructions', () => {
+  const recipe = { id: 'wings-no-soy', title: 'Куриные крылья без соевого соуса', servings: 4, prepMinutes: 5, cookMinutes: 20,
+    ingredients: [{ name: 'куриные крылья', comment: 'готовим без соевого соуса' }, { name: 'соль' }],
+    steps: [{ text: 'Соевый соус не добавляйте. Обжарьте крылья с солью.' }] };
+  assert.equal(hasExcludedIngredient(recipe, ['соевый соус']), false);
+  assert.equal(rankCandidates([recipe], { profile: { excludedIngredients: ['соевый соус'] } }).length, 1);
+  for (const text of ['Не добавляйте соевый соус.', 'Готовьте без соевого соуса.', 'Не используйте соевый соус.']) {
+    assert.equal(hasExcludedIngredient({ ...recipe, steps: [{ text }] }, ['соевый соус']), false, text);
+  }
+  assert.equal(hasExcludedIngredient({ ...recipe, ingredients: [...recipe.ingredients, { name: 'соевый соус' }] }, ['соевый соус']), true, 'absence in title cannot override actual ingredients');
+  for (const text of ['Добавьте соевый соус.', 'Не добавляйте соевый соус. Затем добавьте соевый соус.', 'Без соли добавьте соевый соус.', 'Готовьте без соевого соуса, затем влейте соевый соус.']) {
+    assert.equal(hasExcludedIngredient({ ...recipe, steps: [{ text }] }, ['соевый соус']), true, text);
+  }
+  assert.equal(hasExcludedIngredient({ ...recipe, ingredients: [{ name: 'куриные крылья', comment: 'смажьте соевым соусом' }] }, ['соевый соус']), true);
+  assert.equal(hasExcludedIngredient({ ...recipe, title: 'Крылья в соевом соусе', steps: [] }, ['соевый соус']), true);
+  assert.equal(hasExcludedIngredient({ title: 'Без соевого соуса', ingredients: [] }, ['соевый соус']), true, 'missing ingredients remain unsafe');
+  assert.equal(hasExcludedIngredient({ title: 'Курица без грибов', ingredients: [{ name: 'курица' }], steps: [{ text: 'Грибы не добавляйте.' }] }, ['грибы']), false);
+});
+
 test('completed chat onboarding does not repeat tastes; explicit answers and edits remain independent', async () => {
   const user = upsertTelegramUser({ id: 650, first_name: 'Вкусы' });
   assert.equal(startDinner(user.id).needsTastePreferences, true);

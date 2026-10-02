@@ -66,7 +66,7 @@ export function validateGeneratedDinner(item, context) {
   if (context.pantry.length && !recipe.mainIngredients.length) return null;
   if (!isDinnerCandidate(recipe) || !rankCandidates([recipe], context).length) return null;
   // Also reject forbidden ingredients mentioned only in preparation text.
-  if (hasExcludedIngredient({ ingredients: [...recipe.ingredients, ...recipe.ingredients.filter((i) => i.comment).map((i) => ({ name: i.comment })), ...recipe.steps.map((s) => ({ name: s.text }))] }, context.profile.excludedIngredients)) return null;
+  if (hasExcludedIngredient(recipe, context.profile.excludedIngredients)) return null;
   return { recipe, role: item.role, categories: recipeCategories(recipe), method: 'generated' };
 }
 
