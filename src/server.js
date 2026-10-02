@@ -13,7 +13,7 @@ import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
 import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
-import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
+import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, replaceDinner, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
 import { cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
@@ -238,12 +238,16 @@ async function api(request, response, url) {
     const input = await bodyJson(request, 1000);
     return json(response, 200, prefetchDinner(user.id, String(input.sessionId || '')));
   }
-  const dinnerAction = url.pathname.match(/^\/api\/dinner\/recommendations\/([0-9a-f-]{36})\/(accept|reject|reason|cooked)$/i);
+  const dinnerAction = url.pathname.match(/^\/api\/dinner\/recommendations\/([0-9a-f-]{36})\/(accept|reject|reason|replace|cooked)$/i);
   if (request.method === 'POST' && dinnerAction) {
     const [, id, action] = dinnerAction;
     if (action === 'accept' || action === 'reject') return json(response, 200, decideDinner(user.id, id, action === 'accept' ? 'accepted' : 'rejected'));
     if (action === 'cooked') return json(response, 200, finishDinner(user.id, id));
     const input = await bodyJson(request, 1000);
+    if (action === 'replace') {
+      rateLimit(`dinner:${user.id}`, 12, 60_000);
+      return json(response, 200, replaceDinner(user.id, id, input.reason));
+    }
     return json(response, 200, setDinnerRejectionReason(user.id, id, input.reason, input));
   }
   if (request.method === 'GET' && url.pathname === '/api/search') {

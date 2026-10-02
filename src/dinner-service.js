@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { getSubscriptionAccess, requireUnexpiredTrial, requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
 import { randomUUID } from 'node:crypto';
 import { resolveRecipeRequest } from './suggestions.js';
-import { insertDinnerOption, promoteDinnerOptions, invalidateDinnerBuffer, currentDinnerOptions } from './dinner-store.js';
+import { insertDinnerOption, promoteDinnerOptions, invalidateDinnerBuffer, currentDinnerOptions, replaceDinnerOption, retainDinnerBufferContext, acceptedDinnerOptionId, getDinnerRejectionReason, getDislikedDinnerTitles } from './dinner-store.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, getDinnerOptionImage, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
@@ -164,21 +164,22 @@ export function dinnerContext(userId, sessionId) {
   const reasons = history.filter((event) => event.sessionId === sessionId && event.event === 'dinner_rejection_reason');
   const feedback = { simpleOnly: reasons.some((event) => event.detail.reason === 'too_hard'),
     unavailableIngredients: [...new Set(reasons.flatMap((event) => event.detail.missingIngredients || []))],
-    avoidTitles: history.filter((event) => event.event === 'dinner_rejection_reason' && ((event.sessionId === sessionId && ['not_today', 'other'].includes(event.detail.reason)) || (event.detail.reason === 'recently_ate' && Date.now() - Date.parse(event.createdAt) < 7 * 86400000))).map((event) => recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean) };
+    avoidTitles: [...new Set([...getDislikedDinnerTitles(userId), ...history.filter((event) => event.event === 'dinner_rejection_reason' && ((event.sessionId === sessionId && ['not_today', 'missing_ingredients', 'other'].includes(event.detail.reason)) || (event.detail.reason === 'recently_ate' && Date.now() - Date.parse(event.createdAt) < 7 * 86400000))).map((event) => event.detail.title || recipeForDecision(userId, event.recipeKey)?.title).filter(Boolean)])] };
   return { profile: sessionMax ? { ...profile, preferredMaxCookingTime: Math.min(profile.preferredMaxCookingTime || Infinity, sessionMax) } : profile,
     pantry, requestedCategories, mealRequest, feedback, library, saved, history, recentRecipes, recentShownRecipes, categorySignals: categorySignals(library, history), rejected: rejectedInSession(userId, sessionId) };
 }
 
 function bufferResponse(userId, sessionId, buffer) {
   const context = dinnerContext(userId, sessionId);
-  const format = (options) => {
-    const choices = options.map((option) => ({ candidate: rankCandidates([option.recipe], { ...context, rejected: [] })[0], role: option.role, option })).filter((c) => c.candidate);
+  const format = (options, shown = false) => {
+    const rankingContext = shown ? { ...context, feedback: { ...context.feedback, avoidTitles: [] } } : context;
+    const choices = options.map((option) => ({ candidate: rankCandidates([option.recipe], { ...rankingContext, rejected: [] })[0], role: option.role, option })).filter((c) => c.candidate);
     return choices.map((choice) => ({ id: choice.option.id, recipe: choice.option.recipe, role: choice.role,
       pitch: recommendationPitch(choice, choices), reasons: recommendationReasons(choice.candidate, context.profile, context.categorySignals, context.history),
       pantryMatch: choice.candidate.pantryMatch, method: choice.option.method,
       sourceNote: choice.option.recipe.dinnerGenerated ? 'Создано для тебя' : choice.option.recipe.userSaved ? null : 'Вариант из нашей подборки' }));
   };
-  const recommendations = format(buffer.current), reserve = format(buffer.reserve);
+  const recommendations = format(buffer.current, true), reserve = format(buffer.reserve);
   const fallback = recommendations.some((r) => r.method === 'deterministic');
   const preparingMessage = context.pantry.length ? 'Готовлю новые рецепты под твои продукты…' : 'Готовлю новые рецепты для тебя…';
   return { sessionId, pantry: context.pantry, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recommendations, recommendation: recommendations[0] || null, reserve,
@@ -226,6 +227,30 @@ export async function nextDinner(userId, ids, options) {
   requireUnexpiredTrial(userId);
   const result = rejectDinnerBatch(userId, ids);
   return recommendDinner(userId, result.sessionId, options);
+}
+
+export function replaceDinner(userId, recommendationId, reason, options) {
+  requireUnexpiredTrial(userId);
+  if (!['not_today', 'dislike', 'missing_ingredients'].includes(reason)) throw badRequest('Неверная причина');
+  const row = getDinnerRecommendation(userId, recommendationId);
+  if (!row) throw notFound();
+  const sessionId = row.session_id;
+  if (acceptedDinnerOptionId(userId, sessionId)) throw Object.assign(new Error('Ужин уже выбран. Открой новую подборку.'), { status: 409 });
+  const context = dinnerContext(userId, sessionId);
+  const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
+  const snapshot = prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
+  // Retrying a request after a lost HTTP response must not reject another card.
+  if (row.status === 'rejected' && getDinnerRejectionReason(userId, recommendationId)?.replacementId) return bufferResponse(userId, sessionId, snapshot);
+  const selected = snapshot.current.find(option => option.id === recommendationId);
+  if (!selected) throw Object.assign(new Error('Этот вариант уже недоступен. Обнови подборку.'), { status: 409 });
+  const available = snapshot.reserve.filter(option => rankCandidates([option.recipe], context).length);
+  const replacement = available.find(option => option.role === selected.role) || available[0];
+  if (!replacement) throw Object.assign(new Error('Других подходящих рецептов пока нет. Попробуй позже или измени пожелание.'), { status: 422 });
+  replaceDinnerOption(userId, sessionId, recommendationId, replacement.id, reason);
+  // Only the rejected title changes the context; keep the other cards and reserve.
+  const updatedContext = dinnerContext(userId, sessionId);
+  retainDinnerBufferContext(userId, sessionId, dinnerContextKey(updatedContext), snapshot.reserve.filter(option => !rankCandidates([option.recipe], updatedContext).length).map(option => option.id));
+  return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions));
 }
 
 export function getDinnerRecipe(userId, key) { return withNutrition(recipeForDecision(userId, key)); }

@@ -206,6 +206,14 @@ header {
 .dinner-menu-title img { width: 84px; height: 84px; flex: none; border-radius: 14px; object-fit: cover; }
 .dinner-menu-ingredients { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.dinner-card-dislike { position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin-top: 12px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--muted); cursor: pointer; }
+.dinner-card-dislike svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dinner-card-dislike:hover, .dinner-card-dislike[aria-expanded="true"] { color: var(--berry-dark); background: var(--lilac-soft); }
+.dinner-card-dislike:disabled { cursor: wait; opacity: .6; }
+.dinner-card-rejection { position: relative; margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--lilac-soft); }
+.dinner-card-rejection p { margin: 0 0 10px; font-weight: 700; }
+.dinner-card-reasons { display: flex; flex-wrap: wrap; gap: 8px; }
+.dinner-card-reasons .dinner-option { min-height: 44px; padding: 10px 12px; }
 .dinner-picks .dinner-actions { margin-top: 14px; }
 .dinner-picks .dinner-actions .secondary { min-height: 44px; border: 0; background: transparent; color: var(--berry-dark); font-size: 12px; }
 

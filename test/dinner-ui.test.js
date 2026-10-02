@@ -4,9 +4,9 @@ import fs from 'node:fs';
 
 test('dinner request locks while it is being saved to prevent duplicate generation', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
-  assert.match(source, /if \(dinner\.requestSaving\) return;/);
+  assert.match(source, /if \(dinner\.requestSaving \|\| dinner\.switching\) return;/);
   assert.match(source, /dinner\.requestSaving = true; dinnerView\(\);/);
-  assert.match(source, /dinner\?\.requestSaving \? 'disabled' : ''/);
+  assert.match(source, /\(dinner\?\.requestSaving \|\| dinner\?\.switching\) \? 'disabled' : ''/);
 });
 import vm from 'node:vm';
 
@@ -127,7 +127,7 @@ test('top reminder entries stay hidden until access is active', () => {
   assert.equal((source.match(/\$\{notificationEntry\(\)\}/g) || []).length, 2);
 });
 
-test('dinner cards are single recipe links without numbers or competing actions', () => {
+test('dinner cards open recipes and offer a separate dislike action', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function dinnerChoiceCard('), source.indexOf('\nfunction updateDinnerIngredients'));
   const sandbox = {
@@ -144,12 +144,18 @@ test('dinner cards are single recipe links without numbers or competing actions'
   assert.doesNotMatch(familiar, /говяжий фарш|<p class="dinner-menu-ingredients">/);
   assert.match(familiar, /class="dinner-menu-card"[^>]*data-dinner-full="a"/);
   assert.match(familiar, /aria-label="Открыть рецепт: Ужин"/);
+  assert.match(familiar, /data-dinner-dislike="a"/);
   assert.doesNotMatch(familiar, /dinner-menu-index|data-dinner-accept|dinner-menu-actions|Готовим|>Рецепт</);
   const quick = sandbox.dinnerChoiceCard({ id: 'b', role: 'quick', recipe, pitch: { label: 'Быстро', reason: '25 минут на готовку' } }, 1);
   assert.match(quick, /Быстро · 25 мин/);
   assert.doesNotMatch(quick, /на готовку|говяжий фарш|паста|<p class="dinner-menu-ingredients">/);
   assert.doesNotMatch(source, /dinner-picks"><div class="eyebrow">СЕГОДНЯ НА УЖИН/);
   assert.doesNotMatch(source, /Из того, что ты назвал/);
+  sandbox.state.dinner.dislikeId = 'a';
+  const rejected = sandbox.dinnerChoiceCard({ id: 'a', recipe, pitch: { label: 'На сегодня' } }, 0);
+  assert.deepEqual([...rejected.matchAll(/data-dinner-reason="([^"]+)"/g)].map(match => match[1]), ['not_today','dislike','missing_ingredients']);
+  for (const label of ['Не хочу сегодня', 'Такое не люблю', 'Нет ингредиентов', 'Отмена']) assert.ok(rejected.includes(label));
+  assert.doesNotMatch(source.slice(source.indexOf('function dinnerView()'), source.indexOf('async function acceptDinnerItem')), /dinner-reject-batch|dinner-reason-open|missing-ingredients-form/);
 });
 
 test('current dinner request appears only in its editable field', () => {
@@ -162,7 +168,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.49/);
+  assert.match(document, /app\.js\?v=dinner-10\.50/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -293,7 +299,7 @@ test('trial onboarding continues from tastes to notifications and collection ins
 
 test('dinner image polling recovers after a network failure', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
-  const handler = source.slice(source.indexOf('let dinnerPollTimer;'), source.indexOf('\nasync function showNextDinner'));
+  const handler = source.slice(source.indexOf('let dinnerPollTimer;'), source.indexOf('\nasync function replaceDinnerCard'));
   const dinner = { sessionId: 's', recommendations: [{ id: 'a', recipe: {} }], reserve: [], imagesPending: true };
   const timers = []; let requests = 0, paints = 0;
   const sandbox = { state: { dinner }, clearTimeout() {}, setTimeout(fn) { timers.push(fn); },
@@ -394,24 +400,6 @@ test('shared recipe settles the Mini App watchdog after success or a handled err
   }
 });
 
-test('More renders cached reserve before its HTTP request completes and recovers on network failure', async () => {
-  const source = fs.readFileSync('public/app.js', 'utf8');
-  const handler = source.slice(source.indexOf('async function showNextDinner()'), source.indexOf('\nfunction onboardingView()'));
-  const old = [{ id: 'a' },{ id: 'b' },{ id: 'c' }], reserve = [{ id: 'd' },{ id: 'e' },{ id: 'f' }];
-  const state = { dinner: { recommendations: old, recommendation: old[0], reserve } };
-  let fail, request, painted;
-  const sandbox = { state, dinnerPollTimer: null, clearTimeout() {}, toast() {}, scheduleDinnerPrefetch() {},
-    dinnerView() { painted = state.dinner.recommendations.map((o) => o.id); },
-    api(url, init) { request = { url, body: JSON.parse(init.body) }; return new Promise((_, reject) => { fail = reject; }); } };
-  vm.runInNewContext(handler, sandbox);
-  const pending = sandbox.showNextDinner();
-  assert.deepEqual(painted, ['d','e','f']);
-  assert.deepEqual(request.body.ids, ['a','b','c']);
-  assert.equal(request.url, '/api/dinner/next'); assert.equal(state.dinner.switching, true);
-  fail(new Error('offline')); await pending;
-  assert.deepEqual(painted, ['a','b','c']); assert.equal(state.dinner.switching, false);
-});
-
  test('first dinner displays ingredients and steps without opening a card', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const sandbox = { esc: value => String(value).replaceAll('<', '&lt;') };
@@ -421,4 +409,31 @@ test('More renders cached reserve before its HTTP request completes and recovers
   assert.match(html, /Обжарить мясо/);
   assert.match(html, /&lt;Рецепт>/);
   assert.match(source, /dinner.firstFreeRecipe \? firstDinnerRecipeDetails\(recipe\)/);
+});
+
+test('single-card replacement sends one reason, blocks duplicate taps and keeps cards on failure', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('async function replaceDinnerCard('), source.indexOf('\nfunction onboardingView()'));
+  for (const success of [false, true]) {
+    const old = [{ id: 'a' }, { id: 'b' }, { id: 'c' }], next = [old[0], { id: 'd' }, old[2]];
+    const dinner = { recommendations: old, recommendation: old[0], reserve: [{ id: 'd' }], dislikeId: 'b' };
+    let settle, request, requests = 0;
+    const errors = [], sandbox = { state: { dinner }, dinnerPollTimer: null, clearTimeout() {}, dinnerView() {}, scheduleDinnerPrefetch() {},
+      toast: message => errors.push(message),
+      api(url, options) { requests++; request = { url, input: JSON.parse(options.body) }; return new Promise((resolve, reject) => { settle = success ? () => resolve({ recommendations: next, recommendation: next[0] }) : () => reject(new Error('offline')); }); } };
+    vm.runInNewContext(handler, sandbox);
+    const pending = sandbox.replaceDinnerCard('missing_ingredients');
+    assert.equal(dinner.switching, true);
+    assert.equal(dinner.revision, 1);
+    assert.equal(request.url, '/api/dinner/recommendations/b/replace');
+    assert.deepEqual(request.input, { reason: 'missing_ingredients' });
+    await sandbox.replaceDinnerCard('dislike');
+    assert.equal(requests, 1);
+    assert.deepEqual(dinner.recommendations, old);
+    settle(); await pending;
+    assert.equal(dinner.switching, false);
+    assert.deepEqual(dinner.recommendations, success ? next : old);
+    assert.equal(dinner.dislikeId, success ? null : 'b');
+    assert.deepEqual(errors, success ? [] : ['offline']);
+  }
 });

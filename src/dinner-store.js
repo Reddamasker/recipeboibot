@@ -82,6 +82,7 @@ ensureColumn('dinner_sessions', 'viewed_at', 'TEXT');
 ensureColumn('food_profiles', 'dish_preferences_json', "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn('dinner_sessions', 'meal_request_json', "TEXT NOT NULL DEFAULT 'null'");
 ensureColumn('dinner_contexts', 'meal_request_json', "TEXT NOT NULL DEFAULT 'null'");
+ensureColumn('dinner_options', 'display_position', 'INTEGER');
 
 const now = () => new Date().toISOString();
 const parseJson = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
@@ -247,6 +248,15 @@ export function addDinnerRejectionReason(userId, id, reason, details = {}) {
   return true;
 }
 
+export function getDinnerRejectionReason(userId, recommendationId) {
+  const row = db.prepare("SELECT detail_json FROM dinner_events WHERE user_id=? AND recommendation_id=? AND event='dinner_rejection_reason'").get(userId, recommendationId);
+  return row ? parseJson(row.detail_json, {}) : null;
+}
+
+export function getDislikedDinnerTitles(userId) {
+  return db.prepare("SELECT DISTINCT json_extract(detail_json,'$.title') AS title FROM dinner_events WHERE user_id=? AND event='dinner_rejection_reason' AND json_extract(detail_json,'$.reason')='dislike'").all(userId).map(row => row.title).filter(Boolean);
+}
+
 export function markDinnerCooked(userId, id, categories) {
   const row = getDinnerRecommendation(userId, id);
   if (!row || row.status !== 'accepted') return false;
@@ -269,7 +279,7 @@ export function listDinnerOptions(userId, sessionId) {
 }
 export function currentDinnerOptions(userId, sessionId) {
   return db.prepare(`SELECT ${optionColumns} FROM dinner_options o JOIN dinner_recommendations r ON r.id=o.id
-    WHERE o.user_id=? AND o.session_id=? AND o.state='current' AND r.status='shown' ORDER BY o.rowid`).all(userId, sessionId).map(parseOption);
+    WHERE o.user_id=? AND o.session_id=? AND o.state='current' AND r.status='shown' ORDER BY COALESCE(o.display_position,o.rowid),o.rowid`).all(userId, sessionId).map(parseOption);
 }
 export function getDinnerOption(userId, id) {
   return parseOption(db.prepare(`SELECT ${optionColumns} FROM dinner_options o WHERE id=? AND user_id=?`).get(id, userId));
@@ -292,21 +302,52 @@ export function setDinnerBufferRetry(userId, sessionId, at) {
 export function retireDinnerOptions(userId, sessionId) {
   db.prepare("UPDATE dinner_options SET state='used' WHERE user_id=? AND session_id=? AND state='current' AND id IN (SELECT id FROM dinner_recommendations WHERE status!='shown')").run(userId, sessionId);
 }
+function showDinnerOption(userId, sessionId, option, position) {
+  db.prepare('INSERT INTO dinner_recommendations(id,session_id,user_id,recipe_key,shown_at) VALUES(?,?,?,?,?)').run(option.id, sessionId, userId, option.recipe.id, now());
+  db.prepare("UPDATE dinner_options SET state='current',display_position=? WHERE id=?").run(position, option.id);
+  const event = { sessionId, recommendationId: option.id, recipeKey: option.recipe.id };
+  addDinnerEvent(userId, 'recommendation_shown', { ...event, detail: { categories: option.categories, method: option.method } });
+  addDinnerEvent(userId, 'dinner_recommendation_shown', event);
+}
+
+export function replaceDinnerOption(userId, sessionId, rejectedId, replacementId, reason) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const current = currentDinnerOptions(userId, sessionId);
+    const position = current.findIndex(option => option.id === rejectedId);
+    const replacement = getDinnerOption(userId, replacementId);
+    const available = db.prepare("SELECT id FROM dinner_options WHERE id=? AND user_id=? AND session_id=? AND state='ready'").get(replacementId, userId, sessionId);
+    if (position < 0 || !available || !replacement || acceptedDinnerOptionId(userId, sessionId)) throw Object.assign(new Error('Этот вариант уже недоступен. Обнови подборку.'), { status: 409 });
+    // Assign positions to older sessions too, so a middle card stays in its slot.
+    current.forEach((option, index) => db.prepare('UPDATE dinner_options SET display_position=? WHERE id=?').run(index, option.id));
+    const rejected = current[position];
+    db.prepare("UPDATE dinner_recommendations SET status='rejected',decided_at=? WHERE id=?").run(now(), rejectedId);
+    db.prepare("UPDATE dinner_options SET state='used' WHERE id=?").run(rejectedId);
+    const event = { sessionId, recommendationId: rejectedId, recipeKey: rejected.recipe.id };
+    addDinnerEvent(userId, 'recommendation_rejected', { ...event, detail: { categories: rejected.categories || [] } });
+    addDinnerEvent(userId, 'dinner_recommendation_rejected', event);
+    addDinnerEvent(userId, 'dinner_retry', { sessionId, detail: { recipeKeys: [rejected.recipe.id] } });
+    addDinnerRejectionReason(userId, rejectedId, reason, { replacementId, title: rejected.recipe.title, missingIngredients: [] });
+    showDinnerOption(userId, sessionId, replacement, position);
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+
+export function retainDinnerBufferContext(userId, sessionId, context, discardedIds = []) {
+  for (const id of discardedIds) db.prepare("UPDATE dinner_options SET state='discarded' WHERE id=? AND user_id=? AND session_id=? AND state='ready'").run(id, userId, sessionId);
+  db.prepare('UPDATE dinner_sessions SET buffer_context=? WHERE id=? AND user_id=?').run(context, sessionId, userId);
+}
+
 export function promoteDinnerOptions(userId, sessionId, ids) {
   db.exec('BEGIN IMMEDIATE');
   try {
     // Idempotent across concurrent requests: never promote a second batch over the current one.
     if (!currentDinnerOptions(userId, sessionId).length) {
-      for (const id of ids) {
+      for (const [position, id] of ids.entries()) {
         const option = getDinnerOption(userId, id);
         const row = db.prepare("SELECT id FROM dinner_options WHERE id=? AND session_id=? AND user_id=? AND state='ready'").get(id, sessionId, userId);
         if (!row || !option) continue;
-        const at = now();
-        db.prepare('INSERT INTO dinner_recommendations(id,session_id,user_id,recipe_key,shown_at) VALUES(?,?,?,?,?)').run(id, sessionId, userId, option.recipe.id, at);
-        db.prepare("UPDATE dinner_options SET state='current' WHERE id=?").run(id);
-        const event = { sessionId, recommendationId: id, recipeKey: option.recipe.id };
-        addDinnerEvent(userId, 'recommendation_shown', { ...event, detail: { categories: option.categories, method: option.method } });
-        addDinnerEvent(userId, 'dinner_recommendation_shown', event);
+        showDinnerOption(userId, sessionId, option, position);
       }
     }
     db.exec('COMMIT');
