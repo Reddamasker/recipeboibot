@@ -196,21 +196,27 @@ header {
 .dinner-menu { margin: 0; border: 1px solid var(--line); border-radius: 22px; padding: 0 24px; overflow: hidden; background: var(--paper); box-shadow: 0 12px 32px rgba(48,37,55,.045); list-style: none; }
 .dinner-menu-item { position: relative; padding: 20px 0; border-bottom: 1px solid var(--line); touch-action: pan-y pinch-zoom; transition: transform .2s ease; }
 .dinner-menu-item.is-swiping { z-index: 2; border-radius: 16px; background: var(--paper); transform: translateX(var(--dinner-swipe-x)); transition: none; user-select: none; }
+.dinner-menu-item::before, .dinner-menu-item::after { content: ''; position: absolute; z-index: 0; inset: 5px -10px; border-radius: 16px; opacity: 0; transition: opacity .2s ease; pointer-events: none; }
+.dinner-menu-item::before { background: #f6c2c8; }
+.dinner-menu-item::after { background: #bee7ca; }
+.dinner-menu-item.is-swiping::before, .dinner-menu-item.is-swiping::after { transition: none; }
+.dinner-menu-item.is-swiping.swipe-left::before, .dinner-menu-item.is-swiping.swipe-right::after { opacity: var(--dinner-swipe-strength, 0); }
 .dinner-swipe-hint { margin: -10px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .dinner-swipe-label { position: absolute; z-index: 3; top: 12px; left: 12px; border: 2px solid #337146; border-radius: 8px; padding: 7px 10px; background: var(--paper); color: #337146; font-size: 13px; font-weight: 700; opacity: var(--dinner-swipe-strength, 0); transform: rotate(-6deg); pointer-events: none; }
 .swipe-left .dinner-swipe-label { left: auto; right: 12px; border-color: var(--berry); color: var(--berry-dark); transform: rotate(6deg); }
 .dinner-menu-item:last-child { border-bottom: 0; }
-.dinner-menu-card { position: absolute; inset: 5px -10px; width: calc(100% + 20px); border: 0; border-radius: 16px; padding: 0; background: transparent; cursor: pointer; transition: background-color .16s ease; }
+.dinner-menu-card { position: absolute; z-index: 1; inset: 5px -10px; width: calc(100% + 20px); border: 0; border-radius: 16px; padding: 0; background: transparent; cursor: pointer; transition: background-color .16s ease; }
 .dinner-menu-card:hover { background: var(--lilac-soft); }
+.dinner-menu-item.is-swiping .dinner-menu-card { background: transparent; }
 .dinner-menu-card:disabled { cursor: wait; }
-.dinner-menu-body { position: relative; min-width: 0; pointer-events: none; }
+.dinner-menu-body { position: relative; z-index: 1; min-width: 0; pointer-events: none; }
 .dinner-menu-reason { margin: 0 0 7px; color: var(--berry-dark); font-size: 12px; font-weight: 700; }
 .dinner-menu-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dinner-menu-title h2 { font: 400 clamp(22px, 4.5vw, 29px)/1.1 Georgia, serif; letter-spacing: -.025em; }
 .dinner-menu-title img { width: 84px; height: 84px; flex: none; border-radius: 14px; object-fit: cover; }
 .dinner-menu-ingredients { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .dinner-menu-missing { margin: 7px 0 0; color: var(--berry-dark); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
-.dinner-menu-heading { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 8px; pointer-events: none; }
+.dinner-menu-heading { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 8px; pointer-events: none; }
 .dinner-menu-heading .dinner-menu-reason { margin: 0; }
 .dinner-card-actions { display: flex; flex: none; margin-right: -8px; pointer-events: auto; }
 .dinner-card-dislike, .dinner-card-like { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--muted); cursor: pointer; pointer-events: auto; }
