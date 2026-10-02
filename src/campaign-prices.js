@@ -4,7 +4,7 @@ import { config } from './config.js';
 
 export const DINNER_PRICE_EXPERIMENT = Object.freeze({
   key: 'ya-dinner-promo-199-159-v1', campaign: 'ya-dinner-202610', promoCode: 'UZHIN159',
-  basePriceRub: 199, promoPriceRub: 159, threeMonthsPriceRub: 499
+  basePriceRub: 199, promoPriceRub: 159, threeMonthsPriceRub: 499, threeMonthsPromoPriceRub: 399
 });
 db.exec(`CREATE TABLE IF NOT EXISTS campaign_price_assignments (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -42,7 +42,9 @@ export function campaignPromotion(userId) {
   if (!campaignPromoAvailable(userId)) return null;
   const experiment = DINNER_PRICE_EXPERIMENT;
   return { code: experiment.promoCode, basePriceRub: experiment.basePriceRub, priceRub: experiment.promoPriceRub,
-    discountRub: 40, periodMonths: 1, oneTime: true, autoRenew: false };
+    discountRub: 40, periodMonths: 1, oneTime: true, autoRenew: false,
+    plans: [{ months: 1, basePriceRub: 199, priceRub: 159, discountRub: 40 },
+      { months: 3, basePriceRub: 499, priceRub: 399, discountRub: 100 }] };
 }
 
 export function recordCampaignPriceExposure(userId, at = new Date()) {

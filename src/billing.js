@@ -166,10 +166,9 @@ function publicOrder(row) {
 export function createPaymentOrder(userId, { autoRenew = false, promoCode, periodMonths = 1 } = {}, at = new Date()) {
   const plan = subscriptionPlan(periodMonths);
   if (!plan) throw error('Выберите срок подписки: 1 месяц, 3 месяца или 1 год');
-  const promo = promoCode !== undefined ? promoQuote(userId, promoCode) : null;
+  const promo = promoCode !== undefined ? promoQuote(userId, promoCode, plan.months) : null;
   if (promo?.discountPercent === 100) throw error('Активируйте бесплатный месяц без оплаты');
-  if (promo && autoRenew) throw error('Промокод действует на один месяц без автопродления');
-  if (promo && plan.months !== 1) throw error('Промокод действует только на тариф «1 месяц»');
+  if (promo && autoRenew) throw error('Оплата по промокоду не подключает автопродление');
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 503);
   if (!promo && !hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
   if (autoRenew && !config.robokassaRecurring) throw error('Автопродление пока не подключено у платёжного провайдера', 409);
@@ -181,6 +180,9 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
   const existing = reserved ? db.prepare("SELECT * FROM payment_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId)
     : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND period_months=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, plan.months, recentAfter);
   if (existing) {
+    if (promo && (existing.period_months !== plan.months || existing.amount_kopeks !== Math.round(promo.priceRub * 100))) {
+      throw error('С этим промокодом уже создан заказ на другой срок. Завершите его оплату перед созданием нового заказа.', 409);
+    }
     db.prepare('UPDATE payment_orders SET updated_at=? WHERE id=?').run(nowIso(at), existing.id);
     return { ...publicOrder(existing), paymentUrl: `${config.appUrl}/payment/start/${existing.id}` };
   }

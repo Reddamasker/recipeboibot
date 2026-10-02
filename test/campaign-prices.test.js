@@ -80,7 +80,7 @@ test('promo bills exactly 159 rubles once, forbids other terms and auto renewal,
   assert.equal(offer.plans.find(plan => plan.months === 3).priceRub, 499);
   assert.equal(offer.campaignPromotion.priceRub, 159);
   assert.equal(promoQuote(user.id, ' uzhin 159 ').discountRub, 40);
-  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3 }), { status: 400 });
+  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 12 }), { status: 400 });
   assert.throws(() => createPaymentOrder(user.id, { promoCode: 'UZHIN159', autoRenew: true }), { status: 400 });
   const order = createPaymentOrder(user.id, { promoCode: 'UZHIN159', amount: 1, priceRub: 1 }, after(3));
   assert.equal(order.priceRub, 159); assert.equal(order.periodMonths, 1); assert.equal(order.autoRenew, false);
@@ -137,6 +137,35 @@ test('mock checkout agrees with real quote and cannot turn test payments into ex
   assert.equal(campaignPromotion(user.id), null);
   const afterRow = funnelReport(campaign).priceExperiment.rows.find(row => row.variant === 'B');
   assert.equal(afterRow.paid, before.paid); assert.equal(afterRow.revenueRub, before.revenueRub);
+});
+test('three months with the campaign code bills 399, extends by three months and consumes the shared code once', () => {
+  const user = recruited('B'); firstRecipe(user); startTrial(user.id, after(2));
+  const quote = promoQuote(user.id, 'UZHIN159', 3);
+  assert.equal(quote.priceRub, 399); assert.equal(quote.basePriceRub, 499); assert.equal(quote.discountRub, 100);
+  assert.equal(campaignPromotion(user.id).plans.find(plan => plan.months === 3).priceRub, 399);
+  assert.throws(() => promoQuote(recruited('A').id, 'UZHIN159', 3), { status: 403 });
+  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3, autoRenew: true }), { status: 400 });
+  const order = createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3, priceRub: 1 }, after(3));
+  assert.equal(order.priceRub, 399); assert.equal(order.periodMonths, 3);
+  assert.equal(createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3 }, after(3)).id, order.id);
+  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 1 }, after(3)), { status: 409 });
+  const document = paymentRedirectDocument(order.id, after(3));
+  assert.match(document, /value="399\.00"/);
+  const receipt = JSON.parse(decodeURIComponent(document.match(/name="Receipt" value="([^"]+)"/)[1]));
+  assert.equal(receipt.items[0].sum, 399);
+  pay(order); pay(order);
+  assert.equal(getSubscriptionAccess(user.id, after(4)).expiresAt, '2026-12-27T08:02:00.000Z');
+  assert.equal(db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(user.id), undefined);
+  assert.throws(() => promoQuote(user.id, 'UZHIN159', 1), { status: 409 });
+  db.prepare('UPDATE payment_orders SET is_test=0 WHERE id=?').run(order.id);
+  const row = funnelReport(campaign).priceExperiment.rows.find(row => row.variant === 'B');
+  assert.ok(row.threeMonthsPaid >= 1 && row.promoPaid >= 1 && row.revenueRub >= 399);
+  const mockUser = recruited('B'); firstRecipe(mockUser);
+  const mock = createMockOrder(mockUser.id, 'card', false, 'UZHIN159', 3);
+  assert.equal(mock.priceRub, 399); assert.equal(mock.periodMonths, 3);
+  finishMockOrder(mockUser.id, mock.id, 'success');
+  const now = new Date(); now.setUTCMonth(now.getUTCMonth() + 3);
+  assert.ok(Math.abs(Date.parse(getSubscriptionAccess(mockUser.id).expiresAt) - now.getTime()) < 5000);
 });
 
 test('experiment revenue and mature trial conversion use real payments, periods, unique users and exposure', () => {

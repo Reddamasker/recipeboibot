@@ -121,7 +121,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/promo/quote') {
     const input = await bodyJson(request, 1000);
-    return json(response, 200, promoQuote(user.id, input.code));
+    return json(response, 200, promoQuote(user.id, input.code, input.periodMonths ?? 1));
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/promo/redeem') {
     const input = await bodyJson(request, 1000);

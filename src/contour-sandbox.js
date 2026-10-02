@@ -105,26 +105,26 @@ export function createMockOrder(userId, method, autoRenew = false, promoCode, pe
   const plan = subscriptionPlan(periodMonths);
   if (!plan) throw error('Выберите срок подписки: 1 месяц, 3 месяца или 1 год', 400);
   if (promoCode !== undefined) {
-    const promo = promoQuote(userId, promoCode);
+    const promo = promoQuote(userId, promoCode, plan.months);
     if (promo.discountPercent === 100) throw error('Активируйте бесплатный месяц без оплаты', 400);
-    if (autoRenew) throw error('Промокод действует на один месяц без автопродления', 400);
-    if (plan.months !== 1) throw error('Промокод действует только на тариф «1 месяц»', 400);
+    if (autoRenew) throw error('Оплата по промокоду не подключает автопродление', 400);
     if (!['card', 'sbp'].includes(method)) throw error('Неверный способ оплаты', 400);
     const reserved = reservedPromoOrder(userId, promo.code);
     const existing = reserved && db.prepare("SELECT * FROM mock_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId);
+    if (existing && (existing.period_months !== plan.months || existing.amount_rub !== promo.priceRub)) throw error('С этим промокодом уже создан заказ на другой срок.', 409);
     if (reserved && !existing) throw error('Заказ с этим промокодом уже завершён', 409);
     const id = existing?.id || randomUUID(), now = new Date().toISOString();
     const variant = promo.discountPercent === 99 ? 'promo_99' : `promo_${promo.code}`;
     if (!existing) {
       db.exec('BEGIN IMMEDIATE');
       try {
-        db.prepare("INSERT INTO mock_orders(id,user_id,variant,amount_rub,method,auto_renew,status,created_at,updated_at,promo_code,period_months) VALUES(?,?,?,?,?,0,'pending',?,?,?,1)")
-          .run(id, userId, variant, promo.priceRub, method, now, now, promo.code);
+        db.prepare("INSERT INTO mock_orders(id,user_id,variant,amount_rub,method,auto_renew,status,created_at,updated_at,promo_code,period_months) VALUES(?,?,?,?,?,0,'pending',?,?,?,?)")
+          .run(id, userId, variant, promo.priceRub, method, now, now, promo.code, plan.months);
         reservePromo(userId, promo.code, id);
         db.exec('COMMIT');
       } catch (cause) { db.exec('ROLLBACK'); throw cause; }
     }
-    return { id, method: existing?.method || method, autoRenew: false, priceRub: existing?.amount_rub ?? promo.priceRub, variant: existing?.variant || variant, promoCode: promo.code, periodMonths: 1, status: 'pending', createdAt: existing?.created_at || now };
+    return { id, method: existing?.method || method, autoRenew: false, priceRub: existing?.amount_rub ?? promo.priceRub, variant: existing?.variant || variant, promoCode: promo.code, periodMonths: Number(existing?.period_months || plan.months), status: 'pending', createdAt: existing?.created_at || now };
   }
   if (!status.hasFirstRecipe && !status.trial.used) throw error('Сначала сохраните первый рецепт', 409);
   if (status.active) throw error('Тестовый доступ уже активен', 409);
@@ -152,7 +152,7 @@ export function finishMockOrder(userId, orderId, result) {
       db.prepare('UPDATE mock_orders SET status=?,updated_at=? WHERE id=?').run(result, now, orderId);
       if (order.promo_code) {
         if (result === 'success') {
-          const at = new Date(now), expiresAt = extendPromoAccess(userId, at);
+          const at = new Date(now), expiresAt = extendPromoAccess(userId, at, order.period_months || 1);
           consumePromo(userId, orderId, at, expiresAt);
         } else releasePromo(userId, orderId);
       }

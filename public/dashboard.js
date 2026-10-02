@@ -42,7 +42,7 @@ function renderPriceExperiment(experiment) {
   if (!experiment) return;
   const money = value => value === null ? 'Нет данных' : `${Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
   $('#price-variants').replaceChildren(...experiment.rows.map(variant => {
-    const row = node('tr'), title = node('td', '', `${variant.variant} · ${variant.variant === 'B' ? '159 ₽ по промокоду' : '199 ₽'}`);
+    const row = node('tr'), title = node('td', '', `${variant.variant} · ${variant.variant === 'B' ? '159 / 399 ₽ по промокоду' : '199 / 499 ₽'}`);
     title.append(node('small', '', variant.variant === 'B' ? experiment.promoCode : 'Обычная цена'));
     const matured = node('td', '', percent(variant.maturedPaidFromTrial));
     matured.append(node('small', '', `${number(variant.maturedPaid)} из ${number(variant.maturedTrials)}`));

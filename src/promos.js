@@ -1,5 +1,6 @@
 import { db } from './db.js';
-import { getSubscriptionAccess, grantSubscription, monthAfter } from './subscriptions.js';
+import { getSubscriptionAccess, grantSubscription, monthsAfter } from './subscriptions.js';
+import { subscriptionPlan } from './plans.js';
 import { campaignPromoAvailable, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -13,17 +14,23 @@ db.exec(`CREATE TABLE IF NOT EXISTS promo_redemptions (
   PRIMARY KEY(user_id,code)
 );`);
 
-export function promoQuote(userId, input) {
+export function promoQuote(userId, input, periodMonths = 1) {
+  const plan = subscriptionPlan(periodMonths);
+  if (!plan) throw fail('Выберите срок подписки');
   if (typeof input !== 'string' || input.length > 64) throw fail('Введите промокод');
   const code = input.replace(/\s+/g, '').toUpperCase();
   if (code === DINNER_PRICE_EXPERIMENT.promoCode) {
     const used = db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=? AND code=?').get(userId, code);
     if (used?.redeemed_at) throw fail('Этот промокод уже использован', 409);
     if (!campaignPromoAvailable(userId)) throw fail('Промокод доступен только пользователям, которым он предоставлен, до первой покупки.', 403);
-    return { code, discountPercent: null, discountRub: 40, basePriceRub: 199, priceRub: 159, period: 'month', periodMonths: 1 };
+    if (![1, 3].includes(plan.months)) throw fail('Этот промокод действует на 1 или 3 месяца');
+    const priceRub = plan.months === 3 ? DINNER_PRICE_EXPERIMENT.threeMonthsPromoPriceRub : DINNER_PRICE_EXPERIMENT.promoPriceRub;
+    return { code, discountPercent: null, discountRub: plan.priceRub - priceRub, basePriceRub: plan.priceRub,
+      priceRub, period: plan.months === 3 ? 'quarter' : 'month', periodMonths: plan.months };
   }
   const discountPercent = discounts.get(code);
   if (!discountPercent) throw fail('Промокод не найден');
+  if (plan.months !== 1) throw fail('Промокод действует только на тариф «1 месяц»');
   const used = db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=? AND code=?').get(userId, code);
   if (used?.redeemed_at) throw fail('Этот промокод уже использован', 409);
   return { code, discountPercent, basePriceRub: 199, priceRub: discountPercent === 100 ? 0 : 1.99, period: 'month' };
@@ -47,9 +54,9 @@ export function releasePromo(userId, orderId) {
   db.prepare('DELETE FROM promo_redemptions WHERE user_id=? AND order_id=? AND redeemed_at IS NULL').run(userId, orderId);
 }
 
-export function extendPromoAccess(userId, at = new Date()) {
+export function extendPromoAccess(userId, at = new Date(), periodMonths = 1) {
   const access = getSubscriptionAccess(userId, at);
-  const expiresAt = monthAfter(access.active ? access.expiresAt : at);
+  const expiresAt = monthsAfter(access.active ? access.expiresAt : at, periodMonths);
   grantSubscription(userId, access.plan === 'premium' ? 'premium' : 'subscription', expiresAt, at);
   // An existing renewal must not charge before the newly extended period ends.
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='payment_recurring'").get()) {
