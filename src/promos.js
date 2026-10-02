@@ -1,7 +1,7 @@
 import { db } from './db.js';
 import { getSubscriptionAccess, grantSubscription, monthsAfter } from './subscriptions.js';
 import { subscriptionPlan } from './plans.js';
-import { campaignPromoAvailable, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
+import { campaignPromoPlans, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const discounts = new Map([['PICHU99', 99], ['PICHU100', 100]]);
@@ -22,11 +22,10 @@ export function promoQuote(userId, input, periodMonths = 1) {
   if (code === DINNER_PRICE_EXPERIMENT.promoCode) {
     const used = db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=? AND code=?').get(userId, code);
     if (used?.redeemed_at) throw fail('Этот промокод уже использован', 409);
-    if (!campaignPromoAvailable(userId)) throw fail('Промокод доступен только пользователям, которым он предоставлен, до первой покупки.', 403);
     if (![1, 3].includes(plan.months)) throw fail('Этот промокод действует на 1 или 3 месяца');
     const priceRub = plan.months === 3 ? DINNER_PRICE_EXPERIMENT.threeMonthsPromoPriceRub : DINNER_PRICE_EXPERIMENT.promoPriceRub;
     return { code, discountPercent: null, discountRub: plan.priceRub - priceRub, basePriceRub: plan.priceRub,
-      priceRub, period: plan.months === 3 ? 'quarter' : 'month', periodMonths: plan.months };
+      priceRub, period: plan.months === 3 ? 'quarter' : 'month', periodMonths: plan.months, plans: campaignPromoPlans() };
   }
   const discountPercent = discounts.get(code);
   if (!discountPercent) throw fail('Промокод не найден');

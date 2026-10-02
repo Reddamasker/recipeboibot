@@ -123,7 +123,7 @@ function priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, class
     row.paidFromStart = percentage(row.paid, row.starts);
     row.maturedPaidFromTrial = percentage(row.maturedPaid, row.maturedTrials);
   }
-  return { ...experiment, allocationPercent: 50, promoOneTime: true, rows };
+  return { ...experiment, allocationPercent: 50, promoOneTime: true, promoPublic: true, rows };
 }
 
 export function funnelReport(slug = 'all') {

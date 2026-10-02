@@ -57,7 +57,7 @@ test('campaign assignment is immutable and only new attributed users receive it'
   const a = recruited('A'), b = recruited('B');
   assert.equal(campaignPromotion(a.id), null);
   assert.equal(campaignPromotion(b.id).priceRub, 159);
-  assert.throws(() => promoQuote(a.id, 'UZHIN159'), { status: 403 });
+  assert.equal(promoQuote(a.id, 'UZHIN159').priceRub, 159);
   const previous = campaignPriceAssignment(b.id);
   const later = new URL(advertisingRedirect('other')).searchParams.get('start');
   recordBotStart({ ...b, is_allowed: 1 }, `/start ${later}`, after(1));
@@ -67,7 +67,8 @@ test('campaign assignment is immutable and only new attributed users receive it'
   assert.equal(campaignPriceAssignment(returning.id), null);
   const organic = fresh(); recordBotStart(organic, '/start', start);
   assert.equal(campaignPriceAssignment(organic.id), null);
-  assert.throws(() => createPaymentOrder(organic.id, { promoCode: 'UZHIN159', priceRub: 159 }), { status: 403 });
+  assert.equal(createPaymentOrder(organic.id, { promoCode: 'UZHIN159', priceRub: 1 }).priceRub, 159);
+  assert.equal(promoQuote(returning.id, 'UZHIN159', 3).priceRub, 399);
   assert.equal(recordCampaignPriceExposure(organic.id), false);
   deleteUserData(b.id);
   assert.equal(db.prepare('SELECT 1 FROM campaign_price_assignments WHERE user_id=?').get(b.id), undefined);
@@ -101,7 +102,7 @@ test('promo bills exactly 159 rubles once, forbids other terms and auto renewal,
   const next = createPaymentOrder(user.id, {}, after(5)); assert.equal(next.priceRub, 199);
 });
 
-test('three month purchase and renewal are 499 for A and B, first regular purchase ends promo eligibility', async () => {
+test('regular three-month purchase and renewal stay 499 and do not prevent entering an unused promo', async () => {
   for (const variant of ['A', 'B']) {
     const user = recruited(variant); firstRecipe(user); startTrial(user.id, after(2));
     const order = createPaymentOrder(user.id, { periodMonths: 3, autoRenew: true }, after(3));
@@ -111,8 +112,9 @@ test('three month purchase and renewal are 499 for A and B, first regular purcha
     assert.equal(getSubscriptionAccess(user.id, after(4)).expiresAt, '2026-12-27T08:02:00.000Z');
     const renewal = db.prepare('SELECT amount_kopeks,period_months FROM payment_recurring WHERE user_id=?').get(user.id);
     assert.deepEqual({ ...renewal }, { amount_kopeks: 49900, period_months: 3 });
-    assert.equal(campaignPromotion(user.id), null);
-    assert.throws(() => promoQuote(user.id, 'UZHIN159'), { status: 403 });
+    assert.equal(Boolean(campaignPromotion(user.id)), variant === 'B');
+    assert.equal(promoQuote(user.id, 'UZHIN159').priceRub, 159);
+    assert.equal(promoQuote(user.id, 'UZHIN159', 3).priceRub, 399);
   }
   await runRecurringCycle(new Date('2026-12-28T08:00:00.000Z'), async (_url, request) => {
     assert.equal(request.body.get('OutSum'), '499.00');
@@ -143,7 +145,7 @@ test('three months with the campaign code bills 399, extends by three months and
   const quote = promoQuote(user.id, 'UZHIN159', 3);
   assert.equal(quote.priceRub, 399); assert.equal(quote.basePriceRub, 499); assert.equal(quote.discountRub, 100);
   assert.equal(campaignPromotion(user.id).plans.find(plan => plan.months === 3).priceRub, 399);
-  assert.throws(() => promoQuote(recruited('A').id, 'UZHIN159', 3), { status: 403 });
+  assert.equal(promoQuote(recruited('A').id, 'UZHIN159', 3).priceRub, 399);
   assert.throws(() => createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3, autoRenew: true }), { status: 400 });
   const order = createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3, priceRub: 1 }, after(3));
   assert.equal(order.priceRub, 399); assert.equal(order.periodMonths, 3);
@@ -183,4 +185,23 @@ test('experiment revenue and mature trial conversion use real payments, periods,
   assert.equal(report.maturedPaid, initial.maturedPaid + 1);
   assert.equal(report.revenuePerUserRub, Number((report.revenueRub / report.starts).toFixed(2)));
   assert.equal(funnelReport('other').priceExperiment, null);
+});
+test('any account can enter the code and paying with it does not change the assigned A/B group', () => {
+  const owner = upsertTelegramUser({ id: 6971956699, first_name: 'Owner' });
+  assert.equal(promoQuote(owner.id, 'UZHIN159', 3).priceRub, 399);
+  assert.equal(campaignPriceAssignment(owner.id), null);
+  const user = recruited('A'); firstRecipe(user);
+  assert.equal(getBillingOffer(user.id).campaignPromotion, null);
+  const before = funnelReport(campaign).priceExperiment.rows.find(row => row.variant === 'A');
+  const order = createPaymentOrder(user.id, { promoCode: 'UZHIN159', periodMonths: 3 }, after(3));
+  assert.equal(order.priceRub, 399);
+  pay(order); db.prepare('UPDATE payment_orders SET is_test=0 WHERE id=?').run(order.id);
+  assert.equal(campaignPriceAssignment(user.id).variant, 'A');
+  const report = funnelReport(campaign).priceExperiment;
+  assert.equal(report.promoPublic, true);
+  const afterRow = report.rows.find(row => row.variant === 'A');
+  assert.equal(afterRow.promoPaid, before.promoPaid + 1);
+  assert.equal(afterRow.threeMonthsPaid, before.threeMonthsPaid + 1);
+  assert.equal(afterRow.revenueRub, before.revenueRub + 399);
+  assert.throws(() => promoQuote(user.id, 'UZHIN159'), { status: 409 });
 });

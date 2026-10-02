@@ -29,22 +29,23 @@ export function campaignPriceAssignment(userId, at = new Date()) {
 }
 
 export function campaignPromoAvailable(userId) {
-  const assignment = campaignPriceAssignment(userId);
-  if (assignment?.variant !== 'B') return false;
-  for (const [table, status] of [['payment_orders', 'paid'], ['mock_orders', 'success']]) {
-    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)
-      && db.prepare(`SELECT 1 FROM ${table} WHERE user_id=? AND status=? LIMIT 1`).get(userId, status)) return false;
-  }
-  return true;
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='promo_redemptions'").get()) return true;
+  return !db.prepare('SELECT 1 FROM promo_redemptions WHERE user_id=? AND code=? AND redeemed_at IS NOT NULL')
+    .get(userId, DINNER_PRICE_EXPERIMENT.promoCode);
+}
+
+export function campaignPromoPlans() {
+  const e = DINNER_PRICE_EXPERIMENT;
+  return [{ months: 1, basePriceRub: e.basePriceRub, priceRub: e.promoPriceRub, discountRub: e.basePriceRub - e.promoPriceRub },
+    { months: 3, basePriceRub: e.threeMonthsPriceRub, priceRub: e.threeMonthsPromoPriceRub, discountRub: e.threeMonthsPriceRub - e.threeMonthsPromoPriceRub }];
 }
 
 export function campaignPromotion(userId) {
-  if (!campaignPromoAvailable(userId)) return null;
+  if (campaignPriceAssignment(userId)?.variant !== 'B' || !campaignPromoAvailable(userId)) return null;
   const experiment = DINNER_PRICE_EXPERIMENT;
   return { code: experiment.promoCode, basePriceRub: experiment.basePriceRub, priceRub: experiment.promoPriceRub,
     discountRub: 40, periodMonths: 1, oneTime: true, autoRenew: false,
-    plans: [{ months: 1, basePriceRub: 199, priceRub: 159, discountRub: 40 },
-      { months: 3, basePriceRub: 499, priceRub: 399, discountRub: 100 }] };
+    plans: campaignPromoPlans() };
 }
 
 export function recordCampaignPriceExposure(userId, at = new Date()) {
