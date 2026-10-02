@@ -15,7 +15,8 @@ function fixture() {
     setPointerCapture: id => { capture = id; }, hasPointerCapture: id => capture === id,
     releasePointerCapture: id => { capture = null; listeners.lostpointercapture({ target: card, pointerId: id }); },
   };
-  const sandbox = {};
+  const frames = new Map(); let nextFrame = 0;
+  const sandbox = { requestAnimationFrame: fn => { frames.set(++nextFrame, fn); return nextFrame; }, cancelAnimationFrame: id => frames.delete(id) };
   vm.runInNewContext(source.slice(source.indexOf('function bindDinnerSwipe('), source.indexOf('\nfunction updateDinnerIngredients')), sandbox);
   sandbox.bindDinnerSwipe(card, { canStart: () => enabled, onAccept: () => accepted++, onReject: () => rejected++, onActive: value => { active = value; } });
   const opener = { closest() { return this; }, matches: () => true };
@@ -23,8 +24,9 @@ function fixture() {
     return { pointerId: 1, isPrimary: true, button: 0, clientX: 150, clientY: 100, target: opener,
       prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, ...overrides };
   }
-  const send = (type, overrides) => { const input = event(overrides); listeners[type](input); return input; };
-  return { send, styles, classes, label, card, opener, get result() { return { accepted, rejected, active }; }, disable: () => { enabled = false; } };
+  const flush = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn()); };
+  const send = (type, overrides, paint = true) => { const input = event(overrides); listeners[type](input); if (paint) flush(); return input; };
+  return { send, flush, styles, classes, label, card, opener, get result() { return { accepted, rejected, active }; }, disable: () => { enabled = false; } };
 }
 
 test('touch swipe survives implicit capture moving from the recipe button to its parent card', () => {
@@ -59,7 +61,7 @@ test('horizontal swipe chooses one dinner or opens rejection; the following clic
   for (const direction of [-1, 1]) {
     const f = fixture(); f.send('pointerdown');
     const movement = f.send('pointermove', { clientX: 150 + direction * 100, clientY: 105 });
-    assert.equal(movement.prevented, true);
+    assert.equal(movement.prevented, false);
     assert.equal(f.label.textContent, direction > 0 ? 'Готовим' : 'Не подходит');
     assert.equal(f.classes.has('is-swiping'), true);
     f.send('pointerup', { clientX: 150 + direction * 100, clientY: 105 });
@@ -79,6 +81,35 @@ test('a short fast flick in either direction commits without a long slow drag', 
     assert.deepEqual(f.result, { accepted: direction > 0 ? 1 : 0, rejected: direction < 0 ? 1 : 0, active: false });
     assert.equal(f.send('click').prevented, true);
   }
+});
+
+test('vertical movement releases an initially horizontal drag without cancelling native scrolling', () => {
+  for (const direction of [-1, 1]) {
+    const f = fixture(); f.send('pointerdown');
+    assert.equal(f.send('pointermove', { clientX: 170, clientY: 102 }).prevented, false);
+    assert.equal(f.classes.has('is-swiping'), true);
+    assert.equal(f.send('pointermove', { clientX: 174, clientY: 100 + direction * 40 }).prevented, false);
+    assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+    assert.equal(f.classes.has('is-swiping'), false);
+    f.send('pointermove', { clientX: 270, clientY: 100 + direction * 160 });
+    f.send('pointerup', { clientX: 270, clientY: 100 + direction * 160 });
+    assert.equal(f.send('click').prevented, true);
+    assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+  }
+});
+
+test('frames display the latest position and cannot repaint a cancelled or released swipe', () => {
+  const f = fixture(); f.send('pointerdown');
+  f.send('pointermove', { clientX: 170 }, false);
+  f.send('pointermove', { clientX: 190 }, false);
+  f.flush(); assert.equal(f.styles.get('--dinner-swipe-x'), '40px');
+  f.send('pointermove', { clientX: 210 }, false);
+  f.send('pointercancel', {}, false); f.flush();
+  assert.equal(f.styles.size, 0); assert.equal(f.classes.has('is-swiping'), false);
+  f.send('pointerdown'); f.send('pointermove', { clientX: 260 }, false);
+  f.send('pointerup', { clientX: 260 }, false); f.flush();
+  assert.equal(f.styles.size, 0); assert.equal(f.classes.has('is-swiping'), false);
+  assert.deepEqual(f.result, { accepted: 1, rejected: 0, active: false });
 });
 
 test('release coordinates still recognize a horizontal swipe without delivered move events', () => {

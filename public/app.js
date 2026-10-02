@@ -6,6 +6,8 @@ let paymentPollTimer = null;
 window.miniProbe?.('app-script');
 
 tg?.ready(); tg?.expand();
+// Keep drags inside the page from competing with Telegram's sheet gesture.
+tg?.disableVerticalSwipes?.();
 if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }
 
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
@@ -534,8 +536,23 @@ function dinnerChoiceCard(option, index) {
 }
 
 function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
-  let gesture = null, suppressClickUntil = 0;
+  let gesture = null, suppressClickUntil = 0, frame = null;
   const label = card.querySelector('[data-dinner-swipe-label]');
+  const paint = () => {
+    frame = null;
+    if (!gesture?.horizontal) return;
+    const { dx, width } = gesture;
+    const direction = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    if (direction !== gesture.direction) {
+      card.classList.toggle('swipe-right', direction > 0);
+      card.classList.toggle('swipe-left', direction < 0);
+      label.textContent = direction > 0 ? 'Готовим' : 'Не подходит';
+      gesture.direction = direction;
+    }
+    card.style.setProperty('--dinner-swipe-x', `${Math.max(-width * .55, Math.min(width * .55, dx))}px`);
+    card.style.setProperty('--dinner-swipe-strength', String(Math.min(1, Math.abs(dx) / Math.min(90, width * .27))));
+    card.classList.add('is-swiping');
+  };
   const recordMotion = event => {
     for (const point of [...(event.getCoalescedEvents?.() || []), event]) {
       const time = Number.isFinite(point.timeStamp) ? point.timeStamp : 0;
@@ -549,6 +566,7 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
   };
   const reset = () => {
     const previous = gesture; gesture = null;
+    if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
     card.classList.remove('is-swiping', 'swipe-left', 'swipe-right');
     card.style.removeProperty('--dinner-swipe-x');
     card.style.removeProperty('--dinner-swipe-strength');
@@ -562,7 +580,7 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
     suppressClickUntil = 0;
     const control = event.target.closest('button, a, input, textarea, select');
     if (!canStart() || (control && !control.matches('[data-dinner-full]'))) return;
-    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, horizontal: false, width: card.getBoundingClientRect().width, samples: [] };
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, horizontal: false, direction: 0, width: card.getBoundingClientRect().width, samples: [] };
     recordMotion(event);
     onActive(true);
   });
@@ -571,27 +589,22 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
     recordMotion(event);
     gesture.dx = event.clientX - gesture.x; gesture.dy = event.clientY - gesture.y;
     const x = Math.abs(gesture.dx), y = Math.abs(gesture.dy);
+    // A sideways wobble must not lock a subsequent vertical scroll into a swipe.
+    if (y > 10 && y > x * .85) { suppressClickUntil = Date.now() + 500; reset(); return; }
     if (!gesture.horizontal) {
-      if (y > 10 && y > x) { suppressClickUntil = Date.now() + 500; reset(); return; }
-      if (x < 8 || x < y * 1.4) return;
+      if (x < 12 || x < y * 1.7) return;
       gesture.horizontal = true;
       card.setPointerCapture(event.pointerId);
     }
-    event.preventDefault();
-    const width = gesture.width;
-    card.classList.add('is-swiping');
-    card.classList.toggle('swipe-right', gesture.dx > 0);
-    card.classList.toggle('swipe-left', gesture.dx < 0);
-    card.style.setProperty('--dinner-swipe-x', `${Math.max(-width * .55, Math.min(width * .55, gesture.dx))}px`);
-    card.style.setProperty('--dinner-swipe-strength', String(Math.min(1, x / Math.min(90, width * .27))));
-    label.textContent = gesture.dx > 0 ? 'Готовим' : 'Не подходит';
-  }, { passive: false });
+    // touch-action leaves vertical scrolling to the browser; never cancel it.
+    if (frame === null) frame = requestAnimationFrame(paint);
+  }, { passive: true });
   card.addEventListener('pointerup', event => {
     if (!gesture || gesture.id !== event.pointerId) return;
     recordMotion(event);
     const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
     const directional = Math.abs(dx) > Math.abs(dy) * 1.4;
-    const horizontal = gesture.horizontal || (Math.abs(dx) >= 8 && directional);
+    const horizontal = gesture.horizontal || (Math.abs(dx) >= 12 && directional);
     const first = gesture.samples[0], last = gesture.samples.at(-1);
     const elapsed = last.time - first.time;
     const velocity = elapsed > 0 ? (last.x - first.x) / elapsed : 0;
