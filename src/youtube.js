@@ -233,8 +233,8 @@ export async function extractYoutubeSource(input, fetchText = safeFetchText, pos
   const meaningfulDescription = description.replace(/https?:\/\/\S+|#[\p{L}\p{N}_]+/gu, '').trim();
   if (transcript.length < 40 && meaningfulDescription.length < 40) {
     throw sourceError(tracks.length
-      ? 'Страница YouTube открылась, но сервис не отдал текст субтитров, а в описании нет рецепта. Это не блокировка ссылки нашим приложением. Извлечение из самого видео пока не подключено.'
-      : 'Страница YouTube открылась, но доступных субтитров и текста рецепта нет. Извлечение из самого видео пока не подключено.', 'YOUTUBE_TEXT_UNAVAILABLE');
+      ? 'YouTube не отдал текст субтитров, а в описании недостаточно текста рецепта.'
+      : 'В описании YouTube недостаточно текста рецепта, доступных субтитров нет.', 'YOUTUBE_TEXT_UNAVAILABLE');
   }
   const warnings = [];
   if (!transcript) warnings.push('Рецепт извлечён только из описания YouTube. Субтитры недоступны; содержимое видео не анализировалось.');

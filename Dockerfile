@@ -8,6 +8,9 @@ RUN apt-get update \
   && chmod 0755 /usr/local/bin/yt-dlp
 
 FROM node:24-bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production PORT=3087 DATABASE_PATH=/app/data/recipes.sqlite
 COPY --from=video-tools /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
