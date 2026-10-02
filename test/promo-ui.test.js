@@ -11,6 +11,7 @@ function page(available = false, mode = 'unavailable') {
     checkoutPage() { opened.push('mock'); }, providerPaymentResultPage() { opened.push('provider'); },
     tg: { openLink: url => opened.push(url) },
     api: async (url, options) => { calls.push([url, JSON.parse(options.body)]); return context.response; } };
+  vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function availablePaymentPlans()')), context);
   vm.runInNewContext(source.slice(source.indexOf('function promoPage('), source.indexOf('\nfunction trialOfferPage()')), context);
   return { context, nodes, calls, root, opened };
 }
@@ -37,6 +38,20 @@ test('99 percent displays 1.99 and preserves code when provider is disconnected'
   assert.match(root.innerHTML, /1,99 ₽/);
   assert.match(root.innerHTML, /Промокод не потрачен/);
   assert.doesNotMatch(root.innerHTML, /id="promo-apply"/);
+});
+test('campaign recipient sees assigned code and an exact 40 ruble discount, order request uses only the code', async () => {
+  const { context, nodes, calls, root, opened } = page(true, 'provider');
+  context.state.payment.campaignPromotion = { code: 'UZHIN159', basePriceRub: 199, priceRub: 159 };
+  context.promoPage();
+  assert.match(root.innerHTML, /value="UZHIN159"/);
+  context.promoPage({ code: 'UZHIN159', basePriceRub: 199, priceRub: 159, discountPercent: null, discountRub: 40 });
+  assert.match(root.innerHTML, /Скидка 40 ₽/);
+  assert.match(root.innerHTML, /Оплатить 159,00 ₽/);
+  assert.doesNotMatch(root.innerHTML, /null%/);
+  context.response = { id: 'campaign-order', mode: 'provider', paymentUrl: 'https://example.test/pay' };
+  await nodes['#promo-apply'].handler({ currentTarget: nodes['#promo-apply'] });
+  assert.deepEqual(calls, [['/api/billing/orders', { promoCode: 'UZHIN159', autoRenew: false, method: 'card' }]]);
+  assert.ok(opened.includes('provider'));
 });
 test('99 percent confirmation sends code only and follows provider or test order mode', async () => {
   for (const mode of ['mock', 'provider']) {

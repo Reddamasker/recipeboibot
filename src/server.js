@@ -25,6 +25,7 @@ import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscri
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats, funnelReport } from './funnel.js';
+import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 
 const publicDir = path.resolve('public');
@@ -136,6 +137,8 @@ async function api(request, response, url) {
     return json(response, 200, getBillingOffer(user.id));
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/exposure') {
+    const input = await bodyJson(request, 1000);
+    if (input.campaign === true) recordCampaignPriceExposure(user.id);
     if (config.testContour && !billingAvailable()) return json(response, 200, { recorded: claimMockOffer(user.id) });
     return json(response, 200, { recorded: recordBillingExposure(user.id) });
   }

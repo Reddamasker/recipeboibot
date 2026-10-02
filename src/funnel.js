@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
+import { campaignPriceAssignment, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS acquisition_campaigns (
   slug TEXT PRIMARY KEY, name TEXT NOT NULL, impressions INTEGER, reach INTEGER,
@@ -73,6 +74,7 @@ export function recordBotStart(user, text, at = new Date()) {
   // First start attribution is immutable; existing accounts are is_returning visits.
   db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
     .run(user.id, click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);
+  campaignPriceAssignment(user.id, at);
 }
 
 function recipeSources() {
@@ -86,6 +88,43 @@ function recipeSources() {
   return sources.join(' UNION ALL ');
 }
 const percentage = (count, base) => base ? Number((100 * count / base).toFixed(1)) : null;
+
+function priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, at) {
+  const experiment = DINNER_PRICE_EXPERIMENT;
+  const assignments = new Map(db.prepare('SELECT * FROM campaign_price_assignments WHERE experiment_key=?').all(experiment.key).map(row => [row.user_id, row]));
+  const trials = new Map((exists('user_trials') ? db.prepare('SELECT user_id,expires_at FROM user_trials').all() : []).map(row => [row.user_id, row]));
+  const payments = new Map();
+  for (const order of classifiedPayments ? db.prepare("SELECT user_id,amount_kopeks,period_months,promo_code,paid_at FROM payment_orders WHERE status='paid' AND is_test=0").all() : []) {
+    if (!payments.has(order.user_id)) payments.set(order.user_id, []);
+    payments.get(order.user_id).push(order);
+  }
+  const rows = ['A', 'B'].map(variant => ({ variant, starts: 0, firstRecipe: 0, trial: 0, exposed: 0, paid: 0,
+    maturedTrials: 0, maturedPaid: 0, monthlyPaid: 0, threeMonthsPaid: 0, promoPaid: 0, revenueRub: 0 }));
+  for (const user of cohort) {
+    const assignment = assignments.get(user.id);
+    if (!assignment || !user.started_at) continue;
+    const row = rows.find(row => row.variant === assignment.variant);
+    row.starts++;
+    if (assignment.exposed_at) row.exposed++;
+    if (recipeTimes.get(user.id) >= user.started_at) row.firstRecipe++;
+    if (trialTimes.get(user.id) >= user.started_at) row.trial++;
+    const paid = (payments.get(user.id) || []).filter(order => order.paid_at >= user.started_at);
+    if (paidTimes.get(user.id) >= user.started_at) row.paid++;
+    const matured = trialTimes.get(user.id) >= user.started_at && trials.get(user.id)?.expires_at <= at;
+    if (matured) { row.maturedTrials++; if (paid.length) row.maturedPaid++; }
+    if (paid.some(order => order.period_months === 1)) row.monthlyPaid++;
+    if (paid.some(order => order.period_months === 3)) row.threeMonthsPaid++;
+    if (paid.some(order => order.promo_code === experiment.promoCode)) row.promoPaid++;
+    row.revenueRub += paid.reduce((sum, order) => sum + order.amount_kopeks / 100, 0);
+  }
+  for (const row of rows) {
+    row.revenueRub = Number(row.revenueRub.toFixed(2));
+    row.revenuePerUserRub = row.starts ? Number((row.revenueRub / row.starts).toFixed(2)) : null;
+    row.paidFromStart = percentage(row.paid, row.starts);
+    row.maturedPaidFromTrial = percentage(row.maturedPaid, row.maturedTrials);
+  }
+  return { ...experiment, allocationPercent: 50, promoOneTime: true, rows };
+}
 
 export function funnelReport(slug = 'all') {
   const campaign = slug === 'all' ? null : getCampaign(slug);
@@ -141,6 +180,8 @@ export function funnelReport(slug = 'all') {
     contour: config.testContour ? 'test' : 'main', preview: config.dashboardPreview, campaign: campaign || null, campaigns,
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered,
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
+    priceExperiment: !campaign || campaign.slug === DINNER_PRICE_EXPERIMENT.campaign
+      ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,
     convertedClicks,
     conversions: { clickFromImpression: percentage(clicks, impressions), startFromClick: campaign ? percentage(convertedClicks, clicks) : null,
       firstRecipeFromStart: percentage(ordered.firstRecipe, ordered.starts), trialAfterRecipe: percentage(ordered.trial, ordered.firstRecipe), paidAfterTrial: percentage(ordered.paid, ordered.trial) },

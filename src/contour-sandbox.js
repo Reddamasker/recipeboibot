@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, canReceiveFirstRecipe, hasUsedTrialOrPromo } from './subscriptions.js';
 import { promoQuote, reservePromo, reservedPromoOrder, releasePromo, consumePromo, extendPromoAccess } from './promos.js';
 import { publicSubscriptionPlans, subscriptionPlan } from './plans.js';
+import { campaignPromotion } from './campaign-prices.js';
 
 const error = (message, status) => Object.assign(new Error(message), { status });
 
@@ -83,6 +84,7 @@ export function mockPaymentStatus(userId) {
     recurring: { enabled: Boolean(recurring?.auto_renew), nextChargeAt: recurring?.auto_renew && access.expiresAt ? new Date(Date.parse(access.expiresAt) - 24 * 60 * 60 * 1000).toISOString() : null },
     offer: { variant: 'period_1_price_199', priceRub: 199, currency: 'RUB', period: 'month', periodMonths: 1 },
     plans: publicSubscriptionPlans(),
+    campaignPromotion: firstValue ? campaignPromotion(userId) : null,
     pendingOrder: pending ? { id: pending.id, method: pending.method, autoRenew: Boolean(pending.auto_renew), priceRub: pending.amount_rub, variant: pending.variant, createdAt: pending.created_at, promoCode: pending.promo_code || null, periodMonths: Number(pending.period_months || 1) } : null
   };
 }
@@ -112,16 +114,17 @@ export function createMockOrder(userId, method, autoRenew = false, promoCode, pe
     const existing = reserved && db.prepare("SELECT * FROM mock_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId);
     if (reserved && !existing) throw error('Заказ с этим промокодом уже завершён', 409);
     const id = existing?.id || randomUUID(), now = new Date().toISOString();
+    const variant = promo.discountPercent === 99 ? 'promo_99' : `promo_${promo.code}`;
     if (!existing) {
       db.exec('BEGIN IMMEDIATE');
       try {
-        db.prepare("INSERT INTO mock_orders(id,user_id,variant,amount_rub,method,auto_renew,status,created_at,updated_at,promo_code,period_months) VALUES(?,?,?,1.99,?,0,'pending',?,?,?,1)")
-          .run(id, userId, 'promo_99', method, now, now, promo.code);
+        db.prepare("INSERT INTO mock_orders(id,user_id,variant,amount_rub,method,auto_renew,status,created_at,updated_at,promo_code,period_months) VALUES(?,?,?,?,?,0,'pending',?,?,?,1)")
+          .run(id, userId, variant, promo.priceRub, method, now, now, promo.code);
         reservePromo(userId, promo.code, id);
         db.exec('COMMIT');
       } catch (cause) { db.exec('ROLLBACK'); throw cause; }
     }
-    return { id, method: existing?.method || method, autoRenew: false, priceRub: 1.99, variant: 'promo_99', promoCode: promo.code, periodMonths: 1, status: 'pending', createdAt: existing?.created_at || now };
+    return { id, method: existing?.method || method, autoRenew: false, priceRub: existing?.amount_rub ?? promo.priceRub, variant: existing?.variant || variant, promoCode: promo.code, periodMonths: 1, status: 'pending', createdAt: existing?.created_at || now };
   }
   if (!status.hasFirstRecipe && !status.trial.used) throw error('Сначала сохраните первый рецепт', 409);
   if (status.active) throw error('Тестовый доступ уже активен', 409);

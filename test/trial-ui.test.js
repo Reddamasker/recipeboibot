@@ -7,11 +7,11 @@ const source = fs.readFileSync('public/app.js', 'utf8');
 test('trial button starts server entitlement directly without checkout and begins onboarding', async () => {
   const handlers = {};
   const nodes = Object.fromEntries(['#offer-back', '#trial-return', '#trial-buy-month', '#trial-subscribe', '#start-trial'].map(id => [id, { addEventListener: (_event, fn) => { handlers[id] = fn; } }]));
-  const root = { innerHTML: '' }, calls = [], steps = [], routes = [], checkouts = [];
+  const root = { innerHTML: '' }, calls = [], steps = [], routes = [], checkouts = [], offers = [];
   const state = { payment: { available: false, active: false, trial: { eligible: true, used: false } } };
   const sandbox = { state, root, header: () => '', esc: String, bindCommon() {}, document: { querySelector: id => nodes[id] },
     api: async (path, options) => { calls.push([path, options.method]); return { active: true, accessSource: 'trial', trial: { used: true, eligible: false, expiresAt: '2026-10-06T10:00:00Z' } }; },
-    setTrialOnboardingStep: s => steps.push(s), setRoute: route => routes.push(route), checkoutPage: () => checkouts.push(true), beginDinner: async (...args) => steps.push(args), render() {}, toast: assert.fail };
+    setTrialOnboardingStep: s => steps.push(s), setRoute: route => routes.push(route), checkoutPage: () => checkouts.push(true), providerOfferPage: () => offers.push(true), beginDinner: async (...args) => steps.push(args), render() {}, toast: assert.fail };
   vm.runInNewContext(source.slice(source.indexOf('function trialOfferPage()'), source.indexOf('\nfunction offerPage()')), sandbox);
   sandbox.trialOfferPage();
   assert.match(root.innerHTML, /7 дней бесплатно/);
@@ -30,13 +30,18 @@ test('trial button starts server entitlement directly without checkout and begin
   state.payment = { available: true, active: true, accessSource: 'trial', offer: { priceRub: 199 }, trial: { eligible: false, used: true, expiresAt: '2026-10-06T10:00:00Z' } };
   state.paymentPromoQuote = { discountPercent: 99 };
   sandbox.trialOfferPage();
-  assert.match(root.innerHTML, /Оплатить месяц сейчас — 199 ₽/);
-  assert.match(root.innerHTML, /Оплаченный месяц начнётся после окончания пробного периода/);
+  assert.match(root.innerHTML, /Выбрать тариф/);
+  assert.match(root.innerHTML, /Оплаченный период начнётся после окончания пробного периода/);
   handlers['#trial-buy-month']();
   assert.equal(state.paymentPeriodMonths, 1);
   assert.equal(state.paymentPromoQuote, null);
-  assert.equal(routes.at(-1).view, 'checkout');
-  assert.equal(checkouts.length, 1);
+  assert.equal(offers.length, 1);
+  assert.equal(checkouts.length, 0);
+  state.payment.active = false;
+  state.payment.accessSource = null;
+  sandbox.trialOfferPage();
+  handlers['#trial-subscribe']();
+  assert.equal(offers.length, 2);
 });
 
 test('trial offer and expiry remain visible even when the payment provider is not connected', () => {

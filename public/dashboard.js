@@ -14,6 +14,7 @@ function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false
 function render(data) {
   report = data;
   renderAttribution(data.attribution || []);
+  renderPriceExperiment(data.priceExperiment);
   $('#login').hidden = true; $('#dashboard').hidden = false;
   $('#contour').textContent = data.preview ? 'Демо данные' : data.contour === 'main' ? 'Основной бот' : 'Тестовый бот';
   $('#updated').textContent = `Обновлено ${new Date(data.generatedAt).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })} МСК`;
@@ -35,6 +36,19 @@ function render(data) {
   }));
   $('#tracking-note').textContent = `Учёт рекламных переходов начат ${new Date(data.trackingSince).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Старые клики не восстановлены.${data.historicalStartsWithoutDate ? ` Старых запусков без точной даты: ${number(data.historicalStartsWithoutDate)}.` : ''}`;
   $('#payment-note').textContent = data.testPaidUsers || data.unclassifiedPaidUsers ? `Не включены в оплаты: тестовые пользователи — ${data.testPaidUsers}; старые платежи без подтверждённого режима — ${data.unclassifiedPaidUsers}.` : '';
+}
+function renderPriceExperiment(experiment) {
+  $('#price-experiment').hidden = !experiment;
+  if (!experiment) return;
+  const money = value => value === null ? 'Нет данных' : `${Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
+  $('#price-variants').replaceChildren(...experiment.rows.map(variant => {
+    const row = node('tr'), title = node('td', '', `${variant.variant} · ${variant.variant === 'B' ? '159 ₽ по промокоду' : '199 ₽'}`);
+    title.append(node('small', '', variant.variant === 'B' ? experiment.promoCode : 'Обычная цена'));
+    const matured = node('td', '', percent(variant.maturedPaidFromTrial));
+    matured.append(node('small', '', `${number(variant.maturedPaid)} из ${number(variant.maturedTrials)}`));
+    row.append(title, ...['starts', 'firstRecipe', 'trial', 'exposed', 'paid', 'monthlyPaid', 'threeMonthsPaid', 'promoPaid'].map(key => node('td', '', number(variant[key]))), node('td', '', money(variant.revenueRub)), node('td', '', money(variant.revenuePerUserRub)), matured);
+    return row;
+  }));
 }
 function renderAttribution(groups) {
   $('#empty-attribution').hidden = Boolean(groups.length);

@@ -322,6 +322,7 @@ span.recipe-tag { cursor: default; }
 .paywall-after{text-align:center;font-size:13px;margin:14px 0 20px;color:#647059}
 .paywall-promo{margin-top:20px;font-size:13px}.paywall-promo summary{text-align:center;cursor:pointer;color:#647059}
 .paywall .offer-promo{margin-top:14px}.paywall .offer-promo-row{display:flex;gap:8px}.paywall .offer-promo-row input{min-width:0;flex:1}
+.paywall .offer-promo-row .secondary{width:auto;flex-shrink:0}
 .paywall .trial-return{width:100%;margin-top:10px}
 .paywall button:focus-visible,.paywall summary:focus-visible{outline:3px solid #839cc5;outline-offset:3px}
 @media(max-width:360px){.offer-page.paywall{padding:18px 16px 26px}.paywall .paywall-benefits{font-size:13px}.paywall-trial-card{padding:16px 12px}}

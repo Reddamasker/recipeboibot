@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { getSubscriptionAccess, grantSubscription, monthAfter } from './subscriptions.js';
+import { campaignPromoAvailable, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const discounts = new Map([['PICHU99', 99], ['PICHU100', 100]]);
@@ -15,6 +16,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS promo_redemptions (
 export function promoQuote(userId, input) {
   if (typeof input !== 'string' || input.length > 64) throw fail('Введите промокод');
   const code = input.replace(/\s+/g, '').toUpperCase();
+  if (code === DINNER_PRICE_EXPERIMENT.promoCode) {
+    const used = db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=? AND code=?').get(userId, code);
+    if (used?.redeemed_at) throw fail('Этот промокод уже использован', 409);
+    if (!campaignPromoAvailable(userId)) throw fail('Промокод доступен только пользователям, которым он предоставлен, до первой покупки.', 403);
+    return { code, discountPercent: null, discountRub: 40, basePriceRub: 199, priceRub: 159, period: 'month', periodMonths: 1 };
+  }
   const discountPercent = discounts.get(code);
   if (!discountPercent) throw fail('Промокод не найден');
   const used = db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=? AND code=?').get(userId, code);

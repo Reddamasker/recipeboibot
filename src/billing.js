@@ -6,6 +6,7 @@ import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, hasUsedTri
 import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './promos.js';
 import { publicSubscriptionPlans, subscriptionPeriodLabel, subscriptionPlan } from './plans.js';
 import { log } from './log.js';
+import { campaignPriceAssignment, campaignPromotion } from './campaign-prices.js';
 
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
 const PAYMENT_ACTION = 'https://auth.robokassa.ru/Merchant/Index.aspx';
@@ -119,7 +120,7 @@ export function getBillingOffer(userId, at = new Date()) {
   const access = getSubscriptionAccess(userId, at);
   const trial = getTrialStatus(userId, at);
   const assignment = firstValue || hasUsedTrialOrPromo(userId, at) ? assignmentFor(userId, at) : null;
-  const pending = db.prepare("SELECT id,inv_id,amount_kopeks,variant,auto_renew,created_at,promo_code FROM payment_orders WHERE user_id=? AND status='pending' AND kind='initial' ORDER BY created_at DESC LIMIT 1").get(userId);
+  const pending = db.prepare("SELECT id,inv_id,amount_kopeks,variant,auto_renew,created_at,promo_code,period_months FROM payment_orders WHERE user_id=? AND status='pending' AND kind='initial' ORDER BY created_at DESC LIMIT 1").get(userId);
   return {
     mode: config.robokassaConfigured ? 'provider' : 'unavailable',
     available: config.robokassaConfigured,
@@ -135,6 +136,7 @@ export function getBillingOffer(userId, at = new Date()) {
     recurring: recurringFor(userId),
     offer: assignment ? { variant: 'period_1_price_199', priceRub: 199, currency: 'RUB', period: 'month', periodMonths: 1 } : null,
     plans: assignment ? publicSubscriptionPlans() : [],
+    campaignPromotion: assignment ? campaignPromotion(userId) : null,
     pendingOrder: pending ? publicOrder(pending) : null
   };
 }
@@ -172,6 +174,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
   if (!promo && !hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
   if (autoRenew && !config.robokassaRecurring) throw error('Автопродление пока не подключено у платёжного провайдера', 409);
   const assignment = assignmentFor(userId, at);
+  const campaignAssignment = campaignPriceAssignment(userId, at);
   recordBillingExposure(userId, at);
   const recentAfter = new Date(at.getTime() - 30 * 60 * 1000).toISOString();
   const reserved = promo && reservedPromoOrder(userId, promo.code);
@@ -188,7 +191,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
   try {
     db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code,period_months,is_test)
       VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?,?,?)`)
-      .run(id, userId, config.paymentExperimentKey, promo ? 'promo_99' : `period_${plan.months}_price_${plan.priceRub}`, promo ? 199 : plan.priceRub * 100, autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months, config.robokassaTest || config.testContour ? 1 : 0);
+      .run(id, userId, campaignAssignment?.experiment_key || config.paymentExperimentKey, promo ? promo.discountPercent === 99 ? 'promo_99' : `promo_${promo.code}` : `period_${plan.months}_price_${plan.priceRub}`, Math.round((promo ? promo.priceRub : plan.priceRub) * 100), autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months, config.robokassaTest || config.testContour ? 1 : 0);
     if (promo) reservePromo(userId, promo.code, id);
     db.exec('COMMIT');
   } catch (cause) { db.exec('ROLLBACK'); throw cause; }
@@ -370,11 +373,12 @@ export function cancelAutoRenew(userId, at = new Date()) {
 
 function createRecurringOrder(row, at) {
   const assignment = db.prepare('SELECT * FROM payment_experiment_assignments WHERE user_id=? AND experiment_key=?').get(row.user_id, config.paymentExperimentKey);
+  const parent = db.prepare('SELECT experiment_key,variant FROM payment_orders WHERE inv_id=? AND user_id=?').get(row.parent_inv_id, row.user_id);
   const id = randomUUID();
   const timestamp = nowIso(at);
   db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,parent_inv_id,auto_renew,status,created_at,updated_at,period_months,is_test)
     VALUES(?,?,?,?,?,'recurring',?,1,'pending',?,?,?,?)`)
-    .run(id, row.user_id, config.paymentExperimentKey, assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp, row.period_months || 1, config.robokassaTest || config.testContour ? 1 : 0);
+    .run(id, row.user_id, parent?.experiment_key || config.paymentExperimentKey, parent?.variant || assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp, row.period_months || 1, config.robokassaTest || config.testContour ? 1 : 0);
   return db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id);
 }
 
