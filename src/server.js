@@ -390,7 +390,7 @@ export function createServer() {
         return json(response, 404, { error: 'Не найдено' });
       }
       if (url.pathname.startsWith('/go/')) {
-        const location = advertisingRedirect(url.pathname.slice(4), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
+        const location = advertisingRedirect(url.pathname.slice(4), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}`, searchParams: url.searchParams });
         securityHeaders(response);
         response.writeHead(302, { location, 'cache-control': 'no-store' });
         return response.end();

@@ -130,6 +130,32 @@ test('trial and manual access are not payments; test and legacy orders cannot in
   assert.equal(funnelReport('payments').ordered.paid, 0);
 });
 
+test('Yandex tags survive Telegram start and identify the ordered recipe, trial and payment cohort', () => {
+  createCampaign('yandex');
+  const tags = new URLSearchParams({ utm_source: 'ya', utm_medium: 'cpc', utm_campaign: 'dinner_search', utm_content: '123', utm_term: 'что приготовить на ужин', campaign_id: '456', adgroup_id: '789', phrase_id: '321', device: 'mobile', yclid: 'click-1', redirect: 'https://evil.example' });
+  const payload = tokenFrom(advertisingRedirect('yandex', { searchParams: tags }));
+  const stored = JSON.parse(db.prepare('SELECT tags_json FROM acquisition_clicks WHERE token=?').get(payload.slice(3)).tags_json);
+  assert.equal(stored.utm_term, 'что приготовить на ужин'); assert.equal(stored.yclid, 'click-1'); assert.equal(stored.redirect, undefined);
+  const user = fixture().user;
+  recordBotStart(user, `/start ${payload}`, at('10:00')); allowUser(user.id);
+  const recipe = createRecipe(user.id, { status: 'ready', title: 'Ужин' });
+  db.prepare('UPDATE recipes SET created_at=? WHERE id=?').run(at('10:01').toISOString(), recipe.id);
+  startTrial(user.id, at('10:02'));
+  const order = createPaymentOrder(user.id, {}, at('10:03'));
+  db.prepare("UPDATE payment_orders SET status='paid',paid_at=?,is_test=0 WHERE id=?").run(at('10:04').toISOString(), order.id);
+  const returning = fixture().user; allowUser(returning.id);
+  recordBotStart({ ...returning, is_allowed: 1 }, `/start ${payload}`, at('10:05'));
+  advertisingRedirect('yandex', { searchParams: tags });
+  const group = funnelReport('yandex').attribution[0];
+  assert.deepEqual(group, { placement: 'yandex', source: 'ya', medium: 'cpc', campaign: 'dinner_search', ad: '123', keyword: 'что приготовить на ужин', clicks: 2, starts: 1, firstRecipe: 1, trial: 1, paid: 1 });
+  assert.deepEqual(funnelReport().attribution.find(row => row.placement === 'yandex'), group);
+  const long = new URLSearchParams({ utm_term: 'a'.repeat(600) + '\n', utm_content: '<script>alert(1)</script>' });
+  const next = tokenFrom(advertisingRedirect('yandex', { searchParams: long }));
+  const bounded = JSON.parse(db.prepare('SELECT tags_json FROM acquisition_clicks WHERE token=?').get(next.slice(3)).tags_json);
+  assert.equal(bounded.utm_term.length, 256);
+  assert.equal(funnelReport('yandex').attribution.length, 2);
+});
+
 test('dashboard sessions use hashes, expire and revoke; password rotation ends all sessions', () => {
   const password = createDashboardPassword();
   assert.throws(() => openDashboardSession('incorrect'), { status: 401 });
@@ -172,8 +198,10 @@ test('dashboard requires password and cookie, rejects cross-origin writes, and s
     const before = funnelReport('redirect').clicks;
     assert.equal((await fetch(`${base}/go/redirect`, { method: 'HEAD', redirect: 'manual' })).status, 302);
     assert.equal(funnelReport('redirect').clicks, before);
-    const redirect = await fetch(`${base}/go/redirect`, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0' } });
+    const redirect = await fetch(`${base}/go/redirect?utm_source=ya&utm_campaign=http-test&utm_term=${encodeURIComponent('что приготовить на ужин')}`, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0' } });
     assert.equal(redirect.status, 302); assert.match(redirect.headers.get('location'), /start=ad_/);
+    const captured = JSON.parse(db.prepare('SELECT tags_json FROM acquisition_clicks WHERE token=?').get(tokenFrom(redirect.headers.get('location')).slice(3)).tags_json);
+    assert.equal(captured.utm_source, 'ya'); assert.equal(captured.utm_term, 'что приготовить на ужин');
     assert.equal((await fetch(`${base}/go/does-not-exist`, { redirect: 'manual' })).status, 404);
     const { sender } = fixture(), payload = tokenFrom(advertisingRedirect('channel_1'));
     await handleMessage({ from: sender, chat: { id: sender.id, type: 'private' }, text: `/start ${payload}` });

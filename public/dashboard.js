@@ -13,6 +13,7 @@ function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text;
 function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  renderAttribution(data.attribution || []);
   $('#login').hidden = true; $('#dashboard').hidden = false;
   $('#contour').textContent = data.preview ? 'Демо данные' : data.contour === 'main' ? 'Основной бот' : 'Тестовый бот';
   $('#updated').textContent = `Обновлено ${new Date(data.generatedAt).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })} МСК`;
@@ -27,13 +28,23 @@ function render(data) {
   const conversions = [['Показ → переход', c.clickFromImpression], ['Переход → запуск', c.startFromClick], ['Запуск → рецепт', c.firstRecipeFromStart], ['Рецепт → триал', c.trialAfterRecipe], ['Триал → оплата', c.paidAfterTrial]];
   $('#conversions').replaceChildren(...conversions.map(([label, value]) => { const row = node('div', 'conversion'); row.append(node('span', 'conversion-label', label), node('span', `conversion-value${value === null ? ' empty' : ''}`, percent(value))); return row; }));
   $('#placement-count').textContent = `${data.campaigns.length} размещений`;
-  $('#empty-placements').hidden = Boolean(data.campaigns.length); $('.table-scroll').hidden = !data.campaigns.length;
+  $('#empty-placements').hidden = Boolean(data.campaigns.length); $('#placements').closest('.table-scroll').hidden = !data.campaigns.length;
   $('#placements').replaceChildren(...data.campaigns.map(campaign => { const row = node('tr'), title = node('td', '', campaign.name); title.append(node('small', '', campaign.slug)); const actions = node('td');
     for (const [label, action] of [['Открыть воронку', () => load(campaign.slug)], ['Скопировать ссылку', () => copyLink(campaign.slug)], ['Внести статистику', () => editStats(campaign)]]) { const button = node('button', 'secondary', label); button.addEventListener('click', action); actions.append(button); }
     row.append(title, node('td', '', number(campaign.impressions)), node('td', '', number(campaign.reach)), actions); return row;
   }));
   $('#tracking-note').textContent = `Учёт рекламных переходов начат ${new Date(data.trackingSince).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Старые клики не восстановлены.${data.historicalStartsWithoutDate ? ` Старых запусков без точной даты: ${number(data.historicalStartsWithoutDate)}.` : ''}`;
   $('#payment-note').textContent = data.testPaidUsers || data.unclassifiedPaidUsers ? `Не включены в оплаты: тестовые пользователи — ${data.testPaidUsers}; старые платежи без подтверждённого режима — ${data.unclassifiedPaidUsers}.` : '';
+}
+function renderAttribution(groups) {
+  $('#empty-attribution').hidden = Boolean(groups.length);
+  $('#attribution').closest('.table-scroll').hidden = !groups.length;
+  $('#attribution').replaceChildren(...groups.map(group => {
+    const row = node('tr'), campaign = node('td', '', group.campaign || 'Без UTM-кампании');
+    campaign.append(node('small', '', [group.placement, group.source, group.medium].filter(Boolean).join(' / ')));
+    row.append(campaign, node('td', '', group.ad || 'Без метки'), node('td', '', group.keyword || 'Без метки'), ...['clicks', 'starts', 'firstRecipe', 'trial', 'paid'].map(key => node('td', '', number(group[key]))));
+    return row;
+  }));
 }
 async function load(slug = $('#campaign').value || 'all') {
   if (busy) return; busy = true; $('#refresh').disabled = true; $('#page-error').hidden = true;
