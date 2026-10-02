@@ -13,7 +13,7 @@ function fixture() {
     style: { setProperty: (key, value) => styles.set(key, value), removeProperty: key => styles.delete(key) },
     addEventListener: (key, fn) => { listeners[key] = fn; },
     setPointerCapture: id => { capture = id; }, hasPointerCapture: id => capture === id,
-    releasePointerCapture: () => { capture = null; listeners.lostpointercapture(); },
+    releasePointerCapture: id => { capture = null; listeners.lostpointercapture({ target: card, pointerId: id }); },
   };
   const sandbox = {};
   vm.runInNewContext(source.slice(source.indexOf('function bindDinnerSwipe('), source.indexOf('\nfunction updateDinnerIngredients')), sandbox);
@@ -24,8 +24,36 @@ function fixture() {
       prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, ...overrides };
   }
   const send = (type, overrides) => { const input = event(overrides); listeners[type](input); return input; };
-  return { send, styles, classes, label, get result() { return { accepted, rejected, active }; }, disable: () => { enabled = false; } };
+  return { send, styles, classes, label, card, opener, get result() { return { accepted, rejected, active }; }, disable: () => { enabled = false; } };
 }
+
+test('touch swipe survives implicit capture moving from the recipe button to its parent card', () => {
+  for (const direction of [-1, 1]) {
+    const f = fixture(); f.send('pointerdown', { pointerType: 'touch' });
+    f.send('pointermove', { pointerType: 'touch', clientX: 150 + direction * 20 });
+    // Touch starts with implicit capture on the child button. Its loss bubbles
+    // when the next move transfers capture to the card; the gesture continues.
+    f.send('lostpointercapture', { pointerType: 'touch', target: f.opener });
+    assert.equal(f.result.active, true);
+    f.send('pointermove', { pointerType: 'touch', clientX: 150 + direction * 100 });
+    f.send('pointerup', { pointerType: 'touch', clientX: 150 + direction * 100 });
+    assert.deepEqual(f.result, { accepted: direction > 0 ? 1 : 0, rejected: direction < 0 ? 1 : 0, active: false });
+    assert.equal(f.send('click').prevented, true);
+  }
+});
+
+test('losing the card capture cancels only the pointer that owns the gesture', () => {
+  for (const ending of ['pointercancel', 'lostpointercapture']) {
+    const f = fixture(); f.send('pointerdown'); f.send('pointermove', { clientX: 175 });
+    f.send(ending, { pointerId: 2, target: f.card });
+    assert.equal(f.result.active, true);
+    f.send(ending, { target: f.card });
+    f.send('pointerup', { clientX: 270 });
+    assert.deepEqual(f.result, { accepted: 0, rejected: 0, active: false });
+    assert.equal(f.styles.size, 0);
+    assert.equal(f.send('click').prevented, true);
+  }
+});
 
 test('horizontal swipe chooses one dinner or opens rejection; the following click cannot open a recipe', () => {
   for (const direction of [-1, 1]) {

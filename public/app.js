@@ -583,8 +583,12 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
     if (commit && canStart()) { if (dx > 0) onAccept(); else onReject(); }
   });
   const cancel = () => { if (gesture?.horizontal) suppressClickUntil = Date.now() + 500; reset(); };
-  card.addEventListener('pointercancel', cancel);
-  card.addEventListener('lostpointercapture', cancel);
+  card.addEventListener('pointercancel', event => { if (gesture?.id === event.pointerId) cancel(); });
+  card.addEventListener('lostpointercapture', event => {
+    // Touch implicitly captures the child recipe button. Transferring capture
+    // to the card makes the child's loss bubble here without ending the swipe.
+    if (event.target === card && gesture?.id === event.pointerId) cancel();
+  });
   card.addEventListener('click', event => {
     if (Date.now() < suppressClickUntil) { suppressClickUntil = 0; event.preventDefault(); event.stopPropagation(); }
   }, true);
