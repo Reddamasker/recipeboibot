@@ -500,7 +500,7 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
   if (!groupMode) {
     const active = getRecipeDialogue(user.id);
     await retireDialoguePrompt(chatId, user.id, active, 'Уточнение отменено: начат новый подбор.');
-    await send(chatId, feedbackText || (sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`), { reply_markup: mainKeyboard() });
+    await send(chatId, feedbackText || (sourceType === 'audio' ? 'Подбираю рецепт по голосовому пожеланию…' : `Подбираю рецепт по запросу «<b>${escapeHtml(normalizedQuery)}</b>»…`));
     try {
       const result = await resolveRecipeRequest(user.id, normalizedQuery, { mealRequest, rejectedRecipes });
       await retireDialogueCard(chatId, user.id, active);
@@ -595,7 +595,7 @@ async function applyDialogueAction(chatId, user, dialogue, decision, text) {
   }
   if (decision.action === 'reset') {
     clearRecipeDialogue(user.id); clearPendingIntent(user.id);
-    await send(chatId, 'Начнём новый подбор. Что хотите приготовить?', { reply_markup: mainKeyboard() }); return;
+    await send(chatId, 'Начнём новый подбор. Что хотите приготовить?'); return;
   }
   if (decision.action === 'new') {
     clearPendingIntent(user.id);
@@ -955,7 +955,7 @@ export async function handleMessage(message) {
   }
   if (text === '/find') {
     clearRecipeDialogue(user.id); clearPendingIntent(user.id);
-    await send(chatId, 'Надиктуйте голосовым сообщением, какое блюдо хотите приготовить. Можно написать название текстом.', { reply_markup: mainKeyboard() });
+    await send(chatId, 'Надиктуйте голосовым сообщением, какое блюдо хотите приготовить. Можно написать название текстом.');
     return;
   }
   if (text === '/cancel' && getRecipeDialogue(user.id)) {

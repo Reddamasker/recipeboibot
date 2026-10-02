@@ -68,6 +68,7 @@ test('screenshot sequence keeps mince and novelty after refusal, refinements and
   const u = user();
   await withProvider(async ({ calls, sent, generations }) => {
     await telegram.handleMessage(u.message('Подбери необычный ужин из фарша, который давно не ели'));
+    assert.equal(sent.find(item => item.text?.startsWith('Подбираю рецепт')).reply_markup.remove_keyboard, true);
     const first = dialogueStore.getRecipeDialogue(u.owner.id);
     assert.equal(first.recipe.title, 'Соборо-дон');
     const card = sent.find(item => item.caption?.includes('Соборо') || item.text?.startsWith('<b>Соборо'));
@@ -173,6 +174,8 @@ test('menu opens the daily trio, starts a separate dish request and opens collec
     assert.equal(dialogueStore.getRecipeDialogue(u.owner.id), null);
     assert.equal(database.getPendingIntent(u.owner.id), null);
     assert.match(sent.at(-1).text, /Надиктуйте голосовым сообщением/);
+    assert.equal(sent.at(-1).reply_markup.remove_keyboard, true);
+    await telegram.handleMessage(u.message('/start'));
     const buttons = sent.at(-1).reply_markup.inline_keyboard.flat();
     assert.deepEqual(buttons.map(button => button.text), ['Что на сегодня 🍽️', 'Хочу конкретное блюдо 🎤', 'Мои рецепты 📖', 'Обратная связь']);
     assert.match(buttons[0].web_app.url, /view=dinner/);
