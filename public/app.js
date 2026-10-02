@@ -72,7 +72,7 @@ function bindCommon() {
   if (main && !document.querySelector('#feedback-form') && !main.querySelector('[data-feedback-link]')) main.insertAdjacentHTML('beforeend', '<p class="feedback-footer"><a href="/?view=feedback" data-feedback-link>Обратная связь</a></p>');
   document.querySelectorAll('[data-feedback-link]').forEach(el => el.addEventListener('click', event => { event.preventDefault(); closeOverlay(); setRoute({ view: 'feedback' }); feedbackPage(); }));
   document.querySelectorAll('a[href="/?view=promo"]').forEach(el => el.addEventListener('click', event => { event.preventDefault(); setRoute({ view: 'promo' }); promoPage(); }));
-  document.querySelector('[data-home]')?.addEventListener('click', () => { setRoute({}, {}); render(); });
+  document.querySelector('[data-home]')?.addEventListener('click', () => { setRoute({ view: 'menu' }); render(); });
   document.querySelector('#settings')?.addEventListener('click', settingsSheet);
   document.querySelectorAll('[data-open-notifications]').forEach((el) => el.addEventListener('click', () => {
     clearTimeout(dinnerPollTimer);
@@ -117,6 +117,26 @@ function offerBanner() {
 }
 
 function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
+
+function mainMenuPage() {
+  const chatUrl = `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=dish`;
+  root.innerHTML = `${header()}<main class="main-menu-page"><section class="home-choice" aria-labelledby="main-menu-title">
+    <h1 id="main-menu-title">Что приготовим?</h1><p>Выберите, с чего начать.</p>
+    <div class="home-choice-actions">
+      <button id="menu-today" class="home-choice-button primary accent" type="button"><span><strong>Что на сегодня</strong><small>Подборка с учётом ваших вкусов</small></span><span aria-hidden="true">🍽️</span></button>
+      <a id="menu-dish" class="home-choice-button secondary" href="${esc(chatUrl)}"><span><strong>Хочу конкретное блюдо</strong><small>Надиктуйте пожелание в чате</small></span><span aria-hidden="true">🎤</span></a>
+      <button id="menu-recipes" class="home-choice-button secondary" type="button"><span><strong>Мои рецепты</strong><small>Ваша сохранённая коллекция</small></span><span aria-hidden="true">📖</span></button>
+    </div></section></main>`;
+  bindCommon();
+  document.querySelector('#menu-today').onclick = () => { setRoute({ view: 'dinner' }); void render().catch(error => toast(error.message)); };
+  document.querySelector('#menu-recipes').onclick = () => { setRoute({ view: 'collection' }); void render().catch(error => toast(error.message)); };
+  document.querySelector('#menu-dish').onclick = event => {
+    if (!tg?.openTelegramLink) return;
+    event.preventDefault();
+    tg.openTelegramLink(chatUrl);
+    tg.close();
+  };
+}
 
 function home() {
   const recent = state.recipes.slice(0, 4);
@@ -661,7 +681,8 @@ async function notificationSettingsPage() {
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
-  if (view === 'feedback') feedbackPage();
+  if (view === 'menu') mainMenuPage();
+  else if (view === 'feedback') feedbackPage();
   else if (view === 'promo') promoPage();
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
@@ -1446,7 +1467,7 @@ async function boot() {
     await refresh();
     window.miniProbe?.('library-loaded');
     window.__miniRendered = true;
-    if (!await resumePendingTrialTastePreferences()) await render();
+    if (new URLSearchParams(location.search).get('view') === 'menu' || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;

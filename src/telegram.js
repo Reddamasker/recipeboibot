@@ -327,9 +327,9 @@ export function webAppUrl(params = {}) {
 }
 
 export async function configureTelegramMenuButton() {
-  const url = webAppUrl();
+  const url = webAppUrl({ view: 'menu' });
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
-  await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Открыть приложение', web_app: { url } } });
+  await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Меню', web_app: { url } } });
   await telegram('setMyCommands', { commands: [
     { command: 'dinner', description: 'Что на сегодня' }, { command: 'collection', description: 'Мои рецепты' },
     { command: 'save', description: 'Сохранить рецепт' }, { command: 'preferences', description: 'Мои предпочтения' },
@@ -908,6 +908,7 @@ export async function handleMessage(message) {
       await send(chatId, '<b>Групповой доступ</b>\n\nДобавьте «Твои рецепты» максимум в три группы, чтобы вместе искать блюда, сохранять рецепты из ссылок, фото и сообщений и быстрее решать, что приготовить.\n\nСейчас доступ подключается вручную. Если вы участвуете в тесте, попросите владельца сервиса включить его для вашего Telegram-аккаунта.');
       return;
     }
+    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+dish(?:\s|$)/i.test(text)) { await handleMessage({ ...message, text: '/find' }); return; }
     if (/^\/start(?:@[A-Za-z0-9_]+)?\s+ingredients(?:\s|$)/i.test(text)) { await sendDinnerIntakePrompt(chatId, user.id); return; }
     if (resumeOnboarding) {
       await resumeDinnerIntake(chatId, user.id, pending);

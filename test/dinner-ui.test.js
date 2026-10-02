@@ -10,6 +10,29 @@ test('dinner request locks while it is being saved to prevent duplicate generati
 });
 import vm from 'node:vm';
 
+test('persistent menu routes to dinner, collection and the correct bot voice request', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function mainMenuPage()'), source.indexOf('\nfunction home()'));
+  for (const botUsername of ['Recipeboibot', 'recipeboi_test_bot']) {
+    const nodes = new Map(), routes = [], opened = [];
+    let closed = false, renders = 0, prevented = false;
+    const sandbox = { state: { me: { botUsername } }, root: {}, header: () => '', esc: value => value,
+      bindCommon() {}, document: { querySelector: selector => { if (!nodes.has(selector)) nodes.set(selector, {}); return nodes.get(selector); } },
+      setRoute: route => routes.push(route.view), render: async () => { renders++; }, toast: assert.fail,
+      tg: { openTelegramLink: url => opened.push(url), close: () => { closed = true; } } };
+    vm.runInNewContext(handler, sandbox);
+    sandbox.mainMenuPage();
+    nodes.get('#menu-today').onclick();
+    nodes.get('#menu-recipes').onclick();
+    nodes.get('#menu-dish').onclick({ preventDefault() { prevented = true; } });
+    assert.deepEqual(routes, ['dinner', 'collection']);
+    assert.equal(renders, 2);
+    assert.deepEqual(opened, [`https://t.me/${botUsername}?start=dish`]);
+    assert.equal(closed, true);
+    assert.equal(prevented, true);
+  }
+});
+
 test('offer banner names the next action directly and uses no emoji', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer'));
@@ -139,7 +162,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.45/);
+  assert.match(document, /app\.js\?v=dinner-10\.46/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),

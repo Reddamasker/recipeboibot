@@ -481,3 +481,7 @@ button:disabled { cursor: wait; opacity: .5; }
 .feedback-page textarea { width: 100%; min-width: 0; min-height: 180px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; line-height: 1.5; resize: vertical; }
 .feedback-page .help { margin: 0; }
 .feedback-error { color: #a12f39; overflow-wrap: anywhere; }
+.main-menu-page { max-width: 520px; margin: 0 auto; padding-top: 32px; }
+.main-menu-page .home-choice-actions { gap: 14px; }
+.main-menu-page .home-choice-button { min-height: 86px; text-decoration: none; box-sizing: border-box; }
+.main-menu-page .home-choice-button > span:last-child { flex-shrink: 0; }
