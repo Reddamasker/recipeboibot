@@ -44,3 +44,9 @@ https://dishfinder.ru/go/ya-dinner-202610?utm_source=ya&utm_medium=cpc&utm_campa
 - [UTM и динамические параметры](https://yandex.ru/support/direct/ru/statistics/url-tags)
 - [Технические ограничения объявлений](https://www.yandex.com/support/direct/ru/troubleshooting/interface)
 - [Комбинаторные объявления](https://yard.yandex.ru/courses/direct-prodvinutyy/tipy-obyavlenij)
+
+## Выпуск учёта меток
+
+**Выпущено 2 октября 2026: метки Яндекса в отдельной воронке.** Версия fca564d34e73ede0ca2a26cbf6775944fa635715 опубликована сначала в @recipeboi_test_bot, затем в @Recipeboibot. Сервер сохраняет UTM и ID до перенаправления в Telegram; дашборд показывает кампанию, объявление и ключевую фразу с последовательными этапами. Размещение ya-dinner-202610 создано в обоих контурах, в основной кампании искусственных кликов нет. 324/324 локальных и основных release-проверок, 323/323 тестовых серверных. Chrome desktop/mobile, безопасный вывод HTML в метках, HTTPS-авторизация и integrity_check обеих БД проверены. Все 132 файла src/public совпадают с release-архивом: 1caf7c90f4169187312bbacdbfb3391b54b0897f1b864421d12bb6395476d127. Реклама в Директе не запущена. Предмет и две стоимости A/B уточняются; фиксированные планы оплаты не изменены. Шаблон и ограничения цены клика: [YANDEX_DINNER_CAMPAIGN.md](YANDEX_DINNER_CAMPAIGN.md).
+
+Резерв тестовой БД: `/opt/recipeboibot-test/backups/recipes-before-parity-20261002T105534Z.sqlite.enc`. Резерв основной БД: `/opt/recipeboibot/backups/recipes-20261002T105658Z.sqlite.enc`. Пользовательские данные, тарифы и AI-квота не сбрасывались. В тестовом контуре имеется отдельное служебное размещение `qa-yandex-tags-20261002` с одним проверочным переходом.
