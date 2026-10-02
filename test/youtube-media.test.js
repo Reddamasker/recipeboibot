@@ -36,6 +36,7 @@ test('downloader uses one canonical public URL, bounded formats and no login; fi
       assert.equal(args.at(-1), canonical);
       assert.ok(args.includes('--no-playlist'));
       assert.ok(args.includes('--max-filesize'));
+      assert.ok(args.includes(`node:${process.execPath}`));
       assert.ok(args.includes('duration <= 600 & !is_live'));
       assert.ok(!args.some(arg => /cookie|username|password/.test(arg)));
       await fs.writeFile(path.join(directory, 'media.mkv'), 'video');

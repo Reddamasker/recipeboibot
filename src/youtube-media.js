@@ -74,6 +74,7 @@ export async function downloadYoutubeMedia(input, adapters = {}) {
   try {
     const output = await execute(config.ytDlpPath, [
       '--no-playlist', '--no-progress', '--no-warnings', '--no-cache-dir', '--no-part',
+      '--js-runtimes', `node:${process.execPath}`,
       '--socket-timeout', '15', '--retries', '1', '--fragment-retries', '1', '--extractor-retries', '1',
       '--max-filesize', String(MAX_BYTES), '--match-filters', 'duration <= 600 & !is_live',
       '--format', 'bestvideo[height<=480]+worstaudio/best[height<=480]/bestvideo[height<=480]',
