@@ -3,7 +3,7 @@ import { db } from './db.js';
 import { config } from './config.js';
 
 export const DINNER_PRICE_EXPERIMENT = Object.freeze({
-  key: 'ya-dinner-promo-199-159-v1', campaign: 'ya-dinner-202610', promoCode: 'UZHIN159',
+  key: 'ya-dinner-promo-199-159-v1', campaign: 'ya-dinner-202610', promoCode: 'DINNER159',
   basePriceRub: 199, promoPriceRub: 159, threeMonthsPriceRub: 499, threeMonthsPromoPriceRub: 399
 });
 db.exec(`CREATE TABLE IF NOT EXISTS campaign_price_assignments (
@@ -28,10 +28,15 @@ export function campaignPriceAssignment(userId, at = new Date()) {
   return db.prepare('SELECT * FROM campaign_price_assignments WHERE user_id=? AND experiment_key=?').get(userId, experiment.key);
 }
 
+export function campaignPromoRedemption(userId) {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='promo_redemptions'").get()) return null;
+  // Renaming the public code must preserve previous use and pending orders.
+  return db.prepare(`SELECT * FROM promo_redemptions WHERE user_id=? AND code IN (?,?)
+    ORDER BY redeemed_at IS NOT NULL DESC LIMIT 1`).get(userId, DINNER_PRICE_EXPERIMENT.promoCode, 'UZHIN159');
+}
+
 export function campaignPromoAvailable(userId) {
-  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='promo_redemptions'").get()) return true;
-  return !db.prepare('SELECT 1 FROM promo_redemptions WHERE user_id=? AND code=? AND redeemed_at IS NOT NULL')
-    .get(userId, DINNER_PRICE_EXPERIMENT.promoCode);
+  return !campaignPromoRedemption(userId)?.redeemed_at;
 }
 
 export function campaignPromoPlans() {

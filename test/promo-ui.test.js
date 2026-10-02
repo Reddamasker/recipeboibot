@@ -41,16 +41,16 @@ test('99 percent displays 1.99 and preserves code when provider is disconnected'
 });
 test('campaign recipient sees assigned code and an exact 40 ruble discount, order request uses only the code', async () => {
   const { context, nodes, calls, root, opened } = page(true, 'provider');
-  context.state.payment.campaignPromotion = { code: 'UZHIN159', basePriceRub: 199, priceRub: 159 };
+  context.state.payment.campaignPromotion = { code: 'DINNER159', basePriceRub: 199, priceRub: 159 };
   context.promoPage();
-  assert.match(root.innerHTML, /value="UZHIN159"/);
-  context.promoPage({ code: 'UZHIN159', basePriceRub: 199, priceRub: 159, discountPercent: null, discountRub: 40 });
+  assert.match(root.innerHTML, /value="DINNER159"/);
+  context.promoPage({ code: 'DINNER159', basePriceRub: 199, priceRub: 159, discountPercent: null, discountRub: 40 });
   assert.match(root.innerHTML, /Скидка 40 ₽/);
   assert.match(root.innerHTML, /Оплатить 159,00 ₽/);
   assert.doesNotMatch(root.innerHTML, /null%/);
   context.response = { id: 'campaign-order', mode: 'provider', paymentUrl: 'https://example.test/pay' };
   await nodes['#promo-apply'].handler({ currentTarget: nodes['#promo-apply'] });
-  assert.deepEqual(calls, [['/api/billing/orders', { promoCode: 'UZHIN159', autoRenew: false, method: 'card', periodMonths: 1 }]]);
+  assert.deepEqual(calls, [['/api/billing/orders', { promoCode: 'DINNER159', autoRenew: false, method: 'card', periodMonths: 1 }]]);
   assert.ok(opened.includes('provider'));
 });
 test('99 percent confirmation sends code only and follows provider or test order mode', async () => {
@@ -69,12 +69,12 @@ test('99 percent confirmation sends code only and follows provider or test order
 test('three-month promo confirmation shows 399 rubles and sends the chosen three-month term', async () => {
   const { context, nodes, calls, root } = page(true, 'provider');
   context.state.paymentPeriodMonths = 3;
-  context.state.payment.campaignPromotion = { code: 'UZHIN159', plans: [{ months: 1, priceRub: 159 }, { months: 3, priceRub: 399 }] };
-  context.promoPage({ code: 'UZHIN159', priceRub: 399, basePriceRub: 499, discountRub: 100, periodMonths: 3 });
+  context.state.payment.campaignPromotion = { code: 'DINNER159', plans: [{ months: 1, priceRub: 159 }, { months: 3, priceRub: 399 }] };
+  context.promoPage({ code: 'DINNER159', priceRub: 399, basePriceRub: 499, discountRub: 100, periodMonths: 3 });
   assert.match(root.innerHTML, /Скидка 100 ₽ на 3 месяца/);
   assert.match(root.innerHTML, /Оплатить 399,00 ₽/);
   assert.match(root.innerHTML, /value="3" selected/);
   context.response = { id: 'quarter-order', mode: 'provider', paymentUrl: 'https://example.test/pay' };
   await nodes['#promo-apply'].handler({ currentTarget: nodes['#promo-apply'] });
-  assert.deepEqual(calls, [['/api/billing/orders', { promoCode: 'UZHIN159', autoRenew: false, method: 'card', periodMonths: 3 }]]);
+  assert.deepEqual(calls, [['/api/billing/orders', { promoCode: 'DINNER159', autoRenew: false, method: 'card', periodMonths: 3 }]]);
 });
