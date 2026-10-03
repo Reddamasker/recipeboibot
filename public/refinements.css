@@ -291,9 +291,9 @@ span.recipe-tag { cursor: default; }
 .payment-result .primary { width: 100%; }
 .payment-result small { display: block; margin-top: 14px; color: var(--muted); }
 @media (max-width: 390px) { .checkout-page { padding: 0 0 30px; } .checkout-shell { border: 0; border-radius: 0; } .checkout-body { padding: 20px 18px 26px; } .checkout-safe { font-size: 9px; } .offer-plan { padding: 22px; } }
-/* Paywall: quiet pastel hero, clear prices and a single primary action. */
-.offer-page.paywall{--ink:#292a43;--muted:#62647f;--berry:#5c5c96;--berry-dark:#494978;--action-bg:#5c5c96;--action-hover:#494978;--lilac:#e4e3f3;--line:#cbcce0;position:relative;isolation:isolate;max-width:460px;margin:0 auto;padding:24px 24px 32px;border-radius:28px;background:#f2f1f8;color:var(--ink);overflow:hidden}
-.paywall:before{content:"";position:absolute;z-index:-1;inset:0 0 auto;height:360px;background:radial-gradient(ellipse at 15% 32%,#d6e0f2 0,transparent 58%),radial-gradient(ellipse at 90% 10%,#dcd5ed 0,transparent 55%),radial-gradient(ellipse at 80% 85%,#e5e0f3 0,transparent 50%);mask-image:linear-gradient(#000 65%,transparent);pointer-events:none}
+/* Paywall inherits the approved Mini App palette; only its lightness is reduced. */
+.offer-page.paywall{--paywall-bg:color-mix(in srgb,var(--bg) 96%,black);--paywall-lilac:color-mix(in srgb,var(--lilac) 96%,black);--paywall-action:color-mix(in srgb,var(--action-bg) 92%,black);position:relative;isolation:isolate;max-width:460px;margin:0 auto;padding:24px 24px 32px;border-radius:28px;background:var(--paywall-bg);color:var(--ink);overflow:hidden}
+.paywall:before{content:"";position:absolute;z-index:-1;inset:0 0 auto;height:360px;background:radial-gradient(ellipse at 50% 0,var(--paywall-lilac),transparent 70%);pointer-events:none}
 .paywall .paywall-close{display:block;margin:0 0 24px auto;font-size:13px;color:var(--muted)}
 .paywall .offer-hero{text-align:center;margin:0 0 22px;padding:0;background:none}
 .paywall .offer-kicker{display:block;color:var(--berry-dark);font-size:12px;letter-spacing:1.4px;text-transform:uppercase;margin-bottom:14px}
@@ -304,31 +304,31 @@ span.recipe-tag { cursor: default; }
 .paywall-benefits li:before{content:"";position:absolute;left:3px;top:4px;width:7px;height:12px;border:solid var(--berry);border-width:0 2px 2px 0;transform:rotate(45deg)}
 .paywall .offer-plan{padding:0;border:0;box-shadow:none;background:none;border-radius:0}
 .paywall .offer-periods{display:grid;gap:10px}
-.paywall .offer-period{width:100%;border:1px solid var(--line);border-radius:16px;padding:16px;min-height:76px;background:#ffffff80;box-shadow:none;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
-.paywall .offer-period.selected{border:2px solid var(--berry);padding:15px;background:var(--lilac)}
+.paywall .offer-period{width:100%;border:1px solid var(--line);border-radius:16px;padding:16px;min-height:76px;background:color-mix(in srgb,var(--paper) 50%,transparent);box-shadow:none;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
+.paywall .offer-period.selected{border:2px solid var(--berry);padding:15px;background:var(--paywall-lilac)}
 .paywall .offer-period strong{font-size:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .paywall .offer-period small{display:block;font-size:12px;margin-top:5px;color:var(--muted)}
-.paywall .offer-discount{background:var(--berry);color:#fff;border-radius:20px;padding:3px 7px;font-size:11px}
+.paywall .offer-discount{background:var(--paywall-action);color:var(--action-text);border-radius:20px;padding:3px 7px;font-size:11px}
 .paywall .offer-period-price{font-size:18px;font-weight:700;text-align:right;white-space:nowrap}
 .paywall .offer-price-summary{margin:16px 0;text-align:center}
 .paywall .offer-price-summary>.offer-price{font-size:23px;margin:6px 0}
 .paywall .offer-price-summary>strong,.paywall .offer-price-summary p{font-size:12px;color:var(--muted);margin:6px 0}
 .paywall .offer-price{color:var(--ink)}
 .paywall .offer-price small{color:var(--muted)}
-.paywall .primary.accent{width:100%;min-height:56px;border-radius:16px;background:var(--action-bg);color:white;font-size:16px;font-weight:700;box-shadow:0 8px 20px rgba(73,73,120,.12)}
+.paywall .primary.accent{width:100%;min-height:56px;border-radius:16px;background:var(--paywall-action);color:var(--action-text);font-size:16px;font-weight:700;box-shadow:0 8px 20px color-mix(in srgb,var(--ink) 12%,transparent)}
 @media(hover:hover){.paywall .primary.accent:not(:disabled):hover{background:var(--action-hover)}}
 .paywall .primary.accent:not(:disabled):active{background:var(--action-hover)}
 .paywall .primary.accent:disabled{opacity:.55}
 .paywall .offer-fineprint,.paywall .offer-support{font-size:12px;line-height:1.5;text-align:center;color:var(--muted)}
 .paywall .offer-support{margin:16px 0 0}
 .paywall a{color:var(--berry-dark)}
-.paywall-trial-card{display:flex;align-items:center;justify-content:space-between;gap:12px;border:2px solid var(--berry);background:var(--lilac);border-radius:16px;padding:20px 16px}
+.paywall-trial-card{display:flex;align-items:center;justify-content:space-between;gap:12px;border:2px solid var(--berry);background:var(--paywall-lilac);border-radius:16px;padding:20px 16px}
 .paywall-trial-card strong{font-size:17px}.paywall-trial-card span{font-size:12px;color:var(--muted)}
 .paywall-after{text-align:center;font-size:13px;margin:14px 0 20px;color:var(--muted)}
 .paywall-promo{margin-top:20px;font-size:13px}.paywall-promo summary{text-align:center;cursor:pointer;color:var(--muted)}
 .paywall .offer-promo{margin-top:14px}.paywall .offer-promo-row{display:flex;gap:8px}.paywall .offer-promo-row input{min-width:0;flex:1}
 .paywall .offer-promo-row .secondary{width:auto;flex-shrink:0}
 .paywall .trial-return{width:100%;margin-top:10px}
-.paywall .offer-promo-result{background:var(--lilac);color:var(--berry-dark)}
+.paywall .offer-promo-result{background:var(--paywall-lilac);color:var(--berry-dark)}
 .paywall button:focus-visible,.paywall summary:focus-visible{outline:3px solid var(--berry);outline-offset:3px}
 @media(max-width:360px){.offer-page.paywall{padding:18px 16px 26px}.paywall .paywall-benefits{font-size:13px}.paywall-trial-card{padding:16px 12px}}
