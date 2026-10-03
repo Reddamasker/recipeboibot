@@ -1024,7 +1024,9 @@ async function submitImport(event) {
   }
 }
 
+let recipeOpenRevision = 0;
 function closeDetailRoute() {
+  recipeOpenRevision += 1;
   if (history.state?.recipeOverlay) pendingRouteFocus = modalStack[0] || null;
   closeOverlay();
   if (history.state?.recipeOverlay) history.back();
@@ -1032,10 +1034,16 @@ function closeDetailRoute() {
 }
 
 async function openRecipe(id, pushRoute = false) {
+  const revision = ++recipeOpenRevision;
   try {
-    if (pushRoute) { state.scrollY = scrollY; const params = Object.fromEntries(new URLSearchParams(location.search)); params.recipe = id; setRoute(params, { historyState: { recipeOverlay: true, scrollY: state.scrollY } }); }
-    closeOverlay(); const recipe = await api(`${/^(seed|dinner):/.test(id) ? '/api/dinner/recipes' : '/api/recipes'}/${encodeURIComponent(id)}`); recipeDetail(recipe); if (recipe.dinnerGenerated && !recipe.thumbnailUrl) void waitForRecipeImage(recipe.id);
-  } catch (error) { toast(error.message); }
+    if (pushRoute && new URLSearchParams(location.search).get('recipe') !== id) { state.scrollY = scrollY; const params = Object.fromEntries(new URLSearchParams(location.search)); params.recipe = id; setRoute(params, { historyState: { recipeOverlay: true, scrollY: state.scrollY } }); }
+    closeOverlay();
+    const recipe = await api(`${/^(seed|dinner):/.test(id) ? '/api/dinner/recipes' : '/api/recipes'}/${encodeURIComponent(id)}`);
+    // Repeated taps and late responses must not stack dialogs or reopen a dismissed recipe.
+    if (revision !== recipeOpenRevision || new URLSearchParams(location.search).get('recipe') !== id) return;
+    closeOverlay(); recipeDetail(recipe);
+    if (recipe.dinnerGenerated && !recipe.thumbnailUrl) void waitForRecipeImage(recipe.id);
+  } catch (error) { if (revision === recipeOpenRevision) toast(error.message); }
 }
 
 async function waitForRecipeImage(id) {
