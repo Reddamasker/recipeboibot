@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
+import { SUBSCRIPTION_PLANS } from './plans.js';
 
 export const DINNER_PRICE_EXPERIMENT = Object.freeze({
   key: 'ya-dinner-promo-199-159-v1', campaign: 'ya-dinner-202610', promoCode: 'DINNER159',
@@ -41,8 +42,10 @@ export function campaignPromoAvailable(userId) {
 
 export function campaignPromoPlans() {
   const e = DINNER_PRICE_EXPERIMENT;
-  return [{ months: 1, basePriceRub: e.basePriceRub, priceRub: e.promoPriceRub, discountRub: e.basePriceRub - e.promoPriceRub },
-    { months: 3, basePriceRub: e.threeMonthsPriceRub, priceRub: e.threeMonthsPromoPriceRub, discountRub: e.threeMonthsPriceRub - e.threeMonthsPromoPriceRub }];
+  return SUBSCRIPTION_PLANS.map(plan => {
+    const priceRub = plan.months === 1 ? e.promoPriceRub : plan.months === 3 ? e.threeMonthsPromoPriceRub : Math.round(plan.priceRub * 0.8);
+    return { months: plan.months, basePriceRub: plan.priceRub, priceRub, discountRub: plan.priceRub - priceRub };
+  });
 }
 
 export function campaignPromotion(userId) {

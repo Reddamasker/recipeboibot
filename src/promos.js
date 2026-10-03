@@ -1,6 +1,6 @@
 import { db } from './db.js';
 import { getSubscriptionAccess, grantSubscription, monthsAfter } from './subscriptions.js';
-import { subscriptionPlan } from './plans.js';
+import { subscriptionPlan, SUBSCRIPTION_PLANS } from './plans.js';
 import { campaignPromoPlans, campaignPromoRedemption, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -13,6 +13,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS promo_redemptions (
   expires_at TEXT,
   PRIMARY KEY(user_id,code)
 );`);
+if (!db.prepare('PRAGMA table_info(promo_redemptions)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE promo_redemptions ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
+
+const promoPeriod = months => months === 12 ? 'year' : months === 3 ? 'quarter' : 'month';
 
 export function promoQuote(userId, input, periodMonths = 1) {
   const plan = subscriptionPlan(periodMonths);
@@ -22,17 +25,22 @@ export function promoQuote(userId, input, periodMonths = 1) {
   if (code === DINNER_PRICE_EXPERIMENT.promoCode) {
     const used = campaignPromoRedemption(userId);
     if (used?.redeemed_at) throw fail('Этот промокод уже использован', 409);
-    if (![1, 3].includes(plan.months)) throw fail('Этот промокод действует на 1 или 3 месяца');
-    const priceRub = plan.months === 3 ? DINNER_PRICE_EXPERIMENT.threeMonthsPromoPriceRub : DINNER_PRICE_EXPERIMENT.promoPriceRub;
-    return { code, discountPercent: null, discountRub: plan.priceRub - priceRub, basePriceRub: plan.priceRub,
-      priceRub, period: plan.months === 3 ? 'quarter' : 'month', periodMonths: plan.months, plans: campaignPromoPlans() };
+    const plans = campaignPromoPlans(), selected = plans.find(p => p.months === plan.months);
+    return { code, discountPercent: null, discountRub: selected.discountRub, basePriceRub: selected.basePriceRub,
+      priceRub: selected.priceRub, period: promoPeriod(plan.months), periodMonths: plan.months, plans };
   }
   const discountPercent = discounts.get(code);
   if (!discountPercent) throw fail('Промокод не найден');
-  if (plan.months !== 1) throw fail('Промокод действует только на тариф «1 месяц»');
   const used = db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=? AND code=?').get(userId, code);
   if (used?.redeemed_at) throw fail('Этот промокод уже использован', 409);
-  return { code, discountPercent, basePriceRub: 199, priceRub: discountPercent === 100 ? 0 : 1.99, period: 'month' };
+  const plans = SUBSCRIPTION_PLANS.map(p => {
+    // Round in kopeks so the quote, payment and receipt have the same amount.
+    const priceRub = Math.round(p.priceRub * (100 - discountPercent)) / 100;
+    return { months: p.months, basePriceRub: p.priceRub, priceRub, discountRub: Math.round((p.priceRub - priceRub) * 100) / 100 };
+  });
+  const selected = plans.find(p => p.months === plan.months);
+  return { code, discountPercent, basePriceRub: selected.basePriceRub, priceRub: selected.priceRub,
+    discountRub: selected.discountRub, period: promoPeriod(plan.months), periodMonths: plan.months, plans };
 }
 
 export function reservedPromoOrder(userId, code) {
@@ -66,18 +74,20 @@ export function extendPromoAccess(userId, at = new Date(), periodMonths = 1) {
   return expiresAt;
 }
 
-export function redeemFreePromo(userId, input, at = new Date()) {
+export function redeemFreePromo(userId, input, at = new Date(), periodMonths = 1) {
+  const plan = subscriptionPlan(periodMonths);
+  if (!plan) throw fail('Выберите срок подписки');
   db.exec('BEGIN IMMEDIATE');
   try {
     // A repeat request must never extend access again.
     const code = typeof input === 'string' && input.length <= 64 ? input.replace(/\s+/g, '').toUpperCase() : '';
-    const previous = db.prepare('SELECT expires_at FROM promo_redemptions WHERE user_id=? AND code=? AND redeemed_at IS NOT NULL').get(userId, code);
-    if (code === 'PICHU100' && previous) { db.exec('COMMIT'); return { code, expiresAt: previous.expires_at, alreadyRedeemed: true }; }
-    const quote = promoQuote(userId, input);
+    const previous = db.prepare('SELECT expires_at,period_months FROM promo_redemptions WHERE user_id=? AND code=? AND redeemed_at IS NOT NULL').get(userId, code);
+    if (code === 'PICHU100' && previous) { db.exec('COMMIT'); return { code, expiresAt: previous.expires_at, periodMonths: previous.period_months, alreadyRedeemed: true }; }
+    const quote = promoQuote(userId, input, plan.months);
     if (quote.discountPercent !== 100) throw fail('Этот промокод требует оплаты');
-    const expiresAt = extendPromoAccess(userId, at);
-    db.prepare('INSERT INTO promo_redemptions(user_id,code,redeemed_at,expires_at) VALUES(?,?,?,?)')
-      .run(userId, quote.code, at.toISOString(), expiresAt);
+    const expiresAt = extendPromoAccess(userId, at, plan.months);
+    db.prepare('INSERT INTO promo_redemptions(user_id,code,redeemed_at,expires_at,period_months) VALUES(?,?,?,?,?)')
+      .run(userId, quote.code, at.toISOString(), expiresAt, plan.months);
     db.exec('COMMIT');
     return { ...quote, expiresAt, alreadyRedeemed: false };
   } catch (cause) { db.exec('ROLLBACK'); throw cause; }

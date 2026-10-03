@@ -1271,6 +1271,8 @@ function feedbackPage() {
 
 const paymentMoney = (value) => Number(value).toLocaleString('ru-RU', { minimumFractionDigits: Number(value) % 1 ? 2 : 0, maximumFractionDigits: 2 });
 const paymentPeriodLabel = (months) => Number(months) === 12 ? '1 год' : Number(months) === 3 ? '3 месяца' : '1 месяц';
+const freePromoAction = months => Number(months || 1) === 1 ? 'Получить месяц бесплатно' : `Получить ${paymentPeriodLabel(months)} бесплатно`;
+const freePromoConfirmation = months => Number(months || 1) === 1 ? 'Месяц бесплатно активирован.' : `Бесплатный доступ на ${paymentPeriodLabel(months)} активирован.`;
 const paymentPromoLabel = (quote) => quote.discountRub !== undefined ? `Скидка ${paymentMoney(quote.discountRub)} ₽` : `Скидка ${quote.discountPercent}%`;
 const campaignPromotionCopy = promotion => (promotion.plans || [{ months: 1, priceRub: promotion.priceRub }]).map(plan => `${paymentPeriodLabel(plan.months)} — ${paymentMoney(plan.priceRub)} ₽`).join(', ');
 function availablePaymentPlans() {
@@ -1338,11 +1340,25 @@ function bindPaymentOfferControls() {
 function promoPage(quote = null, promotion = state.payment?.campaignPromotion) {
   const money = value => Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const payable = quote && quote.priceRub > 0;
-  promotion ||= quote?.plans ? quote : null;
-  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="promo-back">К рецептам</button><div class="offer-hero"><h1>Промокод</h1>${promotion ? `<p>По промокоду ${esc(promotion.code)}: ${campaignPromotionCopy(promotion)}.</p>` : ''}<p>Скидка на выбранный срок доступа. Каждый код можно использовать один раз для текущего аккаунта. Скидки не суммируются.</p></div><section class="offer-plan">${promotion ? `<label for="promo-period">Срок доступа</label><select id="promo-period">${(promotion.plans || [{ months: 1, priceRub: promotion.priceRub }]).map(plan => `<option value="${plan.months}"${Number(quote?.periodMonths || state.paymentPeriodMonths || 1) === plan.months ? ' selected' : ''}>${paymentPeriodLabel(plan.months)} — ${paymentMoney(plan.priceRub)} ₽</option>`).join('')}</select>` : ''}<form id="promo-form"><label for="promo-code">Введите промокод</label><input id="promo-code" name="code" maxlength="64" autocomplete="off" autocapitalize="characters" required value="${esc(quote?.code || promotion?.code || '')}"><button class="secondary" type="submit">Проверить код</button></form>${quote ? `<p>${paymentPromoLabel(quote)} на ${paymentPeriodLabel(quote.periodMonths || 1)}: <s>${money(quote.basePriceRub)} ₽</s></p><div class="offer-price">${money(quote.priceRub)} ₽</div><p>Выбранный срок добавится к оставшемуся trial или активной подписке. Новое автопродление не подключается. Если оно уже включено, его можно отключить в разделе подписки.</p>${payable && !state.payment?.available ? '<p role="status">Код действителен, но оплата пока не подключена. Промокод не потрачен.</p>' : `<button class="primary accent" id="promo-apply">${payable ? `${state.payment?.mode === 'mock' ? 'Тестовая оплата' : 'Оплатить'} ${money(quote.priceRub)} ₽` : 'Получить месяц бесплатно'}</button>`}` : ''}<p id="promo-message" role="status" aria-live="polite"></p></section></main>`;
+  promotion = quote?.plans ? quote : promotion;
+  const periodPlans = promotion?.plans || availablePaymentPlans();
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="promo-back">К рецептам</button><div class="offer-hero"><h1>Промокод</h1>${promotion ? `<p>По промокоду ${esc(promotion.code)}: ${campaignPromotionCopy(promotion)}.</p>` : ''}<p>Скидка на выбранный срок доступа. Каждый код можно использовать один раз для текущего аккаунта. Скидки не суммируются.</p></div><section class="offer-plan"><label for="promo-period">Срок доступа</label><select id="promo-period">${periodPlans.map(plan => `<option value="${plan.months}"${Number(quote?.periodMonths || state.paymentPeriodMonths || 1) === plan.months ? ' selected' : ''}>${paymentPeriodLabel(plan.months)} — ${paymentMoney(plan.priceRub)} ₽</option>`).join('')}</select><form id="promo-form"><label for="promo-code">Введите промокод</label><input id="promo-code" name="code" maxlength="64" autocomplete="off" autocapitalize="characters" required value="${esc(quote?.code || promotion?.code || '')}"><button class="secondary" type="submit">Проверить код</button></form>${quote ? `<p>${paymentPromoLabel(quote)} на ${paymentPeriodLabel(quote.periodMonths || 1)}: <s>${money(quote.basePriceRub)} ₽</s></p><div class="offer-price">${money(quote.priceRub)} ₽</div><p>Выбранный срок добавится к оставшемуся trial или активной подписке. Новое автопродление не подключается. Если оно уже включено, его можно отключить в разделе подписки.</p>${payable && !state.payment?.available ? '<p role="status">Код действителен, но оплата пока не подключена. Промокод не потрачен.</p>' : `<button class="primary accent" id="promo-apply">${payable ? `${state.payment?.mode === 'mock' ? 'Тестовая оплата' : 'Оплатить'} ${money(quote.priceRub)} ₽` : freePromoAction(quote.periodMonths)}</button>`}` : ''}<p id="promo-message" role="status" aria-live="polite"></p></section></main>`;
   bindCommon();
   document.querySelector('#promo-back').onclick = () => { setRoute({}); void render(); };
-  document.querySelector('#promo-period')?.addEventListener('change', event => { state.paymentPeriodMonths = Number(event.target.value); promoPage(null, promotion); });
+  document.querySelector('#promo-period')?.addEventListener('change', async event => {
+    const code = document.querySelector('#promo-code').value;
+    const requestedPeriod = Number(event.target.value);
+    state.paymentPeriodMonths = requestedPeriod;
+    promoPage(null, promotion);
+    document.querySelector('#promo-code').value = code;
+    if (!quote) return;
+    try {
+      const result = await api('/api/billing/promo/quote', { method: 'POST', body: JSON.stringify({ code, periodMonths: requestedPeriod }) });
+      if (state.paymentPeriodMonths === requestedPeriod) promoPage(result);
+    } catch (failure) {
+      if (state.paymentPeriodMonths === requestedPeriod) document.querySelector('#promo-message').textContent = failure.message;
+    }
+  });
   document.querySelector('#promo-form').onsubmit = async event => {
     event.preventDefault();
     const message = document.querySelector('#promo-message');
@@ -1359,9 +1375,9 @@ function promoPage(quote = null, promotion = state.payment?.campaignPromotion) {
     const button = event.currentTarget; button.disabled = true;
     try {
       if (!payable) {
-        const result = await api('/api/billing/promo/redeem', { method: 'POST', body: JSON.stringify({ code: quote.code }) });
+        const result = await api('/api/billing/promo/redeem', { method: 'POST', body: JSON.stringify({ code: quote.code, periodMonths: quote.periodMonths || 1 }) });
         state.payment = result.payment;
-        document.querySelector('#promo-message').textContent = `${result.alreadyRedeemed ? 'Код уже был применён.' : 'Месяц бесплатно активирован.'} Срок доступа: ${new Date(result.expiresAt).toLocaleString('ru-RU')}.`;
+        document.querySelector('#promo-message').textContent = `${result.alreadyRedeemed ? 'Код уже был применён.' : freePromoConfirmation(result.periodMonths || quote.periodMonths)} Срок доступа: ${new Date(result.expiresAt).toLocaleString('ru-RU')}.`;
         button.textContent = 'Промокод применён';
         return;
       }
@@ -1502,7 +1518,7 @@ function providerOfferPage() {
   const expiredTrial = payment.trial?.used && !payment.active;
   const title = expiredTrial ? 'Пробный период закончился' : payment.active ? 'Продлить доступ' : 'Ваши рецепты. Каждый день.';
   const activeCopy = expiredTrial ? 'Ваши рецепты сохранены. Выберите срок подписки, чтобы продолжить.' : payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : payment.hasFirstRecipe ? 'Выберите срок доступа.' : 'Сначала попробуйте бесплатный период.';
-  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${paymentPlanChoices()}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? 'Получить месяц бесплатно' : `Оплатить ${paymentMoney(price)} ₽` : 'Оплата пока подключается'}</button><p class="offer-fineprint">Оплата проходит на защищённой странице Robokassa.</p><details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${paymentPlanChoices()}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : 'Оплата пока подключается'}</button><p class="offer-fineprint">Оплата проходит на защищённой странице Robokassa.</p><details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
   bindPaymentOfferControls();
   void api('/api/billing/exposure', { method: 'POST', body: JSON.stringify({ campaign: true }) }).catch(() => {});
@@ -1512,10 +1528,10 @@ function providerOfferPage() {
     button.disabled = true;
     try {
       if (quote?.discountPercent === 100) {
-        const result = await api('/api/billing/promo/redeem', { method: 'POST', body: JSON.stringify({ code: quote.code }) });
+        const result = await api('/api/billing/promo/redeem', { method: 'POST', body: JSON.stringify({ code: quote.code, periodMonths: quote.periodMonths || 1 }) });
         state.payment = result.payment;
         state.paymentPromoQuote = null;
-        state.paymentPromoMessage = 'Месяц бесплатно активирован.';
+        state.paymentPromoMessage = freePromoConfirmation(result.periodMonths || quote.periodMonths);
         providerOfferPage();
         return;
       }

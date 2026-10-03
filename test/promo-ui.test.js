@@ -5,13 +5,14 @@ import vm from 'node:vm';
 const source = fs.readFileSync('public/app.js', 'utf8');
 function page(available = false, mode = 'unavailable') {
   const nodes = {}, calls = [], routes = [], root = { innerHTML: '' }, opened = [];
-  for (const id of ['#promo-back', '#promo-form', '#promo-code', '#promo-message', '#promo-apply']) nodes[id] = { value: '', addEventListener: (_event, fn) => { nodes[id].handler = fn; } };
+  for (const id of ['#promo-back', '#promo-form', '#promo-code', '#promo-message', '#promo-apply', '#promo-period']) nodes[id] = { value: '', addEventListener: (_event, fn) => { nodes[id].handler = fn; } };
   const context = { root, state: { payment: { available, mode } }, esc: String, header: () => '', bindCommon() {},
     document: { querySelector: id => nodes[id] }, setRoute: route => routes.push(route), render() {},
     checkoutPage() { opened.push('mock'); }, providerPaymentResultPage() { opened.push('provider'); },
     tg: { openLink: url => opened.push(url) },
     api: async (url, options) => { calls.push([url, JSON.parse(options.body)]); return context.response; } };
   vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function availablePaymentPlans()')), context);
+  vm.runInNewContext(source.slice(source.indexOf('function availablePaymentPlans()'), source.indexOf('function selectedPaymentPlan()')), context);
   vm.runInNewContext(source.slice(source.indexOf('function promoPage('), source.indexOf('\nfunction trialOfferPage()')), context);
   return { context, nodes, calls, root, opened };
 }
@@ -77,4 +78,37 @@ test('three-month promo confirmation shows 399 rubles and sends the chosen three
   context.response = { id: 'quarter-order', mode: 'provider', paymentUrl: 'https://example.test/pay' };
   await nodes['#promo-apply'].handler({ currentTarget: nodes['#promo-apply'] });
   assert.deepEqual(calls, [['/api/billing/orders', { promoCode: 'DINNER159', autoRenew: false, method: 'card', periodMonths: 3 }]]);
+});
+
+test('manual promo entry offers every tariff, keeps the code on term change and redeems the selected free year', async () => {
+  const { context, nodes, calls, root } = page();
+  context.state.payment.plans = [{ months: 1, priceRub: 199 }, { months: 3, priceRub: 499 }, { months: 12, priceRub: 1499 }];
+  context.promoPage();
+  assert.match(root.innerHTML, /value="12"/);
+  nodes['#promo-code'].value = 'PICHU100';
+  await nodes['#promo-period'].handler({ target: { value: '12' } });
+  assert.equal(nodes['#promo-code'].value, 'PICHU100');
+  context.response = { code: 'PICHU100', priceRub: 0, basePriceRub: 1499, discountPercent: 100, periodMonths: 12,
+    plans: [{ months: 1, priceRub: 0 }, { months: 3, priceRub: 0 }, { months: 12, priceRub: 0 }] };
+  await nodes['#promo-form'].onsubmit({ preventDefault() {} });
+  assert.match(root.innerHTML, /Получить 1 год бесплатно/);
+  assert.match(root.innerHTML, /value="12" selected/);
+  context.response = { periodMonths: 12, expiresAt: '2027-10-03T10:00:00Z', payment: { active: true } };
+  await nodes['#promo-apply'].handler({ currentTarget: nodes['#promo-apply'] });
+  assert.equal(calls[0][1].periodMonths, 12);
+  assert.equal(calls[1][1].periodMonths, 12);
+  assert.match(nodes['#promo-message'].textContent, /на 1 год активирован/);
+});
+
+test('changing an applied percentage promo to a year recalculates and pays for the selected year', async () => {
+  const { context, nodes, calls, root } = page(true, 'provider');
+  context.promoPage({ code: 'PICHU99', priceRub: 1.99, discountPercent: 99, periodMonths: 1,
+    plans: [{ months: 1, priceRub: 1.99 }, { months: 3, priceRub: 4.99 }, { months: 12, priceRub: 14.99 }] });
+  nodes['#promo-code'].value = 'PICHU99';
+  context.response = { code: 'PICHU99', priceRub: 14.99, basePriceRub: 1499, discountPercent: 99, periodMonths: 12 };
+  await nodes['#promo-period'].handler({ target: { value: '12' } });
+  assert.match(root.innerHTML, /Оплатить 14,99 ₽/);
+  context.response = { id: 'annual-order', mode: 'provider', paymentUrl: 'https://example.test/pay' };
+  await nodes['#promo-apply'].handler({ currentTarget: nodes['#promo-apply'] });
+  assert.equal(calls[0][1].periodMonths, 12); assert.equal(calls[1][1].periodMonths, 12);
 });

@@ -125,7 +125,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/promo/redeem') {
     const input = await bodyJson(request, 1000);
-    const redemption = redeemFreePromo(user.id, input.code);
+    const redemption = redeemFreePromo(user.id, input.code, new Date(), input.periodMonths ?? 1);
     return json(response, 200, { ...redemption, payment: config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id) });
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/trial') {

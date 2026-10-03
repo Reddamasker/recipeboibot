@@ -23,10 +23,43 @@ test.after(() => { db.close(); fs.rmSync(directory, { recursive: true, force: tr
 
 test('promo names normalize spaces and case; amounts are server-owned and old typo is rejected', () => {
   const { user } = fresh();
-  assert.deepEqual(promoQuote(user.id, ' pichu99 '), { code: 'PICHU99', discountPercent: 99, basePriceRub: 199, priceRub: 1.99, period: 'month' });
+  const quote = promoQuote(user.id, ' pichu99 ');
+  assert.equal(quote.code, 'PICHU99'); assert.equal(quote.discountPercent, 99);
+  assert.equal(quote.basePriceRub, 199); assert.equal(quote.priceRub, 1.99); assert.equal(quote.periodMonths, 1);
   assert.equal(promoQuote(user.id, 'PICHU 100').priceRub, 0);
   for (const code of ['PICHU9', 'bad', '', null, {}, 'a'.repeat(65)]) assert.throws(() => promoQuote(user.id, code), { status: 400 });
   assert.equal(getSubscriptionAccess(user.id).active, false);
+});
+
+test('all promo codes quote every catalog term and reject unsupported durations', () => {
+  const { user } = fresh();
+  for (const [code, amounts] of [['PICHU99', [1.99, 4.99, 14.99]], ['PICHU100', [0, 0, 0]], ['DINNER159', [159, 399, 1199]]]) {
+    for (const [index, months] of [1, 3, 12].entries()) {
+      const quote = promoQuote(user.id, code, months);
+      assert.equal(quote.periodMonths, months); assert.equal(quote.priceRub, amounts[index]);
+      assert.deepEqual(quote.plans.map(p => p.months), [1, 3, 12]);
+      assert.deepEqual(quote.plans.map(p => p.priceRub), amounts);
+    }
+    for (const months of [0, 2, 24, -1, 'bad']) assert.throws(() => promoQuote(user.id, code, months), { status: 400 });
+  }
+});
+
+test('free promo grants the chosen term once, preserves the original term on retry and survives restart', () => {
+  const at = new Date('2026-01-31T10:00:00Z');
+  for (const [months, expected] of [[3, '2026-04-30T10:00:00.000Z'], [12, '2027-01-31T10:00:00.000Z']]) {
+    const { user } = fresh();
+    const result = redeemFreePromo(user.id, 'PICHU100', at, months);
+    assert.equal(result.expiresAt, expected); assert.equal(result.periodMonths, months);
+    const retry = redeemFreePromo(user.id, 'PICHU100', at, 1);
+    assert.equal(retry.expiresAt, expected); assert.equal(retry.periodMonths, months); assert.equal(retry.alreadyRedeemed, true);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM promo_redemptions WHERE user_id=?').get(user.id).n, 1);
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `const {redeemFreePromo}=await import('./src/promos.js'); console.log(JSON.stringify(redeemFreePromo(${JSON.stringify(user.id)}, 'PICHU100')));`], { encoding: 'utf8', env: process.env });
+    assert.equal(child.status, 0, child.stderr); assert.equal(JSON.parse(child.stdout.trim()).periodMonths, months);
+    assert.equal(canUseAutomaticImport(user.id, new Date(expected)), false);
+  }
+  const { user } = fresh();
+  assert.throws(() => redeemFreePromo(user.id, 'PICHU100', at, 999), { status: 400 });
+  assert.equal(getSubscriptionAccess(user.id, at).active, false);
 });
 
 test('free month needs no provider, preserves trial, survives restart, cannot repeat and expires closed', () => {
@@ -81,5 +114,25 @@ test('authenticated promo API ignores forged identity, amount and duration; para
     assert.equal(db.prepare('SELECT count(*) AS n FROM promo_redemptions WHERE user_id=?').get(user.id).n, 1);
     const forged = await fetch(base + '/api/billing/promo/redeem', { method: 'POST', headers, body: JSON.stringify({ code: 'PICHU99', discountPercent: 100, amount: 0 }) });
     assert.equal(forged.status, 400);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('authenticated free promo API grants the requested catalog term and parallel retries cannot change it', async () => {
+  const { user, telegram } = fresh();
+  const server = createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const headers = { authorization: `tma ${makeTelegramInitData(telegram, process.env.TELEGRAM_BOT_TOKEN)}`, 'content-type': 'application/json' };
+  try {
+    const invalid = await fetch(base + '/api/billing/promo/redeem', { method: 'POST', headers, body: JSON.stringify({ code: 'PICHU100', periodMonths: 999 }) });
+    assert.equal(invalid.status, 400);
+    assert.equal(getSubscriptionAccess(user.id).active, false);
+    const quote = await fetch(base + '/api/billing/promo/quote', { method: 'POST', headers, body: JSON.stringify({ code: 'PICHU100', periodMonths: 12 }) }).then(r => r.json());
+    assert.equal(quote.periodMonths, 12); assert.equal(quote.basePriceRub, 1499); assert.equal(quote.priceRub, 0);
+    const results = await Promise.all([12, 3].map(periodMonths => fetch(base + '/api/billing/promo/redeem', { method: 'POST', headers, body: JSON.stringify({ code: 'PICHU100', periodMonths }) }).then(r => r.json())));
+    assert.equal(results[0].periodMonths, 12); assert.equal(results[1].periodMonths, 12);
+    assert.equal(results[0].expiresAt, results[1].expiresAt);
+    assert.ok(Date.parse(results[0].expiresAt) - Date.now() > 360 * 86400000);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM promo_redemptions WHERE user_id=?').get(user.id).n, 1);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });

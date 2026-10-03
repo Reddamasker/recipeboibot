@@ -90,6 +90,29 @@ test('combined expired paywall shows discounted tariffs and payment amount witho
   assert.equal((html.match(/Автопродление по промокоду не подключается/g) || []).length, 1);
 });
 
+test('paywall displays free three-month and annual terms and sends the chosen term to redemption without a provider', async () => {
+  for (const months of [3, 12]) {
+    const nodes = {}, calls = [];
+    const quote = { code: 'FREE-CODE', discountPercent: 100, periodMonths: months, priceRub: 0,
+      plans: expiredPayment.plans.map(p => ({ months: p.months, basePriceRub: p.priceRub, priceRub: 0, discountRub: p.priceRub })) };
+    const state = { payment: { ...expiredPayment, available: false }, paymentPeriodMonths: months, paymentPromoQuote: quote, paymentPromoMessage: '' };
+    const root = { innerHTML: '' };
+    const sandbox = { state, root, header: () => '', esc: String, bindCommon() {}, bindPaymentOfferControls() {},
+      document: { querySelector: id => nodes[id] ||= { addEventListener: (_event, fn) => { nodes[id].handler = fn; } } },
+      api: async (url, options) => { calls.push([url, JSON.parse(options.body)]); return { periodMonths: months, payment: { ...state.payment, active: true, expiresAt: '2027-10-03T10:00:00Z' } }; } };
+    vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function bindPaymentOfferControls()')), sandbox);
+    vm.runInNewContext(source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()')), sandbox);
+    sandbox.providerOfferPage();
+    assert.match(root.innerHTML, months === 12 ? /Получить 1 год бесплатно/ : /Получить 3 месяца бесплатно/);
+    assert.equal((root.innerHTML.match(/offer-period-price">0 ₽/g) || []).length, 3);
+    await nodes['#offer-pay'].handler({ currentTarget: { disabled: false } });
+    const redemption = calls.find(([url]) => url.endsWith('/promo/redeem'));
+    assert.equal(redemption[1].periodMonths, months);
+    assert.equal(state.payment.active, true);
+    assert.match(state.paymentPromoMessage, months === 12 ? /на 1 год активирован/ : /на 3 месяца активирован/);
+  }
+});
+
 test('trial offer and expiry remain visible even when the payment provider is not connected', () => {
   const sandbox = { state: { payment: { available: false, trial: { eligible: true, used: false } } }, esc: String };
   vm.runInNewContext(source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer')), sandbox);

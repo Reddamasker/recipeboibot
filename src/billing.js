@@ -167,7 +167,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
   const plan = subscriptionPlan(periodMonths);
   if (!plan) throw error('Выберите срок подписки: 1 месяц, 3 месяца или 1 год');
   const promo = promoCode !== undefined ? promoQuote(userId, promoCode, plan.months) : null;
-  if (promo?.discountPercent === 100) throw error('Активируйте бесплатный месяц без оплаты');
+  if (promo?.discountPercent === 100) throw error('Активируйте бесплатный доступ без оплаты');
   if (promo && autoRenew) throw error('Оплата по промокоду не подключает автопродление');
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 503);
   if (!promo && !hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);

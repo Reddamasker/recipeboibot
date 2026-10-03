@@ -106,7 +106,7 @@ export function createMockOrder(userId, method, autoRenew = false, promoCode, pe
   if (!plan) throw error('Выберите срок подписки: 1 месяц, 3 месяца или 1 год', 400);
   if (promoCode !== undefined) {
     const promo = promoQuote(userId, promoCode, plan.months);
-    if (promo.discountPercent === 100) throw error('Активируйте бесплатный месяц без оплаты', 400);
+    if (promo.discountPercent === 100) throw error('Активируйте бесплатный доступ без оплаты', 400);
     if (autoRenew) throw error('Оплата по промокоду не подключает автопродление', 400);
     if (!['card', 'sbp'].includes(method)) throw error('Неверный способ оплаты', 400);
     const reserved = reservedPromoOrder(userId, promo.code);
