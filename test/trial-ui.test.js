@@ -22,10 +22,10 @@ test('trial button starts server entitlement directly without checkout and begin
   assert.equal(state.payment.active, true);
   state.payment.active = false;
   state.payment.accessSource = null;
+  root.innerHTML = '';
   sandbox.trialOfferPage();
-  assert.match(root.innerHTML, /Пробный период закончился/);
-  assert.match(root.innerHTML, /Оплата пока подключается/);
-  assert.doesNotMatch(root.innerHTML, /id="start-trial"/);
+  assert.equal(offers.length, 1);
+  assert.equal(root.innerHTML, ''); // Expired access goes straight to the combined tariff page.
 
   state.payment = { available: true, active: true, accessSource: 'trial', offer: { priceRub: 199 }, trial: { eligible: false, used: true, expiresAt: '2026-10-06T10:00:00Z' } };
   state.paymentPromoQuote = { discountPercent: 99 };
@@ -35,13 +35,59 @@ test('trial button starts server entitlement directly without checkout and begin
   handlers['#trial-buy-month']();
   assert.equal(state.paymentPeriodMonths, 1);
   assert.equal(state.paymentPromoQuote, null);
-  assert.equal(offers.length, 1);
+  assert.equal(offers.length, 2);
   assert.equal(checkouts.length, 0);
   state.payment.active = false;
   state.payment.accessSource = null;
   sandbox.trialOfferPage();
-  handlers['#trial-subscribe']();
-  assert.equal(offers.length, 2);
+  assert.equal(offers.length, 3);
+});
+
+function combinedOffer(payment, quote = null) {
+  const nodes = {};
+  const state = { payment, paymentPeriodMonths: quote?.periodMonths || 1, paymentPromoQuote: quote, paymentPromoMessage: '' };
+  const root = { innerHTML: '' };
+  const sandbox = { state, root, esc: String, header: () => '', bindCommon() {}, bindPaymentOfferControls() {},
+    document: { querySelector: id => nodes[id] ||= { addEventListener() {} } }, api: async () => ({}),
+    setRoute() {}, render() {}, toast: assert.fail };
+  vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function bindPaymentOfferControls()')), sandbox);
+  vm.runInNewContext(source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()')), sandbox);
+  vm.runInNewContext(source.slice(source.indexOf('function trialOfferPage()'), source.indexOf('\nfunction checkoutPage()')), sandbox);
+  sandbox.offerPage();
+  return root.innerHTML;
+}
+
+const expiredPayment = {
+  active: false, hasFirstRecipe: true, mode: 'provider', trial: { used: true, eligible: false },
+  plans: [
+    { months: 1, priceRub: 199, fullPriceRub: 199, savingRub: 0, discountPercent: 0 },
+    { months: 3, priceRub: 499, fullPriceRub: 597, savingRub: 98, discountPercent: 16 },
+    { months: 12, priceRub: 1499, fullPriceRub: 2388, savingRub: 889, discountPercent: 37 }
+  ]
+};
+
+test('expired trial immediately shows one page with expiry message and all tariffs, including unavailable payments', () => {
+  for (const available of [true, false]) {
+    const html = combinedOffer({ ...expiredPayment, available, mode: available ? 'provider' : 'unavailable' });
+    assert.equal((html.match(/<h1>/g) || []).length, 1);
+    assert.match(html, /Пробный период закончился/);
+    assert.match(html, /Ваши рецепты сохранены/);
+    assert.equal((html.match(/class="paywall-benefits"/g) || []).length, 1);
+    assert.equal((html.match(/data-period-months=/g) || []).length, 3);
+    assert.doesNotMatch(html, /trial-subscribe|start-trial|paywall-trial-card|paywall-after|offer-price-summary|Без скидки|за месяц/);
+    assert.match(html, available ? /id="offer-pay">Оплатить 199 ₽/ : /id="offer-pay" disabled>Оплата пока подключается/);
+  }
+});
+
+test('combined expired paywall shows discounted tariffs and payment amount without repeating the quote summary', () => {
+  const quote = { code: 'DINNER159', periodMonths: 3, priceRub: 399, basePriceRub: 499, discountRub: 100,
+    plans: [{ months: 1, priceRub: 159, basePriceRub: 199, discountRub: 40 }, { months: 3, priceRub: 399, basePriceRub: 499, discountRub: 100 }] };
+  const html = combinedOffer({ ...expiredPayment, available: true }, quote);
+  assert.match(html, /id="offer-pay">Оплатить 399 ₽/);
+  assert.match(html, /data-period-months="3" aria-pressed="true"/);
+  assert.match(html, /Промокод применён/);
+  assert.doesNotMatch(html, /offer-price-summary|Скидка 100 ₽|399 ₽ за 3 месяца|По промокоду:/);
+  assert.equal((html.match(/Автопродление по промокоду не подключается/g) || []).length, 1);
 });
 
 test('trial offer and expiry remain visible even when the payment provider is not connected', () => {

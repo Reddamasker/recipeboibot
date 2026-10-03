@@ -303,18 +303,13 @@ span.recipe-tag { cursor: default; }
 .paywall-benefits li{position:relative;padding-left:25px}
 .paywall-benefits li:before{content:"";position:absolute;left:3px;top:4px;width:7px;height:12px;border:solid var(--berry);border-width:0 2px 2px 0;transform:rotate(45deg)}
 .paywall .offer-plan{padding:0;border:0;box-shadow:none;background:none;border-radius:0}
-.paywall .offer-periods{display:grid;gap:10px}
+.paywall .offer-periods{display:grid;gap:10px;margin:0 0 18px}
 .paywall .offer-period{width:100%;border:1px solid var(--line);border-radius:16px;padding:16px;min-height:76px;background:color-mix(in srgb,var(--paper) 50%,transparent);box-shadow:none;color:var(--ink);display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
 .paywall .offer-period.selected{border:2px solid var(--berry);padding:15px;background:var(--paywall-lilac)}
 .paywall .offer-period strong{font-size:16px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .paywall .offer-period small{display:block;font-size:12px;margin-top:5px;color:var(--muted)}
 .paywall .offer-discount{background:var(--paywall-action);color:var(--action-text);border-radius:20px;padding:3px 7px;font-size:11px}
 .paywall .offer-period-price{font-size:18px;font-weight:700;text-align:right;white-space:nowrap}
-.paywall .offer-price-summary{margin:16px 0;text-align:center}
-.paywall .offer-price-summary>.offer-price{font-size:23px;margin:6px 0}
-.paywall .offer-price-summary>strong,.paywall .offer-price-summary p{font-size:12px;color:var(--muted);margin:6px 0}
-.paywall .offer-price{color:var(--ink)}
-.paywall .offer-price small{color:var(--muted)}
 .paywall .primary.accent{width:100%;min-height:56px;border-radius:16px;background:var(--paywall-action);color:var(--action-text);font-size:16px;font-weight:700;box-shadow:0 8px 20px color-mix(in srgb,var(--ink) 12%,transparent)}
 @media(hover:hover){.paywall .primary.accent:not(:disabled):hover{background:var(--action-hover)}}
 .paywall .primary.accent:not(:disabled):active{background:var(--action-hover)}
