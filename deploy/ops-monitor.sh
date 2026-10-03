@@ -42,13 +42,21 @@ $1"; else failures="$1"; fi
 if ! curl -fsS --max-time 10 "$local_url/healthz" >/dev/null; then add_failure "Локальный healthcheck недоступен"; fi
 if ! curl -fsS --max-time 15 "$public_url/healthz" >/dev/null; then add_failure "Публичный healthcheck недоступен"; fi
 
-container_state="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}} {{.State.OOMKilled}}' "$container" 2>/dev/null || true)"
+container_state="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}} {{.State.OOMKilled}} {{.State.StartedAt}}' "$container" 2>/dev/null || true)"
 set -- $container_state
-if [ "$#" -ne 4 ]; then
+starting_grace=false
+if [ "$#" -ne 5 ]; then
   add_failure "Контейнер не найден"
 else
+  if [ "$1" = "running" ] && [ "$2" = "starting" ] && [ "$3" = "0" ] && [ "$4" = "false" ]; then
+    started_at="$(date -d "$5" +%s 2>/dev/null || true)"
+    if [ -n "$started_at" ]; then
+      startup_age=$(($(date +%s) - started_at))
+      if [ "$startup_age" -ge 0 ] && [ "$startup_age" -lt 90 ]; then starting_grace=true; fi
+    fi
+  fi
   [ "$1" = "running" ] || add_failure "Контейнер не запущен: $1"
-  [ "$2" = "healthy" ] || add_failure "Контейнер unhealthy: $2"
+  if [ "$2" != "healthy" ] && [ "$starting_grace" != "true" ]; then add_failure "Контейнер unhealthy: $2"; fi
   [ "$3" = "0" ] || add_failure "Контейнер перезапускался: $3"
   [ "$4" = "false" ] || add_failure "Контейнер завершался по OOM"
 fi
@@ -72,13 +80,20 @@ else
   [ "$offsite_age" -le 129600 ] || add_failure "Внешняя резервная копия старше 36 часов"
 fi
 
-billing_required="$(read_env BILLING_REQUIRED)"
-if [ "$billing_required" = "true" ]; then
-  if ! curl -fsS --max-time 10 "$local_url/readyz" | grep -F '"billing":{"required":true,"configured":true}' >/dev/null; then
-    add_failure "Обязательный платёжный контур не готов"
+# BILLING_REQUIRED only enforces configuration at startup; it does not enable sales.
+# Parse the live JSON with the existing container's Node runtime, without loading the app.
+if readiness="$(curl -fsS --max-time 10 "$local_url/readyz")"; then
+  if ! printf '%s' "$readiness" | docker exec -i "$container" node -e '
+    const fs = require("node:fs");
+    try {
+      const status = JSON.parse(fs.readFileSync(0, "utf8"));
+      process.exit(status.ok === true && status.service === "recipeboibot" && status.billing?.configured === true ? 0 : 1);
+    } catch { process.exit(1); }
+  '; then
+    add_failure "Готовность платёжного контура не подтверждена"
   fi
 else
-  add_failure "Продажи выключены: BILLING_REQUIRED не равен true"
+  add_failure "Проверка готовности платёжного контура недоступна"
 fi
 
 mkdir -p "$state_dir"
@@ -100,4 +115,3 @@ $failures"
 fi
 
 exit 0
-
