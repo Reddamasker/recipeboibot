@@ -74,6 +74,29 @@ const callback = (order, at, extra = {}) => {
   }, at);
 };
 
+test('recurring consent rejects missing/stale versions and preserves evidence after cancellation and late callback', () => {
+  const account = upsertTelegramUser({ id: 600000099, first_name: 'Consent' });
+  const at = new Date('2026-10-03T12:00:00Z');
+  startTrial(account.id, at);
+  for (const consentVersion of [undefined, 'old']) assert.throws(() => createPaymentOrder(account.id, { autoRenew: true, consentVersion }, at), { status: 400 });
+  const order = createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1', periodMonths: 3 }, at);
+  createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1', periodMonths: 3 }, at);
+  const evidence = db.prepare('SELECT * FROM payment_consent_history WHERE user_id=? ORDER BY rowid').all(account.id);
+  assert.equal(evidence.length, 2);
+  assert.equal(evidence[0].amount_kopeks, 49900);
+  assert.equal(evidence[0].period_months, 3);
+  assert.match(evidence[0].consent_text, /обработку персональных данных/);
+  assert.match(evidence[0].terms_text, /24 часа/);
+  assert.match(JSON.parse(evidence[0].documents_json).offer.sha256, /^[a-f0-9]{64}$/);
+  assert.match(JSON.parse(evidence[0].documents_json).offer.content, /auto-renew/);
+  cancelAutoRenew(account.id, at);
+  callback(order, new Date('2026-10-03T12:01:00Z'));
+  assert.equal(getBillingOffer(account.id, at).recurring.enabled, false);
+  assert.equal(getSubscriptionAccess(account.id, at).active, true);
+  assert.equal(db.prepare('SELECT action FROM payment_consent_history WHERE user_id=? ORDER BY rowid DESC').get(account.id).action, 'revoked');
+  assert.deepEqual(db.prepare('SELECT * FROM payment_consent_history WHERE user_id=? ORDER BY rowid LIMIT 2').all(account.id), evidence);
+});
+
 test('99 percent order charges 1.99, signs the discounted receipt, reserves once and grants only after callback', () => {
   const promoUser = upsertTelegramUser({ id: 600000088, first_name: 'Promo' });
   const at = new Date();
@@ -86,7 +109,7 @@ test('99 percent order charges 1.99, signs the discounted receipt, reserves once
   assert.equal(order.promoCode, 'PICHU99');
   assert.equal(createPaymentOrder(promoUser.id, { promoCode: 'pichu99' }, at).id, order.id);
   assert.equal(createPaymentOrder(promoUser.id, {}, at).id, normal.id);
-  assert.throws(() => createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', autoRenew: true }, at), { status: 400 });
+  assert.throws(() => createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', autoRenew: true, consentVersion: '2026-10-03-v1' }, at), { status: 400 });
   const document = paymentRedirectDocument(order.id, at);
   assert.match(document, /name="OutSum" value="1.99"/);
   const receipt = JSON.parse(decodeURIComponent(document.match(/name="Receipt" value="([^"]+)"/)[1]));
@@ -106,7 +129,7 @@ test('free month postpones an existing renewal without changing its amount or en
   const account = upsertTelegramUser({ id: 600000087, first_name: 'Renewal promo' });
   const at = new Date();
   startTrial(account.id, at);
-  const order = createPaymentOrder(account.id, { autoRenew: true }, at);
+  const order = createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, at);
   callback(order, at);
   const before = db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(account.id);
   const result = redeemFreePromo(account.id, 'PICHU 100', at);
@@ -143,8 +166,8 @@ test('price experiment is stable, recorded once, and an initial order is signed 
   assert.equal(recordBillingExposure(user.id), true);
   assert.equal(recordBillingExposure(user.id), false);
 
-  const order = createPaymentOrder(user.id, { autoRenew: true }, new Date('2026-09-28T10:05:00.000Z'));
-  const duplicate = createPaymentOrder(user.id, { autoRenew: true }, new Date('2026-09-28T10:10:00.000Z'));
+  const order = createPaymentOrder(user.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, new Date('2026-09-28T10:05:00.000Z'));
+  const duplicate = createPaymentOrder(user.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, new Date('2026-09-28T10:10:00.000Z'));
   assert.equal(duplicate.id, order.id);
   assert.equal(order.autoRenew, true);
   assert.equal(order.paymentUrl, `https://billing.example.test/payment/start/${order.id}`);
@@ -197,7 +220,7 @@ test('three-month and annual orders charge discounted prices and grant the purch
 
 test('signed callback activates exactly one month and duplicate delivery is idempotent', () => {
   const createdAt = new Date('2026-09-28T11:00:00.000Z');
-  const order = createPaymentOrder(user.id, { autoRenew: true }, createdAt);
+  const order = createPaymentOrder(user.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, createdAt);
   assert.equal(callback(order, createdAt), `OK${order.invId}`);
   const access = getSubscriptionAccess(user.id, createdAt);
   assert.equal(access.active, true);
@@ -276,7 +299,7 @@ test('authenticated billing API creates an order and the public form callback co
     const offerResponse = await fetch(`${base}/api/billing/offer`, { headers });
     assert.equal(offerResponse.status, 200);
     assert.equal((await offerResponse.json()).mode, 'provider');
-    const createResponse = await fetch(`${base}/api/billing/orders`, { method: 'POST', headers, body: JSON.stringify({ autoRenew: true }) });
+    const createResponse = await fetch(`${base}/api/billing/orders`, { method: 'POST', headers, body: JSON.stringify({ autoRenew: true, consentVersion: '2026-10-03-v1' }) });
     assert.equal(createResponse.status, 201);
     const order = await createResponse.json();
     const outSum = order.priceRub.toFixed(2);

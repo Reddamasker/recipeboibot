@@ -145,7 +145,7 @@ async function api(request, response, url) {
   if (request.method === 'POST' && url.pathname === '/api/billing/orders') {
     const input = await bodyJson(request, 1000);
     if (config.testContour && !billingAvailable()) return json(response, 201, { ...createMockOrder(user.id, input.method || 'card', Boolean(input.autoRenew), input.promoCode, input.periodMonths), mode: 'mock' });
-    return json(response, 201, { ...createPaymentOrder(user.id, { autoRenew: Boolean(input.autoRenew), promoCode: input.promoCode, periodMonths: input.periodMonths }), mode: 'provider' });
+    return json(response, 201, { ...createPaymentOrder(user.id, { autoRenew: input.autoRenew === true, consentVersion: input.consentVersion, promoCode: input.promoCode, periodMonths: input.periodMonths }), mode: 'provider' });
   }
   const billingOrder = url.pathname.match(/^\/api\/billing\/orders\/([0-9a-f-]{36})$/i);
   if (request.method === 'GET' && billingOrder) return json(response, 200, getPaymentOrder(user.id, billingOrder[1]));

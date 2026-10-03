@@ -7,6 +7,7 @@ import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './pr
 import { publicSubscriptionPlans, subscriptionPeriodLabel, subscriptionPlan } from './plans.js';
 import { log } from './log.js';
 import { campaignPriceAssignment, campaignPromotion } from './campaign-prices.js';
+import { PAYMENT_CONSENT_VERSION, PAYMENT_CONSENT_TEXT, paymentConsentDocuments, paymentConsentTerms } from './payment-consent.js';
 
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
 const PAYMENT_ACTION = 'https://auth.robokassa.ru/Merchant/Index.aspx';
@@ -70,6 +71,21 @@ if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column
 if (!db.prepare('PRAGMA table_info(payment_recurring)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE payment_recurring ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
 
 const nowIso = (at = new Date()) => at.toISOString();
+db.exec(`CREATE TABLE IF NOT EXISTS payment_consent_history (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, inv_id INTEGER,
+  action TEXT NOT NULL CHECK(action IN ('granted','revoked')),
+  version TEXT NOT NULL, consent_text TEXT NOT NULL, terms_text TEXT NOT NULL,
+  documents_json TEXT NOT NULL, amount_kopeks INTEGER, period_months INTEGER,
+  source TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payment_consent_user_date ON payment_consent_history(user_id,created_at);`);
+function recordConsent(userId, order, action, at) {
+  db.prepare(`INSERT INTO payment_consent_history VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    randomUUID(), userId, order?.inv_id || null, action, PAYMENT_CONSENT_VERSION,
+    PAYMENT_CONSENT_TEXT, order ? paymentConsentTerms(order.amount_kopeks, order.period_months) : 'Отказ от всех регулярных списаний',
+    JSON.stringify(paymentConsentDocuments), order?.amount_kopeks || null, order?.period_months || null,
+    action === 'granted' ? 'authenticated_checkout' : 'authenticated_subscription', nowIso(at));
+}
 const formatAmount = (kopeks) => `${Math.floor(kopeks / 100)}.${String(kopeks % 100).padStart(2, '0')}`;
 const parseAmount = (value) => {
   const match = String(value || '').match(/^(\d+)(?:\.(\d{1,6}))?$/);
@@ -104,7 +120,7 @@ function assignmentFor(userId, at = new Date()) {
 
 function recurringFor(userId) {
   const row = db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(userId);
-  return row ? { enabled: Boolean(row.enabled), nextChargeAt: row.next_charge_at, cancelledAt: row.cancelled_at } : { enabled: false, nextChargeAt: null, cancelledAt: null };
+  return row ? { enabled: Boolean(row.enabled), priceRub: row.amount_kopeks / 100, periodMonths: row.period_months, nextChargeAt: row.next_charge_at, cancelledAt: row.cancelled_at } : { enabled: false, nextChargeAt: null, cancelledAt: null };
 }
 
 export function billingAvailable() {
@@ -133,9 +149,11 @@ export function getBillingOffer(userId, at = new Date()) {
     firstValue,
     offerShown: Boolean(assignment?.exposed_at),
     recurringSupported: config.robokassaConfigured && config.robokassaRecurring,
+    consentVersion: PAYMENT_CONSENT_VERSION,
+    consentText: PAYMENT_CONSENT_TEXT,
     recurring: recurringFor(userId),
     offer: assignment ? { variant: 'period_1_price_199', priceRub: 199, currency: 'RUB', period: 'month', periodMonths: 1 } : null,
-    plans: assignment ? publicSubscriptionPlans() : [],
+    plans: assignment ? publicSubscriptionPlans().map(plan => ({ ...plan, consentTerms: paymentConsentTerms(plan.priceRub * 100, plan.months) })) : [],
     campaignPromotion: assignment ? campaignPromotion(userId) : null,
     pendingOrder: pending ? publicOrder(pending) : null
   };
@@ -163,7 +181,7 @@ function publicOrder(row) {
   };
 }
 
-export function createPaymentOrder(userId, { autoRenew = false, promoCode, periodMonths = 1 } = {}, at = new Date()) {
+export function createPaymentOrder(userId, { autoRenew = false, consentVersion, promoCode, periodMonths = 1 } = {}, at = new Date()) {
   const plan = subscriptionPlan(periodMonths);
   if (!plan) throw error('Выберите срок подписки: 1 месяц, 3 месяца или 1 год');
   const promo = promoCode !== undefined ? promoQuote(userId, promoCode, plan.months) : null;
@@ -172,6 +190,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 503);
   if (!promo && !hasFirstValue(userId) && !getTrialStatus(userId, at).used) throw error('Сначала начните бесплатный пробный период', 409);
   if (autoRenew && !config.robokassaRecurring) throw error('Автопродление пока не подключено у платёжного провайдера', 409);
+  if (autoRenew && consentVersion !== PAYMENT_CONSENT_VERSION) throw error('Подтвердите актуальные условия регулярных списаний', 400);
   const assignment = assignmentFor(userId, at);
   const campaignAssignment = campaignPriceAssignment(userId, at);
   recordBillingExposure(userId, at);
@@ -184,6 +203,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
       throw error('С этим промокодом уже создан заказ на другой срок. Завершите его оплату перед созданием нового заказа.', 409);
     }
     db.prepare('UPDATE payment_orders SET updated_at=? WHERE id=?').run(nowIso(at), existing.id);
+    if (autoRenew) recordConsent(userId, existing, 'granted', at);
     return { ...publicOrder(existing), paymentUrl: `${config.appUrl}/payment/start/${existing.id}` };
   }
   if (reserved) throw error('Заказ с этим промокодом уже завершён', 409);
@@ -195,6 +215,7 @@ export function createPaymentOrder(userId, { autoRenew = false, promoCode, perio
       VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?,?,?)`)
       .run(id, userId, campaignAssignment?.experiment_key || config.paymentExperimentKey, promo ? promo.discountPercent === 99 ? 'promo_99' : `promo_${promo.code}` : `period_${plan.months}_price_${plan.priceRub}`, Math.round((promo ? promo.priceRub : plan.priceRub) * 100), autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months, config.robokassaTest || config.testContour ? 1 : 0);
     if (promo) reservePromo(userId, promo.code, id);
+    if (autoRenew) recordConsent(userId, db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id), 'granted', at);
     db.exec('COMMIT');
   } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   const order = db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id);
@@ -369,7 +390,14 @@ export function processRobokassaResultJws(compactJws, at = new Date(), publicKey
 
 export function cancelAutoRenew(userId, at = new Date()) {
   const timestamp = nowIso(at);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+  recordConsent(userId, null, 'revoked', at);
+  // A callback for an initial payment after cancellation must not reactivate renewal.
+  db.prepare("UPDATE payment_orders SET auto_renew=0 WHERE user_id=? AND kind='initial' AND status IN ('pending','failed')").run(userId);
   db.prepare('UPDATE payment_recurring SET enabled=0,cancelled_at=?,next_charge_at=NULL,updated_at=? WHERE user_id=?').run(timestamp, timestamp, userId);
+  db.exec('COMMIT');
+  } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   return recurringFor(userId);
 }
 
@@ -404,6 +432,8 @@ async function submitRecurring(order, transport = fetch) {
 
 let recurringCycleRunning = false;
 export async function runRecurringCycle(at = new Date(), transport = fetch) {
+  // Merchant/Recurring cannot be made safe with IsTest; only injected mock transports may run in test contours.
+  if ((config.robokassaTest || config.testContour) && transport === fetch) return;
   if (recurringCycleRunning || !config.robokassaConfigured || !config.robokassaRecurring) return;
   recurringCycleRunning = true;
   try {

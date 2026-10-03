@@ -113,7 +113,7 @@ test('promo bills exactly 159 rubles once, forbids unsupported terms and auto re
   assert.equal(offer.campaignPromotion.priceRub, 159);
   assert.equal(promoQuote(user.id, ' dinner 159 ').discountRub, 40);
   assert.throws(() => createPaymentOrder(user.id, { promoCode: 'DINNER159', periodMonths: 2 }), { status: 400 });
-  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'DINNER159', autoRenew: true }), { status: 400 });
+  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'DINNER159', autoRenew: true, consentVersion: '2026-10-03-v1' }), { status: 400 });
   const order = createPaymentOrder(user.id, { promoCode: 'DINNER159', amount: 1, priceRub: 1 }, after(3));
   assert.equal(order.priceRub, 159); assert.equal(order.periodMonths, 1); assert.equal(order.autoRenew, false);
   assert.equal(db.prepare('SELECT amount_kopeks,experiment_key FROM payment_orders WHERE id=?').get(order.id).amount_kopeks, 15900);
@@ -136,7 +136,7 @@ test('promo bills exactly 159 rubles once, forbids unsupported terms and auto re
 test('regular three-month purchase and renewal stay 499 and do not prevent entering an unused promo', async () => {
   for (const variant of ['A', 'B']) {
     const user = recruited(variant); firstRecipe(user); startTrial(user.id, after(2));
-    const order = createPaymentOrder(user.id, { periodMonths: 3, autoRenew: true }, after(3));
+    const order = createPaymentOrder(user.id, { periodMonths: 3, autoRenew: true, consentVersion: '2026-10-03-v1' }, after(3));
     assert.equal(order.priceRub, 499); assert.equal(order.periodMonths, 3);
     assert.equal(getBillingOffer(user.id, after(3)).pendingOrder.periodMonths, 3);
     pay(order);
@@ -177,7 +177,7 @@ test('three months with the campaign code bills 399, extends by three months and
   assert.equal(quote.priceRub, 399); assert.equal(quote.basePriceRub, 499); assert.equal(quote.discountRub, 100);
   assert.equal(campaignPromotion(user.id).plans.find(plan => plan.months === 3).priceRub, 399);
   assert.equal(promoQuote(recruited('A').id, 'DINNER159', 3).priceRub, 399);
-  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'DINNER159', periodMonths: 3, autoRenew: true }), { status: 400 });
+  assert.throws(() => createPaymentOrder(user.id, { promoCode: 'DINNER159', periodMonths: 3, autoRenew: true, consentVersion: '2026-10-03-v1' }), { status: 400 });
   const order = createPaymentOrder(user.id, { promoCode: 'DINNER159', periodMonths: 3, priceRub: 1 }, after(3));
   assert.equal(order.priceRub, 399); assert.equal(order.periodMonths, 3);
   assert.equal(createPaymentOrder(user.id, { promoCode: 'DINNER159', periodMonths: 3 }, after(3)).id, order.id);
