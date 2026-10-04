@@ -28,6 +28,11 @@ export function duplicateDinner(recipe, existing) {
 
 // Rotate across sessions and IDs, including saved copies of catalog dishes.
 export function rotateDinnerCandidates(ranked, recentShownRecipes = [], now = Date.now()) {
+  const unique = [];
+  for (const candidate of ranked) {
+    if (!duplicateDinner(candidate.recipe, unique.map(item => item.recipe))) unique.push(candidate);
+  }
+  ranked = unique;
   const lastShown = recipe => recentShownRecipes.reduce((last, shown) =>
     duplicateDinner(recipe, [shown.recipe]) ? Math.max(last, Date.parse(shown.createdAt) || 0) : last, 0);
   const fresh = ranked.filter(item => now - lastShown(item.recipe) >= 7 * 86400000);
@@ -82,13 +87,15 @@ function missingRoles(userId, sessionId, count) {
   }
   return roles;
 }
-function nextBatch(options) {
+function nextBatch(options, current = []) {
   const selected = [];
+  const vacancies = DINNER_BUFFER.visible - current.length;
   for (const role of ['familiar','quick','variety']) {
+    if (current.some(option => option.role === role) || selected.length >= vacancies) continue;
     const option = options.find((o) => o.role === role && !selected.includes(o));
     if (option) selected.push(option);
   }
-  for (const option of options) if (selected.length < DINNER_BUFFER.visible && !selected.includes(option)) selected.push(option);
+  for (const option of options) if (selected.length < vacancies && !selected.includes(option)) selected.push(option);
   return selected;
 }
 function synchronize(userId, sessionId, context) {
@@ -218,7 +225,11 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
 
 export function dinnerBufferSnapshot(userId, sessionId, getContext) {
   const context = getContext(); synchronize(userId, sessionId, context);
-  return { current: currentDinnerOptions(userId, sessionId), reserve: nextBatch(ready(userId, sessionId)), preparing: fills.has(sessionId) };
+  let current = currentDinnerOptions(userId, sessionId);
+  if (current.length && current.length < DINNER_BUFFER.visible && !current.some(option => option.method === 'first_recipe') && !acceptedDinnerOptionId(userId, sessionId)) {
+    current = promoteDinnerOptions(userId, sessionId, nextBatch(ready(userId, sessionId), current).map(option => option.id), { complete: true });
+  }
+  return { current, reserve: nextBatch(ready(userId, sessionId)), preparing: fills.has(sessionId) };
 }
 export function prefetchDinnerBuffer(userId, sessionId, getContext, options) {
   void fill(userId, sessionId, getContext, options).catch((error) => log('warn', 'dinner_prefetch_failed', { error: error.message }));

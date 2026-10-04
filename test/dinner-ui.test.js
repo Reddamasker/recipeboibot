@@ -10,6 +10,26 @@ test('dinner request locks while it is being saved to prevent duplicate generati
 });
 import vm from 'node:vm';
 
+test('dinner polling adds the third card when the reserve is already full', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('let dinnerPollTimer;'), source.indexOf('\nfunction dinnerDislikeSheetContent'));
+  const card = id => ({ id, recipe: { thumbnailUrl: `/images/${id}.jpg` } });
+  const dinner = { sessionId: 'pair', recommendations: [card('one'), card('two')], reserve: [card('four'), card('five'), card('six')], preparing: false, imagesPending: false };
+  let callback, renders = 0;
+  const sandbox = { state: { dinner }, clearTimeout() {}, setTimeout(fn) { callback = fn; }, URLSearchParams, AbortSignal,
+    location: { search: '?view=dinner' }, dinnerView() { renders++; }, loadDinnerRecommendation: assert.fail,
+    api: async () => ({ recommendations: [...dinner.recommendations, card('three')], recommendation: dinner.recommendations[0], reserve: dinner.reserve, preparing: false, imagesPending: false }) };
+  vm.runInNewContext(handler, sandbox);
+  sandbox.scheduleDinnerPrefetch(dinner);
+  assert.equal(typeof callback, 'function');
+  await callback();
+  assert.deepEqual(dinner.recommendations.map(option => option.id), ['one', 'two', 'three']);
+  assert.equal(renders, 1);
+  callback = null;
+  sandbox.scheduleDinnerPrefetch(dinner);
+  assert.equal(callback, null, 'a complete trio with full reserve stops polling');
+});
+
 test('tariffs require unchecked explicit consent with legal links and send its version only when selected', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()'));
@@ -217,7 +237,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.65/);
+  assert.match(document, /app\.js\?v=dinner-10\.66/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -353,7 +373,7 @@ test('dinner image polling recovers after a network failure', async () => {
   const timers = []; let requests = 0, paints = 0;
   const sandbox = { state: { dinner }, clearTimeout() {}, setTimeout(fn) { timers.push(fn); },
     location: { search: '?view=dinner' }, URLSearchParams, AbortSignal,
-    api: async () => { if (++requests === 1) throw new Error('temporary offline'); return { recommendations: [{ id: 'a', recipe: { thumbnailUrl: '/image.jpg' } }], reserve: [1,2,3], imagesPending: false }; },
+    api: async () => { if (++requests === 1) throw new Error('temporary offline'); return { recommendations: [{ id: 'a', recipe: { thumbnailUrl: '/image.jpg' } }, { id: 'b', recipe: {} }, { id: 'c', recipe: {} }], reserve: [1,2,3], imagesPending: false }; },
     dinnerView() { paints++; } };
   vm.runInNewContext(handler, sandbox);
   sandbox.scheduleDinnerPrefetch(dinner);
