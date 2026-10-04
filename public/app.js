@@ -407,7 +407,7 @@ let dinnerPollTimer;
 function scheduleDinnerPrefetch(dinner) {
   clearTimeout(dinnerPollTimer);
   if (dinner?.firstFreeRecipe) return;
-  if (dinner !== state.dinner || dinner.accepted || (!dinner.preparing && !dinner.imagesPending && dinner.reserve?.length >= 3)) return;
+  if (dinner !== state.dinner || dinner.accepted || (!dinner.preparing && !dinner.imagesPending && dinner.recommendations.length >= 3 && dinner.reserve?.length >= 3)) return;
   dinnerPollTimer = setTimeout(async () => {
     if (dinner !== state.dinner || dinner.accepted || new URLSearchParams(location.search).get('view') !== 'dinner') return;
     const revision = dinner.revision || 0;

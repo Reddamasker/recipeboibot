@@ -339,16 +339,20 @@ export function retainDinnerBufferContext(userId, sessionId, context, discardedI
   db.prepare('UPDATE dinner_sessions SET buffer_context=? WHERE id=? AND user_id=?').run(context, sessionId, userId);
 }
 
-export function promoteDinnerOptions(userId, sessionId, ids) {
+export function promoteDinnerOptions(userId, sessionId, ids, { complete = false } = {}) {
   db.exec('BEGIN IMMEDIATE');
   try {
-    // Idempotent across concurrent requests: never promote a second batch over the current one.
-    if (!currentDinnerOptions(userId, sessionId).length) {
-      for (const [position, id] of ids.entries()) {
+    // Keep existing cards and append only vacancies, including on concurrent polls.
+    const current = currentDinnerOptions(userId, sessionId);
+    if (!acceptedDinnerOptionId(userId, sessionId) && (!current.length || (complete && current.length < 3 && !current.some(option => option.method === 'first_recipe')))) {
+      let position = current.length;
+      current.forEach((option, index) => db.prepare('UPDATE dinner_options SET display_position=? WHERE id=?').run(index, option.id));
+      for (const id of ids) {
+        if (position >= 3) break;
         const option = getDinnerOption(userId, id);
         const row = db.prepare("SELECT id FROM dinner_options WHERE id=? AND session_id=? AND user_id=? AND state='ready'").get(id, sessionId, userId);
         if (!row || !option) continue;
-        showDinnerOption(userId, sessionId, option, position);
+        showDinnerOption(userId, sessionId, option, position++);
       }
     }
     db.exec('COMMIT');
