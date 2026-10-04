@@ -50,7 +50,7 @@ const trialOnboardingKey = () => `recipeboibot-trial-onboarding-v1:${state.me?.i
 function savedTrialOnboardingStep() {
   try {
     const value = window.localStorage?.getItem(trialOnboardingKey());
-    return ['taste', 'notifications', 'notifications-settings', 'collection'].includes(value) ? value : null;
+    return ['payment-success', 'taste', 'notifications', 'notifications-settings', 'collection'].includes(value) ? value : null;
   } catch { return null; }
 }
 function setTrialOnboardingStep(step) {
@@ -271,7 +271,7 @@ async function resumePendingTrialTastePreferences() {
   const savedStep = savedTrialOnboardingStep();
   if (savedStep && savedStep !== 'taste') {
     state.trialOnboarding = savedStep;
-    setRoute({ view: savedStep === 'notifications-settings' ? 'notifications' : 'trial-onboarding' }, { replace: true });
+    setRoute({ view: savedStep === 'payment-success' ? 'payment-result' : savedStep === 'notifications-settings' ? 'notifications' : 'trial-onboarding' }, { replace: true });
     await render();
     return true;
   }
@@ -828,7 +828,7 @@ async function render() {
   else if (view === 'promo') promoPage();
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
-  else if (view === 'payment-result' && state.payment?.available) paymentResultPage();
+  else if (view === 'payment-result' && (state.payment?.available || state.payment?.active)) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
   else if (view === 'results') {
     let results = [];
@@ -1438,12 +1438,12 @@ function checkoutPage() {
     try {
       const result = await api(`/api/billing/orders/${encodeURIComponent(order.id)}/result`, { method: 'POST', body: JSON.stringify({ result: button.dataset.paymentResult }) });
       state.paymentResult = result.order.status;
-      state.checkoutOrder = null;
+      state.checkoutOrder = result.order.status === 'success' ? result.order : null;
       await refresh();
       if (result.order.status === 'success') {
-        setTrialOnboardingStep('taste');
-        setRoute({ view: 'dinner' });
-        await beginDinner(false, true);
+        setTrialOnboardingStep('payment-success');
+        setRoute({ view: 'payment-result' });
+        paymentSuccessPage();
         return;
       }
       setRoute({ view: 'payment-result' }); paymentResultPage();
@@ -1452,12 +1452,31 @@ function checkoutPage() {
 }
 
 function paymentResultPage() {
+  if (state.payment?.active && state.trialOnboarding === 'payment-success') { paymentSuccessPage(); return; }
   if (state.payment?.mode === 'provider') { providerPaymentResultPage(); return; }
   const result = state.paymentResult || state.payment?.lastResult;
   const success = result === 'success';
+  if (success && state.payment?.active) { paymentSuccessPage(); return; }
   root.innerHTML = `${header()}<main class="payment-result"><div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : result === 'cancel' ? '↶' : '!'}</span><h1>${success ? 'Оплата прошла' : result === 'cancel' ? 'Платёж отменён' : 'Не удалось оплатить'}</h1><p>${success ? 'Тестовый доступ открыт. Теперь можно сохранять следующие рецепты автоматически.' : 'Тестовый доступ пока не открыт. Уже пройденный рецепт остаётся доступен.'}</p><div class="payment-result-price">Рецепты Плюс · ${state.checkoutOrder?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / ${paymentPeriodLabel(state.checkoutOrder?.periodMonths || 1)}</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Повторить оплату'}</button><small>Реального списания не было.</small></main>`;
   bindCommon();
   document.querySelector('#result-next').onclick = () => { setRoute(success ? {} : { view: 'offer' }); void render(); };
+}
+
+function paymentSuccessPage() {
+  clearTimeout(paymentPollTimer);
+  resetPageScroll();
+  const payment = state.payment;
+  const expires = payment?.expiresAt ? new Date(payment.expiresAt) : null;
+  const accessUntil = expires && Number.isFinite(expires.getTime()) ? `Доступ до ${expires.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}` : 'Полный доступ открыт';
+  const test = payment?.mode === 'mock' || state.me?.testContour;
+  root.innerHTML = `${header()}<main class="payment-success">${test ? '<div class="checkout-test-strip">ТЕСТОВЫЙ РЕЖИМ · ДЕНЬГИ НЕ СПИСЫВАЮТСЯ</div>' : ''}<section class="payment-success-card" aria-labelledby="payment-success-title"><div class="payment-success-art" aria-hidden="true"><div class="success-recipe success-recipe-back"></div><div class="success-recipe success-recipe-front"><span class="success-plate"></span><i></i><i></i></div><span class="success-seal"></span><span class="success-spark spark-one"></span><span class="success-spark spark-two"></span><span class="success-spark spark-three"></span></div><div class="payment-success-kicker"><span></span>ОПЛАТА ПРОШЛА</div><h1 id="payment-success-title">Теперь проще решить,<br>что на ужин</h1><p class="payment-success-copy">Спасибо, что ты с нами!<br>Твои рецепты Плюс уже активны.</p><div class="payment-success-access"><strong>Твои рецепты <span>Плюс</span></strong><small>${esc(accessUntil)}</small></div><ul class="payment-success-benefits"><li>Подбор ужина под твои вкусы</li><li>Рецепты из ссылок, фото и голосовых</li><li>Любимые блюда в личной коллекции</li></ul><button class="primary accent" id="payment-success-next">Продолжить <span aria-hidden="true">→</span></button><p class="payment-success-note">Дальше — настроим всё для тебя</p></section></main>`;
+  bindCommon();
+  document.querySelector('#payment-success-next').onclick = async (event) => {
+    event.currentTarget.disabled = true;
+    setTrialOnboardingStep('taste');
+    setRoute({ view: 'dinner' });
+    await beginDinner(false, true);
+  };
 }
 
 function legacyProviderOfferPage() {
@@ -1558,13 +1577,14 @@ function providerCheckoutPage() {
 }
 
 async function completeProviderPayment(order) {
+  if (order?.status !== 'paid') return;
   clearTimeout(paymentPollTimer);
   state.paymentResult = 'paid';
-  state.checkoutOrder = null;
+  state.checkoutOrder = order;
   await refresh();
-  setTrialOnboardingStep('taste');
-  setRoute({ view: 'dinner' });
-  await beginDinner(false, true);
+  setTrialOnboardingStep('payment-success');
+  setRoute({ view: 'payment-result' }, { replace: true });
+  paymentSuccessPage();
 }
 
 function pollProviderPayment() {
@@ -1585,6 +1605,7 @@ function providerPaymentResultPage() {
   const order = state.checkoutOrder || state.payment?.pendingOrder;
   const status = order?.status || state.paymentResult || 'pending';
   const success = status === 'paid';
+  if (success && state.payment?.active) { paymentSuccessPage(); return; }
   root.innerHTML = `${header()}<main class="payment-result"><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : '…'}</span><h1>${success ? 'Оплата подтверждена' : 'Ожидаем подтверждение'}</h1><p>${success ? 'Доступ открыт. Теперь можно сохранять следующие рецепты и включить напоминания.' : 'Завершите оплату в открывшемся окне и вернитесь сюда. Доступ появится только после серверного подтверждения Robokassa.'}</p><div class="payment-result-price">Твои рецепты Плюс · ${order?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / ${paymentPeriodLabel(order?.periodMonths || 1)}</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Проверить оплату'}</button><small>${order?.autoRenew ? 'Автопродление включится после успешной оплаты.' : 'Автопродление не подключено.'}</small></main>`;
   bindCommon();
   document.querySelector('#result-next').onclick = async (event) => {
