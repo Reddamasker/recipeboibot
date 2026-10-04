@@ -13,6 +13,7 @@ function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text;
 function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  renderDirectStats(data.directStats);
   renderAttribution(data.attribution || []);
   renderPriceExperiment(data.priceExperiment);
   $('#login').hidden = true; $('#dashboard').hidden = false;
@@ -37,6 +38,20 @@ function render(data) {
   $('#tracking-note').textContent = `Учёт рекламных переходов начат ${new Date(data.trackingSince).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Старые клики не восстановлены.${data.historicalStartsWithoutDate ? ` Старых запусков без точной даты: ${number(data.historicalStartsWithoutDate)}.` : ''}`;
   $('#payment-note').textContent = data.testPaidUsers || data.unclassifiedPaidUsers ? `Не включены в оплаты: тестовые пользователи — ${data.testPaidUsers}; старые платежи без подтверждённого режима — ${data.unclassifiedPaidUsers}.` : '';
 }
+function renderDirectStats(stats) {
+  $('#direct-panel').hidden = !stats;
+  if (!stats) return;
+  const money = value => value === null ? 'Нет данных' : `${Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
+  $('#direct-values').textContent = `Показы: ${number(stats.impressions)} · Клики в Директе: ${number(stats.clicks)} · Расход с НДС: ${money(stats.costRub)} · Средний клик с НДС: ${money(stats.cpcRub)}`;
+  const updated = stats.syncedAt ? `Последний импорт: ${new Date(stats.syncedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК.` : 'Первый импорт ещё не завершён.';
+  $('#direct-status').textContent = `${updated} ${stats.status === 'error' ? stats.error : stats.status === 'waiting' ? 'Отчёт готовится.' : 'Автоматическое обновление каждый час.'} Клики Директа и переходы по ссылке учитываются отдельно. Уникальный охват на поиске недоступен.`;
+}
+$('#direct-sync').addEventListener('click', async () => {
+  $('#direct-sync').disabled = true;
+  try { await api('direct-sync', 'POST', {}); await load(); }
+  catch (error) { if (error.status === 401) showLogin(); else toast(error.message); }
+  finally { $('#direct-sync').disabled = false; }
+});
 function renderPriceExperiment(experiment) {
   $('#price-experiment').hidden = !experiment;
   if (!experiment) return;

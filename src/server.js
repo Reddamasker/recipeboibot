@@ -27,6 +27,7 @@ import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats, funnelReport } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
+import { directImportStatus, syncDirectStats } from './yandex-direct.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -384,13 +385,23 @@ export function createServer() {
           closeDashboardSession(cookie); response.setHeader('set-cookie', sessionCookie(''));
           return json(response, 200, { ok: true });
         }
-        if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') return json(response, 200, funnelReport(url.searchParams.get('campaign') || 'all'));
+        if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') {
+          const report = funnelReport(url.searchParams.get('campaign') || 'all');
+          report.directStats = directImportStatus(report.campaign?.slug || config.yandexDirectPlacement);
+          return json(response, 200, report);
+        }
+        if (request.method === 'POST' && url.pathname === '/api/dashboard/direct-sync') {
+          if (config.testContour || config.dashboardPreview) return json(response, 403, { error: 'Импорт Директа доступен в основном дашборде' });
+          rateLimit('direct-sync', 2, 60000);
+          return json(response, 200, await syncDirectStats());
+        }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/campaigns') {
           const input = await bodyJson(request, 2000), campaign = createCampaign(input.slug, input.name);
           return json(response, 201, { ...campaign, link: campaignLink(campaign.slug) });
         }
         if (request.method === 'PUT' && url.pathname === '/api/dashboard/stats') {
           const input = await bodyJson(request, 2000);
+          if (directImportStatus(input.slug)) return json(response, 409, { error: 'Это размещение обновляется автоматически из Директа' });
           setCampaignStats(input.slug, input.impressions, input.reach ?? null);
           return json(response, 200, { ok: true });
         }

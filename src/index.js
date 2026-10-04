@@ -7,6 +7,7 @@ import { getRecipe, interruptActiveJobs, listGeneratedRecipesWithoutImages } fro
 import { ensureRecipeImage } from './recipe-images.js';
 import { startNotificationScheduler, stopNotificationScheduler } from './notifications.js';
 import { startBillingScheduler, stopBillingScheduler } from './billing.js';
+import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
 
 assertConfig();
 const interruptedJobs = interruptActiveJobs();
@@ -15,6 +16,7 @@ const server = createServer();
 server.listen(config.port, '0.0.0.0', () => {
   log('info', 'server_started', { port: config.port, appUrlConfigured: Boolean(config.appUrl) });
   startBillingScheduler();
+  startDirectScheduler();
   if (config.imageModel) void (async () => {
     for (const item of listGeneratedRecipesWithoutImages()) await ensureRecipeImage(item.userId, getRecipe(item.userId, item.id));
   })().catch((error) => log('warn', 'recipe_image_backfill_failed', { error }));
@@ -24,4 +26,4 @@ server.listen(config.port, '0.0.0.0', () => {
     startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
   }
 });
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling(); server.close(() => process.exit(0)); });
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling(); server.close(() => process.exit(0)); });
