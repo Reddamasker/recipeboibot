@@ -90,6 +90,62 @@ test('combined expired paywall shows discounted tariffs and payment amount witho
   assert.equal((html.match(/Автопродление по промокоду не подключается/g) || []).length, 1);
 });
 
+function directOffer({ months = 1, quote = null, fail = false, browser = false } = {}) {
+  const nodes = {}, calls = [], routes = [], links = [], results = [];
+  const state = { payment: { ...expiredPayment, available: true, recurringSupported: false }, paymentPeriodMonths: months, paymentPromoQuote: quote };
+  const sandbox = { state, root: {}, header: () => '', esc: String, bindCommon() {}, bindPaymentOfferControls() {},
+    document: { querySelector: id => nodes[id] ||= { addEventListener(_event, fn) { this.handler = fn; } } },
+    api: async (url, options) => {
+      if (!url.endsWith('/orders')) return {};
+      calls.push(JSON.parse(options.body));
+      if (fail) throw new Error('Не удалось создать заказ');
+      return { id: 'order-1', mode: 'provider', paymentUrl: 'https://example.test/pay' };
+    },
+    setRoute: route => routes.push(route), providerPaymentResultPage: () => results.push(true),
+    tg: browser ? null : { openLink: url => links.push(url) }, window: { open: url => links.push(url) } };
+  vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function bindPaymentOfferControls()')), sandbox);
+  vm.runInNewContext(source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()')), sandbox);
+  sandbox.providerOfferPage();
+  return { sandbox, nodes, state, calls, routes, links, results };
+}
+
+test('tariff payment opens the provider directly for every term and paid promo, including browser fallback', async () => {
+  for (const months of [1, 3, 12]) {
+    for (const promo of [false, true]) {
+      const quote = promo ? { code: 'DINNER159', periodMonths: months, priceRub: 159, discountPercent: 20 } : null;
+      const { sandbox, nodes, state, calls, routes, links, results } = directOffer({ months, quote, browser: months === 12 });
+      assert.doesNotMatch(sandbox.root.innerHTML, /checkout-shell|checkout-continue|К оплате сейчас/);
+      assert.match(sandbox.root.innerHTML, /Нажимая кнопку, вы принимаете/);
+      if (!quote) assert.match(sandbox.root.innerHTML, /Без автоматического продления/);
+      await nodes['#offer-pay'].handler({ currentTarget: {} });
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].periodMonths, months);
+      assert.equal(calls[0].promoCode, quote?.code);
+      assert.equal(calls[0].autoRenew, false);
+      assert.deepEqual(links, ['https://example.test/pay']);
+      assert.equal(routes[0].view, 'payment-result');
+      assert.equal(results.length, 1);
+      assert.equal(state.checkoutOrder.id, 'order-1');
+      assert.equal(state.paymentResult, 'pending');
+    }
+  }
+});
+
+test('order failure keeps the selected tariff and restores payment; old checkout links never create an order', async () => {
+  const { sandbox, nodes, state, calls, routes, links } = directOffer({ months: 12, fail: true });
+  await nodes['#offer-pay'].handler({ currentTarget: {} });
+  assert.equal(state.paymentPeriodMonths, 12);
+  assert.match(sandbox.root.innerHTML, /Не удалось создать заказ/);
+  assert.match(sandbox.root.innerHTML, /id="offer-pay">Оплатить 1 499 ₽/);
+  assert.equal(links.length, 0);
+  assert.equal(routes.length, 0);
+  const compatibility = source.slice(source.indexOf('function providerCheckoutPage()'), source.indexOf('\nasync function completeProviderPayment'));
+  vm.runInNewContext(compatibility, sandbox);
+  sandbox.providerCheckoutPage();
+  assert.equal(calls.length, 1);
+  assert.equal(routes[0].view, 'offer');
+});
+
 test('paywall displays free three-month and annual terms and sends the chosen term to redemption without a provider', async () => {
   for (const months of [3, 12]) {
     const nodes = {}, calls = [];

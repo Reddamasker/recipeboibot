@@ -1518,7 +1518,7 @@ function providerOfferPage() {
   const expiredTrial = payment.trial?.used && !payment.active;
   const title = expiredTrial ? 'Пробный период закончился' : payment.active ? 'Продлить доступ' : 'Ваши рецепты. Каждый день.';
   const activeCopy = expiredTrial ? 'Ваши рецепты сохранены. Выберите срок подписки, чтобы продолжить.' : payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : payment.hasFirstRecipe ? 'Выберите срок доступа.' : 'Сначала попробуйте бесплатный период.';
-  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${paymentPlanChoices()}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : 'Оплата пока подключается'}</button><p class="offer-fineprint">Оплата проходит на защищённой странице Robokassa.</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${paymentPlanChoices()}${payment.recurringSupported && !quote ? `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>${esc(payment.consentText)}</strong><small>${esc(plan.consentTerms)} <a href="/offer.html#auto-renew" target="_blank" rel="noopener">Условия регулярных списаний</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка персональных данных</a>.</small></span></label>` : ''}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : 'Оплата пока подключается'}</button><p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
   document.querySelector('#cancel-auto-renew')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
@@ -1540,20 +1540,19 @@ function providerOfferPage() {
         providerOfferPage();
         return;
       }
-      if (quote) {
-        const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ promoCode: quote.code, autoRenew: false, method: 'card', periodMonths: quote.periodMonths || 1 }) });
-        state.checkoutOrder = order;
-        if (order.mode === 'mock') { setRoute({ view: 'checkout' }); checkoutPage(); }
-        else {
-          state.paymentResult = 'pending';
-          if (tg?.openLink) tg.openLink(order.paymentUrl);
-          else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
-          setRoute({ view: 'payment-result' }); providerPaymentResultPage();
-        }
-        return;
+      if (payment.mode === 'mock' && !quote) {
+        setRoute({ view: 'checkout' }); checkoutPage(); return;
       }
-      setRoute({ view: 'checkout' });
-      if (payment.mode === 'mock') checkoutPage(); else providerCheckoutPage();
+      const autoRenew = !quote && payment.recurringSupported === true && document.querySelector('#auto-renew')?.checked === true;
+      const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ promoCode: quote?.code, autoRenew, consentVersion: autoRenew ? payment.consentVersion : undefined, periodMonths: quote?.periodMonths || plan.months }) });
+      state.checkoutOrder = order;
+      if (order.mode === 'mock') { setRoute({ view: 'checkout' }); checkoutPage(); }
+      else {
+        state.paymentResult = 'pending';
+        if (tg?.openLink) tg.openLink(order.paymentUrl);
+        else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
+        setRoute({ view: 'payment-result' }); providerPaymentResultPage();
+      }
     } catch (failure) {
       state.paymentPromoMessage = failure.message;
       providerOfferPage();
@@ -1562,27 +1561,9 @@ function providerOfferPage() {
 }
 
 function providerCheckoutPage() {
-  const payment = state.payment;
-  if (!payment?.hasFirstRecipe && !payment?.trial?.used) { setRoute({ view: 'offer' }, { replace: true }); providerOfferPage(); return; }
-  const plan = selectedPaymentPlan();
-  const price = plan.priceRub;
-  const period = paymentPeriodLabel(plan.months);
-  root.innerHTML = `<main class="checkout-page"><div class="checkout-shell"><header class="checkout-header"><button type="button" id="checkout-back" aria-label="Вернуться">←</button><span class="checkout-provider">Robokassa</span><span class="checkout-safe">Защищённая оплата</span></header><div class="checkout-body"><div class="checkout-merchant"><span class="checkout-merchant-logo">Р</span><div><small>Оплата для</small><strong>Твои рецепты</strong></div></div><div class="checkout-total"><span>К оплате сейчас</span><strong>${price} ₽</strong></div><div class="checkout-order-lines"><span>Твои рецепты Плюс · ${period}</span><b>${price} ₽</b></div><div class="checkout-order-lines muted"><span>Комиссия</span><b>0 ₽</b></div>${payment.recurringSupported ? `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox"><span><strong>${esc(payment.consentText)}</strong><small>${esc(plan.consentTerms)} <a href="/offer.html#auto-renew" target="_blank" rel="noopener">Условия регулярных списаний</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка персональных данных</a>.</small></span></label>` : `<p class="checkout-notice">Сейчас оформляется доступ на ${period} без автоматического продления.</p>`}<button class="checkout-pay" id="checkout-continue">Оплатить ${price} ₽</button><p class="checkout-notice">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Реквизиты карты вводятся только на стороне Robokassa.</p></div></div></main>`;
-  document.querySelector('#checkout-back').onclick = () => { setRoute({ view: 'offer' }); providerOfferPage(); };
-  document.querySelector('#checkout-continue').onclick = async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true; button.textContent = 'Создаём заказ…';
-    try {
-      const autoRenew = document.querySelector('#auto-renew')?.checked === true;
-      const order = await api('/api/billing/orders', { method: 'POST', body: JSON.stringify({ autoRenew, consentVersion: autoRenew ? payment.consentVersion : undefined, periodMonths: plan.months }) });
-      state.checkoutOrder = order;
-      state.paymentResult = 'pending';
-      if (tg?.openLink) tg.openLink(order.paymentUrl);
-      else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
-      setRoute({ view: 'payment-result' });
-      providerPaymentResultPage();
-    } catch (failure) { toast(failure.message); button.disabled = false; button.textContent = `Оплатить ${price} ₽`; }
-  };
+  // Old checkout links return to tariffs; payment starts only on an explicit tap.
+  setRoute({ view: 'offer' }, { replace: true });
+  providerOfferPage();
 }
 
 async function completeProviderPayment(order) {

@@ -10,25 +10,26 @@ test('dinner request locks while it is being saved to prevent duplicate generati
 });
 import vm from 'node:vm';
 
-test('checkout requires an unchecked explicit consent with legal links and sends its version only when selected', async () => {
+test('tariffs require unchecked explicit consent with legal links and send its version only when selected', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
-  const handler = source.slice(source.indexOf('function providerCheckoutPage()'), source.indexOf('\nfunction ', source.indexOf('function providerCheckoutPage()') + 10));
+  const handler = source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()'));
   const nodes = new Map();
   const requests = [];
-  const sandbox = { state: { payment: { hasFirstRecipe: true, recurringSupported: true, consentVersion: 'v1', consentText: 'Согласие на регулярные списания и обработку персональных данных' } }, root: {},
+  const sandbox = { state: { payment: { available: true, hasFirstRecipe: true, recurringSupported: true, consentVersion: 'v1', consentText: 'Согласие на регулярные списания и обработку персональных данных' } }, root: {},
     selectedPaymentPlan: () => ({ months: 3, priceRub: 499, consentTerms: '499 ₽ за 3 месяца. За 24 часа до окончания периода.' }), paymentPeriodLabel: () => '3 месяца', esc: x => x,
-    document: { querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, {}); return nodes.get(selector); } },
-    api: async (url, options) => { requests.push(JSON.parse(options.body)); return { paymentUrl: 'https://example.test' }; },
+    header: () => '', bindCommon() {}, bindPaymentOfferControls() {}, paymentPlanChoices: () => '', paymentMoney: String, paymentPromoControls: () => '',
+    document: { querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, { addEventListener(_event, fn) { this.onclick = fn; } }); return nodes.get(selector); } },
+    api: async (url, options) => { if (url.endsWith('/orders')) requests.push(JSON.parse(options.body)); return { paymentUrl: 'https://example.test' }; },
     setRoute() {}, providerPaymentResultPage() {}, tg: { openLink() {} }, toast: assert.fail };
   vm.runInNewContext(handler, sandbox);
-  sandbox.providerCheckoutPage();
+  sandbox.providerOfferPage();
   assert.match(sandbox.root.innerHTML, /id="auto-renew" type="checkbox">/);
   assert.match(sandbox.root.innerHTML, /href="\/offer.html#auto-renew"/);
   assert.match(sandbox.root.innerHTML, /href="\/privacy.html"/);
   assert.match(sandbox.root.innerHTML, /499 ₽ за 3 месяца/);
   for (const checked of [false, true]) {
     sandbox.document.querySelector('#auto-renew').checked = checked;
-    await nodes.get('#checkout-continue').onclick({ currentTarget: {} });
+    await nodes.get('#offer-pay').onclick({ currentTarget: {} });
   }
   assert.equal(requests[0].autoRenew, false);
   assert.equal(requests[0].consentVersion, undefined);
@@ -216,7 +217,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.61/);
+  assert.match(document, /app\.js\?v=dinner-10\.62/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
