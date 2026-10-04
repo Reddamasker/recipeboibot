@@ -131,6 +131,31 @@ test('tariff payment opens the provider directly for every term and paid promo, 
   }
 });
 
+test('renewal consent remains visible but disabled before provider approval and cannot enable an order', async () => {
+  for (const months of [1, 3, 12]) {
+    const { sandbox, nodes, state, calls } = directOffer({ months });
+    state.payment.consentText = 'Я даю согласие на регулярные списания';
+    state.payment.consentVersion = 'v1';
+    state.payment.plans = state.payment.plans.map(plan => ({ ...plan, consentTerms: `${plan.priceRub} ₽ за выбранный период` }));
+    sandbox.providerOfferPage();
+    assert.match(sandbox.root.innerHTML, /id="auto-renew"[^>]* disabled/);
+    assert.doesNotMatch(sandbox.root.innerHTML, /id="auto-renew"[^>]* checked/);
+    assert.match(sandbox.root.innerHTML, /<strong>Автопродление<\/strong>/);
+    assert.match(sandbox.root.innerHTML, /Автопродление пока недоступно/);
+    assert.match(sandbox.root.innerHTML, /Я даю согласие на регулярные списания/);
+    assert.match(sandbox.root.innerHTML, /href="\/offer.html#auto-renew"/);
+    // Even a manipulated checkbox cannot bypass the server availability flag.
+    nodes['#auto-renew'] = { checked: true };
+    await nodes['#offer-pay'].handler({ currentTarget: {} });
+    assert.equal(calls[0].autoRenew, false);
+    assert.equal(calls[0].consentVersion, undefined);
+    assert.equal(calls[0].periodMonths, months);
+  }
+  const promo = directOffer({ quote: { code: 'DINNER159', priceRub: 159, discountPercent: 20 } });
+  assert.doesNotMatch(promo.sandbox.root.innerHTML, /id="auto-renew"/);
+  assert.match(promo.sandbox.root.innerHTML, /Автопродление по промокоду не подключается/);
+});
+
 test('order failure keeps the selected tariff and restores payment; old checkout links never create an order', async () => {
   const { sandbox, nodes, state, calls, routes, links } = directOffer({ months: 12, fail: true });
   await nodes['#offer-pay'].handler({ currentTarget: {} });
