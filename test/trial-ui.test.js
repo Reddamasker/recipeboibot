@@ -152,8 +152,36 @@ test('renewal consent remains visible but disabled before provider approval and 
     assert.equal(calls[0].periodMonths, months);
   }
   const promo = directOffer({ quote: { code: 'DINNER159', priceRub: 159, discountPercent: 20 } });
-  assert.doesNotMatch(promo.sandbox.root.innerHTML, /id="auto-renew"/);
+  assert.match(promo.sandbox.root.innerHTML, /id="auto-renew"[^>]* disabled/);
+  assert.match(promo.sandbox.root.innerHTML, /Автопродление по промокоду недоступно/);
   assert.match(promo.sandbox.root.innerHTML, /Автопродление по промокоду не подключается/);
+});
+
+test('paid and free promo offers show consent even with recurring enabled or the provider unavailable', async () => {
+  for (const recurringSupported of [false, true]) {
+    for (const discountPercent of [20, 99, 100]) {
+      const { sandbox, nodes, state, calls } = directOffer({ quote: { code: 'PROMO', priceRub: 159, discountPercent } });
+      state.payment.recurringSupported = recurringSupported;
+      state.payment.consentText = 'Согласие на регулярные списания';
+      sandbox.providerOfferPage();
+      assert.match(sandbox.root.innerHTML, /id="auto-renew"[^>]* disabled/);
+      assert.doesNotMatch(sandbox.root.innerHTML, /id="auto-renew"[^>]* checked/);
+      assert.match(sandbox.root.innerHTML, /Автопродление по промокоду недоступно/);
+      assert.match(sandbox.root.innerHTML, /href="\/offer.html#auto-renew"/);
+      if (discountPercent !== 100) {
+        nodes['#auto-renew'] = { checked: true };
+        await nodes['#offer-pay'].handler({ currentTarget: {} });
+        assert.equal(calls[0].autoRenew, false);
+        assert.equal(calls[0].consentVersion, undefined);
+      } else {
+        state.payment.mode = 'unavailable';
+        state.payment.available = false;
+        sandbox.providerOfferPage();
+        assert.match(sandbox.root.innerHTML, /id="auto-renew"[^>]* disabled/);
+        assert.match(sandbox.root.innerHTML, /id="offer-pay">Получить месяц бесплатно/);
+      }
+    }
+  }
 });
 
 test('order failure keeps the selected tariff and restores payment; old checkout links never create an order', async () => {
