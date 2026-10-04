@@ -648,9 +648,9 @@ test('first Start restores chat introduction without requiring ingredients; skip
     const messagesBeforeSkip = sent.filter((body) => body.chat_id).length;
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
-    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeSkip + 2);
-    assert.equal(sent.at(-2).reply_markup.remove_keyboard, true);
-    assert.ok(sent.at(-1).reply_markup.inline_keyboard);
+    assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeSkip + 1);
+    assert.deepEqual(sent.at(-1).reply_markup, { remove_keyboard: true });
+    assert.match(sent.at(-1).text, /Откройте «Меню» рядом с полем ввода/);
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /назовите продукты/);
@@ -712,8 +712,8 @@ test('profile introduction accepts partial text, missing size, correction and co
     assert.ok(dinnerUrl.searchParams.has('launch'));
     activeUser(from);
     await telegramModule.handleMessage({ chat, from, text: '/start' });
-    assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm + 2);
-    assert.ok(sent.at(-1).reply_markup.inline_keyboard);
+    assert.equal(sent.filter((body) => body.chat_id && !body.message_id).length, messagesBeforeConfirm + 1);
+    assert.deepEqual(sent.at(-1).reply_markup, { remove_keyboard: true });
     await telegramModule.handleDinnerIntakeCallback({ id: 'stale-skip', data: 'dinner:skip', message: { chat }, from });
     assert.equal(sent.at(-1).show_alert, true);
     assert.deepEqual(getFoodProfile(user.id).excludedIngredients, ['орехов']);
@@ -1003,7 +1003,7 @@ test('polling completes a dinner callback without routing it as an absent messag
   } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
 });
 
-test('dinner deep link introduces a new client and restores the main menu after explicit skip', async () => {
+test('dinner deep link introduces a new client and points to the persistent menu after explicit skip', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -1014,8 +1014,8 @@ test('dinner deep link introduces a new client and restores the main menu after 
     assert.equal(database.getPendingIntent(database.getUserByTelegramId(6402).id).profileOnly, true);
     await telegramModule.handleMessage({ ...message, text: '/skip' });
     await telegramModule.handleMessage(message);
-    assert.equal(sent.filter((body) => body.chat_id).length, 3);
-    assert.ok(sent.at(-1).reply_markup.inline_keyboard);
+    assert.equal(sent.filter((body) => body.chat_id).length, 2);
+    assert.deepEqual(sent.at(-1).reply_markup, { remove_keyboard: true });
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
 });

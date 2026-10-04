@@ -33,15 +33,6 @@ async function telegram(method, body = {}) {
 }
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: { remove_keyboard: true } } : {}), ...extra });
-const mainKeyboard = () => {
-  const dinnerUrl = webAppUrl({ view: 'dinner' }), collectionUrl = webAppUrl({ view: 'collection' });
-  return { inline_keyboard: [
-    [{ text: 'Что на сегодня 🍽️', ...(dinnerUrl ? { web_app: { url: dinnerUrl } } : { callback_data: 'menu:dinner' }) }],
-    [{ text: 'Хочу конкретное блюдо 🎤', callback_data: 'menu:find' }],
-    [{ text: 'Мои рецепты 📖', ...(collectionUrl ? { web_app: { url: collectionUrl } } : { callback_data: 'menu:collection' }) }],
-    [{ text: 'Обратная связь', ...(webAppUrl({ view: 'feedback' }) ? { web_app: { url: webAppUrl({ view: 'feedback' }) } } : { callback_data: 'menu:feedback' }) }]
-  ] };
-};
 
 export async function handleMainMenuCallback(callback) {
   const match = String(callback.data || '').match(/^menu:(dinner|find|collection|feedback)$/);
@@ -922,8 +913,7 @@ export async function handleMessage(message) {
     await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: открыто главное меню.');
     await sendDinnerEntry(chatId, user.id);
     if (getFoodProfile(user.id).onboardingCompleted) {
-      await send(chatId, 'Выберите действие в меню или напишите, что хотите приготовить.');
-      await send(chatId, '<b>Твои рецепты</b>', { reply_markup: mainKeyboard() });
+      await send(chatId, 'Откройте «Меню» рядом с полем ввода или напишите, что хотите приготовить.');
     }
     await sendTestOffer(chatId, user.id);
     return;
