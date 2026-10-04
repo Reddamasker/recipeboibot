@@ -1395,35 +1395,7 @@ function promoPage(quote = null, promotion = state.payment?.campaignPromotion) {
 }
 
 function trialOfferPage() {
-  const payment = state.payment;
-  const trial = payment.trial;
-  if (trial.used && !payment.active) { providerOfferPage(); return; }
-  const active = payment.active && payment.accessSource === 'trial';
-  const price = payment.offer?.priceRub || 199;
-  const action = trial.eligible
-    ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>'
-    : active
-      ? `${payment.available ? `<button class="primary accent" id="trial-buy-month">Выбрать тариф</button><p class="offer-fineprint">Оплаченный период начнётся после окончания пробного периода.</p>` : '<button class="primary accent" type="button" disabled>Оплата пока подключается</button>'}<button class="secondary trial-return" id="trial-return">Продолжить пробный период</button>`
-      : '<p role="status">Оплата пока подключается. Уже сохранённые рецепты доступны; новых списаний нет.</p>';
-  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${active ? 'Ваши семь дней уже идут' : trial.used ? 'Пробный период закончился' : 'Ваши рецепты. Каждый день.'}</h1><p>${active ? `Полный доступ действует до ${esc(new Date(trial.expiresAt).toLocaleString('ru-RU'))}.` : trial.used ? 'Ваши рецепты сохранены. Для новых подборок, автоматического импорта и напоминаний нужна подписка.' : 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.'}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan"><div class="paywall-trial-card"><strong>${trial.eligible ? '7 дней бесплатно' : active ? 'Пробный доступ активен' : '1 месяц доступа'}</strong><span>${trial.eligible || active ? 'Без карты и списаний' : `${price} ₽`}</span></div><p class="paywall-after">Затем ${price} ₽ в месяц, если решите продолжить. Подписка оформляется отдельно.</p>${action}</section><p class="offer-support"><a href="/?view=promo">У меня есть промокод</a></p><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Условия использования и оплаты</a></p></main>`;
-  bindCommon();
-  document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
-  document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
-  document.querySelector('#trial-buy-month')?.addEventListener('click', () => {
-    state.paymentPeriodMonths = 1;
-    state.paymentPromoQuote = null;
-    providerOfferPage();
-  });
-  document.querySelector('#start-trial')?.addEventListener('click', async (event) => {
-    event.currentTarget.disabled = true;
-    try {
-      state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
-      if (state.payment.accessSource !== 'trial' || !state.payment.active) { trialOfferPage(); return; }
-      setTrialOnboardingStep('taste');
-      setRoute({ view: 'dinner' });
-      await beginDinner(false, true);
-    } catch (error) { toast(error.message); event.currentTarget.disabled = false; }
-  });
+  providerOfferPage();
 }
 
 function offerPage() {
@@ -1514,15 +1486,31 @@ function providerOfferPage() {
   const plan = selectedPaymentPlan();
   const quote = state.paymentPromoQuote;
   const price = quote ? quote.priceRub : plan.priceRub;
-  const canProceed = (payment.available || quote?.discountPercent === 100) && !state.paymentPromoPending;
+  const eligibleTrial = payment.trial?.eligible && !payment.active;
+  const activeTrial = payment.active && payment.accessSource === 'trial';
+  const requiresTrial = eligibleTrial && !payment.hasFirstRecipe && !quote;
+  const canProceed = ((payment.available && !requiresTrial) || quote?.discountPercent === 100) && !state.paymentPromoPending;
   const expiredTrial = payment.trial?.used && !payment.active;
   const renewalAvailable = payment.recurringSupported === true && !quote;
   const renewalStatus = quote ? 'Автопродление по промокоду недоступно. Доступ оформляется без автоматического продления.' : renewalAvailable ? '' : 'Автопродление пока недоступно. Сейчас оплата без автоматического продления.';
   const renewalConsent = `<label class="notification-switch checkout-renew"><input id="auto-renew" type="checkbox" aria-label="Автопродление"${renewalAvailable ? '' : ' disabled aria-describedby="auto-renew-status"'}><span><strong>Автопродление</strong><small>${esc(payment.consentText)} ${quote ? '' : esc(plan.consentTerms)} <a href="/offer.html#auto-renew" target="_blank" rel="noopener">Условия регулярных списаний</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка персональных данных</a>.</small>${renewalStatus ? `<small id="auto-renew-status">${renewalStatus}</small>` : ''}</span></label>`;
-  const title = expiredTrial ? 'Пробный период закончился' : payment.active ? 'Продлить доступ' : 'Ваши рецепты. Каждый день.';
-  const activeCopy = expiredTrial ? 'Ваши рецепты сохранены. Выберите срок подписки, чтобы продолжить.' : payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : payment.hasFirstRecipe ? 'Выберите срок доступа.' : 'Сначала попробуйте бесплатный период.';
-  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : 'Оплата пока подключается'}</button><p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  const title = expiredTrial ? 'Пробный период закончился' : activeTrial ? 'Пробный период активен' : payment.active ? 'Продлить доступ' : 'Ваши рецепты. Каждый день.';
+  const activeCopy = expiredTrial ? 'Ваши рецепты сохранены. Выберите срок подписки, чтобы продолжить.' : activeTrial ? `Полный доступ действует до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}. Оплаченный период начнётся после окончания пробного периода.` : payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : eligibleTrial ? 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.' : 'Выберите срок доступа.';
+  const trialAction = eligibleTrial ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>' : '';
+  const trialReturn = activeTrial ? '<button class="secondary trial-return" id="trial-return">Продолжить пробный период</button>' : '';
+  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${trialAction}${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : requiresTrial ? 'Сначала начните пробный период' : 'Оплата пока подключается'}</button>${trialReturn}<p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
+  document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
+  document.querySelector('#start-trial')?.addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
+      if (state.payment.accessSource !== 'trial' || !state.payment.active) { providerOfferPage(); return; }
+      setTrialOnboardingStep('taste');
+      setRoute({ view: 'dinner' });
+      await beginDinner(false, true);
+    } catch (error) { toast(error.message); event.currentTarget.disabled = false; }
+  });
   document.querySelector('#cancel-auto-renew')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
     try { await api('/api/billing/auto-renew/cancel', { method: 'POST', body: '{}' }); await refresh(); providerOfferPage(); toast('Автопродление отключено. Оплаченный доступ сохранён'); }

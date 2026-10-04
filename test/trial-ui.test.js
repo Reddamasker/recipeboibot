@@ -5,57 +5,39 @@ import vm from 'node:vm';
 const source = fs.readFileSync('public/app.js', 'utf8');
 
 test('trial button starts server entitlement directly without checkout and begins onboarding', async () => {
-  const handlers = {};
-  const nodes = Object.fromEntries(['#offer-back', '#trial-return', '#trial-buy-month', '#trial-subscribe', '#start-trial'].map(id => [id, { addEventListener: (_event, fn) => { handlers[id] = fn; } }]));
-  const root = { innerHTML: '' }, calls = [], steps = [], routes = [], checkouts = [], offers = [];
-  const state = { payment: { available: false, active: false, trial: { eligible: true, used: false } } };
-  const sandbox = { state, root, header: () => '', esc: String, bindCommon() {}, document: { querySelector: id => nodes[id] },
-    api: async (path, options) => { calls.push([path, options.method]); return { active: true, accessSource: 'trial', trial: { used: true, eligible: false, expiresAt: '2026-10-06T10:00:00Z' } }; },
-    setTrialOnboardingStep: s => steps.push(s), setRoute: route => routes.push(route), checkoutPage: () => checkouts.push(true), providerOfferPage: () => offers.push(true), beginDinner: async (...args) => steps.push(args), render() {}, toast: assert.fail };
-  vm.runInNewContext(source.slice(source.indexOf('function trialOfferPage()'), source.indexOf('\nfunction offerPage()')), sandbox);
-  sandbox.trialOfferPage();
-  assert.match(root.innerHTML, /7 дней бесплатно/);
-  assert.match(root.innerHTML, /Без карты и автоматического списания/);
-  await handlers['#start-trial']({ currentTarget: { disabled: false } });
+  const { sandbox, nodes, state, calls, steps, routes } = combinedOfferHarness({ ...expiredPayment,
+    available: false, hasFirstRecipe: false, trial: { eligible: true, used: false } });
+  assert.match(sandbox.root.innerHTML, /7 дней бесплатно/);
+  assert.match(sandbox.root.innerHTML, /Без карты и автоматического списания/);
+  assert.equal(calls.length, 0); // Rendering never starts trial or creates an order.
+  await nodes['#start-trial'].handler({ currentTarget: { disabled: false } });
   assert.deepEqual(calls, [['/api/billing/trial', 'POST']]);
   assert.deepEqual(steps, ['taste', [false, true]]);
+  assert.equal(routes[0].view, 'dinner');
   assert.equal(state.payment.active, true);
-  state.payment.active = false;
-  state.payment.accessSource = null;
-  root.innerHTML = '';
-  sandbox.trialOfferPage();
-  assert.equal(offers.length, 1);
-  assert.equal(root.innerHTML, ''); // Expired access goes straight to the combined tariff page.
-
-  state.payment = { available: true, active: true, accessSource: 'trial', offer: { priceRub: 199 }, trial: { eligible: false, used: true, expiresAt: '2026-10-06T10:00:00Z' } };
-  state.paymentPromoQuote = { discountPercent: 99 };
-  sandbox.trialOfferPage();
-  assert.match(root.innerHTML, /Выбрать тариф/);
-  assert.match(root.innerHTML, /Оплаченный период начнётся после окончания пробного периода/);
-  handlers['#trial-buy-month']();
-  assert.equal(state.paymentPeriodMonths, 1);
-  assert.equal(state.paymentPromoQuote, null);
-  assert.equal(offers.length, 2);
-  assert.equal(checkouts.length, 0);
-  state.payment.active = false;
-  state.payment.accessSource = null;
-  sandbox.trialOfferPage();
-  assert.equal(offers.length, 3);
 });
 
-function combinedOffer(payment, quote = null) {
-  const nodes = {};
+function combinedOfferHarness(payment, quote = null) {
+  const nodes = {}, calls = [], steps = [], routes = [];
   const state = { payment, paymentPeriodMonths: quote?.periodMonths || 1, paymentPromoQuote: quote, paymentPromoMessage: '' };
   const root = { innerHTML: '' };
   const sandbox = { state, root, esc: String, header: () => '', bindCommon() {}, bindPaymentOfferControls() {},
-    document: { querySelector: id => nodes[id] ||= { addEventListener() {} } }, api: async () => ({}),
-    setRoute() {}, render() {}, toast: assert.fail };
+    document: { querySelector: id => nodes[id] ||= { addEventListener(_event, fn) { this.handler = fn; } } },
+    api: async (path, options) => {
+      if (path.endsWith('/exposure')) return {};
+      calls.push([path, options.method]);
+      return { ...payment, active: true, accessSource: 'trial', trial: { used: true, eligible: false, expiresAt: '2026-10-08T10:00:00Z' } };
+    },
+    setTrialOnboardingStep: step => steps.push(step), beginDinner: async (...args) => steps.push(args),
+    setRoute: route => routes.push(route), render() {}, toast: assert.fail };
   vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function bindPaymentOfferControls()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function trialOfferPage()'), source.indexOf('\nfunction checkoutPage()')), sandbox);
   sandbox.offerPage();
-  return root.innerHTML;
+  return { sandbox, nodes, state, calls, steps, routes };
 }
+
+const combinedOffer = (payment, quote) => combinedOfferHarness(payment, quote).sandbox.root.innerHTML;
 
 const expiredPayment = {
   active: false, hasFirstRecipe: true, mode: 'provider', trial: { used: true, eligible: false },
@@ -65,6 +47,48 @@ const expiredPayment = {
     { months: 12, priceRub: 1499, fullPriceRub: 2388, savingRub: 889, discountPercent: 37 }
   ]
 };
+
+test('the same three tariffs appear before trial, during trial, after trial and with paid access', () => {
+  const trial = { used: true, eligible: false, expiresAt: '2026-10-08T10:00:00Z' };
+  for (const available of [true, false]) {
+    for (const status of [
+      { hasFirstRecipe: false, trial: { used: false, eligible: true } },
+      { active: true, accessSource: 'trial', trial },
+      { active: false, trial },
+      { active: true, accessSource: 'subscription', trial, expiresAt: '2026-11-08T10:00:00Z' }
+    ]) {
+      const { sandbox, calls } = combinedOfferHarness({ ...expiredPayment, available, ...status });
+      const html = sandbox.root.innerHTML;
+      assert.equal((html.match(/<h1>/g) || []).length, 1);
+      assert.equal((html.match(/data-period-months=/g) || []).length, 3);
+      assert.doesNotMatch(html, /trial-buy-month|trial-subscribe|paywall-trial-card|paywall-after|Выбрать тариф/);
+      assert.equal(calls.length, 0);
+      if (status.trial.eligible) {
+        assert.match(html, /id="start-trial"/);
+        assert.match(html, /id="offer-pay" disabled>Сначала начните пробный период/);
+      } else if (status.accessSource === 'trial') {
+        assert.match(html, /Пробный период активен/);
+        assert.match(html, /08\.10\.2026/);
+        assert.match(html, /Оплаченный период начнётся после окончания пробного периода/);
+        assert.match(html, /id="trial-return"/);
+        assert.match(html, available ? /id="offer-pay">Оплатить 199 ₽/ : /id="offer-pay" disabled/);
+      } else if (status.active) assert.match(html, /Продлить доступ/);
+      else assert.match(html, /Пробный период закончился/);
+    }
+  }
+});
+
+test('active trial keeps the selected promo term on the combined page and returns to recipes', () => {
+  const quote = { code: 'DINNER159', periodMonths: 12, priceRub: 1199, discountPercent: 20 };
+  const { sandbox, nodes, state, calls, routes } = combinedOfferHarness({ ...expiredPayment, available: true,
+    active: true, accessSource: 'trial', trial: { used: true, expiresAt: '2026-10-08T10:00:00Z' } }, quote);
+  assert.match(sandbox.root.innerHTML, /data-period-months="12" aria-pressed="true"/);
+  assert.match(sandbox.root.innerHTML, /id="offer-pay">Оплатить 1 199 ₽/);
+  assert.equal(state.paymentPromoQuote, quote);
+  nodes['#trial-return'].handler();
+  assert.equal(Object.keys(routes[0]).length, 0);
+  assert.equal(calls.length, 0);
+});
 
 test('expired trial immediately shows one page with expiry message and all tariffs, including unavailable payments', () => {
   for (const available of [true, false]) {
