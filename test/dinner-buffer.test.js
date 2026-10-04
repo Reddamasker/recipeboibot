@@ -10,9 +10,9 @@ process.env.TELEGRAM_BOT_TOKEN = 'test-bot-token';
 process.env.DINNER_LLM_ENABLED = 'true';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser: rawUpsertTelegramUser, listRecipes, getRecipeImage, allowUser } = await import('../src/db.js');
-const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner } = await import('../src/dinner-service.js');
+const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner, dinnerContext } = await import('../src/dinner-service.js');
 const { SEED_RECIPES, hasExcludedIngredient, recipeCategories } = await import('../src/dinner.js');
-const { backfillAcceptedDinnerRecipes, listDinnerOptions, setDinnerContext, setDinnerOptionImage } = await import('../src/dinner-store.js');
+const { backfillAcceptedDinnerRecipes, listDinnerOptions, setDinnerContext, setDinnerOptionImage, insertDinnerOption, invalidateDinnerBuffer, promoteDinnerOptions } = await import('../src/dinner-store.js');
 const { validateGeneratedDinner, rotateDinnerCandidates, dinnerContextKey } = await import('../src/dinner-buffer.js');
 const { extractDinnerIntake, generateDinnerRecipes } = await import('../src/openai.js');
 const { startTrial } = await import('../src/subscriptions.js');
@@ -69,6 +69,42 @@ test('all house recipes have a complete recipe and a reusable local JPEG', () =>
     const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
     assert.equal(bytes.readUInt16BE(0), 0xffd8);
   }
+});
+
+test('polling completes an existing pair from ready recipes once and keeps both cards in place', async () => {
+  const user = fixture(640), { sessionId } = startDinner(user.id);
+  invalidateDinnerBuffer(user.id, sessionId, dinnerContextKey(dinnerContext(user.id, sessionId)));
+  const source = batch();
+  const roles = ['familiar', 'variety', 'familiar', 'quick', 'quick', 'variety'];
+  const options = source.map((item, index) => ({ ...item, id: `pair-${index}`, role: roles[index], method: 'generated', categories: recipeCategories(item.recipe) }));
+  for (const option of options) insertDinnerOption(user.id, sessionId, option, option.recipe.title);
+  promoteDinnerOptions(user.id, sessionId, options.slice(0, 2).map(option => option.id));
+  const generate = async () => assert.fail('ready reserve is sufficient');
+  const result = prefetchDinner(user.id, sessionId, { generate, images: false });
+  assert.deepEqual(result.recommendations.map(option => option.id), ['pair-0', 'pair-1', 'pair-3']);
+  assert.equal(result.reserve.length, 3);
+  const repeated = await Promise.all([recommendDinner(user.id, sessionId, { generate }), recommendDinner(user.id, sessionId, { generate })]);
+  for (const response of repeated) assert.deepEqual(response.recommendations.map(option => option.id), result.recommendations.map(option => option.id));
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM dinner_events WHERE session_id=? AND event='recommendation_shown'").get(sessionId).n, 3);
+  decideDinner(user.id, result.recommendation.id, 'accepted');
+  promoteDinnerOptions(user.id, sessionId, result.reserve.map(option => option.id), { complete: true });
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM dinner_events WHERE session_id=? AND event='recommendation_shown'").get(sessionId).n, 3);
+});
+
+test('completion leaves the single first free recipe unchanged', () => {
+  const user = fixture(641), { sessionId } = startDinner(user.id);
+  const options = batch().slice(0, 3).map((item, index) => ({ ...item, id: `free-${index}`, method: index ? 'generated' : 'first_recipe', categories: recipeCategories(item.recipe) }));
+  for (const option of options) insertDinnerOption(user.id, sessionId, option, option.recipe.title);
+  promoteDinnerOptions(user.id, sessionId, [options[0].id]);
+  assert.deepEqual(promoteDinnerOptions(user.id, sessionId, options.slice(1).map(option => option.id), { complete: true }).map(option => option.id), ['free-0']);
+});
+
+test('saved and catalog copies count as one dish before rotation fills a trio', () => {
+  const recipes = batch().slice(0, 3).map(item => item.recipe);
+  const saved = { ...recipes[0], id: 'saved-copy', userSaved: true };
+  const ranked = [saved, ...recipes].map((recipe, index) => ({ recipe, score: 100 - index }));
+  const shown = [{ recipe: recipes[2], createdAt: new Date().toISOString() }];
+  assert.deepEqual(rotateDinnerCandidates(ranked, shown).map(item => item.recipe.id), [saved.id, recipes[1].id, recipes[2].id]);
 });
 
 test('house catalog covers families, fish, meatless meals, soups and varied discoveries', () => {
