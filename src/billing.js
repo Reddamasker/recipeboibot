@@ -322,7 +322,7 @@ function confirmRobokassaPayment({ outSum, invId, signatureHash, paymentMethod, 
           VALUES(?,1,?,?,?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,parent_inv_id=excluded.parent_inv_id,amount_kopeks=excluded.amount_kopeks,period_months=excluded.period_months,next_charge_at=excluded.next_charge_at,retry_count=0,cancelled_at=NULL,updated_at=excluded.updated_at`)
           .run(current.user_id, current.inv_id, current.amount_kopeks, current.period_months || 1, new Date(Date.parse(expiresAt) - 24 * 60 * 60 * 1000).toISOString(), timestamp);
       } else if (current.kind === 'recurring') {
-        db.prepare('UPDATE payment_recurring SET next_charge_at=?,retry_count=0,updated_at=? WHERE user_id=?')
+        db.prepare('UPDATE payment_recurring SET next_charge_at=?,retry_count=0,updated_at=? WHERE user_id=? AND enabled=1')
           .run(new Date(Date.parse(expiresAt) - 24 * 60 * 60 * 1000).toISOString(), timestamp, current.user_id);
       }
     }
@@ -423,6 +423,7 @@ async function submitRecurring(order, transport = fetch) {
     SignatureValue: signatureForOrder(order, { recurringChild: true }),
     Receipt: receiptFor(order),
     ResultUrl2: `${config.appUrl}/api/payments/robokassa/result`,
+    Shp_contour: config.testContour ? 'test' : 'production',
     ...(config.robokassaTest ? { IsTest: '1' } : {})
   });
   const response = await transport(RECURRING_ACTION, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' }, body: fields, signal: AbortSignal.timeout(15000) });
@@ -437,8 +438,18 @@ export async function runRecurringCycle(at = new Date(), transport = fetch) {
   if (recurringCycleRunning || !config.robokassaConfigured || !config.robokassaRecurring) return;
   recurringCycleRunning = true;
   try {
-    const due = db.prepare('SELECT * FROM payment_recurring WHERE enabled=1 AND next_charge_at IS NOT NULL AND next_charge_at<=? ORDER BY next_charge_at LIMIT 20').all(nowIso(at));
+    // Only a confirmed parent from this payment mode with recorded consent may renew.
+    const due = db.prepare(`SELECT r.* FROM payment_recurring r
+      JOIN payment_orders p ON p.inv_id=r.parent_inv_id AND p.user_id=r.user_id
+      WHERE r.enabled=1 AND r.next_charge_at IS NOT NULL AND r.next_charge_at<=?
+        AND p.kind='initial' AND p.status='paid' AND p.auto_renew=1 AND p.is_test=?
+        AND EXISTS(SELECT 1 FROM payment_consent_history c WHERE c.inv_id=p.inv_id AND c.user_id=r.user_id AND c.action='granted')
+      ORDER BY r.next_charge_at LIMIT 20`).all(nowIso(at), config.robokassaTest || config.testContour ? 1 : 0);
     for (const recurring of due) {
+      // Another request may cancel or replace a subscription while the previous transport is awaited.
+      if (!db.prepare(`SELECT 1 FROM payment_recurring WHERE user_id=? AND enabled=1
+        AND parent_inv_id=? AND next_charge_at IS NOT NULL AND next_charge_at<=?`)
+        .get(recurring.user_id, recurring.parent_inv_id, nowIso(at))) continue;
       const pending = db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='recurring' AND status='pending' ORDER BY created_at DESC LIMIT 1").get(recurring.user_id);
       if (pending && Date.parse(pending.created_at) > at.getTime() - 36 * 60 * 60 * 1000) continue;
       if (pending) db.prepare("UPDATE payment_orders SET status='failed',updated_at=? WHERE inv_id=?").run(nowIso(at), pending.inv_id);
@@ -449,12 +460,16 @@ export async function runRecurringCycle(at = new Date(), transport = fetch) {
       const order = createRecurringOrder(recurring, at);
       try {
         await submitRecurring(order, transport);
-        db.prepare('UPDATE payment_recurring SET last_attempt_at=?,next_charge_at=?,updated_at=? WHERE user_id=?')
-          .run(nowIso(at), new Date(at.getTime() + 36 * 60 * 60 * 1000).toISOString(), nowIso(at), recurring.user_id);
+        db.prepare(`UPDATE payment_recurring SET last_attempt_at=?,next_charge_at=?,updated_at=?
+          WHERE user_id=? AND enabled=1 AND parent_inv_id=?
+          AND EXISTS(SELECT 1 FROM payment_orders WHERE inv_id=? AND status='pending')`)
+          .run(nowIso(at), new Date(at.getTime() + 36 * 60 * 60 * 1000).toISOString(), nowIso(at), recurring.user_id, recurring.parent_inv_id, order.inv_id);
       } catch (cause) {
-        db.prepare("UPDATE payment_orders SET status='failed',updated_at=? WHERE inv_id=?").run(nowIso(at), order.inv_id);
-        db.prepare('UPDATE payment_recurring SET retry_count=retry_count+1,last_attempt_at=?,next_charge_at=?,updated_at=? WHERE user_id=?')
-          .run(nowIso(at), new Date(at.getTime() + 12 * 60 * 60 * 1000).toISOString(), nowIso(at), recurring.user_id);
+        db.prepare("UPDATE payment_orders SET status='failed',updated_at=? WHERE inv_id=? AND status='pending'").run(nowIso(at), order.inv_id);
+        db.prepare(`UPDATE payment_recurring SET retry_count=retry_count+1,last_attempt_at=?,next_charge_at=?,updated_at=?
+          WHERE user_id=? AND enabled=1 AND parent_inv_id=?
+          AND EXISTS(SELECT 1 FROM payment_orders WHERE inv_id=? AND status='failed')`)
+          .run(nowIso(at), new Date(at.getTime() + 12 * 60 * 60 * 1000).toISOString(), nowIso(at), recurring.user_id, recurring.parent_inv_id, order.inv_id);
         log('warn', 'payment_recurring_failed', { error: cause, invId: order.inv_id });
       }
     }

@@ -327,6 +327,7 @@ test('recurring cycle creates a signed child order, callback extends access, and
   const child = db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='recurring' ORDER BY inv_id DESC LIMIT 1").get(user.id);
   assert.equal(submitted.body.get('PreviousInvoiceID'), String(recurring.parent_inv_id));
   assert.equal(submitted.body.get('InvoiceID'), String(child.inv_id));
+  assert.equal(submitted.body.get('Shp_contour'), 'test');
   assert.equal(submitted.body.get('SignatureValue'), digest([
     process.env.ROBOKASSA_MERCHANT_LOGIN,
     (child.amount_kopeks / 100).toFixed(2),
@@ -342,4 +343,59 @@ test('recurring cycle creates a signed child order, callback extends access, and
   assert.equal(getSubscriptionAccess(user.id, new Date('2026-10-27T12:05:00.000Z')).expiresAt, '2026-11-28T11:00:00.000Z');
   assert.equal(cancelAutoRenew(user.id).enabled, false);
   assert.equal(getBillingOffer(user.id).recurring.nextChargeAt, null);
+});
+
+test('recurring callbacks during submission preserve the paid period even after a transport error', async () => {
+  db.prepare('UPDATE payment_recurring SET next_charge_at=NULL').run();
+  const at = new Date('2026-11-01T12:00:00Z');
+  for (const fails of [false, true]) {
+    const account = upsertTelegramUser({ id: fails ? 600000102 : 600000101, first_name: 'Fast callback' });
+    startTrial(account.id, at);
+    const parent = createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, at);
+    callback(parent, at);
+    const due = new Date(db.prepare('SELECT next_charge_at FROM payment_recurring WHERE user_id=?').get(account.id).next_charge_at);
+    await runRecurringCycle(due, async (_, options) => {
+      const child = db.prepare('SELECT id FROM payment_orders WHERE inv_id=?').get(Number(options.body.get('InvoiceID')));
+      callback(getPaymentOrder(account.id, child.id), due);
+      if (fails) throw new Error('response lost after payment');
+      return { ok: true, status: 200, text: async () => `OK+${options.body.get('InvoiceID')}` };
+    });
+    const renewal = getBillingOffer(account.id, due).recurring;
+    assert.equal(renewal.nextChargeAt, new Date(Date.parse(getSubscriptionAccess(account.id, due).expiresAt) - 86400000).toISOString());
+    assert.equal(db.prepare("SELECT status FROM payment_orders WHERE user_id=? AND kind='recurring'").get(account.id).status, 'paid');
+    cancelAutoRenew(account.id, due);
+  }
+});
+
+test('cancellation during recurring submission leaves no next charge after a late paid callback', async () => {
+  const account = upsertTelegramUser({ id: 600000103, first_name: 'Cancel pending' });
+  const at = new Date('2026-11-01T12:00:00Z');
+  startTrial(account.id, at);
+  callback(createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, at), at);
+  const due = new Date(db.prepare('SELECT next_charge_at FROM payment_recurring WHERE user_id=?').get(account.id).next_charge_at);
+  await runRecurringCycle(due, async (_, options) => {
+    cancelAutoRenew(account.id, due);
+    const child = db.prepare('SELECT id FROM payment_orders WHERE inv_id=?').get(Number(options.body.get('InvoiceID')));
+    callback(getPaymentOrder(account.id, child.id), due);
+    return { ok: true, status: 200, text: async () => `OK+${options.body.get('InvoiceID')}` };
+  });
+  assert.equal(getBillingOffer(account.id, due).recurring.enabled, false);
+  assert.equal(getBillingOffer(account.id, due).recurring.nextChargeAt, null);
+});
+
+test('recurring skips parents with unknown or other payment mode and missing consent', async () => {
+  const at = new Date('2026-11-01T12:00:00Z');
+  for (const [index, mode] of [null, 0, 1].entries()) {
+    const account = upsertTelegramUser({ id: 600000104 + index, first_name: 'Parent guard' });
+    startTrial(account.id, at);
+    const parent = createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, at);
+    callback(parent, at);
+    db.prepare('UPDATE payment_orders SET is_test=? WHERE inv_id=?').run(mode, parent.invId);
+    if (mode === 1) db.prepare('DELETE FROM payment_consent_history WHERE user_id=?').run(account.id);
+    const due = new Date(db.prepare('SELECT next_charge_at FROM payment_recurring WHERE user_id=?').get(account.id).next_charge_at);
+    let submissions = 0;
+    await runRecurringCycle(due, async () => { submissions++; throw new Error('unexpected charge'); });
+    assert.equal(submissions, 0);
+    cancelAutoRenew(account.id, due);
+  }
 });
