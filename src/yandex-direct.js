@@ -31,6 +31,26 @@ export function directImportStatus(slug) {
     syncedAt: row.synced_at, attemptedAt: row.attempted_at, status: row.status, error: row.error,
     includesVat: true, reachAvailable: false };
 }
+function aggregateDirectStats(rows) {
+  // A placement alias must not count the same external campaign twice.
+  const byCampaign = new Map();
+  for (const row of rows) {
+    const previous = byCampaign.get(row.campaignId);
+    if (!previous || (row.syncedAt || '') >= (previous.syncedAt || '')) byCampaign.set(row.campaignId, row);
+  }
+  const available = [...byCampaign.values()].filter(row => [row.impressions, row.clicks, row.costRub].every(value => value !== null));
+  const sum = key => available.length ? available.reduce((total, row) => total + row[key], 0) : null;
+  const clicks = sum('clicks'), impressions = sum('impressions');
+  const costRub = available.length ? available.reduce((total, row) => total + Math.round(row.costRub * 100), 0) / 100 : null;
+  const times = available.map(row => row.syncedAt).filter(Boolean).sort();
+  const errors = rows.filter(row => row.status === 'error');
+  return { aggregate: true, campaignId: null, campaignCount: byCampaign.size, includedCampaignCount: available.length,
+    impressions, clicks, costRub, cpcRub: clicks ? Number((costRub / clicks).toFixed(2)) : null,
+    syncedAt: times[0] || null, attemptedAt: rows.map(row => row.attemptedAt).filter(Boolean).sort().at(-1) || null,
+    status: errors.length ? 'error' : rows.some(row => row.status === 'waiting') ? 'waiting' : 'ready',
+    error: errors.length ? 'Часть кампаний не обновилась. Последние доступные данные сохранены.' : null,
+    includesVat: true, reachAvailable: false };
+}
 export function dashboardFunnelReport(slug = 'all') {
   const report = funnelReport(slug);
   report.linkRequests = report.clicks;
@@ -40,21 +60,49 @@ export function dashboardFunnelReport(slug = 'all') {
   const hasDirect = scope.some(campaign => imported.get(campaign.slug));
   report.clickSource = hasDirect ? 'direct' : 'link';
   if (hasDirect) {
-    // Unknown clicks from another placement cannot be replaced with URL requests.
-    const rows = scope.map(campaign => imported.get(campaign.slug));
-    report.clicks = rows.every(row => row?.clicks !== null && row?.clicks !== undefined)
-      ? rows.reduce((sum, row) => sum + row.clicks, 0) : null;
+    // Advertising totals cover imported Direct campaigns; organic URL requests
+    // remain separate and cannot erase or inflate the advertising statistics.
+    const campaigns = scope.filter(campaign => imported.get(campaign.slug));
+    const rows = campaigns.map(campaign => imported.get(campaign.slug));
+    const stats = report.campaign ? rows[0] : aggregateDirectStats(rows);
+    report.directStats = stats;
+    report.impressions = stats.impressions;
+    report.clicks = stats.clicks;
+    report.advertisingCoverage = { campaignCount: stats.aggregate ? stats.campaignCount : rows.length,
+      includedCampaignCount: report.campaign ? Number(stats.clicks !== null) : stats.includedCampaignCount };
+    if (!report.campaign) {
+      const included = campaigns.filter(campaign => {
+        const row = imported.get(campaign.slug);
+        return [row.impressions, row.clicks, row.costRub].every(value => value !== null);
+      }).map(campaign => campaign.slug);
+      report.convertedClicks = included.length ? db.prepare(`SELECT COUNT(DISTINCT s.click_token) AS count
+        FROM acquisition_starts s JOIN users u ON u.id=s.user_id
+        JOIN acquisition_clicks c ON c.token=s.click_token AND c.campaign=s.campaign
+        WHERE s.campaign IN (${included.map(() => '?').join(',')}) AND s.is_returning=0
+        AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(...included, config.analyticsOwnerId).count : null;
+    }
     report.conversions.clickFromImpression = report.clicks !== null && report.impressions
       ? Number((100 * report.clicks / report.impressions).toFixed(1)) : null;
-    report.conversions.startFromClick = report.campaign && report.clicks
+    report.conversions.startFromClick = report.clicks
       ? Number((100 * report.convertedClicks / report.clicks).toFixed(1)) : null;
   } else {
     // Requests to a redirect are not confirmed advertising clicks or CTR.
     report.conversions.clickFromImpression = null;
   }
-  report.directStats = directImportStatus(report.campaign?.slug || config.yandexDirectPlacement);
+  if (!hasDirect) report.directStats = report.campaign ? null : directImportStatus(config.yandexDirectPlacement);
   report.defaultCampaign = imported.get(config.yandexDirectPlacement) ? config.yandexDirectPlacement : null;
   return report;
+}
+function configuredDirectSettings() {
+  return [config.yandexDirectPlacement, ...(config.yandexDirectLandingCampaignId ? ['ya-dinner-landing-202610'] : []),
+    ...(config.yandexDirectOutsideCampaignId ? ['ya-dinner-outside-202610'] : [])].map(slug => directImportSettings(slug));
+}
+export async function syncDirectCampaigns(slug = 'all', options = {}) {
+  if (slug !== 'all') return syncDirectStats({ ...options, settings: directImportSettings(slug) });
+  const results = await Promise.allSettled(configuredDirectSettings().map(settings => syncDirectStats({ ...options, settings })));
+  const failed = results.find(result => result.status === 'rejected');
+  if (failed) throw failed.reason;
+  return { campaigns: results.map(result => result.value) };
 }
 export function directReportRequest(campaignId, at = new Date()) {
   if (!/^[1-9]\d{0,15}$/.test(String(campaignId))) throw new Error('Неверный ID кампании Директа');
@@ -136,9 +184,7 @@ async function importReport(settings, transport, at, wait) {
 export function startDirectScheduler() {
   if (timer || !config.yandexDirectToken || config.testContour || config.dashboardPreview) return;
   const tick = () => {
-    const slugs = [config.yandexDirectPlacement, ...(config.yandexDirectLandingCampaignId ? ['ya-dinner-landing-202610'] : []),
-      ...(config.yandexDirectOutsideCampaignId ? ['ya-dinner-outside-202610'] : [])];
-    for (const slug of slugs) void syncDirectStats({ settings: directImportSettings(slug) }).catch(error => log('warn', 'direct_import_failed', { slug, error }));
+    for (const settings of configuredDirectSettings()) void syncDirectStats({ settings }).catch(error => log('warn', 'direct_import_failed', { slug: settings.slug, error }));
   };
   void tick();
   timer = setInterval(tick, DIRECT_SYNC_INTERVAL_MS); timer.unref?.();

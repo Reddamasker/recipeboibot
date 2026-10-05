@@ -6,12 +6,14 @@ import { randomUUID } from 'node:crypto';
 const file = path.resolve('data', `direct-test-${randomUUID()}.sqlite`);
 process.env.DATABASE_PATH = file;
 process.env.TELEGRAM_POLLING = 'false';
-process.env.YANDEX_DIRECT_TOKEN = '';
+process.env.YANDEX_DIRECT_TOKEN = 'private-test-token';
+process.env.TEST_CONTOUR = 'false';
+process.env.DASHBOARD_PREVIEW = 'false';
 process.env.YANDEX_DIRECT_LANDING_CAMPAIGN_ID = '715100001';
 process.env.YANDEX_DIRECT_OUTSIDE_CAMPAIGN_ID = '715100002';
 const { db, upsertTelegramUser, allowUser } = await import('../src/db.js');
 const { funnelReport, createCampaign, setCampaignStats, advertisingRedirect, recordBotStart } = await import('../src/funnel.js');
-const { directImportSettings, directReportRequest, parseDirectReport, syncDirectStats, directImportStatus, dashboardFunnelReport, DIRECT_REPORT_URL, DIRECT_SYNC_INTERVAL_MS } = await import('../src/yandex-direct.js');
+const { directImportSettings, directReportRequest, parseDirectReport, syncDirectStats, syncDirectCampaigns, directImportStatus, dashboardFunnelReport, DIRECT_REPORT_URL, DIRECT_SYNC_INTERVAL_MS } = await import('../src/yandex-direct.js');
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(file + suffix); } catch {} } });
 const settings = { token: 'private-test-token', login: 'test-advertiser', campaignId: '715053149', slug: 'direct-fixture' };
 const tsv = 'CampaignId\tImpressions\tClicks\tCost\n715053149\t100\t3\t16.47\n';
@@ -85,9 +87,11 @@ test('dashboard uses two Direct clicks instead of 100 redirect requests and excl
   assert.equal(report.defaultCampaign, slug);
   assert.equal(report.campaigns.find(c => c.slug === slug).statsSource, 'direct');
   assert.equal(dashboardFunnelReport().totals.starts, 2);
-  assert.equal(dashboardFunnelReport().conversions.startFromClick, null);
-  // The manual placement has no confirmed advertising clicks: do not invent a total.
-  assert.equal(dashboardFunnelReport().clicks, null);
+  assert.equal(dashboardFunnelReport().conversions.startFromClick, 50);
+  // Organic and manual URL requests must not erase or inflate Direct totals.
+  assert.equal(dashboardFunnelReport().clicks, 2);
+  assert.equal(dashboardFunnelReport().impressions, 34);
+  assert.equal(dashboardFunnelReport().directStats.costRub, 5.45);
   assert.equal(dashboardFunnelReport('other-placement').clickSource, 'link');
   assert.equal(dashboardFunnelReport('other-placement').conversions.clickFromImpression, null);
 
@@ -145,4 +149,75 @@ test('manual refresh resolves each registered placement to its own Direct campai
   assert.equal(directImportSettings('ya-dinner-landing-202610').campaignId, '715100001');
   assert.equal(directImportSettings('ya-dinner-outside-202610').campaignId, '715100002');
   assert.throws(() => directImportSettings('unknown-campaign'), /не подключена/);
+});
+
+test('all-users view sums three advertising campaigns, preserves organic users, and reports incomplete imports explicitly', async () => {
+  createCampaign('site-landing', 'Лендинг — прямые посещения');
+  for (let i = 0; i < 12; i++) advertisingRedirect('site-landing');
+  const organic = upsertTelegramUser({ id: 800000004 });
+  recordBotStart(organic, '/start'); allowUser(organic.id);
+  const values = { '715053149': [200, 10, '10.10'], '715100001': [50, 2, '5.05'], '715100002': [0, 0, '0.00'] };
+  const options = { at: new Date('2030-01-01T00:00:00Z'), transport: async (_url, request) => {
+    const id = JSON.parse(request.body).params.SelectionCriteria.Filter[0].Values[0];
+    return new Response(`CampaignId\tImpressions\tClicks\tCost\n${id}\t${values[id].join('\t')}\n`);
+  } };
+  await syncDirectCampaigns('all', options);
+  const report = dashboardFunnelReport();
+  assert.equal(report.impressions, 250); assert.equal(report.clicks, 12);
+  assert.equal(report.directStats.costRub, 15.15); assert.equal(report.directStats.cpcRub, 1.26);
+  assert.equal(report.directStats.aggregate, true);
+  assert.deepEqual(report.advertisingCoverage, { campaignCount: 3, includedCampaignCount: 3 });
+  assert.equal(report.totals.starts, 3);
+  assert.equal(report.convertedClicks, 1);
+  assert.equal(report.conversions.startFromClick, 8.3);
+  assert.equal(report.conversions.clickFromImpression, 4.8);
+  const selected = dashboardFunnelReport('ya-dinner-landing-202610');
+  assert.equal(selected.clicks, 2); assert.equal(selected.directStats.costRub, 5.05);
+  assert.equal(selected.directStats.aggregate, undefined);
+  const { createServer } = await import('../src/server.js');
+  const { createDashboardPassword, openDashboardSession } = await import('../src/funnel-auth.js');
+  const cookie = `funnel_session=${openDashboardSession(createDashboardPassword())}`;
+  const server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const originalFetch = globalThis.fetch, requested = [];
+  globalThis.fetch = async (url, input) => {
+    if (String(url) !== DIRECT_REPORT_URL) return originalFetch(url, input);
+    requested.push(JSON.parse(input.body).params.SelectionCriteria.Filter[0].Values[0]);
+    return options.transport(url, input);
+  };
+  try {
+    const page = await fetch(`http://127.0.0.1:${server.address().port}/dashboard?campaign=all`);
+    assert.equal(page.headers.get('cache-control'), 'no-store', 'Dashboard must pick up the current client after a release');
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/dashboard/direct-sync`, {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-funnel-request': '1' }, body: JSON.stringify({ campaign: 'all' }) });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).campaigns.length, 3);
+    assert.deepEqual(requested.sort(), ['715053149', '715100001', '715100002']);
+  } finally { globalThis.fetch = originalFetch; await new Promise(resolve => server.close(resolve)); }
+  // Restore the unknown-import scenario without throwing away known campaigns.
+  db.prepare("UPDATE acquisition_direct_stats SET impressions=NULL,clicks=NULL,cost_kopeks=NULL,synced_at=NULL,status='waiting' WHERE slug='ya-dinner-outside-202610'").run();
+  const partial = dashboardFunnelReport();
+  assert.equal(partial.clicks, 12); assert.equal(partial.impressions, 250);
+  assert.equal(partial.advertisingCoverage.includedCampaignCount, 2);
+  assert.equal(partial.advertisingCoverage.campaignCount, 3);
+  assert.equal(partial.directStats.status, 'error'); // existing fixture failure remains visible
+  assert.equal(dashboardFunnelReport('ya-dinner-outside-202610').clicks, null);
+});
+
+test('all-users refresh updates every configured campaign even when one import fails', async () => {
+  const seen = [], options = { at: new Date('2030-01-02T00:00:00Z'), transport: async (_url, request) => {
+    const id = JSON.parse(request.body).params.SelectionCriteria.Filter[0].Values[0]; seen.push(id);
+    if (id === '715100002') return new Response('{}', { status: 403 });
+    return new Response(`CampaignId\tImpressions\tClicks\tCost\n${id}\t10\t1\t1.00\n`);
+  } };
+  await assert.rejects(syncDirectCampaigns('all', options), /HTTP 403/);
+  assert.deepEqual(seen.sort(), ['715053149', '715100001', '715100002']);
+  assert.equal(directImportStatus('ya-dinner-202610').clicks, 1);
+  assert.equal(directImportStatus('ya-dinner-landing-202610').clicks, 1);
+  assert.equal(directImportStatus('ya-dinner-outside-202610').status, 'error');
+  await syncDirectCampaigns('all', { at: new Date('2030-01-03T00:00:00Z'), transport: async () => new Response('CampaignId\tImpressions\tClicks\tCost\n') });
+  const empty = dashboardFunnelReport();
+  assert.equal(empty.impressions, 0); assert.equal(empty.clicks, 0);
+  assert.equal(empty.directStats.costRub, 0);
+  assert.equal(empty.directStats.includedCampaignCount, 3);
+  assert.equal(empty.conversions.clickFromImpression, null);
 });

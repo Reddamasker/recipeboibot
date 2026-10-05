@@ -27,7 +27,7 @@ import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
-import { directImportStatus, directImportSettings, syncDirectStats, dashboardFunnelReport } from './yandex-direct.js';
+import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 
 const publicDir = path.resolve('public');
@@ -360,7 +360,7 @@ function serveStatic(request, response, pathname) {
   }
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
-  securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
+  securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': requested === '/dashboard.html' ? 'no-store' : requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
 }
 
 export function createServer() {
@@ -398,8 +398,7 @@ export function createServer() {
           if (config.testContour || config.dashboardPreview) return json(response, 403, { error: 'Импорт Директа доступен в основном дашборде' });
           rateLimit('direct-sync', 2, 60000);
           const input = await bodyJson(request, 2000);
-          const slug = !input.campaign || input.campaign === 'all' ? config.yandexDirectPlacement : input.campaign;
-          return json(response, 200, await syncDirectStats({ settings: directImportSettings(slug) }));
+          return json(response, 200, await syncDirectCampaigns(input.campaign || config.yandexDirectPlacement));
         }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/campaigns') {
           const input = await bodyJson(request, 2000), campaign = createCampaign(input.slug, input.name);
