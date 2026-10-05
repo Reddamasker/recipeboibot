@@ -9,7 +9,7 @@ import { needsSemanticValidation } from './meal-request.js';
 import { recipeNutrition } from './nutrition.js';
 
 export const DINNER_BUFFER = Object.freeze({ version: 11, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
-const MAX_GENERATION_ATTEMPTS = 1;
+const MAX_GENERATION_ATTEMPTS = 3;
 const fills = new Map(), imageTasks = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
 let activeImages = 0;
@@ -162,7 +162,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
   if (catalogFirst) fallbackFill(userId, sessionId, context);
   const active = activeCount(userId, sessionId);
   // Return the visible trio first; the reserve is generated in the background.
-  const count = active === 0 ? DINNER_BUFFER.visible : DINNER_BUFFER.total - active;
+  const count = active < DINNER_BUFFER.visible ? DINNER_BUFFER.visible - active : DINNER_BUFFER.total - active;
   if (count <= 0) { if (images) warmImages(userId, sessionId); return Promise.resolve(); }
   const session = getDinnerSession(userId, sessionId);
   if (!config.dinnerLlmEnabled || session.buffer_retry_at > Date.now()) {
@@ -175,8 +175,9 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
       const attemptedTitles = [];
       const semanticFailures = [];
+      const filteredCandidates = [];
       let structurallyRejected = 0;
-      const maxAttempts = context.requestedCategories.length || context.mealRequest ? MAX_GENERATION_ATTEMPTS : 1;
+      const maxAttempts = active < DINNER_BUFFER.visible ? MAX_GENERATION_ATTEMPTS : 1;
       let added = 0, attempts = 0;
       while (added < count && attempts < maxAttempts) {
         attempts++;
@@ -199,16 +200,23 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
             semanticFailures.push({ title: valid.recipe.title, criteria: verdicts[index]?.failedCriteria || [] });
             continue;
           }
-          if (!valid || duplicateDinner(valid.recipe, [...existing, ...(context.recentShownRecipes || []).filter(r => Date.now() - Date.parse(r.createdAt) < 7 * 86400000).map(r => r.recipe)])) continue;
-          if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === valid.role).length >= DINNER_BUFFER.total / DINNER_BUFFER.visible) continue;
+          if (duplicateDinner(valid.recipe, [...existing, ...(context.recentShownRecipes || []).filter(r => Date.now() - Date.parse(r.createdAt) < 7 * 86400000).map(r => r.recipe)])) {
+            filteredCandidates.push({ title: valid.recipe.title, reason: 'duplicate' });
+            continue;
+          }
+          if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter((o) => o.role === valid.role).length >= DINNER_BUFFER.total / DINNER_BUFFER.visible) {
+            filteredCandidates.push({ title: valid.recipe.title, reason: 'role_limit' });
+            continue;
+          }
           const id = randomUUID(); valid.recipe.id = `dinner:${id}`;
           if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }
+          else filteredCandidates.push({ title: valid.recipe.title, reason: 'signature_conflict' });
         }
       }
       if (added < count) setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
       fallbackFill(userId, sessionId, context, active + count);
       addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added, attempts, structurallyRejected,
-        semanticallyRejected: semanticFailures.length, semanticFailures: semanticFailures.slice(0, 8) } });
+        semanticallyRejected: semanticFailures.length, semanticFailures: semanticFailures.slice(0, 8), filteredCandidates: filteredCandidates.slice(0, 12) } });
     } catch (error) {
       if (getDinnerSession(userId, sessionId) && dinnerContextKey(getContext()) === key) {
         setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
