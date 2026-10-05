@@ -19,19 +19,34 @@
   };
   const initialRoute = () => {
     if (name !== 'max') return null;
-    const payload = sdk()?.initDataUnsafe?.start_param;
-    if (typeof payload !== 'string' || payload.length > 512 || !/^[A-Za-z0-9_-]+$/.test(payload)) return null;
-    try {
-      const bytes = Uint8Array.from(atob(payload.replace(/-/g, '+').replace(/_/g, '/')), character => character.charCodeAt(0));
-      const input = JSON.parse(new TextDecoder().decode(bytes));
-      if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-      const route = {};
-      if (['menu', 'dinner', 'collection', 'offer', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding'].includes(input.view)) route.view = input.view;
-      if (['results', 'request', 'search'].includes(route.view) && typeof input.q === 'string' && input.q.length <= 500 && !/[\u0000-\u001f\u007f]/.test(input.q)) route.q = input.q;
-      if (typeof input.recipe === 'string' && /^(?:(?:seed|dinner):)?[A-Za-z0-9_-]{1,100}$/.test(input.recipe)) route.recipe = input.recipe;
-      if (typeof input.notification === 'string' && /^[0-9a-f-]{36}$/i.test(input.notification)) route.notification = input.notification;
-      return Object.keys(route).length ? route : null;
-    } catch { return null; }
+    // Called only after /api/me validates SDK initData. All sources below provide
+    // navigation hints, never identity, permissions, or arbitrary destination URLs.
+    const app = sdk();
+    const parameter = (source, key) => {
+      const values = new URLSearchParams(source || '').getAll(key);
+      return values.length === 1 ? values[0] : null;
+    };
+    const launchLocation = typeof location === 'undefined' ? {} : location;
+    // Older MAX launches append ?WebAppStartParam even if the registered URL
+    // already has a query. Accept that separator for this one bounded hint.
+    const launchParameter = source => parameter(String(source || '').replace(/[?#]/g, '&'), 'WebAppStartParam');
+    const payloads = [parameter(app?.initData, 'start_param'), app?.initDataUnsafe?.start_param,
+      launchParameter(launchLocation.search), launchParameter(launchLocation.hash)];
+    for (const payload of payloads) {
+      if (typeof payload !== 'string' || payload.length > 512 || !/^[A-Za-z0-9_-]+$/.test(payload)) continue;
+      try {
+        const bytes = Uint8Array.from(atob(payload.replace(/-/g, '+').replace(/_/g, '/')), character => character.charCodeAt(0));
+        const input = JSON.parse(new TextDecoder().decode(bytes));
+        if (!input || typeof input !== 'object' || Array.isArray(input)) continue;
+        const route = {};
+        if (['menu', 'dinner', 'collection', 'offer', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding'].includes(input.view)) route.view = input.view;
+        if (['results', 'request', 'search'].includes(route.view) && typeof input.q === 'string' && input.q.length <= 500 && !/[\u0000-\u001f\u007f]/.test(input.q)) route.q = input.q;
+        if (typeof input.recipe === 'string' && /^(?:(?:seed|dinner):)?[A-Za-z0-9_-]{1,100}$/.test(input.recipe)) route.recipe = input.recipe;
+        if (typeof input.notification === 'string' && /^[0-9a-f-]{36}$/i.test(input.notification)) route.notification = input.notification;
+        if (Object.keys(route).length) return route;
+      } catch { /* Try the next supported source; malformed navigation is ignored. */ }
+    }
+    return null;
   };
   window.RecipePlatform = Object.freeze({
     name, label: name === 'max' ? 'MAX' : 'Telegram',

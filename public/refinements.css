@@ -167,10 +167,10 @@ span.recipe-tag { cursor: default; }
 .offer-banner .offer-trial-price { display: block; margin-top: 3px; color: #c7bdcf; font-size: 11px; line-height: 1.4; }
 .offer-feature-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
 .offer-feature { min-width: 0; padding: 16px 15px 17px; border: 1px solid rgba(255,255,255,.09); border-radius: 18px; background: rgba(255,255,255,.065); }
-.offer-feature-icon { width: 38px; height: 38px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 13px; color: #302638; background: #e4efad; font: 800 16px/1 Arial,sans-serif; }
-.offer-feature-icon-save { background: #ead7ed; }
-.offer-feature-icon-dinner { background: #e4efad; }
-.offer-feature-icon-reminder { background: #f0d9d6; font-size: 20px; }
+.offer-feature-icon { width: 56px; height: 56px; display: block; margin-bottom: 14px; background: url('/assets/benefits-illustrations-v1.webp') no-repeat; background-size: 300% 100%; }
+.offer-feature-icon-save { background-position: left center; }
+.offer-feature-icon-dinner { background-position: center; }
+.offer-feature-icon-reminder { background-position: right center; }
 .offer-feature h3 { margin: 0 0 6px; color: #fff; font: 600 18px/1.12 Georgia,serif; }
 .offer-feature p { margin: 0; color: #cfc6d6; font-size: 11px; line-height: 1.45; }
 .offer-banner .primary { width: 100%; min-height: 50px; padding: 0 20px; justify-content: center; gap: 8px; box-shadow: none; }
@@ -180,7 +180,7 @@ span.recipe-tag { cursor: default; }
 @media (max-width: 620px) {
   .offer-banner { padding: 24px 20px; gap: 18px; }
   .offer-feature-grid { grid-template-columns: 1fr; }
-  .offer-feature { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 13px; align-items: start; padding: 14px; }
+  .offer-feature { display: grid; grid-template-columns: 56px minmax(0,1fr); gap: 13px; align-items: center; padding: 14px; }
   .offer-feature-icon { margin: 0; }
   .offer-feature h3 { font-size: 17px; }
 }
@@ -188,6 +188,23 @@ span.recipe-tag { cursor: default; }
 .offer-hero { padding: 38px 0 18px; }
 .offer-hero h1 { margin: 15px 0; max-width: 610px; font: 600 clamp(38px,8vw,64px)/1.02 Georgia,serif; letter-spacing: -.04em; }
 .offer-hero p { max-width: 580px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.benefits-page { max-width: 500px; padding-bottom: 20px; }
+.benefits-page .offer-hero { padding: 18px 6px 0; }
+.benefits-page .offer-hero h1 { max-width: 360px; margin: 10px 0 14px; font-size: clamp(34px,9vw,44px); line-height: 1.08; }
+.benefits-page .offer-hero p { margin: 0; font-size: 15px; line-height: 1.5; }
+.benefits-page .offer-banner { margin: 24px 0 12px; padding: 0; gap: 14px; color: var(--ink); background: none; box-shadow: none; }
+.benefits-page .offer-feature-grid { grid-template-columns: 1fr; gap: 12px; }
+.benefits-page .offer-feature { display: grid; grid-template-columns: 82px minmax(0,1fr); align-items: center; gap: 14px; padding: 18px 16px 18px 10px; background: var(--paper); border: 1px solid var(--line); border-radius: 22px; }
+.benefits-page .offer-feature-icon { width: 82px; height: 82px; margin: 0; }
+.benefits-page .offer-feature h3 { margin-bottom: 7px; color: var(--ink); font-size: 21px; line-height: 1.12; }
+.benefits-page .offer-feature p { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.benefits-page .offer-banner .primary { margin-top: 6px; min-height: 54px; padding: 13px 12px; border-radius: 18px; font-size: 15px; }
+.benefits-page .offer-disclaimer { color: var(--muted); text-align: center; font-size: 12px; line-height: 1.4; }
+@media (max-width: 360px) {
+  .benefits-page .offer-feature { grid-template-columns: 64px minmax(0,1fr); gap: 10px; padding: 15px 12px 15px 8px; }
+  .benefits-page .offer-feature-icon { width: 64px; height: 64px; }
+  .benefits-page .offer-feature h3 { font-size: 19px; }
+}
 .offer-plan { padding: 28px; border: 1px solid #d9cfe4; border-radius: 25px; background: #fff; box-shadow: 0 15px 42px rgba(56,41,67,.08); }
 .offer-plan-top { display: flex; justify-content: space-between; align-items: center; color: #756388; font-size: 12px; font-weight: 800; }
 .offer-test-pill { padding: 5px 9px; border-radius: 99px; background: #ebf2d0; color: #4d682d; font-size: 10px; letter-spacing: .08em; }

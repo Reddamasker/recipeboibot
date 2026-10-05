@@ -12,7 +12,7 @@ function bridgeFixture(name, app = {}) {
   const window = { __recipePlatform: { name, botUsername: 'recipe_max_bot' },
     WebApp: { initData: 'signed-max-data', openMaxLink(url) { opened.push(url); }, shareMaxContent(input) { shared.push(input); }, ...app },
     Telegram: { WebApp: { initData: 'signed-telegram-data', openTelegramLink(url) { opened.push(url); } } } };
-  vm.runInNewContext(bridgeSource, { window, URL, TextDecoder, Uint8Array, atob, navigator: {} });
+  vm.runInNewContext(bridgeSource, { window, URL, URLSearchParams, TextDecoder, Uint8Array, atob, navigator: {} });
   return { bridge: window.RecipePlatform, opened, shared, window };
 }
 
