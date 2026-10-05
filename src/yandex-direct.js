@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
-import { createCampaign } from './funnel.js';
+import { createCampaign, funnelReport } from './funnel.js';
 import { log } from './log.js';
 
 export const DIRECT_REPORT_URL = 'https://api.direct.yandex.com/json/v501/reports';
+export const DIRECT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const fields = ['CampaignId', 'Impressions', 'Clicks', 'Cost'];
 db.exec(`CREATE TABLE IF NOT EXISTS acquisition_direct_stats (
   slug TEXT PRIMARY KEY REFERENCES acquisition_campaigns(slug), campaign_id TEXT NOT NULL,
@@ -25,13 +26,38 @@ export function directImportStatus(slug) {
     syncedAt: row.synced_at, attemptedAt: row.attempted_at, status: row.status, error: row.error,
     includesVat: true, reachAvailable: false };
 }
+export function dashboardFunnelReport(slug = 'all') {
+  const report = funnelReport(slug);
+  report.linkRequests = report.clicks;
+  const imported = new Map(report.campaigns.map(campaign => [campaign.slug, directImportStatus(campaign.slug)]));
+  report.campaigns = report.campaigns.map(campaign => ({ ...campaign, statsSource: imported.get(campaign.slug) ? 'direct' : 'manual' }));
+  const scope = report.campaign ? [report.campaign] : report.campaigns;
+  const hasDirect = scope.some(campaign => imported.get(campaign.slug));
+  report.clickSource = hasDirect ? 'direct' : 'link';
+  if (hasDirect) {
+    // Unknown clicks from another placement cannot be replaced with URL requests.
+    const rows = scope.map(campaign => imported.get(campaign.slug));
+    report.clicks = rows.every(row => row?.clicks !== null && row?.clicks !== undefined)
+      ? rows.reduce((sum, row) => sum + row.clicks, 0) : null;
+    report.conversions.clickFromImpression = report.clicks !== null && report.impressions
+      ? Number((100 * report.clicks / report.impressions).toFixed(1)) : null;
+    report.conversions.startFromClick = report.campaign && report.clicks
+      ? Number((100 * report.convertedClicks / report.clicks).toFixed(1)) : null;
+  } else {
+    // Requests to a redirect are not confirmed advertising clicks or CTR.
+    report.conversions.clickFromImpression = null;
+  }
+  report.directStats = directImportStatus(report.campaign?.slug || config.yandexDirectPlacement);
+  report.defaultCampaign = imported.get(config.yandexDirectPlacement) ? config.yandexDirectPlacement : null;
+  return report;
+}
 export function directReportRequest(campaignId, at = new Date()) {
   if (!/^[1-9]\d{0,15}$/.test(String(campaignId))) throw new Error('Неверный ID кампании Директа');
   const params = { SelectionCriteria: { Filter: [{ Field: 'CampaignId', Operator: 'EQUALS', Values: [String(campaignId)] }] },
     FieldNames: fields, ReportType: 'CAMPAIGN_PERFORMANCE_REPORT', DateRangeType: 'ALL_TIME',
     Format: 'TSV', IncludeVAT: 'YES' };
-  // Stable within an hour: offline requests must retry with exactly the same report name.
-  params.ReportName = `recipes-${createHash('sha256').update(JSON.stringify(params) + at.toISOString().slice(0, 13)).digest('hex').slice(0, 24)}`;
+  // Each import gets a new report; retries within that import keep the same request.
+  params.ReportName = `recipes-${createHash('sha256').update(JSON.stringify(params) + at.toISOString()).digest('hex').slice(0, 24)}`;
   return { params };
 }
 export function parseDirectReport(text, campaignId) {
@@ -103,6 +129,6 @@ export function startDirectScheduler() {
   if (timer || !config.yandexDirectToken || config.testContour || config.dashboardPreview) return;
   const tick = () => syncDirectStats().catch(error => log('warn', 'direct_import_failed', { error }));
   void tick();
-  timer = setInterval(tick, 60 * 60 * 1000); timer.unref?.();
+  timer = setInterval(tick, DIRECT_SYNC_INTERVAL_MS); timer.unref?.();
 }
 export function stopDirectScheduler() { if (timer) clearInterval(timer); timer = null; }

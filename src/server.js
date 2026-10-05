@@ -24,10 +24,10 @@ import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
-import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats, funnelReport } from './funnel.js';
+import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
-import { directImportStatus, syncDirectStats } from './yandex-direct.js';
+import { directImportStatus, syncDirectStats, dashboardFunnelReport } from './yandex-direct.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -386,9 +386,7 @@ export function createServer() {
           return json(response, 200, { ok: true });
         }
         if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') {
-          const report = funnelReport(url.searchParams.get('campaign') || 'all');
-          report.directStats = directImportStatus(report.campaign?.slug || config.yandexDirectPlacement);
-          return json(response, 200, report);
+          return json(response, 200, dashboardFunnelReport(url.searchParams.get('campaign') || 'all'));
         }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/direct-sync') {
           if (config.testContour || config.dashboardPreview) return json(response, 403, { error: 'Импорт Директа доступен в основном дашборде' });
