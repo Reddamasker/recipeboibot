@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS landing_visits (
   telegram_clicked_at TEXT, click_token TEXT UNIQUE REFERENCES acquisition_clicks(token)
 );
 CREATE INDEX IF NOT EXISTS landing_visits_campaign ON landing_visits(campaign);`);
+if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'intent')) {
+  db.exec("ALTER TABLE landing_visits ADD COLUMN intent TEXT NOT NULL DEFAULT 'save'");
+}
 db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_tracking_since',?)").run(new Date().toISOString());
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const tagsFrom = query => {
@@ -22,7 +25,8 @@ const tagsFrom = query => {
   return tags;
 };
 function campaignFrom(tags) {
-  const candidate = tags.campaign || (tags.campaign_id === config.yandexDirectCampaignId || tags.utm_campaign === 'ya_dinner_search_202610' ? config.yandexDirectPlacement : null);
+  const landing = tags.utm_campaign === 'ya_dinner_landing_search_202610' || (config.yandexDirectLandingCampaignId && tags.campaign_id === config.yandexDirectLandingCampaignId);
+  const candidate = tags.campaign || (landing ? 'ya-dinner-landing-202610' : tags.campaign_id === config.yandexDirectCampaignId || tags.utm_campaign === 'ya_dinner_search_202610' ? config.yandexDirectPlacement : null);
   return candidate && db.prepare('SELECT slug FROM acquisition_campaigns WHERE slug=?').get(candidate)?.slug || null;
 }
 export function recordLandingHtmlLoad(options) {
@@ -33,8 +37,9 @@ export function recordLandingView(input, options = {}) {
   if (!/^[a-f0-9]{32}$/.test(input?.visitId || '') || typeof input.query !== 'string' || input.query.length > 4000) throw fail('Неверное событие лендинга');
   if (isAdvertisingProbe(options)) return { skipped: true };
   const tags = tagsFrom(input.query);
-  db.prepare('INSERT OR IGNORE INTO landing_visits(id,campaign,tags_json,opened_at) VALUES(?,?,?,?)')
-    .run(input.visitId, campaignFrom(tags), JSON.stringify(tags), new Date().toISOString());
+  const campaign = campaignFrom(tags);
+  db.prepare('INSERT OR IGNORE INTO landing_visits(id,campaign,tags_json,opened_at,intent) VALUES(?,?,?,?,?)')
+    .run(input.visitId, campaign, JSON.stringify(tags), new Date().toISOString(), campaign === 'ya-dinner-landing-202610' ? 'dinner' : 'save');
   return { href: `/landing/go/${input.visitId}` };
 }
 export function landingRedirect(id, options = {}) {
@@ -42,7 +47,7 @@ export function landingRedirect(id, options = {}) {
   if (!visit) throw fail('Переход с лендинга не найден', 404);
   const username = config.testContour ? config.testBotUsername : 'Recipeboibot';
   if (!['GET', 'HEAD'].includes(options.method || 'GET')) throw fail('Метод не поддерживается', 405);
-  if (isAdvertisingProbe(options)) return `https://t.me/${username}?start=save`;
+  if (isAdvertisingProbe(options)) return `https://t.me/${username}?start=${visit.intent}`;
   if (visit.click_token) return `https://t.me/${username}?start=lp_${visit.click_token}`;
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -57,7 +62,7 @@ export function landingRedirect(id, options = {}) {
 }
 export function landingStartIntent(text) {
   const token = String(text).match(/^\/start(?:@[A-Za-z0-9_]+)?\s+lp_([A-Za-z0-9_-]{24})\s*$/i)?.[1];
-  return token && db.prepare('SELECT 1 FROM landing_visits WHERE click_token=?').get(token) ? 'save' : null;
+  return token && db.prepare('SELECT intent FROM landing_visits WHERE click_token=?').get(token)?.intent || null;
 }
 export function landingReport(slug = 'all') {
   const scope = slug === 'all' ? '' : slug === 'site-landing' ? 'WHERE v.campaign IS NULL' : 'WHERE v.campaign=?';

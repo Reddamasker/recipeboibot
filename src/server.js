@@ -27,7 +27,7 @@ import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
-import { directImportStatus, syncDirectStats, dashboardFunnelReport } from './yandex-direct.js';
+import { directImportStatus, directImportSettings, syncDirectStats, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 
 const publicDir = path.resolve('public');
@@ -395,7 +395,9 @@ export function createServer() {
         if (request.method === 'POST' && url.pathname === '/api/dashboard/direct-sync') {
           if (config.testContour || config.dashboardPreview) return json(response, 403, { error: 'Импорт Директа доступен в основном дашборде' });
           rateLimit('direct-sync', 2, 60000);
-          return json(response, 200, await syncDirectStats());
+          const input = await bodyJson(request, 2000);
+          const slug = !input.campaign || input.campaign === 'all' ? config.yandexDirectPlacement : input.campaign;
+          return json(response, 200, await syncDirectStats({ settings: directImportSettings(slug) }));
         }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/campaigns') {
           const input = await bodyJson(request, 2000), campaign = createCampaign(input.slug, input.name);

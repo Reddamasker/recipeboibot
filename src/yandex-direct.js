@@ -13,7 +13,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS acquisition_direct_stats (
   attempted_at TEXT, status TEXT NOT NULL DEFAULT 'waiting', error TEXT
 );`);
 
-export function directImportSettings() {
+export function directImportSettings(slug = config.yandexDirectPlacement) {
+  if (slug === 'ya-dinner-landing-202610') return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
+    campaignId: config.yandexDirectLandingCampaignId, slug, name: 'Яндекс — ужин через лендинг, октябрь 2026' };
+  if (slug !== config.yandexDirectPlacement) throw new Error('Кампания не подключена к импорту Директа');
   return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
     campaignId: config.yandexDirectCampaignId, slug: config.yandexDirectPlacement };
 }
@@ -76,17 +79,20 @@ export function parseDirectReport(text, campaignId) {
   return result;
 }
 
-let running = null, timer = null;
+const running = new Map();
+let timer = null;
 export function syncDirectStats({ settings = directImportSettings(), transport = fetch, at = new Date(), wait = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
-  if (running) return running;
-  running = importReport(settings, transport, at, wait).finally(() => { running = null; });
-  return running;
+  const key = `${settings.slug}:${settings.campaignId}`;
+  if (running.has(key)) return running.get(key);
+  const result = importReport(settings, transport, at, wait).finally(() => running.delete(key));
+  running.set(key, result);
+  return result;
 }
 async function importReport(settings, transport, at, wait) {
   const { token, login, campaignId, slug } = settings;
   if (!token) throw new Error('Доступ к API Директа ещё не подключён');
   const request = directReportRequest(campaignId, at);
-  createCampaign(slug);
+  createCampaign(slug, settings.name || slug);
   const timestamp = at.toISOString();
   db.prepare(`INSERT INTO acquisition_direct_stats(slug,campaign_id,attempted_at,status) VALUES(?,?,?,'waiting')
     ON CONFLICT(slug) DO UPDATE SET campaign_id=excluded.campaign_id,attempted_at=excluded.attempted_at,status='waiting',error=NULL`).run(slug, String(campaignId), timestamp);
@@ -127,7 +133,10 @@ async function importReport(settings, transport, at, wait) {
 }
 export function startDirectScheduler() {
   if (timer || !config.yandexDirectToken || config.testContour || config.dashboardPreview) return;
-  const tick = () => syncDirectStats().catch(error => log('warn', 'direct_import_failed', { error }));
+  const tick = () => {
+    const slugs = [config.yandexDirectPlacement, ...(config.yandexDirectLandingCampaignId ? ['ya-dinner-landing-202610'] : [])];
+    for (const slug of slugs) void syncDirectStats({ settings: directImportSettings(slug) }).catch(error => log('warn', 'direct_import_failed', { slug, error }));
+  };
   void tick();
   timer = setInterval(tick, DIRECT_SYNC_INTERVAL_MS); timer.unref?.();
 }

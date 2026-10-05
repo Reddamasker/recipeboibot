@@ -100,17 +100,18 @@ test('untagged visits stay separate; returning users and owner do not inflate ne
   assert.throws(() => recordLandingView({ visitId: 'bad', query: '' }), { status: 400 });
 });
 
-async function browserFixture({ hidden = false, mini = false, background = false, fails = false } = {}) {
+async function browserFixture({ hidden = false, mini = false, background = false, fails = false, dinner = false } = {}) {
   const link = { href: 'https://t.me/Recipeboibot?start=save' }, calls = [], events = {};
-  const root = { hidden, getClientRects: () => [{}], querySelectorAll: () => [link] };
+  const title = {};
+  const root = { hidden, getClientRects: () => [{}], querySelector: selector => selector === '#lp-title' ? title : null, querySelectorAll: () => [link] };
   const document = { visibilityState: background ? 'hidden' : 'visible', readyState: 'complete', getElementById: () => root, addEventListener: (name, fn) => { events[name] = fn; } };
   vm.runInNewContext(fs.readFileSync('public/landing-metrics.js', 'utf8'), {
-    document, window: { __miniLaunch: mini }, location: { origin: 'https://site.example', search: '?utm_campaign=ya_dinner_search_202610&secret=private' },
+    document, window: { __miniLaunch: mini }, location: { origin: 'https://site.example', search: dinner ? '?campaign=ya-dinner-landing-202610&secret=private' : '?utm_campaign=ya_dinner_search_202610&secret=private' },
     crypto: { getRandomValues: bytes => bytes.fill(1) }, Uint8Array, Set, URL, URLSearchParams,
     fetch: async (url, options) => { calls.push({ url, options }); if (fails) throw new Error('offline'); return { ok: true, json: async () => ({ href: '/landing/go/' + '01'.repeat(16) }) }; }
   });
   await new Promise(resolve => setImmediate(resolve));
-  return { link, calls, events, document };
+  return { link, calls, events, document, title };
 }
 test('client records only a visible landing, skips Mini App, and sends one event per page without private query values', async () => {
   for (const mode of [{ hidden: true }, { mini: true }]) assert.equal((await browserFixture(mode)).calls.length, 0);
@@ -124,4 +125,35 @@ test('client records only a visible landing, skips Mini App, and sends one event
 test('analytics failure leaves the original Telegram link available', async () => {
   const page = await browserFixture({ fails: true });
   assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=save');
+});
+
+test('paid landing opens the dinner onboarding with its own attribution and stable price experiment', async () => {
+  const slug = 'ya-dinner-landing-202610'; createCampaign(slug);
+  const id = visitId(); recordLandingView({ visitId: id, query: 'utm_campaign=ya_dinner_landing_search_202610&yclid=landing-ad' });
+  assert.equal(db.prepare('SELECT campaign FROM landing_visits WHERE id=?').get(id).campaign, slug);
+  assert.equal(startFrom(landingRedirect(id, { method: 'HEAD' })), 'dinner');
+  const payload = startFrom(landingRedirect(id));
+  assert.equal(landingStartIntent(`/start ${payload}`), 'dinner');
+  const sender = { id: 890000003, first_name: 'Ужин' };
+  const original = globalThis.fetch, messages = [];
+  globalThis.fetch = async (url, options) => {
+    assert.ok(String(url).startsWith('https://api.telegram.org/'));
+    messages.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 43 } }));
+  };
+  try { await handleMessage({ from: sender, chat: { id: sender.id, type: 'private' }, text: `/start ${payload}` }); }
+  finally { globalThis.fetch = original; }
+  const user = upsertTelegramUser(sender);
+  assert.notEqual(getPendingIntent(user.id)?.kind, 'recipe-save');
+  assert.equal(db.prepare('SELECT campaign FROM acquisition_starts WHERE user_id=?').get(user.id).campaign, slug);
+  assert.equal(landingReport(slug).starts, 1);
+  const { campaignPriceAssignment } = await import('../src/campaign-prices.js');
+  assert.equal(campaignPriceAssignment(user.id).campaign, slug);
+  assert.ok(funnelReport(slug).priceExperiment);
+  assert.ok(!messages.some(message => message.text?.startsWith('<b>Сохранить рецепт</b>')));
+  const page = await browserFixture({ dinner: true });
+  assert.equal(page.title.textContent, 'Что приготовить на ужин?');
+  assert.match(page.link.href, /^\/landing\/go\//);
+  const offline = await browserFixture({ dinner: true, fails: true });
+  assert.equal(startFrom(offline.link.href), 'dinner');
 });

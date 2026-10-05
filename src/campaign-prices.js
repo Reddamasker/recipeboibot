@@ -5,6 +5,7 @@ import { SUBSCRIPTION_PLANS } from './plans.js';
 
 export const DINNER_PRICE_EXPERIMENT = Object.freeze({
   key: 'ya-dinner-promo-199-159-v1', campaign: 'ya-dinner-202610', promoCode: 'DINNER159',
+  campaigns: Object.freeze(['ya-dinner-202610', 'ya-dinner-landing-202610']),
   basePriceRub: 199, promoPriceRub: 159, threeMonthsPriceRub: 499, threeMonthsPromoPriceRub: 399
 });
 db.exec(`CREATE TABLE IF NOT EXISTS campaign_price_assignments (
@@ -20,12 +21,12 @@ export function campaignPriceAssignment(userId, at = new Date()) {
   const previous = db.prepare('SELECT * FROM campaign_price_assignments WHERE user_id=? AND experiment_key=?').get(userId, experiment.key);
   if (previous) return previous;
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='acquisition_starts'").get()) return null;
-  const eligible = db.prepare(`SELECT 1 FROM acquisition_starts s JOIN users u ON u.id=s.user_id
-    WHERE s.user_id=? AND s.campaign=? AND s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(userId, experiment.campaign, config.analyticsOwnerId);
+  const eligible = db.prepare(`SELECT s.campaign FROM acquisition_starts s JOIN users u ON u.id=s.user_id
+    WHERE s.user_id=? AND s.campaign IN (?,?) AND s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(userId, ...experiment.campaigns, config.analyticsOwnerId);
   if (!eligible) return null;
   const variant = createHash('sha256').update(`${experiment.key}:${userId}`).digest()[0] < 128 ? 'A' : 'B';
   db.prepare('INSERT OR IGNORE INTO campaign_price_assignments(user_id,experiment_key,campaign,variant,assigned_at) VALUES(?,?,?,?,?)')
-    .run(userId, experiment.key, experiment.campaign, variant, at.toISOString());
+    .run(userId, experiment.key, eligible.campaign, variant, at.toISOString());
   return db.prepare('SELECT * FROM campaign_price_assignments WHERE user_id=? AND experiment_key=?').get(userId, experiment.key);
 }
 

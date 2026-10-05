@@ -185,7 +185,7 @@ export function funnelReport(slug = 'all') {
     contour: config.testContour ? 'test' : 'main', preview: config.dashboardPreview, campaign: campaign || null, campaigns,
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered,
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
-    priceExperiment: !campaign || campaign.slug === DINNER_PRICE_EXPERIMENT.campaign
+    priceExperiment: !campaign || DINNER_PRICE_EXPERIMENT.campaigns.includes(campaign.slug)
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,
     convertedClicks,
     conversions: { clickFromImpression: percentage(clicks, impressions), startFromClick: campaign ? percentage(convertedClicks, clicks) : null,

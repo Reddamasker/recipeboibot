@@ -93,7 +93,7 @@ async function load(slug, { sync = false } = {}) {
     const initial = !report && slug === undefined;
     slug ??= $('#campaign').value || 'all';
     if (sync && report?.directStats && !report.preview && report.contour === 'main') {
-      try { await api('direct-sync', 'POST', {}); } catch (error) { if (error.status === 401) throw error; toast(error.message); }
+      try { await api('direct-sync', 'POST', { campaign: slug }); } catch (error) { if (error.status === 401) throw error; toast(error.message); }
     }
     let data = await api(`funnel?campaign=${encodeURIComponent(slug)}`);
     if (initial && data.defaultCampaign) data = await api(`funnel?campaign=${encodeURIComponent(data.defaultCampaign)}`);

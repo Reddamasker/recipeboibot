@@ -111,3 +111,24 @@ test('an uncompleted Direct import leaves clicks and advertising conversion unkn
   assert.equal(report.conversions.clickFromImpression, null);
   assert.equal(report.conversions.startFromClick, null);
 });
+
+test('simultaneous imports keep two campaigns separate and coalesce only the same target', async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let calls = 0;
+  const transport = async (_url, options) => {
+    calls++; await gate;
+    const id = JSON.parse(options.body).params.SelectionCriteria.Filter[0].Values[0];
+    return new Response(`CampaignId\tImpressions\tClicks\tCost\n${id}\t${id === '715053149' ? 10 : 20}\t1\t2.00\n`);
+  };
+  const first = { ...settings, slug: 'route-direct' }, second = { ...settings, slug: 'ya-dinner-landing-202610', campaignId: '715100001' };
+  const a = syncDirectStats({ settings: first, transport });
+  const duplicate = syncDirectStats({ settings: first, transport });
+  const b = syncDirectStats({ settings: second, transport });
+  assert.equal(a, duplicate); assert.notEqual(a, b); release();
+  await Promise.all([a, b]);
+  assert.equal(calls, 2);
+  assert.equal(dashboardFunnelReport(first.slug).impressions, 10);
+  assert.equal(dashboardFunnelReport(second.slug).impressions, 20);
+  assert.equal(directImportStatus(second.slug).campaignId, second.campaignId);
+});
