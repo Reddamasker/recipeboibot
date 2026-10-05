@@ -113,6 +113,7 @@ function bindCommon() {
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
   document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
+  document.querySelectorAll('[data-open-benefits]').forEach((el) => el.addEventListener('click', openBenefits));
   bindTrialButtons();
   if (document.querySelector('[data-open-offer], [data-start-trial]')) void api('/api/billing/exposure', { method: 'POST', body: '{}' }).catch(() => {});
 }
@@ -124,6 +125,9 @@ function notificationEntry() {
 function offerBanner() {
   const payment = state.payment;
   if (payment?.firstRecipe?.available || payment?.firstRecipe?.pending) return '';
+  if (payment?.trial?.eligible && !payment.active) {
+    return '<section class="offer-banner"><h2>Учту твои предпочтения для будущих рецептов.</h2><p>А вот что я еще умею</p><button class="primary accent" type="button" data-open-benefits>Посмотреть возможности</button></section>';
+  }
   if (payment?.trial?.eligible || payment?.trial?.used) {
     if (payment.active && payment.accessSource !== 'trial') return '';
     const active = payment.active;
@@ -149,6 +153,15 @@ function offerBanner() {
 }
 
 function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
+
+function openBenefits() { closeOverlay(); setRoute({ view: 'benefits' }); void render(); }
+
+function benefitsPage() {
+  if (!state.payment?.trial?.eligible || state.payment.active) { offerPage(); return; }
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>А вот что я еще умею</h1></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true">↗</span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true">3</span><div><h3>Подбираем на вечер</h3><p>Три идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true">◷</span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>Попробовать 7 дней бесплатно</button><small class="offer-disclaimer">Без карты и автоматического списания.</small></section></main>`;
+  bindCommon();
+  document.querySelector('#benefits-back').onclick = () => { setRoute({ view: 'dinner' }); void render(); };
+}
 
 function mainMenuPage() {
   const chatUrl = globalThis.window?.RecipePlatform?.botUrl('dish') || `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=dish`;
@@ -850,6 +863,7 @@ async function render() {
   else if (view === 'feedback') feedbackPage();
   else if (view === 'promo') promoPage();
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
+  else if (view === 'benefits') benefitsPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && (state.payment?.available || state.payment?.active)) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
@@ -1132,6 +1146,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     banner.innerHTML = offerBanner();
     el.querySelector('.detail-content')?.append(banner);
     banner.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
+    banner.querySelector('[data-open-benefits]')?.addEventListener('click', openBenefits);
     bindTrialButtons(banner);
   }
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);

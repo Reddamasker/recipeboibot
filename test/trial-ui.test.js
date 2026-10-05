@@ -250,7 +250,7 @@ test('paywall displays free three-month and annual terms and sends the chosen te
 test('trial offer and expiry remain visible even when the payment provider is not connected', () => {
   const sandbox = { state: { payment: { available: false, trial: { eligible: true, used: false } } }, esc: String };
   vm.runInNewContext(source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer')), sandbox);
-  assert.match(sandbox.offerBanner(), /Попробовать 7 дней бесплатно/);
+  assert.match(sandbox.offerBanner(), /Учту твои предпочтения для будущих рецептов/);
   sandbox.state.payment.trial = { used: true, eligible: false };
   assert.match(sandbox.offerBanner(), /Пробный период закончился/);
 });
@@ -262,12 +262,12 @@ test('a fresh user sees no trial sales banner until the first recipe is delivere
   sandbox.state.payment.firstRecipe = { available: false, pending: true, delivered: false };
   assert.equal(sandbox.offerBanner(), '');
   sandbox.state.payment.firstRecipe = { available: false, pending: false, delivered: true };
-  assert.match(sandbox.offerBanner(), /Попробовать 7 дней бесплатно/);
-  assert.match(sandbox.offerBanner(), /data-start-trial/);
-  assert.doesNotMatch(sandbox.offerBanner(), /data-open-offer/);
+  assert.match(sandbox.offerBanner(), /Учту твои предпочтения для будущих рецептов/);
+  assert.match(sandbox.offerBanner(), /data-open-benefits/);
+  assert.doesNotMatch(sandbox.offerBanner(), /data-open-offer|data-start-trial/);
 });
 
-test('recipe banner activates with one click, ignores a concurrent click and preserves retry after failure', async () => {
+test('benefits trial button activates with one click, ignores a concurrent click and preserves retry after failure', async () => {
   const calls = [], steps = [], routes = [], errors = [], buttons = [];
   const state = { payment: { trial: { eligible: true, used: false }, firstRecipe: { delivered: true } } };
   let release, fail = false;
@@ -282,7 +282,7 @@ test('recipe banner activates with one click, ignores a concurrent click and pre
     beginDinner: async (...args) => steps.push(args), toast: message => errors.push(message), openOffer: assert.fail };
   vm.runInNewContext(source.slice(source.indexOf('async function activateTrial('), source.indexOf('function bindCommon()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer')), sandbox);
-  assert.match(sandbox.offerBanner(), /data-start-trial/);
+  assert.match(sandbox.offerBanner(), /data-open-benefits/);
   const button = { disabled: false, addEventListener(_name, handler) { this.click = handler; } };
   buttons.push(button); sandbox.bindTrialButtons();
   assert.equal(calls.length, 0);
@@ -302,4 +302,31 @@ test('recipe banner activates with one click, ignores a concurrent click and pre
   assert.equal(state.payment.active, true);
   assert.deepEqual(steps, ['taste', [false, true]]);
   assert.equal(routes[0].view, 'dinner');
+});
+
+test('first recipe banner opens three benefits and only their trial button starts access', () => {
+  const nodes = {}, routes = [], calls = [];
+  const sandbox = {
+    state: { payment: { trial: { eligible: true, used: false }, active: false } },
+    root: {}, header: () => '', closeOverlay() {}, offerPage: assert.fail,
+    setRoute: route => routes.push(route),
+    render() { if (routes.at(-1)?.view === 'benefits') sandbox.benefitsPage(); },
+    document: { querySelector: id => nodes[id] ||= {} },
+    bindCommon() { nodes.trial = { click: () => calls.push('/api/billing/trial') }; }
+  };
+  vm.runInNewContext(source.slice(source.indexOf('function openBenefits('), source.indexOf('function mainMenuPage(')), sandbox);
+  sandbox.openBenefits();
+  assert.equal(routes.at(-1).view, 'benefits');
+  assert.equal(calls.length, 0);
+  assert.equal((sandbox.root.innerHTML.match(/class="offer-feature"/g) || []).length, 3);
+  assert.match(sandbox.root.innerHTML, /Сохраняем за тебя/);
+  assert.match(sandbox.root.innerHTML, /Подбираем на вечер/);
+  assert.match(sandbox.root.innerHTML, /Напоминаем вовремя/);
+  assert.match(sandbox.root.innerHTML, /data-start-trial>Попробовать 7 дней бесплатно/);
+  assert.doesNotMatch(sandbox.root.innerHTML, /data-period-months|offer-pay/);
+  nodes['#benefits-back'].onclick();
+  assert.equal(routes.at(-1).view, 'dinner');
+  assert.equal(calls.length, 0);
+  nodes.trial.click();
+  assert.deepEqual(calls, ['/api/billing/trial']);
 });
