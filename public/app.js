@@ -663,18 +663,11 @@ function updateDinnerIngredients() {
   else window.location.href = url;
 }
 
-function firstDinnerRecipeDetails(recipe) {
-  const ingredients = (recipe.ingredients || []).map(item => '<li>' + esc([item.quantity, item.unit, item.name || item.raw].filter(value => value !== null && value !== undefined && value !== '').join(' ')) + '</li>').join('');
-  const steps = (recipe.steps || []).map(step => '<li>' + esc(step.text || step) + '</li>').join('');
-  return '<section class="dinner-decision"><h1>' + esc(recipe.title) + '</h1>' + (recipe.description ? '<p>' + esc(recipe.description) + '</p>' : '') + '<h2>Ингредиенты</h2><ul>' + ingredients + '</ul><h2>Приготовление</h2><ol>' + steps + '</ol><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button></section>';
-}
-
 function dinnerView() {
   if (state.onboarding) return onboardingView();
   const dinner = state.dinner, items = dinner?.recommendations || [];
   const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
   const content = !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
-    : dinner.firstFreeRecipe ? firstDinnerRecipeDetails(recipe)
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Рецепт сохранён в «Мои рецепты» и останется под рукой.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
     : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1><p class="dinner-swipe-hint" role="status">${dinner.acceptingId ? 'Выбираю рецепт…' : 'Вправо — готовим, влево — не подходит'}</p>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}><button class="secondary" type="submit" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
@@ -730,8 +723,10 @@ async function acceptDinnerItem(option) {
     if (state.dinner !== dinner) return false;
     if (result.status !== 'accepted') throw new Error('Этот вариант уже недоступен');
     if (result.savedRecipe) state.recipes = [result.savedRecipe, ...state.recipes.filter((recipe) => recipe.id !== result.savedRecipe.id)];
-    Object.assign(dinner, { recommendation: option, accepted: true, switching: false, acceptingId: null });
+    Object.assign(dinner, { recommendation: option, accepted: true, firstFreeRecipe: Boolean(result.firstFreeRecipe), switching: false, acceptingId: null });
+    if (result.firstFreeRecipe) await refresh();
     dinnerView();
+    if (result.firstFreeRecipe) openRecipe(result.savedRecipe?.id || option.recipe.id, true);
     if (dinner.notificationId) toast((result.messageSent ?? result.telegramSent) ? `Ссылка на рецепт отправлена в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}` : `Выбор сохранён. Ссылка скоро придёт в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}.`);
     return true;
   } catch (error) {

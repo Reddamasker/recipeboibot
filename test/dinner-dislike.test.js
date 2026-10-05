@@ -69,7 +69,7 @@ test('exhausted reserve, foreign cards, expired access and stale cards leave the
   const session = startDinner(user.id), initial = await recommendDinner(user.id, session.sessionId);
   const target = initial.recommendations[1];
   assert.throws(() => replaceDinner(foreign.id, target.id, 'not_today'), { status: 404 });
-  assert.throws(() => replaceDinner(inactive.id, target.id, 'not_today'), { status: 402 });
+  assert.throws(() => replaceDinner(inactive.id, target.id, 'not_today'), { status: 404 });
   assert.throws(() => replaceDinner(user.id, target.id, 'too_long'), { status: 400 });
   // A session with exactly three valid options cannot manufacture a replacement.
   for (const recipe of SEED_RECIPES) insertDinnerOption(user.id, session.sessionId, { id: randomUUID(), recipe, role: 'familiar', method: 'deterministic' }, recipe.title);

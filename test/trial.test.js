@@ -20,7 +20,7 @@ const { canUsePlaylistImport, interpretVoice, handleMessage, handleDinnerIntakeC
 const { importTextWithAccess } = await import('../src/importer.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
-const { recommendDinner, prefetchDinner, startDinner, updateDinnerProfile, nextDinner } = await import('../src/dinner-service.js');
+const { recommendDinner, prefetchDinner, startDinner, updateDinnerProfile, nextDinner, decideDinner } = await import('../src/dinner-service.js');
 const { resolveRecipeRequest, suggestForEmptySearch } = await import('../src/suggestions.js');
 const { canUseTestImport } = await import('../src/contour-sandbox.js');
 const { saveNotificationSchedule, getNotificationSchedule } = await import('../src/notification-store.js');
@@ -38,7 +38,7 @@ test('a new user receives one free recipe before trial; further AI entry points 
     { download: async () => ({ buffer: Buffer.from('test') }), transcribe: async () => 'Хочу рис с овощами' });
   assert.equal(voice.text, 'Хочу рис с овощами');
   assert.equal(getFirstRecipeStatus(user.id).available, true);
-  assert.throws(() => prefetchDinner(user.id, 'unused'), { status: 402 });
+  assert.throws(() => prefetchDinner(user.id, 'unused'), { status: 404 });
   const first = await resolveRecipeRequest(user.id, 'рис с овощами', { generate: assert.fail });
   assert.equal(first.kind, 'existing');
   assert.equal(getTrialStatus(user.id).used, false);
@@ -87,24 +87,54 @@ test('HTTP rejects paid actions before trial activation but preserves library ac
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
-test('first dinner returns exactly one recipe, no reserve or paid prefetch, then trial opens full access', async () => {
+test('first dinner keeps three choices and replacements free until one like', async () => {
   const { user } = fresh();
   updateDinnerProfile(user.id, { onboardingCompleted: true });
   const session = startDinner(user.id);
   const first = await recommendDinner(user.id, session.sessionId);
-  assert.equal(first.recommendations.length, 1);
-  assert.equal(first.reserve.length, 0);
-  assert.equal(first.preparing, false);
-  assert.equal(first.firstFreeRecipe, true);
+  assert.equal(first.recommendations.length, 3);
+  assert.equal(first.firstFreeRecipe, undefined);
+  assert.equal(getFirstRecipeStatus(user.id).delivered, false);
   assert.equal(getTrialStatus(user.id).used, false);
-  assert.deepEqual(await recommendDinner(user.id, session.sessionId), first);
-  assert.throws(() => prefetchDinner(user.id, session.sessionId), { status: 402 });
-  await assert.rejects(() => nextDinner(user.id, [first.recommendation.id]), { status: 402 });
+  assert.deepEqual((await recommendDinner(user.id, session.sessionId)).recommendations, first.recommendations);
+  assert.equal(prefetchDinner(user.id, session.sessionId).current, undefined);
+  const next = await nextDinner(user.id, first.recommendations.map(item => item.id));
+  assert.equal(next.recommendations.length, 3);
   await assert.rejects(() => resolveRecipeRequest(user.id, 'Суп', { generate: assert.fail, interpret: assert.fail }), { status: 402 });
+  const selected = decideDinner(user.id, next.recommendation.id, 'accepted');
+  assert.equal(selected.firstFreeRecipe, true);
+  assert.ok(selected.savedRecipe);
+  assert.equal(getFirstRecipeStatus(user.id).delivered, true);
+  assert.equal(getTrialStatus(user.id).used, false);
+  assert.equal(decideDinner(user.id, next.recommendation.id, 'accepted').savedRecipe.id, selected.savedRecipe.id);
+  assert.throws(() => decideDinner(user.id, next.recommendations[1].id, 'accepted'), { status: 402 });
+  assert.throws(() => prefetchDinner(user.id, session.sessionId), { status: 402 });
+  await assert.rejects(() => recommendDinner(user.id, startDinner(user.id).sessionId), { status: 402 });
   startTrial(user.id);
-  const full = await recommendDinner(user.id, session.sessionId);
-  assert.equal(full.firstFreeRecipe, undefined);
-  assert.equal(full.recommendations.length, 3);
+  assert.equal((await recommendDinner(user.id, startDinner(user.id).sessionId)).recommendations.length, 3);
+});
+
+test('legacy unliked first dinner resumes three choices without resetting the account', async () => {
+  const { user } = fresh();
+  updateDinnerProfile(user.id, { onboardingCompleted: true });
+  const session = startDinner(user.id);
+  await withFirstRecipe(user.id, 'dinner:' + session.sessionId, async () => ({ recommendation: { recipe: { title: 'Старый показ' } } }));
+  const picks = await recommendDinner(user.id, session.sessionId);
+  assert.equal(picks.recommendations.length, 3);
+  assert.equal(getFirstRecipeStatus(user.id).delivered, false);
+  const selected = decideDinner(user.id, picks.recommendation.id, 'accepted');
+  assert.equal(selected.firstFreeRecipe, true);
+  assert.equal(getTrialStatus(user.id).used, false);
+});
+
+test('a preview cannot bypass trial expiry even if no dish was liked', async () => {
+  const { user } = fresh();
+  updateDinnerProfile(user.id, { onboardingCompleted: true });
+  const session = startDinner(user.id);
+  await recommendDinner(user.id, session.sessionId);
+  startTrial(user.id, new Date('2026-01-01'));
+  await assert.rejects(() => recommendDinner(user.id, session.sessionId), { status: 402 });
+  assert.throws(() => prefetchDinner(user.id, session.sessionId), { status: 402 });
 });
 
 test('a failed first attempt can be retried; concurrent different requests cannot receive two free results', async () => {
@@ -138,7 +168,10 @@ test('HTTP first request succeeds before trial and only then exposes the offer',
     const session = await (await fetch(base + '/api/dinner/open', { method: 'POST', headers, body: '{}' })).json();
     const response = await fetch(base + '/api/dinner/recommend', { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId }) });
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).recommendations.length, 1);
+    const picks = await response.json();
+    assert.equal(picks.recommendations.length, 3);
+    assert.equal(getFirstRecipeStatus(user.id).delivered, false);
+    decideDinner(user.id, picks.recommendation.id, 'accepted');
     const after = await (await fetch(base + '/api/billing/offer', { headers })).json();
     assert.equal(after.hasFirstRecipe, true);
     assert.equal(after.firstRecipe.available, false);
@@ -184,26 +217,12 @@ test('a first Telegram launch provides the recipe before sending the trial offer
       householdSize: 2, hasChildren: false, maxMinutes: 30, availableIngredients: [], excludedIngredients: [], preferredCategories: {}, dishPreferences: {}, requestedCategories: [], mealRequest: null
     } });
     await handleDinnerIntakeCallback({ id: 'first-confirm', data: 'dinner:confirm', from, message: { chat, message_id: 101 } });
-    const recipeIndex = sent.findIndex(body => /Ингредиенты\n[\s\S]*Приготовление\n/.test(body.text || ''));
-    const offerIndex = sent.findIndex(body => /Попробуйте 7 дней бесплатно/.test(body.text || ''));
-    assert.ok(recipeIndex >= 0);
-    assert.ok(offerIndex > recipeIndex);
-    assert.equal(sent[offerIndex].reply_markup.inline_keyboard[0][0].callback_data, 'trial:start');
-    assert.equal(sent[offerIndex].reply_markup.inline_keyboard[0][0].web_app, undefined);
+    assert.equal(sent.some(body => /Ингредиенты\n/.test(body.text || '')), false);
+    assert.equal(sent.some(body => /Попробуйте 7 дней бесплатно/.test(body.text || '')), false);
+    assert.ok(sent.some(body => body.reply_markup?.inline_keyboard));
     assert.equal(getTrialStatus(user.id).used, false);
-    assert.equal(getFirstRecipeStatus(user.id).delivered, true);
+    assert.equal(getFirstRecipeStatus(user.id).delivered, false);
     assert.equal(getPendingIntent(user.id), null);
-    sent.length = 0;
-    setPendingIntent(user.id, { kind: 'dinner-confirm', intake: {
-      householdSize: 2, hasChildren: false, maxMinutes: 30, availableIngredients: [], excludedIngredients: [], requestedCategories: ['caucasian'], mealRequest: { text: 'хочу приготовить кавказскую кухню', kind: 'open' }
-    } });
-    await handleDinnerIntakeCallback({ id: 'second-confirm', data: 'dinner:confirm', from, message: { chat, message_id: 102 } });
-    const replayIndex = sent.findIndex(body => /Ингредиенты\n[\s\S]*Приготовление\n/.test(body.text || ''));
-    const replayOfferIndex = sent.findIndex(body => /Попробуйте 7 дней бесплатно/.test(body.text || ''));
-    assert.ok(replayIndex >= 0);
-    assert.ok(replayOfferIndex > replayIndex);
-    assert.equal(sent.some(body => JSON.stringify(body).includes('Рецепты пока не готовы')), false);
-    assert.equal(getTrialStatus(user.id).used, false);
   } finally { globalThis.fetch = originalFetch; }
 });
 

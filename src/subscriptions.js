@@ -27,6 +27,39 @@ db.exec(`CREATE TABLE IF NOT EXISTS first_recipe_results (
   result_json TEXT
 );`);
 const firstRecipeContext = new AsyncLocalStorage();
+db.exec(`CREATE TABLE IF NOT EXISTS first_dinner_previews (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  selected_id TEXT
+);`);
+
+export function hasFirstDinnerPreview(userId) {
+  return !hasUsedTrialOrPromo(userId) && !db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id=?').get(userId)
+    && Boolean(db.prepare('SELECT 1 FROM first_dinner_previews WHERE user_id=? AND selected_id IS NULL').get(userId));
+}
+
+export function requireDinnerEntry(userId, claim = true) {
+  if (getSubscriptionAccess(userId).active || hasFirstDinnerPreview(userId)) return;
+  const legacy = db.prepare('SELECT request_key,result_json FROM first_recipe_results WHERE user_id=?').get(userId);
+  if (legacy?.request_key.startsWith('dinner:') && legacy.result_json && !getFirstRecipeStatus(userId).usedAccess
+    && !db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recommendation_accepted' LIMIT 1").get(userId)) {
+    db.prepare('INSERT OR IGNORE INTO first_dinner_previews(user_id) VALUES(?)').run(userId);
+    return;
+  }
+  if (!getFirstRecipeStatus(userId).available) return requireUnexpiredTrial(userId);
+  if (!claim) return;
+  db.prepare('INSERT OR IGNORE INTO first_dinner_previews(user_id) VALUES(?)').run(userId);
+}
+
+export function completeFirstDinner(userId, selectedId, recipe) {
+  if (!hasFirstDinnerPreview(userId)) return !getSubscriptionAccess(userId).active && !hasUsedTrialOrPromo(userId)
+    && db.prepare('SELECT selected_id FROM first_dinner_previews WHERE user_id=?').get(userId)?.selected_id === selectedId;
+  db.prepare('UPDATE first_dinner_previews SET selected_id=? WHERE user_id=? AND selected_id IS NULL').run(selectedId, userId);
+  const timestamp = new Date().toISOString();
+  db.prepare(`INSERT INTO first_recipe_results(user_id,request_key,owner,started_at,result_json,completed_at) VALUES(?,?,?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET request_key=excluded.request_key,result_json=excluded.result_json,completed_at=excluded.completed_at`)
+    .run(userId, `dinner-selected:${selectedId}`, randomUUID(), timestamp, JSON.stringify({ recipe, firstFreeRecipe: true }), timestamp);
+  return true;
+}
 if (!db.prepare('PRAGMA table_info(first_recipe_results)').all().some(column => column.name === 'completed_at')) db.exec('ALTER TABLE first_recipe_results ADD COLUMN completed_at TEXT');
 const firstRecipeInFlight = new Map();
 const tableExists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
@@ -42,7 +75,8 @@ export function getFirstRecipeStatus(userId) {
     || (tableExists('recipe_suggestions') && db.prepare('SELECT 1 FROM recipe_suggestions WHERE user_id=? LIMIT 1').get(userId))
     || (tableExists('dinner_events') && db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recommendation_shown' LIMIT 1").get(userId)));
   const usedAccess = hasUsedTrialOrPromo(userId) || Boolean(db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id=?').get(userId));
-  return { available: !row && !historical && !usedAccess, delivered: Boolean(row?.result_json) || historical,
+  const preview = hasFirstDinnerPreview(userId);
+  return { available: !row && (!historical || preview) && !usedAccess, delivered: !preview && (Boolean(row?.result_json) || historical),
     pending: Boolean(row && !row.result_json), usedAccess };
 }
 
@@ -52,6 +86,7 @@ export function canReceiveFirstRecipe(userId) {
 }
 
 export function requireRecipeEntry(userId) {
+  if (hasFirstDinnerPreview(userId)) return;
   if (canReceiveFirstRecipe(userId)) return;
   if (getFirstRecipeStatus(userId).pending) throw Object.assign(new Error('Первый рецепт ещё готовится. Дождитесь результата.'), { status: 409 });
   requireUnexpiredTrial(userId);
@@ -60,6 +95,7 @@ export function requireRecipeEntry(userId) {
 // One successful result shared by requests, dinner and import. Failed attempts do not use it.
 export async function withFirstRecipe(userId, requestKey, operation, succeeded = () => true) {
   if (getSubscriptionAccess(userId).active || firstRecipeContext.getStore() === userId) return operation();
+  if (hasFirstDinnerPreview(userId)) return requireUnexpiredTrial(userId);
   const running = firstRecipeInFlight.get(userId);
   if (running) {
     if (running.key === requestKey) return running.promise;

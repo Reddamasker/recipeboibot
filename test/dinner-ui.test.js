@@ -237,7 +237,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.68/);
+  assert.match(document, /app\.js\?v=dinner-10\.69/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -502,15 +502,11 @@ test('shared recipe settles the Mini App watchdog after success or a handled err
   }
 });
 
- test('first dinner displays ingredients and steps without opening a card', () => {
+test('first dinner uses standard choices and opens the selected recipe', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
-  const sandbox = { esc: value => String(value).replaceAll('<', '&lt;') };
-  vm.runInNewContext(source.slice(source.indexOf('function firstDinnerRecipeDetails('), source.indexOf('function dinnerView()')), sandbox);
-  const html = sandbox.firstDinnerRecipeDetails({ title: '<Рецепт>', ingredients: [{ quantity: 300, unit: 'г', name: 'говядина' }], steps: [{ text: 'Обжарить мясо.' }] });
-  assert.match(html, /300 г говядина/);
-  assert.match(html, /Обжарить мясо/);
-  assert.match(html, /&lt;Рецепт>/);
-  assert.match(source, /dinner.firstFreeRecipe \? firstDinnerRecipeDetails\(recipe\)/);
+  assert.equal(source.includes('firstDinnerRecipeDetails'), false);
+  assert.match(source, /items.map\(dinnerChoiceCard\)/);
+  assert.match(source, /if \(result.firstFreeRecipe\) openRecipe/);
 });
 
 test('single-card replacement sends one reason, blocks duplicate taps and keeps cards on failure', async () => {
