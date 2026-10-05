@@ -20,6 +20,7 @@ import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFi
 import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
+import { landingStartIntent } from './landing-funnel.js';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
@@ -885,7 +886,7 @@ export async function handleMessage(message) {
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;
     let pending = getPendingIntent(user.id);
-    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+save(?:\s|$)/i.test(text)) {
+    if (/^\/start(?:@[A-Za-z0-9_]+)?\s+save(?:\s|$)/i.test(text) || landingStartIntent(text) === 'save') {
       if (isFirstStart) allowUser(user.id);
       if (pending?.kind !== 'recipe-save') setPendingIntent(user.id, { kind: 'recipe-save', resumeIntent: pending });
       await send(chatId, '<b>Сохранить рецепт</b>\n\nПришлите ссылку, фото, текст рецепта или продиктуйте его голосом. Я добавлю его в вашу коллекцию.\n\n/cancel — отменить и вернуться к предыдущему действию.');

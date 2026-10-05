@@ -53,10 +53,13 @@ export function setCampaignStats(slug, impressions, reach = null) {
 
 // No IP addresses, user agents or cookies are persisted. A click is a request,
 // not an identified person or proof that Telegram successfully opened.
+export function isAdvertisingProbe({ method = 'GET', userAgent = '', purpose = '' } = {}) {
+  return method === 'HEAD' || /bot\b|crawler|spider|preview|facebookexternalhit|slackbot|discordbot/i.test(userAgent) || /prefetch|preview/i.test(purpose);
+}
 export function advertisingRedirect(slug, { method = 'GET', userAgent = '', purpose = '', searchParams = new URLSearchParams() } = {}) {
   getCampaign(slug);
   if (!['GET', 'HEAD'].includes(method)) throw fail('Метод не поддерживается', 405);
-  if (method === 'HEAD' || /bot\b|crawler|spider|preview|facebookexternalhit|slackbot|discordbot/i.test(userAgent) || /prefetch|preview/i.test(purpose)) return `https://t.me/${botUsername()}?start=dinner`;
+  if (isAdvertisingProbe({ method, userAgent, purpose })) return `https://t.me/${botUsername()}?start=dinner`;
   const token = randomBytes(18).toString('base64url');
   const tags = {};
   for (const [name, limit] of Object.entries({ utm_source: 64, utm_medium: 64, utm_campaign: 160, utm_content: 160, utm_term: 256, campaign_id: 64, adgroup_id: 64, phrase_id: 64, device: 32, yclid: 128 })) {
@@ -70,7 +73,9 @@ export function advertisingRedirect(slug, { method = 'GET', userAgent = '', purp
 export function recordBotStart(user, text, at = new Date()) {
   const match = String(text).match(/^\/start(?:@[A-Za-z0-9_]+)?(?:\s+([A-Za-z0-9_-]{1,64}))?\s*$/i);
   if (!match) return;
-  const click = match[1]?.startsWith('ad_') ? db.prepare('SELECT * FROM acquisition_clicks WHERE token=?').get(match[1].slice(3)) : null;
+  const payload = match[1] || '';
+  const fromLanding = payload.startsWith('lp_') && exists('landing_visits') && db.prepare('SELECT 1 FROM landing_visits WHERE click_token=?').get(payload.slice(3));
+  const click = payload.startsWith('ad_') || fromLanding ? db.prepare('SELECT * FROM acquisition_clicks WHERE token=?').get(payload.slice(3)) : null;
   // First start attribution is immutable; existing accounts are is_returning visits.
   db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
     .run(user.id, click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);

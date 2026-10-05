@@ -28,6 +28,7 @@ import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } f
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectStats, dashboardFunnelReport } from './yandex-direct.js';
+import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -349,6 +350,7 @@ function serveStatic(request, response, pathname) {
     webDocument ??= buildWebDocument(publicDir, { botUsername: config.testContour ? config.testBotUsername : undefined });
     const compressed = acceptsGzip(request.headers['accept-encoding']);
     const bytes = compressed ? webDocument.gzip : webDocument.bytes;
+    recordLandingHtmlLoad({ method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
     securityHeaders(response, webDocument.scriptHashes);
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'vary': 'Accept-Encoding', 'content-length': bytes.length, ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
     response.end(request.method === 'HEAD' ? undefined : bytes);
@@ -386,7 +388,9 @@ export function createServer() {
           return json(response, 200, { ok: true });
         }
         if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') {
-          return json(response, 200, dashboardFunnelReport(url.searchParams.get('campaign') || 'all'));
+          const report = dashboardFunnelReport(url.searchParams.get('campaign') || 'all');
+          report.landingStats = landingReport(report.campaign?.slug || 'all');
+          return json(response, 200, report);
         }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/direct-sync') {
           if (config.testContour || config.dashboardPreview) return json(response, 403, { error: 'Импорт Директа доступен в основном дашборде' });
@@ -404,6 +408,17 @@ export function createServer() {
           return json(response, 200, { ok: true });
         }
         return json(response, 404, { error: 'Не найдено' });
+      }
+      if (url.pathname === '/api/landing/view') {
+        if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
+        if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
+        const input = await bodyJson(request, 6000);
+        return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
+      }
+      if (url.pathname.startsWith('/landing/go/')) {
+        const location = landingRedirect(url.pathname.slice(12), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
+        securityHeaders(response); response.writeHead(302, { location, 'cache-control': 'no-store' });
+        return response.end();
       }
       if (url.pathname.startsWith('/go/')) {
         const location = advertisingRedirect(url.pathname.slice(4), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}`, searchParams: url.searchParams });

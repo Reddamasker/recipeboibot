@@ -16,7 +16,7 @@ test('existing page includes all startup resources and allows only their exact s
   assert.match(html, /id="landing"/);
   assert.match(html, /id="app"/);
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-  assert.equal(scripts.length, 4);
+  assert.equal(scripts.length, 5);
   for (const [, source] of scripts) {
     assert.ok(doc.scriptHashes.includes(`'sha256-${createHash('sha256').update(source).digest('base64')}'`));
     new vm.Script(source);

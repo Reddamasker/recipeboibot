@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Воронка — Твои рецепты</title><link rel="stylesheet" href="/dashboard.css?v=1"><script src="/dashboard.js?v=7" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Воронка — Твои рецепты</title><link rel="stylesheet" href="/dashboard.css?v=2"><script src="/dashboard.js?v=8" defer></script></head>
 <body>
   <section id="login" class="login" hidden>
     <div class="login-card"><div class="brand"><span class="brand-mark" aria-hidden="true"></span>Твои рецепты <span class="brand-sub">Аналитика</span></div><h1>Воронка пользователей</h1><p>От рекламы до первой оплаты — все этапы в одном месте.</p><form id="login-form"><label for="password">Пароль дашборда</label><input id="password" name="password" type="password" autocomplete="current-password" required><button class="primary" type="submit">Войти</button><p id="login-error" class="error" role="alert"></p></form></div>
@@ -13,6 +13,7 @@
       <p id="page-error" class="error" role="alert" hidden></p>
       <section id="metrics" class="metrics" aria-label="Количество пользователей по этапам"></section>
       <section id="direct-panel" class="panel" hidden style="margin-bottom:25px"><div class="panel-heading"><h2>Яндекс Директ</h2><button id="direct-sync" class="secondary">Обновить из Директа</button></div><p id="direct-values" class="panel-note"></p><p id="direct-status" class="panel-note"></p><details class="methodology"><summary>Диагностика рекламной ссылки</summary><p id="link-requests" class="panel-note"></p></details></section>
+      <section id="landing-panel" class="panel" style="margin-bottom:25px" hidden><div class="panel-heading"><h2>Лендинг dishfinder.ru</h2></div><div id="landing-metrics" class="metrics landing-metrics"></div><p id="landing-status" class="panel-note"></p><details class="methodology"><summary>Проверка загрузки страницы</summary><p id="landing-html-loads" class="panel-note"></p></details></section>
       <div class="content-grid">
         <section class="panel funnel-panel"><div class="panel-heading"><div><p class="eyebrow">ПУТЬ ПОЛЬЗОВАТЕЛЯ</p><h2>От запуска до оплаты</h2></div><span class="badge neutral">По порядку</span></div><p class="panel-note">Здесь следующий этап засчитывается после предыдущего.</p><div id="funnel" class="funnel"></div><div id="funnel-note" class="footnote"></div></section>
         <aside class="panel insight-panel"><p class="eyebrow">КОНВЕРСИИ</p><h2>Переходы между этапами</h2><div id="conversions" class="conversions"></div><div class="insight-note"><span class="small-mark" aria-hidden="true">i</span><p>Верхние карточки показывают всех, кто достиг этапа. Воронка слева — только последовательный путь. Поэтому оплата без триала остаётся в общей статистике.</p></div></aside>

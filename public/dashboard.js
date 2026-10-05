@@ -13,6 +13,7 @@ function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text;
 function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  renderLandingStats(data);
   renderDirectStats(data.directStats);
   renderAttribution(data.attribution || []);
   renderPriceExperiment(data.priceExperiment);
@@ -41,6 +42,15 @@ function render(data) {
   $('#tracking-note').textContent = `Учёт рекламных переходов начат ${new Date(data.trackingSince).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Старые клики не восстановлены.${data.historicalStartsWithoutDate ? ` Старых запусков без точной даты: ${number(data.historicalStartsWithoutDate)}.` : ''}`;
   $('#payment-note').textContent = data.testPaidUsers || data.unclassifiedPaidUsers ? `Не включены в оплаты: тестовые пользователи — ${data.testPaidUsers}; старые платежи без подтверждённого режима — ${data.unclassifiedPaidUsers}.` : '';
   const url = new URL(location.href); url.searchParams.set('campaign', selected); history.replaceState(null, '', url);
+}
+function renderLandingStats(data) {
+  const stats = data.landingStats;
+  $('#landing-panel').hidden = !stats;
+  if (!stats) return;
+  const metrics = [['Открытия лендинга', stats.totalViews, 'Видимая страница в браузере'], [data.campaign ? 'Из этого размещения' : 'С рекламными метками', data.campaign ? stats.views : stats.taggedViews, 'По меткам страницы'], ['Переходы в Telegram', stats.telegramClicks, 'С лендинга, по выбранному фильтру'], ['Запустили бота', stats.starts, 'После перехода с лендинга']];
+  $('#landing-metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'); card.append(node('p', 'metric-label', label), node('p', 'metric-number', number(value)), node('p', 'metric-note', note)); return card; }));
+  $('#landing-status').textContent = `Учёт начат ${new Date(stats.trackingSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК. Предыдущие открытия неизвестны. Повторное открытие страницы считается отдельно. Mini App не считается открытием лендинга.`;
+  $('#landing-html-loads').textContent = `Серверных загрузок HTML: ${number(stats.htmlLoads)}. Они могут включать Mini App и не подтверждают просмотр лендинга. Просмотр засчитывается, когда видимая страница отправила событие из браузера; при выключенном JavaScript событие не поступит. Известные проверки ссылок исключены.`;
 }
 function renderDirectStats(stats) {
   $('#direct-panel').hidden = !stats;
