@@ -23,11 +23,15 @@ function render(data) {
   $('#updated').textContent = `Бот: ${time(data.generatedAt)} МСК${data.directStats ? ` · Директ: ${data.directStats.syncedAt ? `${time(data.directStats.syncedAt)} МСК` : 'ожидаем данные'}` : ''}`;
   const selected = data.campaign?.slug || 'all', select = $('#campaign');
   select.replaceChildren(new Option('Все пользователи', 'all'), ...data.campaigns.map(c => new Option(c.name, c.slug))); select.value = selected;
-  const metrics = [ ['Показы рекламы', data.impressions, 'По статистике площадки'], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? 'По статистике Директа' : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, 'Уникальные пользователи'], ['Первый рецепт', data.totals.firstRecipe, 'Получили готовый результат'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
+  const coverage = data.advertisingCoverage;
+  const advertisingNote = data.directStats?.aggregate
+    ? coverage.includedCampaignCount < coverage.campaignCount ? `Есть данные по ${coverage.includedCampaignCount} из ${coverage.campaignCount} кампаний Директа` : `По всем кампаниям Директа: ${coverage.campaignCount}`
+    : data.clickSource === 'direct' ? 'По статистике Директа' : 'По статистике площадки';
+  const metrics = [ ['Показы рекламы', data.impressions, advertisingNote], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? advertisingNote : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, 'Уникальные пользователи'], ['Первый рецепт', data.totals.firstRecipe, 'Получили готовый результат'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
   $('#metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'), title = node('p', 'metric-label'); title.append(node('span', 'stage-dot'), document.createTextNode(label)); card.append(title, node('p', `metric-number${value === null ? ' unknown' : ''}`, number(value)), node('p', 'metric-note', note)); return card; }));
   const ordered = [['Запустили бота', data.ordered.starts], ['Первый рецепт', data.ordered.firstRecipe], ['Начали триал', data.ordered.trial], ['Оплатили', data.ordered.paid]];
   $('#funnel').replaceChildren(...ordered.map(([label, value]) => { const row = node('div', 'funnel-row'), track = node('div', 'bar-track'), bar = node('div', 'bar'); bar.style.width = `${data.ordered.starts ? value / data.ordered.starts * 100 : 0}%`; track.append(bar); row.append(node('span', 'funnel-label', label), track, node('span', 'funnel-count', number(value))); return row; }));
-  $('#funnel-note').textContent = selected === 'all' ? 'Общий запуск включает органику. Для оценки рекламы выберите отдельное размещение.' : `Новые пользователи этого размещения.${data.returningStarts ? ` Повторных пользователей: ${number(data.returningStarts)}.` : ''}`;
+  $('#funnel-note').textContent = selected === 'all' ? data.directStats?.aggregate ? 'Показы и клики — по кампаниям Директа. Запуски и следующие этапы включают всех пользователей, в том числе органику. Конверсия из клика учитывает только рекламные запуски.' : 'Общий запуск включает органику. Для оценки рекламы выберите отдельное размещение.' : `Новые пользователи этого размещения.${data.returningStarts ? ` Повторных пользователей: ${number(data.returningStarts)}.` : ''}`;
   const c = data.conversions;
   const conversions = [['Показ → клик', c.clickFromImpression], [data.clickSource === 'direct' ? 'Клик → запуск' : 'Обращение → запуск', c.startFromClick], ['Запуск → рецепт', c.firstRecipeFromStart], ['Рецепт → триал', c.trialAfterRecipe], ['Триал → оплата', c.paidAfterTrial]];
   $('#conversions').replaceChildren(...conversions.map(([label, value]) => { const row = node('div', 'conversion'); row.append(node('span', 'conversion-label', label), node('span', `conversion-value${value === null ? ' empty' : ''}`, percent(value))); return row; }));
@@ -55,10 +59,12 @@ function renderLandingStats(data) {
 function renderDirectStats(stats) {
   $('#direct-panel').hidden = !stats;
   if (!stats) return;
+  $('#direct-panel h2').textContent = stats.aggregate ? 'Яндекс Директ — общий итог' : 'Яндекс Директ';
   const money = value => value === null ? 'Нет данных' : `${Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
   $('#direct-values').textContent = `Показы: ${number(stats.impressions)} · Клики в Директе: ${number(stats.clicks)} · Расход с НДС: ${money(stats.costRub)} · Средний клик с НДС: ${money(stats.cpcRub)}`;
-  const updated = stats.syncedAt ? `Последний импорт: ${new Date(stats.syncedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК.` : 'Первый импорт ещё не завершён.';
+  const updated = stats.syncedAt ? `${stats.aggregate ? 'Данные всех учтённых кампаний не старше' : 'Последний импорт'}: ${new Date(stats.syncedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК.` : 'Первый импорт ещё не завершён.';
   $('#direct-status').textContent = `${updated} ${stats.status === 'error' ? stats.error : stats.status === 'waiting' ? 'Отчёт готовится.' : 'Автоматическое обновление каждые 5 минут.'} Статистика площадки может поступать с задержкой. Уникальный охват на поиске недоступен.`;
+  if (stats.aggregate) $('#direct-status').textContent += ` Учтено кампаний: ${stats.includedCampaignCount} из ${stats.campaignCount}.`;
   $('#link-requests').textContent = `Обращения к рекламной ссылке: ${number(report.linkRequests)}. Включают повторные открытия и проверки ссылки; это не число оплаченных кликов.`;
   $('#direct-sync').disabled = report.preview || report.contour !== 'main';
 }
@@ -90,8 +96,9 @@ async function load(slug, { sync = false } = {}) {
   if (busy) return; busy = true; $('#refresh').disabled = true; $('#page-error').hidden = true;
   $('#direct-sync').disabled = true;
   try {
-    const initial = !report && slug === undefined;
-    slug ??= $('#campaign').value || 'all';
+    const requested = new URL(location.href).searchParams.get('campaign');
+    const initial = !report && slug === undefined && !requested;
+    slug ??= $('#campaign').value || requested || 'all';
     if (sync && report?.directStats && !report.preview && report.contour === 'main') {
       try { await api('direct-sync', 'POST', { campaign: slug }); } catch (error) { if (error.status === 401) throw error; toast(error.message); }
     }
