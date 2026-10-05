@@ -53,6 +53,20 @@ function pay(order, at = after(4)) {
 }
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(file + suffix); } catch {} } });
 
+test('outside-Russia campaign uses the same stable pricing experiment without mixing acquisition cohorts', () => {
+  const slug = 'ya-dinner-outside-202610'; createCampaign(slug);
+  const user = fresh();
+  const payload = new URL(advertisingRedirect(slug)).searchParams.get('start');
+  recordBotStart(user, `/start ${payload}`, start); allowUser(user.id);
+  const assignment = campaignPriceAssignment(user.id);
+  const expected = createHash('sha256').update(`${DINNER_PRICE_EXPERIMENT.key}:${user.id}`).digest()[0] < 128 ? 'A' : 'B';
+  assert.equal(assignment.variant, expected); assert.equal(assignment.campaign, slug);
+  assert.ok(funnelReport(slug).priceExperiment);
+  assert.equal(funnelReport(slug).totals.starts, 1);
+  assert.equal(campaignPromotion(user.id)?.priceRub ?? 199, expected === 'B' ? 159 : 199);
+  assert.deepEqual(campaignPriceAssignment(user.id), assignment);
+});
+
 test('paid promo codes use the selected tariff in provider receipts, callbacks and mock checkout', () => {
   for (const [code, prices] of [['PICHU99', [1.99, 4.99, 14.99]], ['DINNER159', [159, 399, 1199]]]) {
     for (const [index, months] of [1, 3, 12].entries()) {

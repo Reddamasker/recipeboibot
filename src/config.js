@@ -43,6 +43,7 @@ export const config = Object.freeze({
   yandexDirectLogin: process.env.YANDEX_DIRECT_LOGIN || '',
   yandexDirectCampaignId: process.env.YANDEX_DIRECT_CAMPAIGN_ID || '715053149',
   yandexDirectLandingCampaignId: process.env.YANDEX_DIRECT_LANDING_CAMPAIGN_ID || '',
+  yandexDirectOutsideCampaignId: process.env.YANDEX_DIRECT_OUTSIDE_CAMPAIGN_ID || '',
   yandexDirectPlacement: process.env.YANDEX_DIRECT_PLACEMENT || 'ya-dinner-202610',
   telegramPolling: process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',

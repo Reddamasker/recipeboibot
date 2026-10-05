@@ -14,6 +14,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS acquisition_direct_stats (
 );`);
 
 export function directImportSettings(slug = config.yandexDirectPlacement) {
+  if (slug === 'ya-dinner-outside-202610') return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
+    campaignId: config.yandexDirectOutsideCampaignId, slug, name: 'Яндекс — ужин вне РФ, октябрь 2026' };
   if (slug === 'ya-dinner-landing-202610') return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
     campaignId: config.yandexDirectLandingCampaignId, slug, name: 'Яндекс — ужин через лендинг, октябрь 2026' };
   if (slug !== config.yandexDirectPlacement) throw new Error('Кампания не подключена к импорту Директа');
@@ -134,7 +136,8 @@ async function importReport(settings, transport, at, wait) {
 export function startDirectScheduler() {
   if (timer || !config.yandexDirectToken || config.testContour || config.dashboardPreview) return;
   const tick = () => {
-    const slugs = [config.yandexDirectPlacement, ...(config.yandexDirectLandingCampaignId ? ['ya-dinner-landing-202610'] : [])];
+    const slugs = [config.yandexDirectPlacement, ...(config.yandexDirectLandingCampaignId ? ['ya-dinner-landing-202610'] : []),
+      ...(config.yandexDirectOutsideCampaignId ? ['ya-dinner-outside-202610'] : [])];
     for (const slug of slugs) void syncDirectStats({ settings: directImportSettings(slug) }).catch(error => log('warn', 'direct_import_failed', { slug, error }));
   };
   void tick();

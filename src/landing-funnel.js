@@ -26,7 +26,8 @@ const tagsFrom = query => {
 };
 function campaignFrom(tags) {
   const landing = tags.utm_campaign === 'ya_dinner_landing_search_202610' || (config.yandexDirectLandingCampaignId && tags.campaign_id === config.yandexDirectLandingCampaignId);
-  const candidate = tags.campaign || (landing ? 'ya-dinner-landing-202610' : tags.campaign_id === config.yandexDirectCampaignId || tags.utm_campaign === 'ya_dinner_search_202610' ? config.yandexDirectPlacement : null);
+  const outside = tags.utm_campaign === 'ya_dinner_outside_search_202610' || (config.yandexDirectOutsideCampaignId && tags.campaign_id === config.yandexDirectOutsideCampaignId);
+  const candidate = tags.campaign || (outside ? 'ya-dinner-outside-202610' : landing ? 'ya-dinner-landing-202610' : tags.campaign_id === config.yandexDirectCampaignId || tags.utm_campaign === 'ya_dinner_search_202610' ? config.yandexDirectPlacement : null);
   return candidate && db.prepare('SELECT slug FROM acquisition_campaigns WHERE slug=?').get(candidate)?.slug || null;
 }
 export function recordLandingHtmlLoad(options) {

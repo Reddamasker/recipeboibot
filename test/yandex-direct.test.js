@@ -7,9 +7,11 @@ const file = path.resolve('data', `direct-test-${randomUUID()}.sqlite`);
 process.env.DATABASE_PATH = file;
 process.env.TELEGRAM_POLLING = 'false';
 process.env.YANDEX_DIRECT_TOKEN = '';
+process.env.YANDEX_DIRECT_LANDING_CAMPAIGN_ID = '715100001';
+process.env.YANDEX_DIRECT_OUTSIDE_CAMPAIGN_ID = '715100002';
 const { db, upsertTelegramUser, allowUser } = await import('../src/db.js');
 const { funnelReport, createCampaign, setCampaignStats, advertisingRedirect, recordBotStart } = await import('../src/funnel.js');
-const { directReportRequest, parseDirectReport, syncDirectStats, directImportStatus, dashboardFunnelReport, DIRECT_REPORT_URL, DIRECT_SYNC_INTERVAL_MS } = await import('../src/yandex-direct.js');
+const { directImportSettings, directReportRequest, parseDirectReport, syncDirectStats, directImportStatus, dashboardFunnelReport, DIRECT_REPORT_URL, DIRECT_SYNC_INTERVAL_MS } = await import('../src/yandex-direct.js');
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(file + suffix); } catch {} } });
 const settings = { token: 'private-test-token', login: 'test-advertiser', campaignId: '715053149', slug: 'direct-fixture' };
 const tsv = 'CampaignId\tImpressions\tClicks\tCost\n715053149\t100\t3\t16.47\n';
@@ -112,7 +114,7 @@ test('an uncompleted Direct import leaves clicks and advertising conversion unkn
   assert.equal(report.conversions.startFromClick, null);
 });
 
-test('simultaneous imports keep two campaigns separate and coalesce only the same target', async () => {
+test('simultaneous imports keep three campaigns separate and coalesce only the same target', async () => {
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   let calls = 0;
@@ -122,13 +124,25 @@ test('simultaneous imports keep two campaigns separate and coalesce only the sam
     return new Response(`CampaignId\tImpressions\tClicks\tCost\n${id}\t${id === '715053149' ? 10 : 20}\t1\t2.00\n`);
   };
   const first = { ...settings, slug: 'route-direct' }, second = { ...settings, slug: 'ya-dinner-landing-202610', campaignId: '715100001' };
+  const third = { ...settings, slug: 'ya-dinner-outside-202610', campaignId: '715100002' };
   const a = syncDirectStats({ settings: first, transport });
   const duplicate = syncDirectStats({ settings: first, transport });
   const b = syncDirectStats({ settings: second, transport });
+  const c = syncDirectStats({ settings: third, transport });
   assert.equal(a, duplicate); assert.notEqual(a, b); release();
-  await Promise.all([a, b]);
-  assert.equal(calls, 2);
+  await Promise.all([a, b, c]);
+  assert.equal(calls, 3);
   assert.equal(dashboardFunnelReport(first.slug).impressions, 10);
   assert.equal(dashboardFunnelReport(second.slug).impressions, 20);
   assert.equal(directImportStatus(second.slug).campaignId, second.campaignId);
+  assert.equal(directImportStatus(third.slug).campaignId, third.campaignId);
+  assert.equal(dashboardFunnelReport(third.slug).clicks, 1);
+  assert.ok(dashboardFunnelReport(third.slug).priceExperiment);
+});
+
+test('manual refresh resolves each registered placement to its own Direct campaign ID', () => {
+  assert.equal(directImportSettings().campaignId, '715053149');
+  assert.equal(directImportSettings('ya-dinner-landing-202610').campaignId, '715100001');
+  assert.equal(directImportSettings('ya-dinner-outside-202610').campaignId, '715100002');
+  assert.throws(() => directImportSettings('unknown-campaign'), /не подключена/);
 });
