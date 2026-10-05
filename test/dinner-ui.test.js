@@ -95,7 +95,9 @@ test('offer banner names the next action directly and uses no emoji', () => {
   assert.match(html, /Напоминаем вовремя/);
   assert.match(html, /Попробовать бесплатно/);
   assert.doesNotMatch(html, /Посмотри дальше|Посмотреть предложение|↗|◷/);
-  assert.match(html, />1<.*>2<.*>3</s);
+  for (const illustration of ['save', 'dinner', 'reminder']) {
+    assert.match(html, new RegExp(`offer-feature-icon-${illustration}" aria-hidden="true"></span>`));
+  }
   assert.doesNotMatch(html, /Тестовый доступ к автоматическому импорту/);
 
   sandbox.state.payment.mode = 'provider';

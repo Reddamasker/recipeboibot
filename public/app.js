@@ -143,9 +143,9 @@ function offerBanner() {
       <small class="offer-trial-price">Месячный доступ · ${payment.offer.priceRub} ₽</small>
     </div>
     <div class="offer-feature-grid" aria-label="Возможности подписки">
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true">1</span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true">2</span><div><h3>Подбираем на вечер</h3><p>Три идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true">3</span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Три идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
     </div>
     <button class="primary accent" type="button" data-open-offer>${mock ? 'Попробовать бесплатно' : 'Оформить доступ'}</button>
     <small class="offer-disclaimer">${mock ? 'Тестовый сценарий · деньги не списываются' : 'Оплата на защищённой странице Robokassa'}</small>
