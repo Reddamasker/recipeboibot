@@ -649,8 +649,8 @@ test('first Start restores chat introduction without requiring ingredients; skip
     await telegramModule.handleDinnerIntakeCallback({ id: 'skip-first', data: 'dinner:skip', message, from: message.from });
     await telegramModule.handleMessage(message);
     assert.equal(sent.filter((body) => body.chat_id).length, messagesBeforeSkip + 1);
-    assert.deepEqual(sent.at(-1).reply_markup, { remove_keyboard: true });
-    assert.match(sent.at(-1).text, /Откройте «Меню» рядом с полем ввода/);
+    assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=dinner/);
+    assert.match(sent.at(-1).text, /Продолжим выбор ужина/);
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
     await telegramModule.handleMessage({ ...message, text: '/ingredients' });
     assert.match(sent.at(-1).text, /назовите продукты/);
@@ -1003,7 +1003,7 @@ test('polling completes a dinner callback without routing it as an absent messag
   } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
 });
 
-test('dinner deep link introduces a new client and points to the persistent menu after explicit skip', async () => {
+test('dinner deep link introduces a new client and resumes the trio after explicit skip', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   globalThis.fetch = async (_url, options) => { sent.push(JSON.parse(options.body)); return { json: async () => ({ ok: true, result: {} }) }; };
   try {
@@ -1015,7 +1015,8 @@ test('dinner deep link introduces a new client and points to the persistent menu
     await telegramModule.handleMessage({ ...message, text: '/skip' });
     await telegramModule.handleMessage(message);
     assert.equal(sent.filter((body) => body.chat_id).length, 2);
-    assert.deepEqual(sent.at(-1).reply_markup, { remove_keyboard: true });
+    assert.match(sent.at(-1).reply_markup.inline_keyboard[0][0].web_app.url, /view=dinner/);
+    assert.match(sent.at(-1).text, /Продолжим выбор ужина/);
     assert.ok(sent.every((body) => !/Что приготовить сегодня|Выбрать ужин/.test(body.text || '')));
   } finally { globalThis.fetch = originalFetch; }
 });

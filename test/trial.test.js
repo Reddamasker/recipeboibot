@@ -11,6 +11,7 @@ process.env.TEST_CONTOUR = 'false';
 process.env.BILLING_REQUIRED = 'false';
 process.env.TELEGRAM_BOT_TOKEN = '123456:trial-test';
 process.env.TELEGRAM_POLLING = 'false';
+process.env.APP_URL = 'https://recipes.example.test';
 process.env.DINNER_LLM_ENABLED = 'false';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser, allowUser, createRecipe, getRecipe, archiveRecipe, getPendingIntent } = await import('../src/db.js');
@@ -135,6 +136,32 @@ test('a preview cannot bypass trial expiry even if no dish was liked', async () 
   startTrial(user.id, new Date('2026-01-01'));
   await assert.rejects(() => recommendDinner(user.id, session.sessionId), { status: 402 });
   assert.throws(() => prefetchDinner(user.id, session.sessionId), { status: 402 });
+});
+
+test('repeated Start resumes unliked legacy and current trios instead of the menu', async () => {
+  const { user, telegram } = fresh();
+  allowUser(user.id);
+  updateDinnerProfile(user.id, { onboardingCompleted: true });
+  const session = startDinner(user.id);
+  await withFirstRecipe(user.id, 'dinner:' + session.sessionId, async () => ({ recommendation: { recipe: { title: 'Старый показ' } } }));
+  const originalFetch = globalThis.fetch, sent = [];
+  globalThis.fetch = async (url, options) => {
+    assert.match(String(url), /api\.telegram\.org/);
+    sent.push(JSON.parse(options.body));
+    return Response.json({ ok: true, result: { message_id: 101 } });
+  };
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      sent.length = 0;
+      await handleMessage({ from: telegram, chat: { id: telegram.id, type: 'private' }, text: '/start' });
+      assert.equal(sent.filter(body => /Продолжим выбор ужина/.test(body.text || '')).length, 1);
+      assert.equal(sent.some(body => /Откройте «Меню»|Попробуйте 7 дней/.test(body.text || '')), false);
+      assert.ok(sent.some(body => body.reply_markup?.inline_keyboard?.[0]?.[0]?.web_app?.url?.includes('view=dinner')));
+      assert.equal((await recommendDinner(user.id, session.sessionId)).recommendations.length, 3);
+      assert.equal(getFirstRecipeStatus(user.id).delivered, false);
+      assert.equal(getTrialStatus(user.id).used, false);
+    }
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('a failed first attempt can be retried; concurrent different requests cannot receive two free results', async () => {

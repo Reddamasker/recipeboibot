@@ -16,7 +16,7 @@ import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
-import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult, startTrial, getTrialStatus } from './subscriptions.js';
+import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult, startTrial, getTrialStatus, canChooseFirstDinner } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
@@ -123,6 +123,14 @@ async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) 
     if (['dinner-intake', 'dinner-confirm'].includes(pending?.kind)) await resumeDinnerIntake(chatId, userId, pending);
     else await sendDinnerProfilePrompt(chatId, userId);
     return;
+  }
+  if (userId && canChooseFirstDinner(userId)) {
+    const session = prepareDinner(userId);
+    const sent = await send(chatId, 'Продолжим выбор ужина. Подберу три блюда с учётом ваших ответов. Выберите одно — рецепт сохранится в коллекции.', { reply_markup: dinnerWebAppMarkup() });
+    const task = revealDinnerButton(chatId, sent?.message_id, userId, session?.sessionId);
+    if (config.dinnerLlmEnabled) void task;
+    else await task;
+    return true;
   }
   if (userId) prepareDinner(userId);
 }
@@ -962,7 +970,7 @@ export async function handleMessage(message) {
     const recentEntry = recentDinnerEntries.get(user.id);
     if (recentEntry?.source === 'unblocked' && Date.now() - recentEntry.at < ENTRY_DEDUP_MS) return;
     await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: открыто главное меню.');
-    await sendDinnerEntry(chatId, user.id);
+    if (await sendDinnerEntry(chatId, user.id)) return;
     if (getFoodProfile(user.id).onboardingCompleted) {
       await send(chatId, config.botPlatform === 'max' ? 'Откройте приложение кнопкой ниже или напишите, что хотите приготовить.' : 'Откройте «Меню» рядом с полем ввода или напишите, что хотите приготовить.', config.botPlatform === 'max' ? { reply_markup: dinnerWebAppMarkup() } : {});
     }

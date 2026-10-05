@@ -50,6 +50,14 @@ export function requireDinnerEntry(userId, claim = true) {
   db.prepare('INSERT OR IGNORE INTO first_dinner_previews(user_id) VALUES(?)').run(userId);
 }
 
+export function canChooseFirstDinner(userId) {
+  if (getSubscriptionAccess(userId).active || getFirstRecipeStatus(userId).usedAccess) return false;
+  if (hasFirstDinnerPreview(userId) || getFirstRecipeStatus(userId).available) return true;
+  const legacy = db.prepare('SELECT request_key,result_json FROM first_recipe_results WHERE user_id=?').get(userId);
+  return Boolean(legacy?.request_key.startsWith('dinner:') && legacy.result_json
+    && !db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recommendation_accepted' LIMIT 1").get(userId));
+}
+
 export function completeFirstDinner(userId, selectedId, recipe) {
   if (!hasFirstDinnerPreview(userId)) return !getSubscriptionAccess(userId).active && !hasUsedTrialOrPromo(userId)
     && db.prepare('SELECT selected_id FROM first_dinner_previews WHERE user_id=?').get(userId)?.selected_id === selectedId;
