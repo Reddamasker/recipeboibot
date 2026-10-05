@@ -237,7 +237,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.71/);
+  assert.match(document, /app\.js\?v=dinner-10\.72/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -506,7 +506,7 @@ test('first dinner uses standard choices and opens the selected recipe', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   assert.equal(source.includes('firstDinnerRecipeDetails'), false);
   assert.match(source, /items.map\(dinnerChoiceCard\)/);
-  assert.match(source, /if \(result.firstFreeRecipe\) openRecipe/);
+  assert.match(source, /if \(result.firstFreeRecipe && openSelectedRecipe\) openRecipe/);
 });
 
 test('single-card replacement sends one reason, blocks duplicate taps and keeps cards on failure', async () => {
@@ -571,4 +571,53 @@ test('dislike sheet cancels without replacing and remains retryable after a fail
   sandbox.api = async () => { requests++; return { recommendations: [dinner.recommendations[0], { id: 'd' }, dinner.recommendations[2]] }; };
   await sandbox.replaceDinnerCard('not_today', panel);
   assert.equal(requests, 2); assert.equal(dismissals, 2); assert.equal(dinner.recommendations[1].id, 'd');
+});
+
+test('first Start cooking confirms selection without loading a second recipe card', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  let confirm, screen = 'recipe', completed;
+  const option = { id: 'choice', recipe: { id: 'dinner:choice', steps: [{ text: 'Нарежьте овощи' }] } };
+  const opened = [], calls = [];
+  const sandbox = {
+    state: { dinner: { recommendations: [option], recommendation: option }, recipes: [] },
+    location: { search: '?view=dinner&recipe=dinner%3Achoice' }, URLSearchParams,
+    dinnerPollTimer: null, clearTimeout() {}, dinnerView() {}, refresh: async () => {}, toast() {},
+    api: async path => { calls.push(path); return new Promise(resolve => { confirm = () => resolve({ status: 'accepted', firstFreeRecipe: true, savedRecipe: { id: 'saved' } }); }); },
+    openRecipe: id => opened.push(id), closeOverlay() { screen = 'empty'; },
+    cookMode(recipe, callback) { screen = 'cooking'; assert.equal(recipe.steps[0].text, 'Нарежьте овощи'); completed = callback; },
+    markDinnerCooked: id => calls.push('cooked:' + id), scheduleDinnerPrefetch() {}
+  };
+  vm.runInNewContext(source.slice(source.indexOf('async function acceptDinnerItem('), source.indexOf('async function markDinnerCooked(')), sandbox);
+  const cooking = sandbox.cookFromDinnerDetail(option.recipe);
+  assert.equal(screen, 'recipe');
+  confirm(); await cooking;
+  assert.equal(screen, 'cooking');
+  assert.deepEqual(opened, []);
+  assert.equal(sandbox.state.dinner.accepted, true);
+  completed(); assert.equal(calls.at(-1), 'cooked:choice');
+  sandbox.state.dinner.accepted = false;
+  const like = sandbox.acceptDinnerItem(option);
+  confirm(); await like;
+  assert.deepEqual(opened, ['saved']);
+});
+
+test('an image response cannot reopen a saved recipe after cooking begins', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  let finishImage, screen = 'recipe', repaints = 0;
+  const sandbox = {
+    state: { dinner: null, recipes: [] }, URLSearchParams, AbortSignal,
+    location: { search: '?view=collection&recipe=saved' },
+    document: { querySelector: () => screen === 'recipe' ? {} : null },
+    setTimeout: fn => fn(),
+    api: () => new Promise(resolve => { finishImage = () => resolve({ id: 'saved', thumbnailUrl: '/ready.jpg' }); }),
+    closeOverlay() { screen = 'empty'; }, cookMode() { screen = 'cooking'; },
+    recipeDetail() { repaints++; }, acceptDinnerItem: assert.fail, markDinnerCooked: assert.fail
+  };
+  vm.runInNewContext(source.slice(source.indexOf('async function cookFromDinnerDetail('), source.indexOf('async function markDinnerCooked(')), sandbox);
+  vm.runInNewContext(source.slice(source.indexOf('async function waitForRecipeImage('), source.indexOf('function recipeDetail(')), sandbox);
+  const pending = sandbox.waitForRecipeImage('saved');
+  await Promise.resolve();
+  await sandbox.cookFromDinnerDetail({ id: 'saved', steps: [{ text: 'Готовьте' }] });
+  finishImage(); await pending;
+  assert.equal(screen, 'cooking'); assert.equal(repaints, 0);
 });

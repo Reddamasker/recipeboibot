@@ -117,9 +117,10 @@ test('cooking keeps navigation focus across live step updates and only completes
   const element = { innerHTML: '', attributes: {}, setAttribute(key, value) { this.attributes[key] = value; }, querySelector(key) { return controls[key]; } };
   const document = { activeElement: null, createElement: () => element };
   let closes = 0, completed = 0, dismiss;
-  const sandbox = { document, state: {}, mountModal(el, dialog, onDismiss, initialFocus) { assert.equal(el, dialog); dismiss = onDismiss; initialFocus.focus(); }, unmountModal() { closes++; } };
+  const sandbox = { document, state: {}, recipeOpenRevision: 0, mountModal(el, dialog, onDismiss, initialFocus) { assert.equal(el, dialog); dismiss = onDismiss; initialFocus.focus(); }, unmountModal() { closes++; } };
   vm.runInNewContext(handler, sandbox);
   sandbox.cookMode({ title: 'Ужин', steps: [{ text: 'Нарежьте овощи' }, { text: 'Потушите овощи' }] }, () => { completed++; });
+  assert.equal(sandbox.recipeOpenRevision, 1);
   assert.equal(element.attributes['aria-label'], 'Готовим: Ужин');
   assert.match(element.innerHTML, /aria-live="polite" aria-atomic="true"/);
   assert.equal(document.activeElement, controls['.cook-step']);
