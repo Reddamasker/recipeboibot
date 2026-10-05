@@ -16,7 +16,7 @@ import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
 import { canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
-import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult } from './subscriptions.js';
+import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult, startTrial, getTrialStatus } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
@@ -47,7 +47,7 @@ async function sendTestOffer(chatId, userId, force = false) {
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
   if (status.trial?.eligible && (force || status.hasFirstRecipe)) {
     if (!force && !(mock ? claimMockOffer(userId) : recordBillingExposure(userId))) return;
-    await send(chatId, '<b>Попробуйте 7 дней бесплатно</b>\n\nСохранение рецептов, подбор ужина и напоминания. Без карты и списаний. Затем 199 рублей в месяц; подписка оформляется отдельно.', { reply_markup: { inline_keyboard: [[{ text: 'Попробовать 7 дней бесплатно', web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+    await send(chatId, '<b>Попробуйте 7 дней бесплатно</b>\n\nПолучайте новые варианты ужина с учётом ваших вкусов, сохраняйте рецепты и настройте напоминания.\n\nКнопка сразу откроет семь суток полного доступа. Без карты и списаний. Подписка оформляется отдельно.', { reply_markup: { inline_keyboard: [[{ text: 'Попробовать 7 дней бесплатно', callback_data: 'trial:start' }]] } });
     return;
   }
   if (status.trial?.used && !status.active) {
@@ -72,6 +72,28 @@ async function sendTestOffer(chatId, userId, force = false) {
 function canUsePaidImport(userId) {
   if (config.testContour && !billingAvailable()) return canUseTestImport(userId);
   return canUseAutomaticImport(userId);
+}
+export async function handleTrialCallback(callback) {
+  if (callback.data !== 'trial:start' || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
+  const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  const access = getSubscriptionAccess(user.id);
+  if (access.active && access.source !== 'trial') {
+    await send(chatId, 'Полный доступ уже активен. Можно продолжить подбор рецептов.', { reply_markup: dinnerWebAppMarkup() });
+    return true;
+  }
+  const used = getTrialStatus(user.id).used;
+  const trial = startTrial(user.id);
+  if (!trial.active || !getSubscriptionAccess(user.id).active) { await sendTestOffer(chatId, user.id, true); return true; }
+  if (!used) addDinnerEvent(user.id, 'trial_started', { detail: { source: 'telegram' } });
+  const text = '<b>Пробный период начался</b>\n\nПолный доступ до ' + escapeHtml(new Date(trial.expiresAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })) + ' МСК. Можно подбирать новые блюда, сохранять рецепты и настраивать напоминания. Карта не нужна, списаний нет.';
+  const reply_markup = dinnerWebAppMarkup();
+  try {
+    await telegram('editMessageText', { chat_id: chatId, message_id: callback.message.message_id, text, parse_mode: 'HTML', reply_markup });
+  } catch {
+    await send(chatId, text, { reply_markup });
+  }
+  return true;
 }
 export function canUsePlaylistImport(userId) { return getSubscriptionAccess(userId).active; }
 function currentDinnerIntake(userId) {
@@ -1115,7 +1137,7 @@ export async function startTelegramPolling() {
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
           else if (update.callback_query) {
-            if (!await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+            if (!await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
           }
           else await handleMessage(update.message);
           completeUpdate(update.update_id);

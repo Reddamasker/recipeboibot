@@ -11,7 +11,7 @@ import { validateTelegramInitData } from './security.js';
 import { log } from './log.js';
 import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
 import { transcribeAudio } from './openai.js';
-import { getDinnerContext, getFoodProfile, getDinnerOptionImage } from './dinner-store.js';
+import { getDinnerContext, getFoodProfile, getDinnerOptionImage, addDinnerEvent } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, replaceDinner, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
 import { cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
@@ -21,7 +21,7 @@ import { sendNotificationRecipeLink, sendFeedbackNotification } from './telegram
 import { submitFeedback, restoreFeedbackConversation } from './feedback.js';
 import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
-import { getSubscriptionAccess, startTrial, requireRecipeEntry } from './subscriptions.js';
+import { getSubscriptionAccess, startTrial, getTrialStatus, requireRecipeEntry } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
@@ -131,7 +131,9 @@ async function api(request, response, url) {
     return json(response, 200, { ...redemption, payment: config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id) });
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/trial') {
-    startTrial(user.id);
+    const used = getTrialStatus(user.id).used;
+    const trial = startTrial(user.id);
+    if (!used && trial.active) addDinnerEvent(user.id, 'trial_started', { detail: { source: 'app' } });
     return json(response, 200, config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id));
   }
   if (request.method === 'GET' && url.pathname === '/api/billing/offer') {

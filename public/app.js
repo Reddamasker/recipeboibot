@@ -76,6 +76,28 @@ function jobCard(job) {
   return `<article class="card status-card"><div class="card-art ${image ? 'has-image' : 'fallback'}">${image ? `<img src="${image}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span>Источник<br>получен</span>'}<span class="badge ${failed ? 'failed' : ''}">${failed ? 'Ошибка' : 'Обрабатывается'}</span></div><div class="card-body"><h3>${esc(job.label || 'Новый рецепт')}</h3><p class="status-copy">${failed ? esc(job.errorMessage || 'Не удалось обработать источник. Отправьте его ещё раз или добавьте текст.') : 'Можно закрыть приложение — статус сохранён.'}</p>${job.sourceUrl ? `<a class="source-inline" href="${esc(job.sourceUrl)}" target="_blank" rel="noopener noreferrer">Открыть источник ↗</a>` : ''}</div></article>`;
 }
 
+async function activateTrial(event) {
+  if (state.trialStarting) return;
+  state.trialStarting = true;
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
+    if (!state.payment.active) { closeOverlay(); openOffer(); return; }
+    closeOverlay();
+    setRoute({ view: 'dinner' });
+    if (state.payment.accessSource === 'trial') {
+      setTrialOnboardingStep('taste');
+      await beginDinner(false, true);
+    } else await beginDinner();
+  } catch (error) { toast(error.message); button.disabled = false; }
+  finally { state.trialStarting = false; }
+}
+
+function bindTrialButtons(scope = document) {
+  scope.querySelectorAll('[data-start-trial]').forEach(button => button.addEventListener('click', activateTrial));
+}
+
 function bindCommon() {
   const main = root.querySelector('main');
   if (main && !document.querySelector('#feedback-form') && !main.querySelector('[data-feedback-link]')) main.insertAdjacentHTML('beforeend', '<p class="feedback-footer"><a href="/?view=feedback" data-feedback-link>Обратная связь</a></p>');
@@ -91,7 +113,8 @@ function bindCommon() {
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
   document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
-  if (document.querySelector('[data-open-offer]')) void api('/api/billing/exposure', { method: 'POST', body: '{}' }).catch(() => {});
+  bindTrialButtons();
+  if (document.querySelector('[data-open-offer], [data-start-trial]')) void api('/api/billing/exposure', { method: 'POST', body: '{}' }).catch(() => {});
 }
 
 function notificationEntry() {
@@ -104,7 +127,7 @@ function offerBanner() {
   if (payment?.trial?.eligible || payment?.trial?.used) {
     if (payment.active && payment.accessSource !== 'trial') return '';
     const active = payment.active;
-    return `<section class="offer-banner"><h2>${active ? 'Пробный период активен' : payment.trial.used ? 'Пробный период закончился' : '7 дней бесплатно'}</h2><p>${active ? `Полный доступ до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}.` : payment.trial.used ? 'Сохранённые рецепты остаются в коллекции. Для продолжения оформите подписку.' : 'Сохраняйте рецепты, подбирайте ужин и настройте напоминания. Карта не нужна, списаний нет.'}</p><button class="primary accent" type="button" data-open-offer>${active ? 'Условия пробного периода' : payment.trial.used ? 'Продолжить с подпиской' : 'Попробовать 7 дней бесплатно'}</button></section>`;
+    return `<section class="offer-banner"><h2>${active ? 'Пробный период активен' : payment.trial.used ? 'Пробный период закончился' : '7 дней бесплатно'}</h2><p>${active ? `Полный доступ до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}.` : payment.trial.used ? 'Сохранённые рецепты остаются в коллекции. Для продолжения оформите подписку.' : 'Подбирайте новые блюда, сохраняйте рецепты и настройте напоминания. Один клик — семь суток полного доступа. Карта не нужна, списаний нет.'}</p><button class="primary accent" type="button" ${!active && payment.trial.eligible ? 'data-start-trial' : 'data-open-offer'}>${active ? 'Условия пробного периода' : payment.trial.used ? 'Продолжить с подпиской' : 'Попробовать 7 дней бесплатно'}</button></section>`;
   }
   if (!payment?.available || !payment?.hasFirstRecipe || payment.active) return '';
   const mock = payment.mode === 'mock';
@@ -1109,6 +1132,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     banner.innerHTML = offerBanner();
     el.querySelector('.detail-content')?.append(banner);
     banner.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
+    bindTrialButtons(banner);
   }
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
   el.querySelector('#request-refine')?.addEventListener('click', () => { closeOverlay(); setRoute({ view: 'request', q: state.query }, { replace: true }); recipeRequestView({ focus: true }); });
@@ -1520,16 +1544,7 @@ function providerOfferPage() {
   root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${trialAction}${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : requiresTrial ? 'Сначала начните пробный период' : 'Оплата пока подключается'}</button>${trialReturn}<p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
   document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
-  document.querySelector('#start-trial')?.addEventListener('click', async (event) => {
-    event.currentTarget.disabled = true;
-    try {
-      state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
-      if (state.payment.accessSource !== 'trial' || !state.payment.active) { providerOfferPage(); return; }
-      setTrialOnboardingStep('taste');
-      setRoute({ view: 'dinner' });
-      await beginDinner(false, true);
-    } catch (error) { toast(error.message); event.currentTarget.disabled = false; }
-  });
+  document.querySelector('#start-trial')?.addEventListener('click', event => activateTrial(event));
   document.querySelector('#cancel-auto-renew')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
     try { await api('/api/billing/auto-renew/cancel', { method: 'POST', body: '{}' }); await refresh(); providerOfferPage(); toast('Автопродление отключено. Оплаченный доступ сохранён'); }

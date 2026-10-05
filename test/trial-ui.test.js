@@ -29,7 +29,8 @@ function combinedOfferHarness(payment, quote = null) {
       return { ...payment, active: true, accessSource: 'trial', trial: { used: true, eligible: false, expiresAt: '2026-10-08T10:00:00Z' } };
     },
     setTrialOnboardingStep: step => steps.push(step), beginDinner: async (...args) => steps.push(args),
-    setRoute: route => routes.push(route), render() {}, toast: assert.fail };
+    setRoute: route => routes.push(route), closeOverlay() {}, render() {}, toast: assert.fail };
+  vm.runInNewContext(source.slice(source.indexOf('async function activateTrial('), source.indexOf('function bindCommon()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function bindPaymentOfferControls()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function trialOfferPage()'), source.indexOf('\nfunction checkoutPage()')), sandbox);
@@ -262,4 +263,43 @@ test('a fresh user sees no trial sales banner until the first recipe is delivere
   assert.equal(sandbox.offerBanner(), '');
   sandbox.state.payment.firstRecipe = { available: false, pending: false, delivered: true };
   assert.match(sandbox.offerBanner(), /Попробовать 7 дней бесплатно/);
+  assert.match(sandbox.offerBanner(), /data-start-trial/);
+  assert.doesNotMatch(sandbox.offerBanner(), /data-open-offer/);
+});
+
+test('recipe banner activates with one click, ignores a concurrent click and preserves retry after failure', async () => {
+  const calls = [], steps = [], routes = [], errors = [], buttons = [];
+  const state = { payment: { trial: { eligible: true, used: false }, firstRecipe: { delivered: true } } };
+  let release, fail = false;
+  const sandbox = { state, esc: String, document: { querySelectorAll: () => buttons },
+    api: async (url, options) => {
+      calls.push([url, options.method]);
+      await new Promise(resolve => { release = resolve; });
+      if (fail) throw new Error('Попробуйте ещё раз');
+      return { active: true, accessSource: 'trial' };
+    },
+    closeOverlay() {}, setRoute: route => routes.push(route), setTrialOnboardingStep: step => steps.push(step),
+    beginDinner: async (...args) => steps.push(args), toast: message => errors.push(message), openOffer: assert.fail };
+  vm.runInNewContext(source.slice(source.indexOf('async function activateTrial('), source.indexOf('function bindCommon()')), sandbox);
+  vm.runInNewContext(source.slice(source.indexOf('function offerBanner()'), source.indexOf('\nfunction openOffer')), sandbox);
+  assert.match(sandbox.offerBanner(), /data-start-trial/);
+  const button = { disabled: false, addEventListener(_name, handler) { this.click = handler; } };
+  buttons.push(button); sandbox.bindTrialButtons();
+  assert.equal(calls.length, 0);
+  fail = true;
+  const failed = button.click({ currentTarget: button });
+  await button.click({ currentTarget: button });
+  assert.equal(calls.length, 1);
+  assert.equal(button.disabled, true);
+  release(); await failed;
+  assert.equal(button.disabled, false);
+  assert.equal(state.trialStarting, false);
+  assert.deepEqual(errors, ['Попробуйте ещё раз']);
+  fail = false;
+  const retry = button.click({ currentTarget: button });
+  release(); await retry;
+  assert.deepEqual(calls, [['/api/billing/trial', 'POST'], ['/api/billing/trial', 'POST']]);
+  assert.equal(state.payment.active, true);
+  assert.deepEqual(steps, ['taste', [false, true]]);
+  assert.equal(routes[0].view, 'dinner');
 });

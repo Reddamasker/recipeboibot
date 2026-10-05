@@ -16,7 +16,7 @@ process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser, allowUser, createRecipe, getRecipe, archiveRecipe, getPendingIntent } = await import('../src/db.js');
 const { startTrial, getTrialStatus, getSubscriptionAccess, getFirstRecipeStatus, withFirstRecipe, grantSubscription, requireNotificationSubscription } = await import('../src/subscriptions.js');
 const { getBillingOffer, canUseAutomaticImport } = await import('../src/billing.js');
-const { canUsePlaylistImport, interpretVoice, handleMessage, handleDinnerIntakeCallback } = await import('../src/telegram.js');
+const { canUsePlaylistImport, interpretVoice, handleMessage, handleDinnerIntakeCallback, handleTrialCallback } = await import('../src/telegram.js');
 const { importTextWithAccess } = await import('../src/importer.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
@@ -81,6 +81,7 @@ test('HTTP rejects paid actions before trial activation but preserves library ac
     assert.equal((await fetch(base + '/api/library', { headers })).status, 200);
     assert.equal(getTrialStatus(user.id).used, false);
     assert.equal((await fetch(base + '/api/billing/trial', { method: 'POST', headers, body: '{}' })).status, 200);
+    assert.equal(JSON.parse(db.prepare("SELECT detail_json FROM dinner_events WHERE user_id=? AND event='trial_started'").get(user.id).detail_json).source, 'app');
     assert.equal(canUseAutomaticImport(user.id), true);
     assert.equal(canUseTestImport(user.id), true);
   } finally { await new Promise(resolve => server.close(resolve)); }
@@ -187,6 +188,8 @@ test('a first Telegram launch provides the recipe before sending the trial offer
     const offerIndex = sent.findIndex(body => /Попробуйте 7 дней бесплатно/.test(body.text || ''));
     assert.ok(recipeIndex >= 0);
     assert.ok(offerIndex > recipeIndex);
+    assert.equal(sent[offerIndex].reply_markup.inline_keyboard[0][0].callback_data, 'trial:start');
+    assert.equal(sent[offerIndex].reply_markup.inline_keyboard[0][0].web_app, undefined);
     assert.equal(getTrialStatus(user.id).used, false);
     assert.equal(getFirstRecipeStatus(user.id).delivered, true);
     assert.equal(getPendingIntent(user.id), null);
@@ -220,6 +223,41 @@ test('trial starts only on request, lasts exactly seven days and survives retrie
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).expiresAt, trial.expiresAt);
   assert.equal(JSON.parse(result.stdout).active, false);
+});
+
+test('Telegram trial button belongs to the private account and activates once without opening tariffs', async () => {
+  const { user, telegram: from } = fresh(), chat = { id: from.id, type: 'private' };
+  const sent = [], originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.match(String(url), /api\.telegram\.org/);
+    sent.push({ method: String(url).split('/').at(-1), ...JSON.parse(options.body) });
+    return Response.json({ ok: true, result: { message_id: 123 } });
+  };
+  const callback = { id: 'trial-1', data: 'trial:start', from, message: { chat, message_id: 123 } };
+  try {
+    assert.equal(await handleTrialCallback({ ...callback, from: { ...from, id: from.id + 999 } }), false);
+    assert.equal(await handleTrialCallback({ ...callback, message: { chat: { ...chat, type: 'group' } } }), false);
+    assert.equal(getTrialStatus(user.id).used, false);
+    assert.equal(sent.length, 0);
+    assert.equal(await handleTrialCallback(callback), true);
+    const first = getTrialStatus(user.id);
+    assert.equal(first.active, true);
+    assert.equal(Date.parse(first.expiresAt) - Date.parse(first.startsAt), 7 * 86400000);
+    assert.match(sent.find(body => body.method === 'editMessageText').text, /Пробный период начался/);
+    assert.equal(sent.some(body => JSON.stringify(body).includes('view=offer')), false);
+    assert.equal(await handleTrialCallback(callback), true);
+    assert.deepEqual(getTrialStatus(user.id), first);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM dinner_events WHERE user_id=? AND event='trial_started'").get(user.id).n, 1);
+    db.prepare('UPDATE user_trials SET starts_at=?,expires_at=? WHERE user_id=?').run('2026-01-01', '2026-01-08', user.id);
+    await handleTrialCallback(callback);
+    assert.equal(getTrialStatus(user.id).active, false);
+    assert.match(sent.at(-1).text, /Пробный период закончился/);
+    const paid = fresh();
+    grantSubscription(paid.user.id, 'subscription', new Date(Date.now() + 86400000).toISOString());
+    await handleTrialCallback({ ...callback, from: paid.telegram, message: { chat: { id: paid.telegram.id, type: 'private' } } });
+    assert.equal(getTrialStatus(paid.user.id).used, false);
+    assert.equal(getSubscriptionAccess(paid.user.id).source, 'subscription');
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('expiry blocks premium operations without a payment provider while keeping saved recipes and schedules', async () => {
