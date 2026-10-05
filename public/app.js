@@ -5,7 +5,7 @@ const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookSte
 let paymentPollTimer = null;
 window.miniProbe?.('app-script');
 
-tg?.ready(); tg?.expand();
+tg?.ready?.(); tg?.expand?.();
 // Keep drags inside the page from competing with Telegram's sheet gesture.
 tg?.disableVerticalSwipes?.();
 if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }

@@ -33,9 +33,9 @@
     return true;
   };
   const signalReady = () => {
-    if (!showAppShell() || ready || !platformSdk()?.ready) return;
+    if (!showAppShell() || ready || !platformSdk()) return;
     try {
-      platformSdk().ready();
+      platformSdk().ready?.();
       ready = true;
       report(`${platformLabel}-ready`);
     } catch { report(`${platformLabel}-ready-error`); }

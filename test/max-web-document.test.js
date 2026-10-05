@@ -95,3 +95,25 @@ test('MAX launch navigation is read only after /api/me authentication succeeds',
   assert.ok(boot.indexOf("await api('/api/me'") < boot.indexOf('initialRoute()'));
   assert.match(source, /authorization: window\.RecipePlatform\?\.authHeader\(\)/);
 });
+
+test('MAX application startup works with the official SDK shape without Telegram ready or expand methods', () => {
+  const { window } = bridgeFixture('max');
+  assert.equal(window.WebApp.ready, undefined);
+  assert.equal(window.WebApp.expand, undefined);
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  vm.runInNewContext(source.slice(0, source.indexOf('const esc =')) + '\nwindow.startupAuth = window.RecipePlatform.authHeader();', { window, document: { querySelector: () => ({}) } });
+  assert.equal(window.startupAuth, 'mxa signed-max-data');
+});
+
+test('MAX boot finishes when its SDK has no ready method and does not report a missing bridge', () => {
+  const stages = [], timers = [], app = { hidden: true }, landing = { hidden: false };
+  const { window } = bridgeFixture('max'); window.addEventListener = () => {};
+  vm.runInNewContext(fs.readFileSync('public/mini-boot.js', 'utf8'), {
+    window, location: { hash: '#WebAppData=signed' }, document: { addEventListener() {}, documentElement: {}, querySelector: selector => selector === '#app' ? app : landing },
+    fetch: url => { stages.push(new URL(url, 'https://recipes.test').searchParams.get('mini')); return Promise.resolve(); },
+    MutationObserver: class { observe() {} disconnect() {} }, setInterval() {}, setTimeout(fn, delay) { timers.push({ fn, delay }); }, clearInterval() {}
+  });
+  timers.find(timer => timer.delay === 10000).fn();
+  assert.equal(app.hidden, false); assert.equal(landing.hidden, true);
+  assert.deepEqual(stages, ['boot-script', 'max-ready']);
+});
