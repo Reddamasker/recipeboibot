@@ -5,12 +5,14 @@ import { gzipSync } from 'node:zlib';
 
 // Keep the same document and routes. Ship its existing startup resources in
 // one response so a stalled secondary connection cannot prevent app.js running.
-export function buildWebDocument(publicDir, { telegramSdk, botUsername } = {}) {
+export function buildWebDocument(publicDir, { telegramSdk, botUsername, botPlatform = 'telegram' } = {}) {
+  const isMax = botPlatform === 'max';
   const hashes = [];
   const deferred = [];
   const read = (url) => {
     const source = fs.readFileSync(path.join(publicDir, url.split('?')[0]), 'utf8').replace(/\r\n?/g, '\n');
-    return botUsername ? source.replaceAll('https://t.me/Recipeboibot', `https://t.me/${botUsername}`) : source;
+    if (isMax && url.split('?')[0] === 'index.html') return source.replaceAll('https://t.me/Recipeboibot', `https://max.ru/${encodeURIComponent(botUsername || '')}`).replaceAll('Telegram', 'MAX').replaceAll('нажмите Start', 'нажмите «Начать»');
+    return !isMax && botUsername ? source.replaceAll('https://t.me/Recipeboibot', `https://t.me/${botUsername}`) : source;
   };
   const script = (source) => {
     const text = source.replace(/<\/script/gi, '<\\/script');
@@ -18,9 +20,15 @@ export function buildWebDocument(publicDir, { telegramSdk, botUsername } = {}) {
     return `<script>${text}</script>`;
   };
   let html = read('index.html');
+  html = html.replace(/<script src="\/platform-bridge\.js[^"<>]*"><\/script>\s*/, '');
   html = html.replace(/<link rel="stylesheet" href="(\/[^"<>]+)">/g, (_, url) => `<style>${read(url).replace(/<\/style/gi, '<\\/style')}</style>`);
   html = html.replace(/<script( defer)? src="(\/[^"<>]+)"><\/script>/g, (_, defer, url) => {
-    const source = url.startsWith('/vendor/telegram-web-app.js') && telegramSdk !== undefined ? telegramSdk : read(url);
+    if (isMax && url.startsWith('/vendor/telegram-web-app.js')) {
+      deferred.push('<script src="https://st.max.ru/js/max-web-app.js"></script>');
+      return '';
+    }
+    let source = url.startsWith('/vendor/telegram-web-app.js') && telegramSdk !== undefined ? telegramSdk : read(url);
+    if (url.startsWith('/mini-boot.js')) source = `window.__recipePlatform=${JSON.stringify({ name: isMax ? 'max' : 'telegram', botUsername: botUsername || (isMax ? '' : 'Recipeboibot') })};\n${read('/platform-bridge.js')}\n${source}`;
     const tag = script(source);
     if (defer) { deferred.push(tag); return ''; }
     return tag;

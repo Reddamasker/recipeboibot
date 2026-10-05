@@ -1,4 +1,4 @@
-const tg = window.Telegram?.WebApp;
+const tg = window.RecipePlatform ? window.RecipePlatform.sdk : window.Telegram?.WebApp;
 const root = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
 const state = { me: null, recipes: [], jobs: [], query: '', tab: 'text', cookStep: 0, scrollY: 0, dinner: null, onboarding: null, notificationSchedule: null, payment: null, checkoutOrder: null, paymentResult: null, paymentMethod: 'card', paymentPeriodMonths: 1, paymentPromoQuote: null, paymentPromoMessage: '', trialOnboarding: null };
@@ -14,7 +14,7 @@ const esc = (value = '') => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&a
 const toast = (message) => { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => toastEl.classList.remove('show'), 3500); };
 const resetPageScroll = () => globalThis.requestAnimationFrame?.(() => globalThis.scrollTo?.(0, 0));
 async function api(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { authorization: `tma ${tg?.initData || ''}`, 'content-type': 'application/json', ...(options.headers || {}) } });
+  const response = await fetch(path, { ...options, headers: { authorization: window.RecipePlatform?.authHeader() || `tma ${tg?.initData || ''}`, 'content-type': 'application/json', ...(options.headers || {}) } });
   const value = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(value?.error || 'Не получилось выполнить запрос'), { status: response.status });
   return value;
@@ -151,18 +151,22 @@ function offerBanner() {
 function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
 
 function mainMenuPage() {
-  const chatUrl = `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=dish`;
+  const chatUrl = globalThis.window?.RecipePlatform?.botUrl('dish') || `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=dish`;
   root.innerHTML = `${header()}<main class="main-menu-page"><section class="home-choice" aria-labelledby="main-menu-title">
     <h1 id="main-menu-title">Что приготовим?</h1><p>Выберите, с чего начать.</p>
     <div class="home-choice-actions">
-      <button id="menu-today" class="home-choice-button primary accent" type="button"><span><strong>Что на сегодня</strong><small>Подборка с учётом ваших вкусов</small></span><span aria-hidden="true">🍽️</span></button>
-      <a id="menu-dish" class="home-choice-button secondary" href="${esc(chatUrl)}"><span><strong>Хочу конкретное блюдо</strong><small>Надиктуйте пожелание в чате</small></span><span aria-hidden="true">🎤</span></a>
-      <button id="menu-recipes" class="home-choice-button secondary" type="button"><span><strong>Мои рецепты</strong><small>Ваша сохранённая коллекция</small></span><span aria-hidden="true">📖</span></button>
+      <button id="menu-today" class="home-choice-button primary accent" type="button"><span><strong>Что на сегодня</strong><small>Подборка с учётом ваших вкусов</small></span><span aria-hidden="true">1</span></button>
+      <a id="menu-dish" class="home-choice-button secondary" href="${esc(chatUrl)}"><span><strong>Хочу конкретное блюдо</strong><small>Надиктуйте пожелание в чате</small></span><span aria-hidden="true">2</span></a>
+      <button id="menu-recipes" class="home-choice-button secondary" type="button"><span><strong>Мои рецепты</strong><small>Ваша сохранённая коллекция</small></span><span aria-hidden="true">3</span></button>
     </div></section></main>`;
   bindCommon();
   document.querySelector('#menu-today').onclick = () => { setRoute({ view: 'dinner' }); void render().catch(error => toast(error.message)); };
   document.querySelector('#menu-recipes').onclick = () => { setRoute({ view: 'collection' }); void render().catch(error => toast(error.message)); };
   document.querySelector('#menu-dish').onclick = event => {
+    if (globalThis.window?.RecipePlatform?.name === 'max') {
+      if (window.RecipePlatform.openBot('dish')) { event.preventDefault(); tg?.close?.(); }
+      return;
+    }
     if (!tg?.openTelegramLink) return;
     event.preventDefault();
     tg.openTelegramLink(chatUrl);
@@ -375,7 +379,7 @@ function trialOnboardingPage() {
   const step = state.trialOnboarding === 'collection' ? 'collection' : 'notifications';
   resetPageScroll();
   if (step === 'notifications') {
-    root.innerHTML = `${header()}<main class="trial-onboarding"><div class="trial-progress" aria-label="Шаг 2 из 3"><span></span><span class="active"></span><span></span></div><section class="trial-feature"><div class="trial-feature-art trial-bell" aria-hidden="true"><span></span></div><div class="eyebrow">ШАГ 2 · НАПОМИНАНИЯ</div><h1>Не думай об ужине заранее</h1><p>Выбери удобные дни и время. Бот сам пришлёт три варианта — останется только выбрать.</p><ul class="trial-benefits"><li><span>1</span> Подборка приходит прямо в Telegram</li><li><span>2</span> Расписание можно изменить в любой момент</li></ul><div class="trial-actions"><button class="primary accent" id="trial-notifications">Настроить напоминания</button><button class="secondary" id="trial-notifications-skip">Не сейчас</button></div></section></main>`;
+    root.innerHTML = `${header()}<main class="trial-onboarding"><div class="trial-progress" aria-label="Шаг 2 из 3"><span></span><span class="active"></span><span></span></div><section class="trial-feature"><div class="trial-feature-art trial-bell" aria-hidden="true"><span></span></div><div class="eyebrow">ШАГ 2 · НАПОМИНАНИЯ</div><h1>Не думай об ужине заранее</h1><p>Выбери удобные дни и время. Бот сам пришлёт три варианта — останется только выбрать.</p><ul class="trial-benefits"><li><span>1</span> Подборка приходит прямо в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}</li><li><span>2</span> Расписание можно изменить в любой момент</li></ul><div class="trial-actions"><button class="primary accent" id="trial-notifications">Настроить напоминания</button><button class="secondary" id="trial-notifications-skip">Не сейчас</button></div></section></main>`;
     bindCommon();
     document.querySelector('#trial-notifications').onclick = () => { setTrialOnboardingStep('notifications-settings'); setRoute({ view: 'notifications' }); void render(); };
     document.querySelector('#trial-notifications-skip').onclick = () => { setTrialOnboardingStep('collection'); trialOnboardingPage(); };
@@ -653,6 +657,7 @@ function bindDinnerSwipe(card, { canStart, onAccept, onReject, onActive }) {
 }
 
 function updateDinnerIngredients() {
+  if (globalThis.window?.RecipePlatform?.name === 'max') { window.RecipePlatform.openBot('ingredients'); return; }
   const url = `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=ingredients`;
   if (window.Telegram?.WebApp?.openTelegramLink) window.Telegram.WebApp.openTelegramLink(url);
   else window.location.href = url;
@@ -727,7 +732,7 @@ async function acceptDinnerItem(option) {
     if (result.savedRecipe) state.recipes = [result.savedRecipe, ...state.recipes.filter((recipe) => recipe.id !== result.savedRecipe.id)];
     Object.assign(dinner, { recommendation: option, accepted: true, switching: false, acceptingId: null });
     dinnerView();
-    if (dinner.notificationId) toast(result.telegramSent ? 'Ссылка на рецепт отправлена в Telegram' : 'Выбор сохранён. Ссылка скоро придёт в Telegram.');
+    if (dinner.notificationId) toast((result.messageSent ?? result.telegramSent) ? `Ссылка на рецепт отправлена в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}` : `Выбор сохранён. Ссылка скоро придёт в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}.`);
     return true;
   } catch (error) {
     if (state.dinner === dinner) { dinner.switching = false; dinner.acceptingId = null; dinnerView(); scheduleDinnerPrefetch(dinner); toast(error.message); }
@@ -1113,7 +1118,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     return `<div class="ingredient-row"><div><strong>${esc(item.name || item.raw)}</strong>${item.comment ? `<small>${esc(item.comment)}</small>` : ''}</div>${amount ? `<span>${esc(amount)}</span>` : '<span class="amount-empty">по вкусу</span>'}</div>`;
   }).join('') || '<p class="detail-empty">Ингредиенты не извлечены</p>';
   const steps = (r.steps || []).map((item, index) => `<div class="step-card"><span class="step-number">${index + 1}</span><p>${esc(item.text)}</p></div>`).join('') || '<p class="detail-empty">Шаги не извлечены</p>';
-  const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="https://t.me/Recipeboibot?start=dinner" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
+  const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
   const backButton = shared ? '' : '<button class="detail-back" type="button" data-close aria-label="Назад"><span aria-hidden="true">←</span> Назад</button>';
   const editButton = requestMode
     ? '<button class="detail-edit" id="request-refine" type="button">Уточнить пожелание</button>'
@@ -1179,6 +1184,11 @@ async function shareRecipe(recipe, button) {
     const share = await api(`${route}/${encodeURIComponent(recipe.id)}/share`, { method: 'POST', body: '{}' });
     const url = new URL(share.path, location.origin).toString();
     const text = `Смотри рецепт «${recipe.title}»`;
+    if (globalThis.window?.RecipePlatform) {
+      const result = await window.RecipePlatform.share({ title: recipe.title, text, url });
+      if (result === 'copied') toast('Ссылка скопирована');
+      return;
+    }
     const telegramShareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
     if (tg?.openTelegramLink) tg.openTelegramLink(telegramShareUrl);
     else if (tg?.openLink) tg.openLink(telegramShareUrl);
@@ -1194,7 +1204,7 @@ async function openSharedRecipe(token) {
     closeOverlay(); root.innerHTML = ''; recipeDetail(recipe, { shared: true });
     document.title = `${recipe.title} — Рецепты`;
   } catch (error) {
-    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="https://t.me/Recipeboibot?start=dinner" style="text-decoration:none">Открыть сервис ↗</a></main>`;
+    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" style="text-decoration:none">Открыть сервис ↗</a></main>`;
   } finally {
     // Telegram's in-app browser exposes its WebView bridge even for public links.
     // Mark this route as rendered so the Mini App startup watchdog does not
@@ -1242,7 +1252,7 @@ function cookMode(r, onComplete = null) {
   mountModal(el, el, close, step);
 }
 function settingsSheet() {
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему Telegram и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="secondary" id="promo-settings">Ввести промокод</button><button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему аккаунту ${globalThis.window?.RecipePlatform?.label || 'Telegram'} и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="secondary" id="promo-settings">Ввести промокод</button><button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
   el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
   const feedbackLink = document.createElement('button');
@@ -1267,7 +1277,7 @@ function settingsSheet() {
 function feedbackPage() {
   clearTimeout(dinnerPollTimer); clearTimeout(paymentPollTimer);
   state.feedbackRequestKey ||= crypto.randomUUID();
-  root.innerHTML = `${header()}<main class="offer-page feedback-page"><button class="back-link" id="feedback-back">К рецептам</button><div class="offer-hero"><h1>Обратная связь</h1><p>Есть вопрос, предложение или жалоба? Напишите здесь — сообщение получит владелец сервиса.</p></div><section class="offer-plan"><form id="feedback-form"><label for="feedback-message">Ваше сообщение</label><textarea id="feedback-message" rows="7" maxlength="3000" required placeholder="Расскажите, что случилось или что можно улучшить" aria-describedby="feedback-help">${esc(state.feedbackDraft || '')}</textarea><p class="help" id="feedback-help">До 3000 символов. Вместе с сообщением отправим ваше имя и Telegram-профиль, чтобы с вами могли связаться.</p><p id="feedback-error" class="feedback-error" role="alert" hidden></p><button class="primary accent" type="submit">Отправить</button></form></section></main>`;
+  root.innerHTML = `${header()}<main class="offer-page feedback-page"><button class="back-link" id="feedback-back">К рецептам</button><div class="offer-hero"><h1>Обратная связь</h1><p>Есть вопрос, предложение или жалоба? Напишите здесь — сообщение получит владелец сервиса.</p></div><section class="offer-plan"><form id="feedback-form"><label for="feedback-message">Ваше сообщение</label><textarea id="feedback-message" rows="7" maxlength="3000" required placeholder="Расскажите, что случилось или что можно улучшить" aria-describedby="feedback-help">${esc(state.feedbackDraft || '')}</textarea><p class="help" id="feedback-help">До 3000 символов. Вместе с сообщением отправим ваше имя и профиль ${globalThis.window?.RecipePlatform?.label || 'Telegram'}, чтобы с вами могли связаться.</p><p id="feedback-error" class="feedback-error" role="alert" hidden></p><button class="primary accent" type="submit">Отправить</button></form></section></main>`;
   bindCommon(); resetPageScroll();
   document.querySelector('#feedback-back').onclick = () => { setRoute({}); void render(); };
   const form = document.querySelector('#feedback-form'), textarea = document.querySelector('#feedback-message');
@@ -1651,7 +1661,7 @@ async function boot() {
       document.querySelector('#landing')?.setAttribute('hidden', '');
       root.hidden = false;
       window.__miniRendered = true;
-      root.innerHTML = '<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>Telegram не передал данные входа. Закройте окно и откройте приложение кнопкой в чате бота.</p></main>';
+      root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>${esc(window.RecipePlatform?.label || 'Telegram')} не передал данные входа. Закройте окно и откройте приложение кнопкой в чате бота.</p></main>`;
     }
     return;
   }
@@ -1662,6 +1672,10 @@ async function boot() {
   if (sharedMatch) { await openSharedRecipe(sharedMatch[1]); return; }
   try {
     state.me = await api('/api/me', { signal: AbortSignal.timeout(12000) });
+    window.RecipePlatform?.setProfile(state.me);
+    // Server authentication has succeeded; start parameters affect navigation only.
+    const launchRoute = window.RecipePlatform?.initialRoute();
+    if (launchRoute && !new URLSearchParams(location.search).has('view') && !new URLSearchParams(location.search).has('recipe')) setRoute(launchRoute, { replace: true });
     window.miniProbe?.('profile-loaded');
     await refresh();
     window.miniProbe?.('library-loaded');

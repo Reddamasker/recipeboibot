@@ -8,6 +8,8 @@ import { archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserDa
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
+import { validateMaxInitData, verifyMaxWebhookSecret } from './max-auth.js';
+import { enqueueMaxUpdate } from './max-events.js';
 import { log } from './log.js';
 import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
 import { transcribeAudio } from './openai.js';
@@ -39,7 +41,9 @@ function securityHeaders(response, scriptHashes = '') {
   response.setHeader('x-content-type-options', 'nosniff');
   response.setHeader('referrer-policy', 'no-referrer');
   response.setHeader('permissions-policy', 'camera=(), microphone=(self), geolocation=()');
-  response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' https://telegram.org ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org`);
+  const sdkOrigin = config.botPlatform === 'max' ? 'https://st.max.ru' : 'https://telegram.org';
+  const frameOrigins = config.botPlatform === 'max' ? 'https://max.ru https://web.max.ru https://*.max.ru' : 'https://web.telegram.org https://*.telegram.org';
+  response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors ${frameOrigins}`);
 }
 function json(response, status, value) {
   securityHeaders(response); response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value));
@@ -90,8 +94,9 @@ export function clientIp(request, trustProxy = config.trustProxy) {
 }
 function authenticate(request) {
   const header = request.headers.authorization || '';
-  if (!header.startsWith('tma ')) throw Object.assign(new Error('Откройте приложение из Telegram'), { status: 401 });
-  const telegramUser = validateTelegramInitData(header.slice(4), config.telegramToken);
+  const scheme = config.botPlatform === 'max' ? 'mxa ' : 'tma ';
+  if (!header.startsWith(scheme)) throw Object.assign(new Error(`Откройте приложение из ${config.botPlatform === 'max' ? 'MAX' : 'Telegram'}`), { status: 401 });
+  const telegramUser = config.botPlatform === 'max' ? validateMaxInitData(header.slice(4), config.maxToken) : validateTelegramInitData(header.slice(4), config.telegramToken);
   request.telegramUser = telegramUser;
   const user = resolvePrivateTelegramUser(telegramUser);
   if (!user.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
@@ -180,7 +185,10 @@ async function api(request, response, url) {
     }
     return json(response, 404, { error: 'Не найдено' });
   }
-  if (request.method === 'GET' && url.pathname === '/api/me') return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour, botUsername: config.testContour ? config.testBotUsername : 'Recipeboibot' });
+  if (request.method === 'GET' && url.pathname === '/api/me') {
+    const botUsername = config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
+    return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
+  }
   if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, getNotificationSchedule(user.id));
   if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));
   const notificationAction = url.pathname.match(/^\/api\/notifications\/([0-9a-f-]{36})\/(open|select)$/i);
@@ -349,7 +357,7 @@ async function api(request, response, url) {
 function serveStatic(request, response, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
   if (requested === '/index.html') {
-    webDocument ??= buildWebDocument(publicDir, { botUsername: config.testContour ? config.testBotUsername : undefined });
+    webDocument ??= buildWebDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : undefined });
     const compressed = acceptsGzip(request.headers['accept-encoding']);
     const bytes = compressed ? webDocument.gzip : webDocument.bytes;
     recordLandingHtmlLoad({ method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
@@ -360,6 +368,12 @@ function serveStatic(request, response, pathname) {
   }
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+  if (config.botPlatform === 'max' && ['/privacy.html', '/terms.html', '/offer.html'].includes(requested)) {
+    let document = fs.readFileSync(file, 'utf8').replaceAll('Telegram', 'MAX').replaceAll('нажать Start', 'нажать «Начать»').replaceAll('https://t.me/Recipeboibot', `https://max.ru/${config.maxBotUsername}`).replaceAll('@Recipeboibot', `@${config.maxBotUsername}`);
+    document = document.replace('Исходные изображения и аудио обрабатываются в памяти и не сохраняются приложением.', 'Исходные изображения и аудио не сохраняются в коллекции. Для проверки аудио создаётся временный файл, который удаляется после обработки.');
+    document = document.replace('</header>', '</header><p>Оплата в MAX пока не подключена. Пробный период запускается отдельно по кнопке, без карты и списаний.</p>');
+    securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
+  }
   securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
 }
 
@@ -368,8 +382,16 @@ export function createServer() {
     const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
     try {
       const robokassaResult = url.pathname === '/api/payments/robokassa/result' && ['GET', 'POST'].includes(request.method);
+      if (url.pathname === '/api/max/webhook') {
+        if (config.botPlatform !== 'max') return json(response, 404, { error: 'Не найдено' });
+        if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
+        if (!verifyMaxWebhookSecret(request.headers['x-max-bot-api-secret'], config.maxWebhookSecret)) return json(response, 401, { error: 'Неверная подпись webhook' });
+        const update = await bodyJson(request, 256000);
+        enqueueMaxUpdate(update);
+        return json(response, 200, { ok: true });
+      }
       rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
-      if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot' });
+      if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
       if (url.pathname === '/dashboard' || url.pathname === '/dashboard/') return serveStatic(request, response, '/dashboard.html');
       if (url.pathname.startsWith('/api/dashboard/')) {
         const cookie = String(request.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith('funnel_session='))?.slice(15);
@@ -435,6 +457,7 @@ export function createServer() {
         return json(response, billingReady ? 200 : 503, {
           ok: billingReady,
           service: 'recipeboibot',
+          platform: config.botPlatform,
           billing: { required: config.billingRequired, configured: billingAvailable() }
         });
       }

@@ -689,4 +689,23 @@ export function completeUpdate(updateId) { db.prepare("UPDATE processed_updates 
 export function failUpdate(updateId) { db.prepare("UPDATE processed_updates SET status='failed',updated_at=? WHERE update_id=?").run(now(), String(updateId)); }
 export function markUpdate(updateId) { if (!claimUpdate(updateId)) return false; completeUpdate(updateId); return true; }
 
-export function deleteUserData(userId) { return db.prepare('DELETE FROM users WHERE id=?').run(userId).changes > 0; }
+export function deleteUserData(userId) {
+  const user = getUserById(userId);
+  if (!user) return false;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (user.telegram_id.startsWith('max:') && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='max_inbox'").get()) {
+      const externalId = user.telegram_id.slice(4);
+      // Keep only deduplication tombstones; remove text/media from retained
+      // pending events so account deletion cannot resurrect a profile.
+      db.prepare(`UPDATE max_inbox SET status='done',event_json='{}' WHERE
+        CAST(json_extract(event_json,'$.user.user_id') AS TEXT)=? OR
+        CAST(json_extract(event_json,'$.message.sender.user_id') AS TEXT)=? OR
+        CAST(json_extract(event_json,'$.callback.user.user_id') AS TEXT)=?`).run(externalId, externalId, externalId);
+      for (const table of ['max_chat_bindings', 'max_messages', 'max_callbacks']) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(externalId);
+    }
+    const deleted = db.prepare('DELETE FROM users WHERE id=?').run(userId).changes > 0;
+    db.exec('COMMIT');
+    return deleted;
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+}

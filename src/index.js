@@ -1,6 +1,8 @@
 import { assertConfig, config } from './config.js';
 import { createServer } from './server.js';
-import { sendNotificationRecipeLink, sendNotificationReminder, sendFeedbackNotification, startTelegramPolling, stopTelegramPolling } from './telegram.js';
+import { sendNotificationRecipeLink, sendNotificationReminder, sendFeedbackNotification, startTelegramPolling, stopTelegramPolling, handleChatUpdate } from './telegram.js';
+import { maxApiCall } from './max-client.js';
+import { startMaxWorker } from './max-events.js';
 import { startFeedbackScheduler, stopFeedbackScheduler } from './feedback.js';
 import { log } from './log.js';
 import { getRecipe, interruptActiveJobs, listGeneratedRecipesWithoutImages } from './db.js';
@@ -10,9 +12,16 @@ import { startBillingScheduler, stopBillingScheduler } from './billing.js';
 import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
 
 assertConfig();
+let maxBotId;
+if (config.botPlatform === 'max') {
+  const bot = await maxApiCall('/me');
+  if (!bot.is_bot || bot.username?.toLowerCase() !== config.maxBotUsername.toLowerCase()) throw new Error('Unexpected bot token for MAX contour');
+  maxBotId = bot.user_id;
+}
 const interruptedJobs = interruptActiveJobs();
 if (interruptedJobs) log('warn', 'import_jobs_recovered', { count: interruptedJobs });
 const server = createServer();
+const maxWorker = config.botPlatform === 'max' ? startMaxWorker(handleChatUpdate, { botId: maxBotId, onError: detail => log('warn', 'max_update_failed', detail) }) : null;
 server.listen(config.port, '0.0.0.0', () => {
   log('info', 'server_started', { port: config.port, appUrlConfigured: Boolean(config.appUrl) });
   startBillingScheduler();
@@ -20,10 +29,18 @@ server.listen(config.port, '0.0.0.0', () => {
   if (config.imageModel) void (async () => {
     for (const item of listGeneratedRecipesWithoutImages()) await ensureRecipeImage(item.userId, getRecipe(item.userId, item.id));
   })().catch((error) => log('warn', 'recipe_image_backfill_failed', { error }));
-  if (config.telegramPolling) {
+  if (config.telegramPolling || config.botPlatform === 'max') {
     startFeedbackScheduler(sendFeedbackNotification);
     startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
-    startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
+    if (config.telegramPolling) startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
   }
 });
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling(); server.close(() => process.exit(0)); });
+let shuttingDown = false;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
+  const deadline = setTimeout(() => process.exit(1), 80000); deadline.unref();
+  await Promise.all([maxWorker?.stop(), new Promise(resolve => server.close(resolve))]);
+  clearTimeout(deadline); process.exit(0);
+});

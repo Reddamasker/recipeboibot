@@ -1,0 +1,48 @@
+name: recipeboibot-max
+
+services:
+  app:
+    build: .
+    image: recipeboibot-max-app:latest
+    container_name: recipeboibot-max
+    restart: unless-stopped
+    stop_grace_period: 90s
+    env_file: .env.local
+    environment:
+      NODE_ENV: production
+      PORT: 3087
+      DATABASE_PATH: /app/data/recipes.sqlite
+      TRUST_PROXY: "true"
+      APP_URL: https://recipeboibot-max.89-223-123-75.sslip.io
+      BOT_PLATFORM: max
+      MAX_BOT_USERNAME: id500912857935_bot
+      MAX_API_ORIGIN: https://platform-api2.max.ru
+      TELEGRAM_POLLING: "false"
+      BILLING_REQUIRED: "false"
+      ROBOKASSA_RECURRING_ENABLED: "false"
+      OPENAI_HTTPS_PROXY: http://72.56.97.79:3128
+      NODE_OPTIONS: "--dns-result-order=ipv6first --no-network-family-autoselection"
+      NODE_EXTRA_CA_CERTS: /app/deploy/max-ca-bundle.pem
+      RELEASE_REVISION: "${RELEASE_REVISION:-unreleased}"
+    ports:
+      - "127.0.0.1:3089:3087"
+    volumes:
+      - recipeboibot-max-data:/app/data
+      - ./deploy/max-ca-bundle.pem:/app/deploy/max-ca-bundle.pem:ro
+    networks:
+      - recipeboibot-v6
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  recipeboibot-max-data:
+    name: recipeboibot-max_recipeboibot-max-data
+
+networks:
+  recipeboibot-v6:
+    external: true

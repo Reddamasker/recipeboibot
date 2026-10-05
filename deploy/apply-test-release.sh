@@ -18,6 +18,7 @@ previous="recipeboibot-test-app:before-parity-$stamp"
 umask 077
 backup_paths=(src public Dockerfile package.json compose.test.yaml)
 [[ -d deploy ]] && backup_paths+=(deploy)
+[[ -d scripts ]] && backup_paths+=(scripts)
 tar -czf "$backup" "${backup_paths[@]}"
 docker tag recipeboibot-test-app "$previous"
 rollback() {
@@ -56,7 +57,7 @@ trap rollback ERR
 tar -xzf "$archive"
 docker compose -f compose.test.yaml build app
 # Tests run without real environment, database volumes or external network.
-docker run --rm --network none -v "$PWD/test:/app/test:ro" -v "$PWD/deploy:/app/deploy:ro" recipeboibot-test-app node --test --test-concurrency=1 > "backups/tests-$stamp.log" 2>&1
+docker run --rm --network none -e BOT_PLATFORM=telegram -e TELEGRAM_POLLING=false -v "$PWD/test:/app/test:ro" -v "$PWD/deploy:/app/deploy:ro" -v "$PWD/scripts:/app/scripts:ro" recipeboibot-test-app node --test --test-concurrency=1 > "backups/tests-$stamp.log" 2>&1
 tail -n 10 "backups/tests-$stamp.log"
 docker compose -f compose.test.yaml stop app
 BACKUP_STAMP="$stamp" python3 - <<'PY'

@@ -10,7 +10,10 @@
 
   let nativeReady = false;
   let ready = false;
-  const isMiniLaunch = () => Boolean(window.Telegram?.WebApp?.initData || window.TelegramWebviewProxy?.postEvent || /(?:^#|[&?])tgWebAppData=/.test(location.hash));
+  const isMax = window.RecipePlatform?.name === 'max';
+  const platformLabel = isMax ? 'max' : 'telegram';
+  const platformSdk = () => isMax ? window.WebApp : window.Telegram?.WebApp;
+  const isMiniLaunch = () => isMax ? Boolean(window.WebApp?.initData || /(?:^#|[&?])WebAppData=/.test(location.hash)) : Boolean(window.Telegram?.WebApp?.initData || window.TelegramWebviewProxy?.postEvent || /(?:^#|[&?])tgWebAppData=/.test(location.hash));
   const showAppShell = () => {
     if (!isMiniLaunch()) return false;
     window.__miniLaunch = true;
@@ -21,7 +24,7 @@
     app.hidden = false;
     // Reveal the existing app shell before removing Telegram's native cover.
     try {
-      if (!nativeReady && window.TelegramWebviewProxy?.postEvent) {
+      if (!isMax && !nativeReady && window.TelegramWebviewProxy?.postEvent) {
         window.TelegramWebviewProxy.postEvent('web_app_ready', JSON.stringify(''));
         nativeReady = true;
         report('native-ready');
@@ -30,12 +33,12 @@
     return true;
   };
   const signalReady = () => {
-    if (!showAppShell() || ready || !window.Telegram?.WebApp) return;
+    if (!showAppShell() || ready || !platformSdk()?.ready) return;
     try {
-      window.Telegram.WebApp.ready();
+      platformSdk().ready();
       ready = true;
-      report('telegram-ready');
-    } catch { report('telegram-ready-error'); }
+      report(`${platformLabel}-ready`);
+    } catch { report(`${platformLabel}-ready-error`); }
   };
   const shellObserver = new MutationObserver(() => {
     if (showAppShell()) shellObserver.disconnect();
@@ -47,7 +50,7 @@
   setTimeout(() => {
     clearInterval(readyPoll);
     shellObserver.disconnect();
-    if (!ready && window.__miniLaunch) report('telegram-missing');
+    if (!ready && window.__miniLaunch) report(`${platformLabel}-missing`);
   }, 10000);
 
   setTimeout(() => {

@@ -25,6 +25,7 @@ const csvIntegers = (name, fallback) => (process.env[name] || fallback)
 
 const robokassaHash = String(process.env.ROBOKASSA_HASH_ALGORITHM || 'md5').toLowerCase();
 const paymentPriceVariants = csvIntegers('PAYMENT_PRICE_VARIANTS', '199');
+const botPlatform = process.env.BOT_PLATFORM || 'telegram';
 const robokassaCredentials = {
   merchantLogin: process.env.ROBOKASSA_MERCHANT_LOGIN || '',
   password1: process.env.ROBOKASSA_PASSWORD1 || '',
@@ -32,6 +33,12 @@ const robokassaCredentials = {
 };
 
 export const config = Object.freeze({
+  botPlatform,
+  maxToken: process.env.MAX_BOT_TOKEN || '',
+  maxBotUsername: process.env.MAX_BOT_USERNAME || '',
+  maxApiOrigin: (process.env.MAX_API_ORIGIN || 'https://platform-api2.max.ru').replace(/\/+$/, ''),
+  maxWebhookSecret: process.env.MAX_WEBHOOK_SECRET || '',
+  maxFeedbackUserId: process.env.MAX_FEEDBACK_USER_ID || '',
   port: integer('PORT', 3087),
   appUrl: (process.env.APP_URL || '').replace(/\/$/, ''),
   databasePath: path.resolve(process.env.DATABASE_PATH || './data/recipes.sqlite'),
@@ -45,7 +52,7 @@ export const config = Object.freeze({
   yandexDirectLandingCampaignId: process.env.YANDEX_DIRECT_LANDING_CAMPAIGN_ID || '',
   yandexDirectOutsideCampaignId: process.env.YANDEX_DIRECT_OUTSIDE_CAMPAIGN_ID || '',
   yandexDirectPlacement: process.env.YANDEX_DIRECT_PLACEMENT || 'ya-dinner-202610',
-  telegramPolling: process.env.TELEGRAM_POLLING !== 'false',
+  telegramPolling: botPlatform === 'telegram' && process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
   testPriceVariants: csvIntegers('TEST_PRICE_VARIANTS', '129'),
@@ -83,12 +90,22 @@ export const config = Object.freeze({
 });
 
 export function assertConfig() {
+  if (!['telegram', 'max'].includes(config.botPlatform)) throw new Error('Неверный BOT_PLATFORM');
   const missing = [];
-  for (const [name, value] of [['OPENAI_API_KEY', config.openaiKey], ['OPENAI_TEXT_MODEL', config.textModel], ['OPENAI_TRANSCRIBE_MODEL', config.transcribeModel], ['TELEGRAM_BOT_TOKEN', config.telegramToken]]) {
+  const transportCredential = config.botPlatform === 'max' ? ['MAX_BOT_TOKEN', config.maxToken] : ['TELEGRAM_BOT_TOKEN', config.telegramToken];
+  for (const [name, value] of [['OPENAI_API_KEY', config.openaiKey], ['OPENAI_TEXT_MODEL', config.textModel], ['OPENAI_TRANSCRIBE_MODEL', config.transcribeModel], transportCredential]) {
     if (!value) missing.push(name);
   }
   if (missing.length) throw new Error(`Не настроены: ${missing.join(', ')}`);
-  if (config.testContour && !/^[A-Za-z0-9_]{5,32}$/.test(config.testBotUsername)) throw new Error('Не настроен TEST_BOT_USERNAME');
+  if (config.botPlatform === 'max') {
+    if (!/^[A-Za-z0-9_]{5,64}$/.test(config.maxBotUsername)) throw new Error('Не настроен MAX_BOT_USERNAME');
+    if (!/^[A-Za-z0-9_-]{32,256}$/.test(config.maxWebhookSecret)) throw new Error('Не настроен MAX_WEBHOOK_SECRET');
+    if (config.maxApiOrigin !== 'https://platform-api2.max.ru') throw new Error('Неверный MAX_API_ORIGIN');
+    if (config.telegramToken) throw new Error('MAX-контур не должен содержать TELEGRAM_BOT_TOKEN');
+    if (config.yandexDirectToken) throw new Error('MAX-контур не должен содержать YANDEX_DIRECT_TOKEN');
+    if (Object.values(robokassaCredentials).some(Boolean) || config.robokassaRecurring || config.billingRequired) throw new Error('Оплата MAX требует отдельной маршрутизации магазина');
+  }
+  if (config.botPlatform === 'telegram' && config.testContour && !/^[A-Za-z0-9_]{5,32}$/.test(config.testBotUsername)) throw new Error('Не настроен TEST_BOT_USERNAME');
   if (config.testContour && (config.testPriceVariants.length === 0 || config.testPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.testPriceVariants).size !== config.testPriceVariants.length)) throw new Error('Неверный TEST_PRICE_VARIANTS');
   if (config.paymentPriceVariants.length === 0 || config.paymentPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.paymentPriceVariants).size !== config.paymentPriceVariants.length) throw new Error('Неверный PAYMENT_PRICE_VARIANTS');
   if (!['md5', 'ripemd160', 'sha1', 'sha256', 'sha384', 'sha512'].includes(config.robokassaHash)) throw new Error('Неверный ROBOKASSA_HASH_ALGORITHM');

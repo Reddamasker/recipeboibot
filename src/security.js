@@ -62,7 +62,7 @@ export async function assertSafeRemoteUrl(input) {
   return url;
 }
 
-async function pinnedRequest(url, maxBytes, body = null) {
+async function pinnedRequest(url, maxBytes, body = null, binary = false) {
   const addresses = await dns.lookup(url.hostname.replace(/^\[|\]$/g, ''), { all: true });
   if (!addresses.length || addresses.some(({ address }) => isPrivateIp(address))) throw Object.assign(new Error('Сетевой адрес запрещён'), { status: 400 });
   return new Promise((resolve, reject) => {
@@ -76,7 +76,7 @@ async function pinnedRequest(url, maxBytes, body = null) {
         response.destroy(); resolve({ redirect: response.headers.location }); return;
       }
       const contentType = response.headers['content-type'] || '';
-      if (response.statusCode !== 200 || !/(text\/|html|json|xml)/i.test(contentType)) {
+      if (response.statusCode !== 200 || (!binary && !/(text\/|html|json|xml)/i.test(contentType))) {
         response.destroy(); reject(Object.assign(new Error('Источник недоступен. Пришлите текст или скриншот рецепта.'), { code: 'SOURCE_UNAVAILABLE', status: 422 })); return;
       }
       const chunks = []; let size = 0;
@@ -86,7 +86,7 @@ async function pinnedRequest(url, maxBytes, body = null) {
         chunks.push(chunk);
       });
       response.on('error', reject);
-      response.on('end', () => resolve({ url: url.toString(), contentType, text: Buffer.concat(chunks).toString('utf8') }));
+      response.on('end', () => resolve({ url: url.toString(), contentType, ...(binary ? { buffer: Buffer.concat(chunks) } : { text: Buffer.concat(chunks).toString('utf8') }) }));
     });
     request.on('error', reject);
     request.end(body);
@@ -108,6 +108,19 @@ export async function safeFetchText(input, maxBytes) {
   for (let i = 0; i <= 3; i++) {
     const result = await pinnedRequest(url, maxBytes);
     if (!result.redirect) return result;
+    url = await assertSafeRemoteUrl(new URL(result.redirect, url).toString());
+  }
+  throw Object.assign(new Error('Слишком много переадресаций'), { status: 422 });
+}
+
+// Download incoming MAX media without bot credentials, with DNS pinning and
+// public-address validation again on every redirect.
+export async function safeFetchBuffer(input, maxBytes) {
+  let url = await assertSafeRemoteUrl(input);
+  for (let i = 0; i <= 3; i++) {
+    if (url.protocol !== 'https:') throw Object.assign(new Error('Вложение требует HTTPS'), { status: 400 });
+    const result = await pinnedRequest(url, maxBytes, null, true);
+    if (!result.redirect) return { ...result, path: url.pathname };
     url = await assertSafeRemoteUrl(new URL(result.redirect, url).toString());
   }
   throw Object.assign(new Error('Слишком много переадресаций'), { status: 422 });

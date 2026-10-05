@@ -21,12 +21,19 @@ import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
 import { landingStartIntent } from './landing-funnel.js';
+import { maxChatCall } from './max-client.js';
+import { safeFetchBuffer } from './security.js';
+import { inspectMaxAudio } from './max-media.js';
+import { createHash } from 'node:crypto';
+
+const chatPlatformLabel = config.botPlatform === 'max' ? 'MAX' : 'Telegram';
 
 const apiOrigin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
 const apiBase = () => `${apiOrigin}/bot${config.telegramToken}`;
 const fileBase = () => `${apiOrigin}/file/bot${config.telegramToken}`;
 
 async function telegram(method, body = {}) {
+  if (config.botPlatform === 'max') return maxChatCall(method, body);
   const response = await fetch(`${apiBase()}/${method}`, { method: 'POST', signal: AbortSignal.timeout(method === 'getUpdates' ? 40000 : 15000), headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const payload = await response.json();
   if (!payload.ok) throw new Error(`Telegram ${method}: ${payload.description || response.status}`);
@@ -85,7 +92,7 @@ export async function handleTrialCallback(callback) {
   const used = getTrialStatus(user.id).used;
   const trial = startTrial(user.id);
   if (!trial.active || !getSubscriptionAccess(user.id).active) { await sendTestOffer(chatId, user.id, true); return true; }
-  if (!used) addDinnerEvent(user.id, 'trial_started', { detail: { source: 'telegram' } });
+  if (!used) addDinnerEvent(user.id, 'trial_started', { detail: { source: config.botPlatform } });
   const text = '<b>Пробный период начался</b>\n\nПолный доступ до ' + escapeHtml(new Date(trial.expiresAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })) + ' МСК. Можно подбирать новые блюда, сохранять рецепты и настраивать напоминания. Карта не нужна, списаний нет.';
   const reply_markup = dinnerWebAppMarkup();
   try {
@@ -342,6 +349,7 @@ export function webAppUrl(params = {}) {
 }
 
 export async function configureTelegramMenuButton() {
+  if (config.botPlatform === 'max') return;
   const url = webAppUrl({ view: 'menu' });
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Меню', web_app: { url } } });
@@ -354,6 +362,11 @@ export async function configureTelegramMenuButton() {
 }
 
 export async function sendFeedbackNotification(row) {
+  if (config.botPlatform === 'max') {
+    if (!config.maxFeedbackUserId) throw new Error('MAX feedback recipient is not configured');
+    await send(`max:${config.maxFeedbackUserId}`, `<b>Обратная связь · MAX</b>\n\nОт: ${escapeHtml(row.display_name)}${row.username ? ` (@${escapeHtml(row.username)})` : ''}\nMAX ID: ${escapeHtml(row.telegram_id.replace(/^max:/, ''))}\nОбращение: ${row.id}\n\n${escapeHtml(row.message)}`);
+    return;
+  }
   if (!config.telegramToken || config.telegramToken === 'local-preview-only') throw new Error('Feedback delivery unavailable');
   const name = escapeHtml(row.display_name);
   const sender = `<a href="tg://user?id=${row.telegram_id}">${name}</a>${row.username ? ` (@${escapeHtml(row.username)})` : ''}`;
@@ -395,6 +408,7 @@ export function extractSharedUrl(text) {
 }
 
 async function downloadTelegramFile(fileId, maxBytes) {
+  if (config.botPlatform === 'max') return safeFetchBuffer(fileId, maxBytes);
   const info = await telegram('getFile', { file_id: fileId });
   if (info.file_size && info.file_size > maxBytes) throw Object.assign(new Error('Файл слишком большой'), { status: 413 });
   const response = await fetch(`${fileBase()}/${info.file_path}`, { signal: AbortSignal.timeout(30000) });
@@ -404,20 +418,28 @@ async function downloadTelegramFile(fileId, maxBytes) {
   return { buffer, path: info.file_path };
 }
 
+function maxPhotoMime(buffer) {
+  if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'image/jpeg';
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
+  throw new Error('Пришлите фото рецепта в формате JPEG, PNG или WebP.');
+}
+
 export async function interpretVoice(message, user, adapters = {}) {
   requireRecipeEntry(user.id);
   const media = message.voice || message.audio;
-  if (!media || !Number.isFinite(media.duration) || media.duration > 120) throw new Error('Пришлите голосовое длительностью до 2 минут.');
+  if (!media || (config.botPlatform !== 'max' && !Number.isFinite(media.duration)) || (Number.isFinite(media.duration) && media.duration > 120)) throw new Error('Пришлите голосовое длительностью до 2 минут.');
   const download = adapters.download || downloadTelegramFile;
   const transcribe = adapters.transcribe || transcribeAudio;
   const { buffer, path = 'voice.ogg' } = await download(media.file_id, config.maxUploadBytes);
-  const mime = media.mime_type || 'audio/ogg';
-  const extension = mime.includes('ogg') ? 'ogg' : mime.includes('mpeg') ? 'mp3' : mime.includes('mp4') ? 'm4a' : mime.includes('wav') ? 'wav' : 'ogg';
+  const inspection = config.botPlatform === 'max' ? await (adapters.inspectAudio || inspectMaxAudio)(buffer) : null;
+  const mime = inspection?.mime || media.mime_type || 'audio/ogg';
+  const extension = inspection?.extension || (mime.includes('ogg') ? 'ogg' : mime.includes('mpeg') ? 'mp3' : mime.includes('mp4') ? 'm4a' : mime.includes('wav') ? 'wav' : 'ogg');
   const originalName = path.split('/').at(-1) || `voice.${extension}`;
   const filename = originalName.replace(/\.[^.]+$/, '') + `.${extension}`;
   const text = String(await transcribe({ userId: user.id, buffer, mime, filename })).trim();
   if (text.length < 3) throw new Error('Не удалось уверенно расслышать запрос. Скажите ещё раз или напишите текстом.');
-  return { text, sourceKey: `telegram-voice:${media.file_unique_id || media.file_id}` };
+  return { text, sourceKey: `${config.botPlatform}-voice:${media.file_unique_id || media.file_id}` };
 }
 
 function recipeButton(recipe, { groupMode = false } = {}) {
@@ -807,9 +829,10 @@ async function saveContent(message, user, content, options = {}) {
   if (message.photo?.length) {
     const photo = message.photo.at(-1);
     const { buffer } = await downloadTelegramFile(photo.file_id, config.maxUploadBytes);
-    outcome = await importText(user.id, message.caption || '', { sourceType: 'image', sourceName: 'Фото из Telegram', label: 'Фото из Telegram', sourceKey: `telegram-photo:${photo.file_unique_id || photo.file_id}`, image: { buffer, mime: 'image/jpeg' } });
+    const mime = config.botPlatform === 'max' ? maxPhotoMime(buffer) : 'image/jpeg';
+    outcome = await importText(user.id, message.caption || '', { sourceType: 'image', sourceName: `Фото из ${chatPlatformLabel}`, label: `Фото из ${chatPlatformLabel}`, sourceKey: `${config.botPlatform}-photo:${photo.file_unique_id || photo.file_id}`, image: { buffer, mime } });
   } else if (content.url) outcome = await importUrl(user.id, content.url);
-  else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Сообщение в Telegram', label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
+  else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : `Сообщение в ${chatPlatformLabel}`, label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
   await finishImport(chatId, outcome, options);
   if (!options.groupMode && outcome.state === 'created') await sendTestOffer(chatId, user.id);
   return true;
@@ -871,6 +894,10 @@ export async function handleMessage(message) {
   if (['group', 'supergroup'].includes(message.chat?.type)) { await handleGroupMessage(message); return; }
   if (message.chat?.type !== 'private') return;
   const chatId = message.chat.id;
+  if (message.maxUnsupportedMedia?.length && !message.text && !message.photo?.length && !message.audio) {
+    await send(chatId, 'Этот формат вложения пока не поддерживается. Пришлите текст, фото, голосовое сообщение или ссылку на рецепт.');
+    return;
+  }
   const user = resolvePrivateTelegramUser(message.from);
   let text = message.text?.trim() || message.caption?.trim() || '';
   const menuCommands = { 'Что на сегодня': '/dinner', 'Хочу конкретное блюдо': '/find', 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
@@ -883,7 +910,7 @@ export async function handleMessage(message) {
     if (text.startsWith('/start')) allowUser(user.id);
     if (feedbackEntry?.kind !== 'feedback') setPendingIntent(user.id, { kind: 'feedback', resumeIntent: feedbackEntry });
     const url = webAppUrl({ view: 'feedback' });
-    await send(chatId, '<b>Обратная связь</b>\n\nНапишите вопрос, предложение или жалобу одним текстовым сообщением — до 3000 символов. Владелец получит текст и ваш Telegram-профиль.\n\n/cancel — отменить.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть форму', web_app: { url } }]] } } : {});
+    await send(chatId, `<b>Обратная связь</b>\n\nНапишите вопрос, предложение или жалобу одним текстовым сообщением — до 3000 символов. Владелец получит текст и ваш профиль ${chatPlatformLabel}.\n\n/cancel — отменить.`, url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть форму', web_app: { url } }]] } } : {});
     return;
   }
   if (feedbackEntry?.kind === 'feedback') {
@@ -892,7 +919,8 @@ export async function handleMessage(message) {
     else {
       if (!message.text?.trim()) { await send(chatId, 'Напишите обращение текстом. Для отмены — /cancel.'); return; }
       try {
-        const result = await submitFeedback(user.id, message.from, { message: message.text, requestKey: `telegram:${chatId}:${message.message_id}`, source: 'telegram' }, sendFeedbackNotification);
+        const requestKey = config.botPlatform === 'max' ? `max:${createHash('sha256').update(`${chatId}:${message.message_id}`).digest('hex')}` : `telegram:${chatId}:${message.message_id}`;
+        const result = await submitFeedback(user.id, message.from, { message: message.text, requestKey, source: 'telegram' }, sendFeedbackNotification);
         restoreFeedbackIntent();
         await send(chatId, result.delivered ? 'Спасибо. Сообщение отправлено владельцу.' : 'Спасибо. Сообщение сохранено и будет доставлено владельцу, когда связь восстановится.');
       } catch (error) { await send(chatId, escapeHtml(error.status ? error.message : 'Не получилось сохранить обращение. Попробуйте ещё раз.')); }
@@ -936,7 +964,7 @@ export async function handleMessage(message) {
     await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: открыто главное меню.');
     await sendDinnerEntry(chatId, user.id);
     if (getFoodProfile(user.id).onboardingCompleted) {
-      await send(chatId, 'Откройте «Меню» рядом с полем ввода или напишите, что хотите приготовить.');
+      await send(chatId, config.botPlatform === 'max' ? 'Откройте приложение кнопкой ниже или напишите, что хотите приготовить.' : 'Откройте «Меню» рядом с полем ввода или напишите, что хотите приготовить.', config.botPlatform === 'max' ? { reply_markup: dinnerWebAppMarkup() } : {});
     }
     await sendTestOffer(chatId, user.id);
     return;
@@ -984,7 +1012,7 @@ export async function handleMessage(message) {
   }
   if (text === '/help') { await send(chatId, 'Выберите действие в меню: «Что на сегодня» — подборка из трёх рецептов, «Хочу конкретное блюдо» — назовите блюдо голосом или текстом, «Мои рецепты» — сохранённая коллекция. После предложения можно написать «другой вариант», «без риса», «быстрее», «на троих» или задать вопрос о рецепте. Условия подбора сохраняются. Ссылку, фото или подробный текст с ингредиентами и шагами сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …».'); return; }
   if (text === '/usage') { await send(chatId, usageMessage(user.id)); return; }
-  if (text === '/delete_data CONFIRM') { deleteUserData(user.id); await send(chatId, 'Ваши рецепты и профиль удалены.'); return; }
+  if (text === '/delete_data CONFIRM') { deleteUserData(user.id); await send(chatId, 'Ваши рецепты и профиль удалены.', config.botPlatform === 'max' ? { max_ephemeral: true } : {}); return; }
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }
 
   const pending = getPendingIntent(user.id);
@@ -1120,7 +1148,7 @@ async function handleGroupMessage(message) {
 
 let running = false;
 export async function startTelegramPolling() {
-  if (running || !config.telegramToken) return;
+  if (config.botPlatform !== 'telegram' || running || !config.telegramToken) return;
   if (config.testContour) {
     const bot = await telegram('getMe');
     if (bot.username?.toLowerCase() !== config.testBotUsername.toLowerCase()) throw new Error('Unexpected bot token for test contour');
@@ -1148,6 +1176,14 @@ export async function startTelegramPolling() {
   }
 }
 export function stopTelegramPolling() { running = false; }
+
+// Both transports execute the same recipe workflow. MAX normalizes events only
+// after verifying the private chat binding; external IDs remain namespaced.
+export async function handleChatUpdate(update) {
+  if (update.callback_query) {
+    if (!await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+  } else if (update.message) await handleMessage(update.message);
+}
 
 export async function handleTestResetCallback(callback) {
   if (!config.testContour || !callback.data?.startsWith('test:reset:')) return false;

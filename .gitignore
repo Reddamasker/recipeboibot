@@ -3,6 +3,7 @@
 !.env.example
 ключи.txt
 *.pem
+!deploy/max-ca-bundle.pem
 *.key
 node_modules/
 .next/
