@@ -60,6 +60,7 @@ test('cached profile guide skips tastes and reminders, resumes collection on exp
   f.nodes['#trial-notifications-skip'].onclick();
   assert.equal(f.store.get(f.guideKey), 'collection');
   assert.match(f.sandbox.root.innerHTML, /Собери рецепты/);
+  assert.match(f.sandbox.root.innerHTML, /data-close-trial-guide/);
   f.sandbox.returnFromTrialGuide();
   await f.sandbox.startTrialGuide();
   assert.match(f.sandbox.root.innerHTML, /Собери рецепты/);
