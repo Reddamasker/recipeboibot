@@ -14,7 +14,7 @@ import { confirmDinnerIntake, prefetchDinner, recommendDinner, startDinner, upda
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
 import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
-import { canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
+import { canResetTestUser, canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
 import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult, startTrial, getTrialStatus, canChooseFirstDinner } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
@@ -935,8 +935,12 @@ export async function handleMessage(message) {
       return;
     }
   }
-  if (config.testContour && text === '/test_reset') {
-    await send(chatId, '<b>Сбросить тестового пользователя?</b>\n\nУдалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.', { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
+  if (text === '/test_reset' && (config.botPlatform === 'max' || config.testContour)) {
+    if (!canResetTestUser(message.from.id)) { await send(chatId, 'Эта команда доступна только владельцу бота.'); return; }
+    const explanation = config.botPlatform === 'max'
+      ? 'Удалятся ваши рецепты, анкета, предпочтения, история ужинов и пробный доступ в MAX. После сброса можно заново пройти онбординг. Учёт AI-запросов сохранится.'
+      : 'Удалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.';
+    await send(chatId, `<b>Сбросить тестового пользователя?</b>\n\n${explanation}`, { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;
   }
   if (text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
@@ -1194,12 +1198,12 @@ export async function handleChatUpdate(update) {
 }
 
 export async function handleTestResetCallback(callback) {
-  if (!config.testContour || !callback.data?.startsWith('test:reset:')) return false;
+  if (!canResetTestUser(callback.from?.id) || !callback.data?.startsWith('test:reset:')) return false;
   if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from.id)) return false;
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   if (callback.data === 'test:reset:confirm') {
     resetTestUser(callback.from.id);
-    await send(callback.message.chat.id, 'Тестовый профиль сброшен. Нажмите /start, чтобы пройти путь нового пользователя.');
+    await send(callback.message.chat.id, 'Тестовый профиль сброшен. Нажмите /start, чтобы пройти путь нового пользователя.', config.botPlatform === 'max' ? { max_ephemeral: true } : {});
   } else if (callback.data === 'test:reset:cancel') await send(callback.message.chat.id, 'Сброс отменён.');
   return true;
 }

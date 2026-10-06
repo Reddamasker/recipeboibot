@@ -39,6 +39,7 @@ export const config = Object.freeze({
   maxApiOrigin: (process.env.MAX_API_ORIGIN || 'https://platform-api2.max.ru').replace(/\/+$/, ''),
   maxWebhookSecret: process.env.MAX_WEBHOOK_SECRET || '',
   maxFeedbackUserId: process.env.MAX_FEEDBACK_USER_ID || '',
+  maxTestResetUserId: process.env.MAX_TEST_RESET_USER_ID || '',
   port: integer('PORT', 3087),
   appUrl: (process.env.APP_URL || '').replace(/\/$/, ''),
   databasePath: path.resolve(process.env.DATABASE_PATH || './data/recipes.sqlite'),

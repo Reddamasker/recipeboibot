@@ -171,8 +171,13 @@ export function cancelMockAutoRenew(userId) {
   return mockPaymentStatus(userId).recurring;
 }
 
+export function canResetTestUser(externalId) {
+  if (config.botPlatform === 'max') return /^[1-9]\d*$/.test(config.maxTestResetUserId) && String(externalId) === `max:${config.maxTestResetUserId}`;
+  return config.botPlatform === 'telegram' && config.testContour;
+}
+
 export function resetTestUser(telegramId) {
-  requireTestContour();
+  if (!canResetTestUser(telegramId)) throw error('Не найдено', 404);
   const user = getUserByTelegramId(telegramId);
   if (!user) return false;
   // Provider accounting remains for honest cost tracking.
