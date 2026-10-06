@@ -19,11 +19,17 @@ umask 077
 backup_paths=(src public Dockerfile package.json compose.test.yaml)
 [[ -d deploy ]] && backup_paths+=(deploy)
 [[ -d scripts ]] && backup_paths+=(scripts)
+[[ -d test ]] && backup_paths+=(test)
 tar -czf "$backup" "${backup_paths[@]}"
 docker tag recipeboibot-test-app "$previous"
+replace_source_directories() {
+  # Fixed source paths only: never remove env, compose, backups or data volumes.
+  rm -rf -- /opt/recipeboibot-test/src /opt/recipeboibot-test/public /opt/recipeboibot-test/deploy /opt/recipeboibot-test/scripts /opt/recipeboibot-test/test
+}
 rollback() {
   trap - ERR
   echo 'Test release failed; restoring source and image' >&2
+  replace_source_directories
   tar -xzf "$backup"
   docker tag "$previous" recipeboibot-test-app:latest
   docker compose -f compose.test.yaml up -d --no-build app
@@ -54,6 +60,7 @@ cleanup_retention() {
   docker builder prune --all --force --keep-storage 1GB
 }
 trap rollback ERR
+replace_source_directories
 tar -xzf "$archive"
 docker compose -f compose.test.yaml build app
 # Tests run without real environment, database volumes or external network.
