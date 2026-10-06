@@ -20,6 +20,7 @@ function render(data) {
   renderAttribution(data.attribution || []);
   $('#attribution').closest('section').hidden = data.platform === 'max';
   renderPriceExperiment(data.priceExperiment);
+  renderRecipeActivity(data);
   $('#login').hidden = true; $('#dashboard').hidden = false;
   $('#contour').textContent = data.preview ? 'Демо данные' : data.platform === 'max' ? 'MAX-бот' : data.platform === 'combined' ? 'Telegram и MAX' : data.contour === 'main' ? 'Основной бот' : 'Тестовый бот';
   const time = value => new Date(value).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' });
@@ -52,6 +53,25 @@ function render(data) {
   $('#tracking-note').textContent = `Учёт рекламных переходов начат ${new Date(data.trackingSince).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' })}. Старые клики не восстановлены.${data.historicalStartsWithoutDate ? ` Старых запусков без точной даты: ${number(data.historicalStartsWithoutDate)}.` : ''}`;
   $('#payment-note').textContent = data.testPaidUsers || data.unclassifiedPaidUsers ? `Не включены в оплаты: тестовые пользователи — ${data.testPaidUsers}; старые платежи без подтверждённого режима — ${data.unclassifiedPaidUsers}.` : '';
   const url = new URL(location.href); url.searchParams.set('campaign', selected); history.replaceState(null, '', url);
+}
+function renderRecipeActivity(data) {
+  const a = data.recipeActivity || {};
+  const metrics = [
+    ['Вернулись за рецептом', a.returnedRecipeUsers, `Доля получивших результат: ${percent(a.returnRate ?? null)}`, true],
+    ['Получили результат', a.recipeUsers, 'Уникальные пользователи'],
+    ['Подготовлено рецептов', a.preparedRecipes, 'Варианты подбора и отдельные запросы'],
+    ['Повторный подбор', a.repeatRecipeUsers, 'Два и более, включая тот же день'],
+    ['Добавлено в коллекцию', a.savedRecipes, `Добавили пользователи: ${number(a.savedRecipeUsers ?? null)}`],
+    ['Уведомления настроили', a.notificationUsers, `Включены сейчас: ${number(a.notificationsEnabledUsers ?? null)}`]
+  ];
+  $('#recipe-activity').replaceChildren(...metrics.map(([label, value, note, key]) => {
+    const card = node('article', `metric${key ? ' key-metric' : ''}`);
+    card.append(node('p', 'metric-label', label), node('p', `metric-number${value == null ? ' unknown' : ''}`, number(value ?? null)), node('p', 'metric-note', note));
+    return card;
+  }));
+  $('#activity-note').textContent = 'Главная метрика — новый результат в другой день по Москве. Все числа за всё время, с учётом выбранного размещения.'
+    + (data.platform === 'combined' ? data.remoteFunnel?.status === 'error' ? ' Сейчас учтён только Telegram.' : ' Учтены аккаунты Telegram и MAX.' : '')
+    + ' Часть старых отдельных запросов могла быть очищена до начала постоянного учёта.';
 }
 function renderLandingStats(data) {
   const stats = data.landingStats;

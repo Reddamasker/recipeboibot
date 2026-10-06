@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes, withNutrition } from './db.js';
+import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes, withNutrition, recordRecipeRequestResult } from './db.js';
 import { getFoodProfile, getDinnerHistory, getDinnerOption } from './dinner-store.js';
 import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, recipeCategories } from './dinner.js';
 import { generateRecipe, generateRequestedRecipe, interpretMealRequest, validateRecipeCriteria } from './openai.js';
@@ -172,7 +172,13 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
     const verdicts = await validate({ userId, query: context.understood, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recipes: ranked.map((item) => item.recipe), profile: context.profile, recentTitles, rejectedRecipes, cookingHistory: context.cookingHistory });
     const accepted = verdicts.map((verdict, index) => ({ ...verdict, order: index })).filter((verdict) => verdict.accepted)
       .sort((a, b) => b.preferredScore - a.preferredScore || a.order - b.order)[0];
-    if (accepted) return { kind: 'existing', query: context.understood, mealRequest: context.mealRequest, recipe: await ensureNutrition(userId, accepted.recipe) };
+    if (accepted) {
+      const recipe = await ensureNutrition(userId, accepted.recipe);
+      // The same cached recipe on the same day is a reopen, not another result.
+      const day = new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);
+      recordRecipeRequestResult(userId, `existing:${userId}:${recipe.id}:${day}`, 'existing');
+      return { kind: 'existing', query: context.understood, mealRequest: context.mealRequest, recipe };
+    }
   }
   return { kind: 'generated', query: context.understood, mealRequest: context.mealRequest, suggestion: await generateSuggestion(userId, query, generate, validate, true, context) };
   });

@@ -124,6 +124,13 @@ CREATE TABLE IF NOT EXISTS recipe_suggestions (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS suggestions_owner_query ON recipe_suggestions(user_id, query, created_at DESC);
+CREATE TABLE IF NOT EXISTS recipe_request_results (
+  result_key TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source TEXT NOT NULL CHECK(source IN ('generated','existing')),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS recipe_request_results_user ON recipe_request_results(user_id,created_at);
 CREATE TABLE IF NOT EXISTS recipe_suggestion_images (
   suggestion_id TEXT PRIMARY KEY REFERENCES recipe_suggestions(id) ON DELETE CASCADE,
   mime TEXT NOT NULL CHECK(mime IN ('image/jpeg','image/png','image/webp')),
@@ -174,6 +181,13 @@ ensureColumn('provider_requests', 'incomplete_reason', 'TEXT');
 ensureColumn('provider_requests', 'retry_after', 'TEXT');
 ensureColumn('recipe_suggestions', 'request_json', 'TEXT');
 ensureColumn('recipes', 'nutrition_json', 'TEXT');
+// Suggestions expire after seven days; analytics must survive their cache cleanup.
+db.exec(`INSERT OR IGNORE INTO recipe_request_results(result_key,user_id,source,created_at)
+  SELECT 'suggestion:'||id,user_id,'generated',created_at FROM recipe_suggestions;`);
+export function recordRecipeRequestResult(userId, key, source, at = now()) {
+  db.prepare('INSERT OR IGNORE INTO recipe_request_results(result_key,user_id,source,created_at) VALUES(?,?,?,?)')
+    .run(key, userId, source, at);
+}
 db.exec('CREATE TABLE IF NOT EXISTS recipe_nutrition_cache (recipe_key TEXT PRIMARY KEY, nutrition_json TEXT NOT NULL)');
 export function cachedNutrition(recipe) {
   const row = db.prepare('SELECT nutrition_json FROM recipe_nutrition_cache WHERE recipe_key=?').get(nutritionKey(recipe));
@@ -423,6 +437,7 @@ export function createRecipeSuggestion(userId, query, recipe, mealRequest = null
   const id = randomUUID();
   db.prepare('DELETE FROM recipe_suggestions WHERE created_at<?').run(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
   db.prepare('INSERT INTO recipe_suggestions(id,user_id,query,request_json,recipe_json,created_at) VALUES(?,?,?,?,?,?)').run(id, userId, query, mealRequest ? JSON.stringify(mealRequest) : null, JSON.stringify(recipe), now());
+  recordRecipeRequestResult(userId, `suggestion:${id}`, 'generated');
   return getRecipeSuggestion(userId, id);
 }
 export function getSuggestionImage(id) {

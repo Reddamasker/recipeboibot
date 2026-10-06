@@ -9,6 +9,7 @@ const {db,upsertTelegramUser,allowUser}=await import('../src/db.js');
 const {recordBotStart,funnelReport,createCampaign,campaignLink}=await import('../src/funnel.js');
 const {MAX_AD_PLACEMENT,MAX_AD_PAYLOAD}=await import('../src/max-acquisition.js');
 const {maxFunnelSnapshot,maxFunnelAuthorized,mergeMaxFunnelReport}=await import('../src/max-funnel.js');
+const {emptyRecipeActivity}=await import('../src/recipe-activity.js');
 const {normalizeMaxUpdate}=await import('../src/max-events.js');
 const {campaignPriceAssignment}=await import('../src/campaign-prices.js');
 const {createServer}=await import('../src/server.js');
@@ -44,7 +45,7 @@ test('aggregate endpoint requires its own token, returns no identities and is re
  } finally {await new Promise(r=>server.close(r));}
 });
 const counters={starts:4,firstRecipe:2,selectedRecipe:1,trial:1,paid:0};
-const report=(slug=MAX_AD_PLACEMENT)=>({campaign:slug?{slug}:null,totals:{...counters},ordered:{...counters},convertedClicks:4,clicks:20,impressions:100,campaigns:[],conversions:{startFromClick:20,firstRecipeFromStart:50,trialAfterRecipe:50,paidAfterTrial:0},priceExperiment:null,testPaidUsers:0,unclassifiedPaidUsers:0,historicalStartsWithoutDate:0,linkRequests:9});
+const report=(slug=MAX_AD_PLACEMENT)=>({campaign:slug?{slug}:null,totals:{...counters},ordered:{...counters},recipeActivity:{...emptyRecipeActivity(),returnRate:null},convertedClicks:4,clicks:20,impressions:100,campaigns:[],conversions:{startFromClick:20,firstRecipeFromStart:50,trialAfterRecipe:50,paidAfterTrial:0},priceExperiment:null,testPaidUsers:0,unclassifiedPaidUsers:0,historicalStartsWithoutDate:0,linkRequests:9});
 const options={enabled:true,origin:'https://recipeboibot-max.89-223-123-75.sslip.io',token:'a'.repeat(43)};
 test('specific MAX funnel uses MAX stages and Direct clicks, all-users adds MAX accounts exactly once',async()=>{
  const snapshot=maxFunnelSnapshot();

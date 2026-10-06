@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
 CREATE INDEX IF NOT EXISTS notification_schedules_due ON notification_schedules(enabled, next_due_at);
 CREATE INDEX IF NOT EXISTS notification_deliveries_pending ON notification_deliveries(status, reminder_retry_at, choice_retry_at);
 `);
+if (!db.prepare('PRAGMA table_info(notification_schedules)').all().some(c => c.name === 'first_enabled_at')) {
+  db.exec(`ALTER TABLE notification_schedules ADD COLUMN first_enabled_at TEXT;
+    UPDATE notification_schedules SET first_enabled_at=COALESCE(
+      (SELECT MIN(created_at) FROM notification_deliveries d WHERE d.user_id=notification_schedules.user_id),updated_at)
+    WHERE enabled=1 OR EXISTS(SELECT 1 FROM notification_deliveries d WHERE d.user_id=notification_schedules.user_id);`);
+}
 
 const nowIso = (date = new Date()) => date.toISOString();
 const parseJson = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
@@ -99,6 +105,7 @@ export function saveNotificationSchedule(userId, input, at = new Date()) {
     VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,weekdays_json=excluded.weekdays_json,
     local_time=excluded.local_time,timezone=excluded.timezone,next_due_at=excluded.next_due_at,updated_at=excluded.updated_at`)
     .run(userId, schedule.enabled ? 1 : 0, JSON.stringify(schedule.weekdays), schedule.time, schedule.timezone, nextDueAt, timestamp, timestamp);
+  if (schedule.enabled) db.prepare('UPDATE notification_schedules SET first_enabled_at=COALESCE(first_enabled_at,?) WHERE user_id=?').run(timestamp, userId);
   return getNotificationSchedule(userId, at);
 }
 

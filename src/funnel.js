@@ -4,6 +4,7 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { MAX_AD_PLACEMENT, MAX_AD_PAYLOAD, MAX_AD_NAME, maxAdvertisingLink } from './max-acquisition.js';
 import { campaignPriceAssignment, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
+import { recipeActivityReport } from './recipe-activity.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS acquisition_campaigns (
   slug TEXT PRIMARY KEY, name TEXT NOT NULL, impressions INTEGER, reach INTEGER,
@@ -202,6 +203,7 @@ export function funnelReport(slug = 'all') {
     generatedAt: new Date().toISOString(), trackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='tracking_since'").get().value,
     contour: config.testContour ? 'test' : 'main', preview: config.dashboardPreview, campaign: campaign || null, campaigns,
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered,
+    recipeActivity: recipeActivityReport(cohort, Boolean(campaign)),
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
     priceExperiment: !campaign || DINNER_PRICE_EXPERIMENT.campaigns.includes(campaign.slug)
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,
