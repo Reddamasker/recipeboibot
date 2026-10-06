@@ -255,6 +255,41 @@ test('dashboard requires password and cookie, rejects cross-origin writes, and s
   } finally { globalThis.fetch = original; await new Promise(resolve => server.close(resolve)); }
 });
 
+test('automatic Telegram route preserves attribution, skips probes and leaves existing redirects intact', async () => {
+  createCampaign('auto-open');
+  const server = createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM acquisition_clicks').get().n;
+    const organic = await fetch(base + '/open/telegram');
+    assert.equal(organic.status, 200);
+    assert.equal(organic.headers.get('cache-control'), 'no-store');
+    assert.ok(organic.headers.get('content-security-policy').includes("script-src 'self'"));
+    assert.ok((await organic.text()).includes('https://t.me/Recipeboibot?start=dinner'));
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM acquisition_clicks').get().n, before);
+    const head = await fetch(base + '/open/telegram?campaign=auto-open', { method: 'HEAD' });
+    assert.equal(head.status, 200); assert.equal(await head.text(), '');
+    const probe = await fetch(base + '/open/telegram?campaign=auto-open', { headers: { 'user-agent': 'TelegramBot' } });
+    assert.equal(probe.status, 200); assert.equal(funnelReport('auto-open').clicks, 0);
+    const opened = await fetch(base + '/open/telegram?campaign=auto-open&utm_source=qa&yclid=test-only',
+      { headers: { 'user-agent': 'Mozilla/5.0' } });
+    const html = await opened.text();
+    const payload = html.match(/start=(ad_[A-Za-z0-9_-]{24})/)[1];
+    assert.ok(html.includes(`data-app-url="tg://resolve?domain=Recipeboibot&amp;start=${payload}"`));
+    const click = db.prepare('SELECT * FROM acquisition_clicks WHERE token=?').get(payload.slice(3));
+    assert.equal(click.campaign, 'auto-open');
+    assert.deepEqual(JSON.parse(click.tags_json), { utm_source: 'qa', yclid: 'test-only' });
+    assert.equal(funnelReport('auto-open').clicks, 1);
+    assert.equal((await fetch(base + '/open/telegram', { method: 'POST' })).status, 405);
+    assert.equal((await fetch(base + '/open/telegram?campaign=missing')).status, 404);
+    const old = await fetch(base + '/go/auto-open', { method: 'HEAD', redirect: 'manual' });
+    assert.equal(old.status, 302); assert.equal(old.headers.get('location'), 'https://t.me/Recipeboibot?start=dinner');
+    const js = await fetch(base + '/telegram-open.js');
+    assert.equal(js.status, 200); assert.ok((await js.text()).includes('location.assign(appUrl)'));
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 test('recipe choice is distinct from viewing, deduplicated across stored sources and excludes pre-start and internal actions', () => {
   createCampaign('selection');
   const shown = fixture().user, chosen = fixture().user, early = fixture().user;

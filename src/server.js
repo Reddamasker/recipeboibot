@@ -36,6 +36,7 @@ import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
+import { telegramOpenDocument } from './telegram-open.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -467,6 +468,19 @@ export function createServer() {
         if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
         const input = await bodyJson(request, 6000);
         return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
+      }
+      if (url.pathname === '/open/telegram') {
+        if (config.botPlatform === 'max') return json(response, 404, { error: 'Не найдено' });
+        if (!['GET', 'HEAD'].includes(request.method)) return json(response, 405, { error: 'Метод не поддерживается' });
+        const campaign = url.searchParams.get('campaign');
+        const destination = campaign
+          ? advertisingRedirect(campaign, { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}`, searchParams: url.searchParams })
+          : `https://t.me/${config.testContour ? config.testBotUsername : 'Recipeboibot'}?start=dinner`;
+        const document = telegramOpenDocument(destination);
+        securityHeaders(response);
+        response.setHeader('x-robots-tag', 'noindex, nofollow');
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return response.end(request.method === 'HEAD' ? undefined : document);
       }
       if (url.pathname.startsWith('/landing/go/')) {
         const location = landingRedirect(url.pathname.slice(12), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
