@@ -269,7 +269,7 @@ async function api(request, response, url) {
     const input = await bodyJson(request, 1000);
     if (action === 'replace') {
       rateLimit(`dinner:${user.id}`, 12, 60_000);
-      return json(response, 200, replaceDinner(user.id, id, input.reason));
+      return json(response, 200, await replaceDinner(user.id, id, input.reason));
     }
     return json(response, 200, setDinnerRejectionReason(user.id, id, input.reason, input));
   }

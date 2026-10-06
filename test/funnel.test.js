@@ -28,6 +28,48 @@ let sequence = 93000;
 const fixture = () => { const sender = { id: ++sequence, first_name: 'Воронка' }; return { sender, user: upsertTelegramUser(sender) }; };
 const tokenFrom = url => new URL(url).searchParams.get('start');
 const at = value => new Date(`2026-10-01T${value}:00.000Z`);
+
+test('owner and Albina identities on both platforms are excluded retroactively and after recreation', async () => {
+  const { landingReport } = await import('../src/landing-funnel.js');
+  const { dashboardFunnelReport } = await import('../src/yandex-direct.js');
+  const { maxFunnelSnapshot } = await import('../src/max-funnel.js');
+  const slug = 'ya-dinner-202610';
+  createCampaign(slug);
+  const before = funnelReport('all');
+  for (const identity of ['6971956699', '193553580', 'max:464796559', 'max:115437425']) {
+    const user = upsertTelegramUser({ id: identity, first_name: 'Internal account' });
+    const payload = tokenFrom(advertisingRedirect(slug));
+    recordBotStart(user, `/start ${payload}`, at('09:00')); allowUser(user.id);
+    createRecipe(user.id, { status: 'ready', title: 'Internal recipe' });
+    startTrial(user.id);
+    const order = createPaymentOrder(user.id);
+    db.prepare("UPDATE payment_orders SET status='paid',is_test=0,paid_at=? WHERE id=?").run(new Date().toISOString(), order.id);
+    // Existing assignments/payments must be filtered, not deleted.
+    db.prepare("INSERT OR REPLACE INTO campaign_price_assignments(user_id,experiment_key,campaign,variant,assigned_at) VALUES(?, 'ya-dinner-promo-199-159-v1', ?, 'A', ?)").run(user.id, slug, at('09:00').toISOString());
+    db.prepare('INSERT INTO landing_visits(id,campaign,tags_json,opened_at,click_token) VALUES(?,?,?,?,?)').run(randomUUID(), slug, '{}', at('09:00').toISOString(), payload.slice(3));
+  }
+  assert.deepEqual(funnelReport('all').totals, before.totals);
+  assert.deepEqual(maxFunnelSnapshot().all.totals, before.totals);
+  const campaign = funnelReport(slug);
+  assert.deepEqual(campaign.totals, { starts: 0, firstRecipe: 0, trial: 0, paid: 0 });
+  assert.equal(campaign.convertedClicks, 0);
+  assert.equal(campaign.returningStarts, 0);
+  assert.equal(campaign.priceExperiment.rows.reduce((sum, row) => sum + row.revenueRub, 0), 0);
+  assert.equal(landingReport(slug).starts, 0);
+  db.prepare("INSERT INTO acquisition_direct_stats(slug,campaign_id,impressions,clicks,cost_kopeks,status) VALUES(?, 'internal-check', 100, 10, 500, 'ready')").run(slug);
+  const dashboard = dashboardFunnelReport('all');
+  assert.equal(dashboard.convertedClicks, 0);
+  assert.equal(dashboard.directStats.clicks, 10);
+  assert.equal(dashboard.directStats.costRub, 5);
+  const albina = db.prepare('SELECT id FROM users WHERE telegram_id=?').get('max:115437425');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE user_id=?').get(albina.id).n, 1);
+  assert.ok(db.prepare('SELECT * FROM user_trials WHERE user_id=?').get(albina.id));
+  deleteUserData(albina.id);
+  const recreated = upsertTelegramUser({ id: 'max:115437425', first_name: 'Internal account' });
+  allowUser(recreated.id); recordBotStart({ ...recreated, is_allowed: 1 }, `/start ${tokenFrom(advertisingRedirect(slug))}`);
+  assert.equal(funnelReport(slug).returningStarts, 0);
+  assert.deepEqual(funnelReport('all').totals, before.totals);
+});
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(file + suffix); } catch {} } });
 
 test('tracked redirects skip link previews and HEAD, never redirect to arbitrary hosts, and unknown links do not count', () => {

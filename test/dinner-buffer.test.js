@@ -10,7 +10,7 @@ process.env.TELEGRAM_BOT_TOKEN = 'test-bot-token';
 process.env.DINNER_LLM_ENABLED = 'true';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser: rawUpsertTelegramUser, listRecipes, getRecipeImage, allowUser } = await import('../src/db.js');
-const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner, dinnerContext } = await import('../src/dinner-service.js');
+const { startDinner, recommendDinner, nextDinner, prefetchDinner, confirmDinnerIntake, updateDinnerProfile, getDinnerRecipe, decideDinner, finishDinner, dinnerContext, replaceDinner } = await import('../src/dinner-service.js');
 const { SEED_RECIPES, hasExcludedIngredient, recipeCategories } = await import('../src/dinner.js');
 const { backfillAcceptedDinnerRecipes, listDinnerOptions, setDinnerContext, setDinnerOptionImage, insertDinnerOption, invalidateDinnerBuffer, promoteDinnerOptions } = await import('../src/dinner-store.js');
 const { validateGeneratedDinner, rotateDinnerCandidates, dinnerContextKey } = await import('../src/dinner-buffer.js');
@@ -539,4 +539,35 @@ test('new dinner sessions rotate visible dishes while reopening keeps the curren
     assert.deepEqual(reopened.recommendations.map(o => o.id), result.recommendations.map(o => o.id));
     db.prepare('UPDATE dinner_sessions SET opened_at=? WHERE id=?').run(new Date(Date.now() - 7 * 3600000).toISOString(), session);
   }
+});
+
+
+test('replacement waits for an in-flight reserve before rejecting the visible card', async () => {
+  const user = upsertTelegramUser({ id: 989620, first_name: 'Replacement waiting' });
+  updateDinnerProfile(user.id, { preferredMaxCookingTime: 60, onboardingCompleted: true });
+  const session = startDinner(user.id);
+  const initial = await recommendDinner(user.id, session.sessionId, { images: false });
+  const reserve = listDinnerOptions(user.id, session.sessionId).filter(o => o.state === 'ready');
+  db.prepare("UPDATE dinner_options SET state='discarded' WHERE session_id=? AND state='ready'").run(session.sessionId);
+  let release, calls = 0;
+  const generate = async () => { calls++; return await new Promise(resolve => { release = resolve; }); };
+  const options = { generate, images: false, catalogFirst: false };
+  prefetchDinner(user.id, session.sessionId, options);
+  const target = initial.recommendations[0];
+  let settled = false;
+  const pending = replaceDinner(user.id, target.id, 'not_today', options).finally(() => { settled = true; });
+  const repeated = replaceDinner(user.id, target.id, 'not_today', options);
+  await tick();
+  assert.equal(settled, false);
+  assert.equal(calls, 1);
+  assert.equal(db.prepare('SELECT status FROM dinner_recommendations WHERE id=?').get(target.id).status, 'shown');
+  // Make the delayed provider completion produce usable reserve options.
+  for (const option of reserve) db.prepare("UPDATE dinner_options SET state='ready' WHERE id=?").run(option.id);
+  release({ recipes: [] });
+  const result = await pending;
+  assert.deepEqual((await repeated).recommendations.map(o => o.id), result.recommendations.map(o => o.id));
+  assert.notEqual(result.recommendations[0].id, target.id);
+  assert.equal(result.recommendations[1].id, initial.recommendations[1].id);
+  assert.equal(result.recommendations[2].id, initial.recommendations[2].id);
+  assert.equal(result.rejectedCount, 1);
 });

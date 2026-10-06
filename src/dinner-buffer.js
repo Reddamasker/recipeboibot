@@ -239,6 +239,10 @@ export function dinnerBufferSnapshot(userId, sessionId, getContext) {
   }
   return { current, reserve: nextBatch(ready(userId, sessionId)), preparing: fills.has(sessionId) };
 }
+export async function waitDinnerReserve(userId, sessionId, getContext, options) {
+  await fill(userId, sessionId, getContext, options);
+  return dinnerBufferSnapshot(userId, sessionId, getContext);
+}
 export function prefetchDinnerBuffer(userId, sessionId, getContext, options) {
   void fill(userId, sessionId, getContext, options).catch((error) => log('warn', 'dinner_prefetch_failed', { error: error.message }));
   return dinnerBufferSnapshot(userId, sessionId, getContext);

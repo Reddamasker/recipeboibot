@@ -1,3 +1,4 @@
+import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { randomBytes } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
@@ -141,9 +142,9 @@ export function funnelReport(slug = 'all') {
   const campaign = slug === 'all' ? null : getCampaign(slug);
   const cohort = campaign
     ? db.prepare(`SELECT u.id,s.started_at,s.click_token FROM acquisition_starts s JOIN users u ON u.id=s.user_id
-        WHERE s.campaign=? AND s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).all(slug, config.analyticsOwnerId)
+        WHERE s.campaign=? AND s.is_returning=0 AND ${analyticsUserCondition}`).all(slug, ...analyticsExcludedIds)
     : db.prepare(`SELECT u.id,CASE WHEN s.is_returning=0 THEN s.started_at END AS started_at,CASE WHEN s.is_returning=0 THEN s.click_token END AS click_token FROM users u LEFT JOIN acquisition_starts s ON s.user_id=u.id
-        WHERE (u.is_allowed=1 OR s.user_id IS NOT NULL) AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).all(config.analyticsOwnerId);
+        WHERE (u.is_allowed=1 OR s.user_id IS NOT NULL) AND ${analyticsUserCondition}`).all(...analyticsExcludedIds);
   const recipeTimes = new Map(db.prepare(`SELECT user_id,MIN(at) AS at FROM (${recipeSources()}) GROUP BY user_id`).all().map(r => [r.user_id, r.at]));
   const trialTimes = new Map((exists('user_trials') ? db.prepare('SELECT user_id,starts_at AS at FROM user_trials').all() : []).map(r => [r.user_id, r.at]));
   const classifiedPayments = exists('payment_orders') && db.prepare('PRAGMA table_info(payment_orders)').all().some(c => c.name === 'is_test');
@@ -182,7 +183,7 @@ export function funnelReport(slug = 'all') {
     }
   }
   const clicks = db.prepare(`SELECT COUNT(*) AS count FROM acquisition_clicks ${campaign ? 'WHERE campaign=?' : ''}`).get(...(campaign ? [slug] : [])).count;
-  const convertedClicks = campaign ? db.prepare(`SELECT COUNT(DISTINCT COALESCE(s.click_token,s.user_id)) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(slug, config.analyticsOwnerId).count : null;
+  const convertedClicks = campaign ? db.prepare(`SELECT COUNT(DISTINCT COALESCE(s.click_token,s.user_id)) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=0 AND ${analyticsUserCondition}`).get(slug, ...analyticsExcludedIds).count : null;
   const campaigns = db.prepare('SELECT slug,name,impressions,reach FROM acquisition_campaigns ORDER BY created_at').all();
   // Summing reach across placements would count overlapping people repeatedly.
   const impressions = campaign ? campaign.impressions : campaigns.length && campaigns.every(c => c.impressions !== null) ? campaigns.reduce((sum, c) => sum + c.impressions, 0) : null;
@@ -196,7 +197,7 @@ export function funnelReport(slug = 'all') {
     convertedClicks,
     conversions: { clickFromImpression: percentage(clicks, impressions), startFromClick: campaign ? percentage(convertedClicks, clicks) : null,
       firstRecipeFromStart: percentage(ordered.firstRecipe, ordered.starts), trialAfterRecipe: percentage(ordered.trial, ordered.firstRecipe), paidAfterTrial: percentage(ordered.paid, ordered.trial) },
-    returningStarts: campaign ? db.prepare(`SELECT COUNT(*) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=1 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(slug, config.analyticsOwnerId).count : null,
+    returningStarts: campaign ? db.prepare(`SELECT COUNT(*) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=1 AND ${analyticsUserCondition}`).get(slug, ...analyticsExcludedIds).count : null,
     historicalStartsWithoutDate: cohort.filter(u => !u.started_at).length,
     testPaidUsers: excludedPayments.filter(p => p.is_test === 1 && ids.has(p.user_id)).length,
     unclassifiedPaidUsers: excludedPayments.filter(p => p.is_test === null && ids.has(p.user_id)).length

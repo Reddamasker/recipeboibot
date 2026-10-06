@@ -32,7 +32,7 @@ test('each dislike reason replaces only its card in place, survives reopening an
     const beforeProfile = getFoodProfile(user.id), target = initial.recommendations[index];
     // This also covers sessions created before display positions existed.
     db.prepare('UPDATE dinner_options SET display_position=NULL WHERE session_id=?').run(session.sessionId);
-    const after = replaceDinner(user.id, target.id, reason);
+    const after = await replaceDinner(user.id, target.id, reason);
     assert.equal(after.recommendations.length, 3);
     assert.equal(new Set(after.recommendations.map(option => option.recipe.id)).size, 3);
     for (let slot = 0; slot < 3; slot++) {
@@ -47,7 +47,7 @@ test('each dislike reason replaces only its card in place, survives reopening an
     assert.deepEqual(after.pantry, initial.pantry);
     assert.equal(after.rejectedCount, 1);
     assert.equal(after.retryCount, 1);
-    const retried = replaceDinner(user.id, target.id, reason);
+    const retried = await replaceDinner(user.id, target.id, reason);
     assert.deepEqual(retried.recommendations.map(option => option.id), after.recommendations.map(option => option.id));
     assert.equal(retried.rejectedCount, 1);
     assert.equal(retried.retryCount, 1);
@@ -68,19 +68,19 @@ test('exhausted reserve, foreign cards, expired access and stale cards leave the
   const user = fixture(), foreign = fixture(), inactive = fixture(false);
   const session = startDinner(user.id), initial = await recommendDinner(user.id, session.sessionId);
   const target = initial.recommendations[1];
-  assert.throws(() => replaceDinner(foreign.id, target.id, 'not_today'), { status: 404 });
-  assert.throws(() => replaceDinner(inactive.id, target.id, 'not_today'), { status: 404 });
-  assert.throws(() => replaceDinner(user.id, target.id, 'too_long'), { status: 400 });
+  await assert.rejects(() => replaceDinner(foreign.id, target.id, 'not_today'), { status: 404 });
+  await assert.rejects(() => replaceDinner(inactive.id, target.id, 'not_today'), { status: 404 });
+  await assert.rejects(() => replaceDinner(user.id, target.id, 'too_long'), { status: 400 });
   // A session with exactly three valid options cannot manufacture a replacement.
   for (const recipe of SEED_RECIPES) insertDinnerOption(user.id, session.sessionId, { id: randomUUID(), recipe, role: 'familiar', method: 'deterministic' }, recipe.title);
   db.prepare("UPDATE dinner_options SET state='discarded' WHERE session_id=? AND state='ready'").run(session.sessionId);
   db.prepare('UPDATE dinner_sessions SET buffer_retry_at=? WHERE id=?').run(Date.now() + 60000, session.sessionId);
-  assert.throws(() => replaceDinner(user.id, target.id, 'not_today'), { status: 422 });
+  await assert.rejects(() => replaceDinner(user.id, target.id, 'not_today'), { status: 422 });
   assert.equal(getDinnerRecommendation(user.id, target.id).status, 'shown');
   assert.equal(getDinnerRejectionReason(user.id, target.id), null);
   assert.deepEqual(prefetchDinner(user.id, session.sessionId).recommendations.map(option => option.id), initial.recommendations.map(option => option.id));
   decideDinner(user.id, initial.recommendations[0].id, 'accepted');
-  assert.throws(() => replaceDinner(user.id, target.id, 'dislike'), { status: 409 });
+  await assert.rejects(() => replaceDinner(user.id, target.id, 'dislike'), { status: 409 });
 });
 
 test('replacement HTTP route requires a reason and changes one authenticated card', async () => {
