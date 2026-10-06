@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
+import { MAX_AD_PLACEMENT, MAX_AD_PAYLOAD, MAX_AD_NAME, maxAdvertisingLink } from './max-acquisition.js';
 import { campaignPriceAssignment, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS acquisition_campaigns (
@@ -30,7 +31,7 @@ const botUsername = () => config.testContour ? config.testBotUsername : 'Recipeb
 const slugPattern = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
 export function campaignLink(slug) {
-  return `${config.appUrl}/go/${slug}`;
+  return slug === MAX_AD_PLACEMENT ? maxAdvertisingLink() : `${config.appUrl}/go/${slug}`;
 }
 export function createCampaign(slug, name = slug) {
   if (!slugPattern.test(slug || '') || slug === 'all') throw fail('Название ссылки: до 40 латинских букв, цифр, дефисов или подчёркиваний; all зарезервировано.');
@@ -58,6 +59,7 @@ export function isAdvertisingProbe({ method = 'GET', userAgent = '', purpose = '
 }
 export function advertisingRedirect(slug, { method = 'GET', userAgent = '', purpose = '', searchParams = new URLSearchParams() } = {}) {
   getCampaign(slug);
+  if (slug === MAX_AD_PLACEMENT && ['GET', 'HEAD'].includes(method)) return maxAdvertisingLink();
   if (!['GET', 'HEAD'].includes(method)) throw fail('Метод не поддерживается', 405);
   if (isAdvertisingProbe({ method, userAgent, purpose })) return `https://t.me/${botUsername()}?start=dinner`;
   const token = randomBytes(18).toString('base64url');
@@ -76,9 +78,13 @@ export function recordBotStart(user, text, at = new Date()) {
   const payload = match[1] || '';
   const fromLanding = payload.startsWith('lp_') && exists('landing_visits') && db.prepare('SELECT 1 FROM landing_visits WHERE click_token=?').get(payload.slice(3));
   const click = payload.startsWith('ad_') || fromLanding ? db.prepare('SELECT * FROM acquisition_clicks WHERE token=?').get(payload.slice(3)) : null;
+  // Static MAX deep links identify the campaign, not an individual advertising click.
+  // Only the registered payload in the MAX contour can claim this attribution.
+  const maxCampaign = config.botPlatform === 'max' && payload === MAX_AD_PAYLOAD
+    ? createCampaign(MAX_AD_PLACEMENT, MAX_AD_NAME).slug : null;
   // First start attribution is immutable; existing accounts are is_returning visits.
   db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
-    .run(user.id, click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);
+    .run(user.id, maxCampaign || click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);
   campaignPriceAssignment(user.id, at);
 }
 
@@ -176,7 +182,7 @@ export function funnelReport(slug = 'all') {
     }
   }
   const clicks = db.prepare(`SELECT COUNT(*) AS count FROM acquisition_clicks ${campaign ? 'WHERE campaign=?' : ''}`).get(...(campaign ? [slug] : [])).count;
-  const convertedClicks = campaign ? db.prepare(`SELECT COUNT(DISTINCT s.click_token) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(slug, config.analyticsOwnerId).count : null;
+  const convertedClicks = campaign ? db.prepare(`SELECT COUNT(DISTINCT COALESCE(s.click_token,s.user_id)) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(slug, config.analyticsOwnerId).count : null;
   const campaigns = db.prepare('SELECT slug,name,impressions,reach FROM acquisition_campaigns ORDER BY created_at').all();
   // Summing reach across placements would count overlapping people repeatedly.
   const impressions = campaign ? campaign.impressions : campaigns.length && campaigns.every(c => c.impressions !== null) ? campaigns.reduce((sum, c) => sum + c.impressions, 0) : null;

@@ -13,25 +13,30 @@ function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text;
 function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  $('#page-error').textContent = data.remoteFunnel?.error || '';
+  $('#page-error').hidden = !data.remoteFunnel?.error;
   renderLandingStats(data);
   renderDirectStats(data.directStats);
   renderAttribution(data.attribution || []);
   renderPriceExperiment(data.priceExperiment);
   $('#login').hidden = true; $('#dashboard').hidden = false;
-  $('#contour').textContent = data.preview ? 'Демо данные' : data.contour === 'main' ? 'Основной бот' : 'Тестовый бот';
+  $('#contour').textContent = data.preview ? 'Демо данные' : data.platform === 'max' ? 'MAX-бот' : data.platform === 'combined' ? 'Telegram и MAX' : data.contour === 'main' ? 'Основной бот' : 'Тестовый бот';
   const time = value => new Date(value).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' });
   $('#updated').textContent = `Бот: ${time(data.generatedAt)} МСК${data.directStats ? ` · Директ: ${data.directStats.syncedAt ? `${time(data.directStats.syncedAt)} МСК` : 'ожидаем данные'}` : ''}`;
+  if (data.remoteFunnel) $('#updated').textContent += data.remoteFunnel.generatedAt ? ` · MAX: ${time(data.remoteFunnel.generatedAt)} МСК` : ' · MAX: недоступен';
   const selected = data.campaign?.slug || 'all', select = $('#campaign');
   select.replaceChildren(new Option('Все пользователи', 'all'), ...data.campaigns.map(c => new Option(c.name, c.slug))); select.value = selected;
   const coverage = data.advertisingCoverage;
   const advertisingNote = data.directStats?.aggregate
     ? coverage.includedCampaignCount < coverage.campaignCount ? `Есть данные по ${coverage.includedCampaignCount} из ${coverage.campaignCount} кампаний Директа` : `По всем кампаниям Директа: ${coverage.campaignCount}`
     : data.clickSource === 'direct' ? 'По статистике Директа' : 'По статистике площадки';
-  const metrics = [ ['Показы рекламы', data.impressions, advertisingNote], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? advertisingNote : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, 'Уникальные пользователи'], ['Первый рецепт', data.totals.firstRecipe, 'Получили готовый результат'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
+  const metrics = [ ['Показы рекламы', data.impressions, advertisingNote], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? advertisingNote : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, data.platform === 'combined' ? data.remoteFunnel?.status === 'error' ? 'Учтён только Telegram' : 'Аккаунты Telegram и MAX' : 'Уникальные пользователи'], ['Первый рецепт', data.totals.firstRecipe, 'Получили готовый результат'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
   $('#metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'), title = node('p', 'metric-label'); title.append(node('span', 'stage-dot'), document.createTextNode(label)); card.append(title, node('p', `metric-number${value === null ? ' unknown' : ''}`, number(value)), node('p', 'metric-note', note)); return card; }));
   const ordered = [['Запустили бота', data.ordered.starts], ['Первый рецепт', data.ordered.firstRecipe], ['Начали триал', data.ordered.trial], ['Оплатили', data.ordered.paid]];
   $('#funnel').replaceChildren(...ordered.map(([label, value]) => { const row = node('div', 'funnel-row'), track = node('div', 'bar-track'), bar = node('div', 'bar'); bar.style.width = `${data.ordered.starts ? value / data.ordered.starts * 100 : 0}%`; track.append(bar); row.append(node('span', 'funnel-label', label), track, node('span', 'funnel-count', number(value))); return row; }));
   $('#funnel-note').textContent = selected === 'all' ? data.directStats?.aggregate ? 'Показы и клики — по кампаниям Директа. Запуски и следующие этапы включают всех пользователей, в том числе органику. Конверсия из клика учитывает только рекламные запуски.' : 'Общий запуск включает органику. Для оценки рекламы выберите отдельное размещение.' : `Новые пользователи этого размещения.${data.returningStarts ? ` Повторных пользователей: ${number(data.returningStarts)}.` : ''}`;
+  if (data.remoteFunnel?.error) $('#funnel-note').textContent += ' ' + data.remoteFunnel.error;
+  if (data.platform === 'max') $('#funnel-note').textContent += ' Источник определяется по метке запуска MAX. Отдельное открытие чата неизвестно.';
   const c = data.conversions;
   const conversions = [['Показ → клик', c.clickFromImpression], [data.clickSource === 'direct' ? 'Клик → запуск' : 'Обращение → запуск', c.startFromClick], ['Запуск → рецепт', c.firstRecipeFromStart], ['Рецепт → триал', c.trialAfterRecipe], ['Триал → оплата', c.paidAfterTrial]];
   $('#conversions').replaceChildren(...conversions.map(([label, value]) => { const row = node('div', 'conversion'); row.append(node('span', 'conversion-label', label), node('span', `conversion-value${value === null ? ' empty' : ''}`, percent(value))); return row; }));
@@ -65,7 +70,8 @@ function renderDirectStats(stats) {
   const updated = stats.syncedAt ? `${stats.aggregate ? 'Данные всех учтённых кампаний не старше' : 'Последний импорт'}: ${new Date(stats.syncedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК.` : 'Первый импорт ещё не завершён.';
   $('#direct-status').textContent = `${updated} ${stats.status === 'error' ? stats.error : stats.status === 'waiting' ? 'Отчёт готовится.' : 'Автоматическое обновление каждые 5 минут.'} Статистика площадки может поступать с задержкой. Уникальный охват на поиске недоступен.`;
   if (stats.aggregate) $('#direct-status').textContent += ` Учтено кампаний: ${stats.includedCampaignCount} из ${stats.campaignCount}.`;
-  $('#link-requests').textContent = `Обращения к рекламной ссылке: ${number(report.linkRequests)}. Включают повторные открытия и проверки ссылки; это не число оплаченных кликов.`;
+  $('#link-requests').textContent = report.platform === 'max'
+    ? 'Прямая ссылка в MAX: обращения к промежуточной странице не собираются. Клики берутся из Директа, запуск — из события MAX.' : `Обращения к рекламной ссылке: ${number(report.linkRequests)}. Включают повторные открытия и проверки ссылки; это не число оплаченных кликов.`;
   $('#direct-sync').disabled = report.preview || report.contour !== 'main';
 }
 $('#direct-sync').addEventListener('click', () => load(undefined, { sync: true }));
@@ -110,7 +116,7 @@ async function load(slug, { sync = false } = {}) {
   finally { busy = false; $('#refresh').disabled = false; $('#direct-sync').disabled = !report || report.preview || report.contour !== 'main'; }
 }
 async function copyLink(slug) {
-  const link = new URL(`/go/${slug}`, location.origin).href;
+  const link = report.campaigns.find(c => c.slug === slug)?.link || new URL(`/go/${slug}`, location.origin).href;
   try { await navigator.clipboard.writeText(link); toast('Рекламная ссылка скопирована'); }
   catch { toast(link); }
 }

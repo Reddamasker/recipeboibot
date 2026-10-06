@@ -30,6 +30,8 @@ import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
+import { mergeMaxFunnelReport, maxFunnelSnapshot, maxFunnelAuthorized } from './max-funnel.js';
+import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
@@ -392,6 +394,10 @@ export function createServer() {
         return json(response, 200, { ok: true });
       }
       rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
+      if (url.pathname === '/api/internal/max-funnel') {
+        if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
+        return json(response, 200, maxFunnelSnapshot());
+      }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
       if (url.pathname === '/dashboard' || url.pathname === '/dashboard/') return serveStatic(request, response, '/dashboard.html');
       if (url.pathname.startsWith('/api/dashboard/')) {
@@ -413,8 +419,8 @@ export function createServer() {
           return json(response, 200, { ok: true });
         }
         if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') {
-          const report = dashboardFunnelReport(url.searchParams.get('campaign') || 'all');
-          report.landingStats = landingReport(report.campaign?.slug || 'all');
+          const report = await mergeMaxFunnelReport(dashboardFunnelReport(url.searchParams.get('campaign') || 'all'));
+          report.landingStats = report.campaign?.slug === MAX_AD_PLACEMENT ? null : landingReport(report.campaign?.slug || 'all');
           return json(response, 200, report);
         }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/direct-sync') {
