@@ -20,7 +20,7 @@ function signed(payload) {
   return params.toString();
 }
 
-async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus } = {}) {
+async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false } = {}) {
   const location = new URL(`https://recipes.test/${shared ? 'share/' + 'a'.repeat(32) : ''}${search}`);
   location.hash = hash;
   const requests = [], pages = [], details = [], probes = [], navigations = [];
@@ -46,7 +46,7 @@ async function bootFixture({ route, payload = route && encode(route), search = '
       let response;
       if (path === '/api/me') response = { id: identity.id, displayName: identity.first_name };
       else if (path === '/api/library') response = { recipes: [], jobs: [] };
-      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid', available: !!paymentStatus, mode: paymentStatus ? 'provider' : undefined };
+      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid', available: !!paymentStatus || trialEligible, mode: paymentStatus || trialEligible ? 'provider' : undefined, trial: trialEligible ? { eligible: true, used: false } : undefined };
       else if (path.startsWith('/api/billing/orders/')) response = { id: decodeURIComponent(path.split('/').at(-1)), status: paymentStatus };
       else if (/^\/api\/(?:dinner\/)?recipes\//.test(path)) response = { id: decodeURIComponent(path.split('/').at(-1)), title: 'Выбранный рецепт' };
       else assert.fail(`Unexpected request (including AI generation): ${path}`);
@@ -59,6 +59,8 @@ async function bootFixture({ route, payload = route && encode(route), search = '
   // Replace only DOM-heavy page/dialog boundaries; the fixture never invokes AI.
   vm.runInContext(appSource.replace(/boot\(\);\s*$/, '') + `
     paymentResultPage = () => recordPage('payment:' + state.checkoutOrder?.status);
+    benefitsPage = () => recordPage('benefits');
+    providerOfferPage = () => recordPage('pricing');
     home = () => recordPage('home');
     collection = () => recordPage('collection');
     beginDinner = async () => recordPage('dinner');
@@ -174,5 +176,18 @@ test('MAX payment return retrieves its exact owned order and bypasses pending on
     assert.ok(f.requests.some(r=>r.path === '/api/billing/orders/'+order));
     assert.deepEqual(f.pages,['payment:'+status]);
     assert.equal(new URLSearchParams(f.location.search).get('order'),order);
+  }
+});
+
+test('MAX benefits and pricing open through signed SDK and URL-only payload after authentication', async () => {
+  for (const view of ['benefits', 'pricing']) {
+    const expected = view === 'pricing' ? 'pricing' : 'benefits';
+    const sdk = await bootFixture({ route: { view }, trialEligible: true, unsafe: false });
+    assert.deepEqual(sdk.pages, [expected]);
+    assert.equal(sdk.location.searchParams.get('view'), view);
+    const url = await bootFixture({ search: '?WebAppStartParam=' + encode({ view }), trialEligible: true, unsafe: false });
+    assert.deepEqual(url.pages, [expected]);
+    assert.equal(url.location.searchParams.get('view'), view);
+    for (const f of [sdk, url]) assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
   }
 });
