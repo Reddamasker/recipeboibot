@@ -18,6 +18,7 @@ function render(data) {
   renderLandingStats(data);
   renderDirectStats(data.directStats);
   renderAttribution(data.attribution || []);
+  $('#attribution').closest('section').hidden = data.platform === 'max';
   renderPriceExperiment(data.priceExperiment);
   $('#login').hidden = true; $('#dashboard').hidden = false;
   $('#contour').textContent = data.preview ? 'Демо данные' : data.platform === 'max' ? 'MAX-бот' : data.platform === 'combined' ? 'Telegram и MAX' : data.contour === 'main' ? 'Основной бот' : 'Тестовый бот';
