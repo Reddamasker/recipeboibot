@@ -86,7 +86,7 @@ test('MAX reset command and cancel preserve profile, recipes and trial until exp
   const trial = startTrial(owner.id);
   await handleChatUpdate(message(17, '/test_reset'));
   const prompt = outgoing.at(-1);
-  assert.match(prompt.body.text, /пробный доступ в MAX/);
+  assert.match(prompt.body.text, /пробный и оплаченный доступ в MAX/);
   assert.doesNotMatch(prompt.body.text, /имитации оплаты/);
   const buttons = prompt.body.attachments[0].payload.buttons;
   assert.equal(buttons[0][0].payload, 'test:reset:confirm');
@@ -103,13 +103,15 @@ test('MAX reset confirmation deletes only its owner, keeps AI accounting and res
   const other = db.prepare("SELECT * FROM users WHERE telegram_id='max:18'").get();
   recordAiAttempt();
   const aiBefore = db.prepare('SELECT count(*) AS n FROM ai_reservations').get().n;
+  db.prepare('INSERT INTO user_subscriptions(user_id,plan,starts_at,expires_at,updated_at) VALUES(?,?,?,?,?)')
+    .run(owner.id, 'subscription', new Date().toISOString(), new Date(Date.now() + 86400000).toISOString(), new Date().toISOString());
   db.prepare('INSERT INTO first_dinner_previews(user_id,selected_id) VALUES(?,?)').run(owner.id, 'selected');
   await handleChatUpdate(message(17, '/test_reset'));
   const event = callbackEvent(17, `mid.reset-${serial}`, 'test:reset:confirm');
   const forged = { ...event, callback: { ...event.callback, user: { user_id: 18 } } };
   assert.equal(normalizeMaxUpdate(forged, { botId: 777 }), null);
   await handleChatUpdate(normalizeMaxUpdate(event, { botId: 777 }));
-  for (const table of ['users', 'recipes', 'user_trials', 'first_dinner_previews', 'food_profiles', 'pending_intents']) {
+  for (const table of ['users', 'recipes', 'user_trials', 'user_subscriptions', 'first_dinner_previews', 'food_profiles', 'pending_intents']) {
     const column = table === 'users' ? 'id' : 'user_id';
     assert.equal(db.prepare(`SELECT count(*) AS n FROM ${table} WHERE ${column}=?`).get(owner.id).n, 0, table);
   }

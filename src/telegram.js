@@ -938,7 +938,7 @@ export async function handleMessage(message) {
   if (text === '/test_reset' && (config.botPlatform === 'max' || config.testContour)) {
     if (!canResetTestUser(message.from.id)) { await send(chatId, 'Эта команда доступна только владельцу бота.'); return; }
     const explanation = config.botPlatform === 'max'
-      ? 'Удалятся ваши рецепты, анкета, предпочтения, история ужинов и пробный доступ в MAX. После сброса можно заново пройти онбординг. Учёт AI-запросов сохранится.'
+      ? 'Удалятся ваши рецепты, анкета, предпочтения, история ужинов, пробный и оплаченный доступ в MAX. После сброса можно заново пройти онбординг. Учёт AI-запросов сохранится.'
       : 'Удалятся рецепты, анкета, история ужинов и результат имитации оплаты в этом тестовом боте. Учёт AI-запросов сохранится.';
     await send(chatId, `<b>Сбросить тестового пользователя?</b>\n\n${explanation}`, { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;
