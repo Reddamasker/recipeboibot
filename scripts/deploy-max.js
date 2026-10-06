@@ -10,6 +10,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const MAX_HOST = 'recipeboibot-max.89-223-123-75.sslip.io';
 export const LOCAL_ENV_KEYS = Object.freeze(['MAX_BOT_TOKEN', 'MAX_WEBHOOK_SECRET']);
 
+export function parseDeployMaxArgs(args) {
+  const [mode, flag, ...extra] = args;
+  if (!['--check', '--apply', '--setup-check', '--setup'].includes(mode) || extra.length || (flag !== undefined && (flag !== '--enable-payments' || mode !== '--apply'))) throw new Error('Usage: node scripts/deploy-max.js --setup-check | --setup | --check | --apply [--enable-payments]');
+  return { mode, enablePayments: flag === '--enable-payments' };
+}
+
 export function validateMaxEnvironment(source) {
   const result = {};
   for (const line of source.split(/\r?\n/)) {
@@ -52,8 +58,7 @@ export function archiveSourceHash(archive) {
 }
 
 function main() {
-  const mode = process.argv[2];
-  if (!['--check', '--apply', '--setup-check', '--setup'].includes(mode) || process.argv.length !== 3) throw new Error('Usage: node scripts/deploy-max.js --setup-check | --setup | --check | --apply');
+  const { mode, enablePayments } = parseDeployMaxArgs(process.argv.slice(2));
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24+ required');
   const target = 'root@89.223.123.75';
   const options = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes'];
@@ -89,7 +94,7 @@ function main() {
       // The secret file travels through SSH/SCP, never argv or terminal output.
       run('ssh', [...options, target, `umask 077; cat > '${remote}.env'`], { input: readFileSync(path.join(root, '.env.max.local')) });
     }
-    run('ssh', [...options, target, `bash '${remote}.sh' '${mode}' '${revision}' '${checksum}' '${expectedSource}'`]);
+    run('ssh', [...options, target, `bash '${remote}.sh' '${mode}' '${revision}' '${checksum}' '${expectedSource}'${enablePayments ? " '--enable-payments'" : ''}`]);
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 

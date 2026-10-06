@@ -18,8 +18,6 @@ services:
       MAX_BOT_USERNAME: id500912857935_bot
       MAX_API_ORIGIN: https://platform-api2.max.ru
       TELEGRAM_POLLING: "false"
-      BILLING_REQUIRED: "false"
-      ROBOKASSA_RECURRING_ENABLED: "false"
       OPENAI_HTTPS_PROXY: http://72.56.97.79:3128
       NODE_OPTIONS: "--dns-result-order=ipv6first --no-network-family-autoselection"
       NODE_EXTRA_CA_CERTS: /app/deploy/max-ca-bundle.pem
