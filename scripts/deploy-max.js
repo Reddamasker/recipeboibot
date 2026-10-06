@@ -40,6 +40,17 @@ export function sourceHash(directory = root) {
   return hash.digest('hex');
 }
 
+export function archiveSourceHash(archive) {
+  const extracted = mkdtempSync(path.join(tmpdir(), 'recipeboibot-max-hash-'));
+  try {
+    const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'tar.exe') : 'tar';
+    const result = spawnSync(tar, ['-xzf', path.resolve(archive), '-C', extracted, 'src', 'public'], { encoding: 'utf8' });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error('Cannot inspect MAX release archive');
+    return sourceHash(extracted);
+  } finally { rmSync(extracted, { recursive: true, force: true }); }
+}
+
 function main() {
   const mode = process.argv[2];
   if (!['--check', '--apply', '--setup-check', '--setup'].includes(mode) || process.argv.length !== 3) throw new Error('Usage: node scripts/deploy-max.js --setup-check | --setup | --check | --apply');
@@ -68,6 +79,9 @@ function main() {
     const archive = path.join(temporary, 'release.tgz');
     run('git', ['archive', '--format=tar.gz', '-o', archive, revision, 'src', 'public', 'Dockerfile', 'package.json', 'test', 'scripts', 'deploy']);
     const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');
+    // Git archive can use different text line endings than a clean Windows checkout.
+    // Verify the exact bytes being shipped, including binary assets.
+    const expectedSource = archiveSourceHash(archive);
     const remote = `/root/recipeboibot-max-release-${checksum}`;
     run('scp', [...options, archive, `${target}:${remote}.tgz`]);
     run('scp', [...options, path.join(root, 'deploy/apply-max-release.sh'), `${target}:${remote}.sh`]);
@@ -75,7 +89,7 @@ function main() {
       // The secret file travels through SSH/SCP, never argv or terminal output.
       run('ssh', [...options, target, `umask 077; cat > '${remote}.env'`], { input: readFileSync(path.join(root, '.env.max.local')) });
     }
-    run('ssh', [...options, target, `bash '${remote}.sh' '${mode}' '${revision}' '${checksum}' '${sourceHash()}'`]);
+    run('ssh', [...options, target, `bash '${remote}.sh' '${mode}' '${revision}' '${checksum}' '${expectedSource}'`]);
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }
 

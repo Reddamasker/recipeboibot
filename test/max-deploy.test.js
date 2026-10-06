@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { sourceHash, validateMaxEnvironment } from '../scripts/deploy-max.js';
+import { fileURLToPath } from 'node:url';
+import { archiveSourceHash, sourceHash, validateMaxEnvironment } from '../scripts/deploy-max.js';
 
 test('MAX bootstrap accepts only its credentials and rejects credential leakage without echoing values', () => {
   assert.deepEqual(validateMaxEnvironment('# MAX credentials\nMAX_BOT_TOKEN=safe-test-token\n'), { MAX_BOT_TOKEN: 'safe-test-token' });
@@ -48,4 +49,25 @@ test('MAX deploy is inert during Node test discovery and imports never run SSH',
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, '');
+});
+
+test('MAX release parity uses Git archived bytes despite checkout line ending differences', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'max-archive-parity-'));
+  try {
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.mkdirSync(path.join(root, 'public'));
+    fs.writeFileSync(path.join(root, 'src/app.js'), 'const value = 1;\n');
+    fs.writeFileSync(path.join(root, 'public/style.css'), 'body {}\n');
+    fs.writeFileSync(path.join(root, 'public/image.webp'), Buffer.from([0, 128, 255]));
+    const originalHash = sourceHash(root);
+    // Generated with git archive from a clean fixture repository using
+    // *.js text eol=lf and *.css text eol=crlf. No Git binary is needed in Docker tests.
+    const archive = new URL('./fixtures/max-source-eol.tgz', import.meta.url);
+    const shippedHash = createHash('sha256').update('src/app.js\0const value = 1;\n')
+      .update('public/image.webp\0').update(Buffer.from([0, 128, 255]))
+      .update('public/style.css\0body {}\r\n').digest('hex');
+    assert.notEqual(shippedHash, originalHash);
+    assert.equal(archiveSourceHash(fileURLToPath(archive)), shippedHash);
+    assert.throws(() => archiveSourceHash(path.join(root, 'missing.tgz')));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
