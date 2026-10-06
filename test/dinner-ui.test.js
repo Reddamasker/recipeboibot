@@ -239,7 +239,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.76/);
+  assert.match(document, /app\.js\?v=dinner-10\.77/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -622,4 +622,86 @@ test('an image response cannot reopen a saved recipe after cooking begins', asyn
   await sandbox.cookFromDinnerDetail({ id: 'saved', steps: [{ text: 'Готовьте' }] });
   finishImage(); await pending;
   assert.equal(screen, 'cooking'); assert.equal(repaints, 0);
+});
+
+
+test('first selection persists a pending preview and cooking cannot show a full recipe before trial', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const option = { id: 'selected', recipe: { id: 'dinner:selected', title: 'Паста' } };
+  const pending = { recipeId: 'saved-first', title: 'Паста', selectedId: 'selected' };
+  const calls = [], routes = [], opened = [];
+  const state = { payment: { active: false, firstRecipe: { available: true } }, dinner: { recommendations: [option] }, recipes: [] };
+  const sandbox = { state, URLSearchParams, location: { search: '?view=dinner' }, dinnerPollTimer: null,
+    clearTimeout() {}, dinnerView() {}, closeOverlay() {}, benefitsPage() { calls.push('benefits'); },
+    setRoute: route => routes.push(route), toast: assert.fail, openRecipe: id => opened.push(id), cookMode: assert.fail,
+    scheduleDinnerPrefetch() {}, refresh: async () => {},
+    api: async path => { calls.push(path); return { status: 'accepted', awaitingTrial: true, pendingFirstRecipe: pending }; } };
+  vm.runInNewContext(source.slice(source.indexOf('async function acceptDinnerItem('), source.indexOf('async function markDinnerCooked(')), sandbox);
+  await sandbox.cookFromDinnerDetail(option.recipe);
+  assert.equal(calls[0], '/api/dinner/recommendations/selected/accept');
+  assert.equal(routes.at(-1).view, 'benefits');
+  assert.equal(state.payment.pendingFirstRecipe.recipeId, pending.recipeId);
+  assert.equal(state.payment.firstRecipe.awaitingTrial, true);
+  assert.equal(state.dinner.awaitingTrial, true);
+  assert.deepEqual(opened, []);
+  await sandbox.acceptDinnerItem(option);
+  assert.equal(calls.filter(path => path.includes('/accept')).length, 1);
+});
+
+test('new first-trial users never resume the old taste and reminder onboarding automatically', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('async function resumePendingTrialTastePreferences()'), source.indexOf('\nasync function showDinnerOnboarding'));
+  const sandbox = { state: { payment: { active: true, firstRecipe: { trialGateUsed: true }, pendingFirstRecipe: { recipeId: 'saved-first', unlocked: true } } },
+    api: assert.fail, savedTrialOnboardingStep: assert.fail, setRoute: assert.fail, beginDinner: assert.fail };
+  vm.runInNewContext(handler, sandbox);
+  assert.equal(await sandbox.resumePendingTrialTastePreferences(), false);
+});
+
+
+test('a first requested recipe routes its durable preview to benefits without rendering a full suggestion', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const pending = { recipeId: 'saved-request', title: 'Стейк' };
+  const calls = [], routes = [], location = { search: '' }, button = { disabled: false };
+  const state = { payment: { active: false, firstRecipe: { available: true } } };
+  const sandbox = { state, location, URLSearchParams,
+    document: { querySelector: () => ({ value: 'стейк' }) },
+    setRoute(route) { routes.push(route); location.search = '?' + new URLSearchParams(route); },
+    api: async path => { calls.push(path); return { awaitingTrial: true, pendingFirstRecipe: pending, query: 'стейк' }; },
+    refresh: async () => {}, closeOverlay() {}, benefitsPage: () => calls.push('benefits'),
+    openRecipe: assert.fail, recipeDetail: assert.fail, toast: assert.fail, openOffer: assert.fail };
+  vm.runInNewContext(source.slice(source.indexOf('async function showRequestedRecipe('), source.indexOf('async function toggleRequestRecording(')), sandbox);
+  await sandbox.showRequestedRecipe({ preventDefault() {}, currentTarget: { querySelector: () => button } });
+  assert.deepEqual(calls, ['/api/recipe-request', 'benefits']);
+  assert.equal(routes.at(-1).view, 'benefits');
+  assert.equal(state.payment.pendingFirstRecipe.recipeId, pending.recipeId);
+});
+
+test('a stale direct full recipe render redirects to the first-trial gate', () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const calls = [], routes = [];
+  const sandbox = { state: { payment: { active: false, firstRecipe: { awaitingTrial: true } } },
+    closeOverlay: () => calls.push('close'), setRoute: route => routes.push(route), benefitsPage: () => calls.push('benefits') };
+  vm.runInNewContext(source.slice(source.indexOf('function recipeDetail('), source.indexOf('async function openSharedRecipe(')), sandbox);
+  sandbox.recipeDetail({ id: 'first', ingredients: [{ name: 'hidden' }], steps: [{ text: 'hidden' }] });
+  assert.deepEqual(calls, ['close', 'benefits']);
+  assert.equal(routes.at(-1).view, 'benefits');
+});
+
+
+test('paid first-recipe access Continue opens the same unlocked choice while legacy payment keeps onboarding', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function paymentSuccessPage()'), source.indexOf('function legacyProviderOfferPage()'));
+  for (const newFlow of [true, false]) {
+    const routes = [], steps = [], opened = [], dinners = [], button = { disabled: false };
+    const state = { payment: { active: true, firstRecipe: { trialGateUsed: newFlow }, pendingFirstRecipe: newFlow ? { recipeId: 'chosen-paid', unlocked: true } : null } };
+    const sandbox = { state, root: {}, paymentPollTimer: null, clearTimeout() {}, resetPageScroll() {}, header: () => '', esc: String, bindCommon() {},
+      document: { querySelector: () => button }, setTrialOnboardingStep: step => steps.push(step), setRoute: route => routes.push(route),
+      openRecipe: async (...args) => opened.push(args), beginDinner: async (...args) => dinners.push(args) };
+    vm.runInNewContext(handler, sandbox); sandbox.paymentSuccessPage();
+    await button.onclick({ currentTarget: button });
+    assert.equal(routes[0].view, newFlow ? 'collection' : 'dinner');
+    assert.deepEqual(steps, [newFlow ? null : 'taste']);
+    assert.deepEqual(opened, newFlow ? [['chosen-paid', true]] : []);
+    assert.deepEqual(dinners, newFlow ? [] : [[false, true]]);
+  }
 });

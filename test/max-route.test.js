@@ -20,7 +20,7 @@ function signed(payload) {
   return params.toString();
 }
 
-async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false } = {}) {
+async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false, firstGate = false, firstUnlocked = false } = {}) {
   const location = new URL(`https://recipes.test/${shared ? 'share/' + 'a'.repeat(32) : ''}${search}`);
   location.hash = hash;
   const requests = [], pages = [], details = [], probes = [], navigations = [];
@@ -46,7 +46,7 @@ async function bootFixture({ route, payload = route && encode(route), search = '
       let response;
       if (path === '/api/me') response = { id: identity.id, displayName: identity.first_name };
       else if (path === '/api/library') response = { recipes: [], jobs: [] };
-      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid', available: !!paymentStatus || trialEligible, mode: paymentStatus || trialEligible ? 'provider' : undefined, trial: trialEligible ? { eligible: true, used: false } : undefined };
+      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid' || firstUnlocked, available: !!paymentStatus || trialEligible, mode: paymentStatus || trialEligible ? 'provider' : undefined, trial: trialEligible || firstGate ? { eligible: true, used: false } : undefined, firstRecipe: firstGate || firstUnlocked ? { awaitingTrial: firstGate, trialGateUsed: true } : undefined, pendingFirstRecipe: firstGate || firstUnlocked ? { recipeId: generatedKey, title: 'Выбранная паста', unlocked: firstUnlocked } : undefined };
       else if (path.startsWith('/api/billing/orders/')) response = { id: decodeURIComponent(path.split('/').at(-1)), status: paymentStatus };
       else if (/^\/api\/(?:dinner\/)?recipes\//.test(path)) response = { id: decodeURIComponent(path.split('/').at(-1)), title: 'Выбранный рецепт' };
       else assert.fail(`Unexpected request (including AI generation): ${path}`);
@@ -62,6 +62,7 @@ async function bootFixture({ route, payload = route && encode(route), search = '
     benefitsPage = () => recordPage('benefits');
     providerOfferPage = () => recordPage('pricing');
     home = () => recordPage('home');
+    mainMenuPage = () => recordPage('menu');
     collection = () => recordPage('collection');
     beginDinner = async () => recordPage('dinner');
     recipeDetail = (recipe, options) => recordDetail({ recipe, shared: options?.shared === true });
@@ -189,5 +190,39 @@ test('MAX benefits and pricing open through signed SDK and URL-only payload afte
     assert.deepEqual(url.pages, [expected]);
     assert.equal(url.location.searchParams.get('view'), view);
     for (const f of [sdk, url]) assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
+  }
+});
+
+
+test('pending first choice survives fresh boot and recipe deep links on MAX and Telegram without fetching full ingredients', async () => {
+  for (const platform of ['max', 'telegram']) {
+    for (const search of ['', '?view=dinner', '?view=collection&recipe=' + encodeURIComponent(generatedKey)]) {
+      const f = await bootFixture({ platform, search, firstGate: true });
+      assert.deepEqual(f.pages, ['benefits']);
+      assert.equal(f.location.searchParams.get('view'), 'benefits');
+      assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
+      assert.equal(f.details.length, 0);
+    }
+  }
+});
+
+test('pending first choice permits explicit pricing, promo, feedback and menu navigation', async () => {
+  for (const view of ['pricing', 'menu']) {
+    const f = await bootFixture({ search: '?view=' + view, firstGate: true, trialEligible: true });
+    assert.deepEqual(f.pages, [view === 'pricing' ? 'pricing' : 'menu']);
+    assert.equal(f.location.searchParams.get('view'), view);
+  }
+});
+
+
+test('confirmed first trial reopens the same recipe from a stale benefits or offer launch on both platforms', async () => {
+  for (const platform of ['max', 'telegram']) {
+    for (const view of ['benefits', 'offer']) {
+      const f = await bootFixture({ platform, search: '?view=' + view, firstUnlocked: true, pendingTrial: true });
+      assert.deepEqual(f.pages, ['collection']);
+      assert.equal(f.details[0]?.recipe.id, generatedKey);
+      assert.equal(f.location.searchParams.get('recipe'), generatedKey);
+      assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer', '/api/dinner/recipes/' + encodeURIComponent(generatedKey)]);
+    }
   }
 });

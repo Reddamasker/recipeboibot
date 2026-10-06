@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { db, deleteUserData, getUserByTelegramId } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, canReceiveFirstRecipe, hasUsedTrialOrPromo } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, canReceiveFirstRecipe, hasUsedTrialOrPromo, getPendingFirstRecipe, unlockFirstRecipe } from './subscriptions.js';
 import { promoQuote, reservePromo, reservedPromoOrder, releasePromo, consumePromo, extendPromoAccess } from './promos.js';
 import { publicSubscriptionPlans, subscriptionPlan } from './plans.js';
 import { campaignPromotion } from './campaign-prices.js';
@@ -72,12 +72,12 @@ export function mockPaymentStatus(userId) {
   const payment = db.prepare('SELECT active,last_result,updated_at FROM mock_payments WHERE user_id=?').get(userId);
   const pending = db.prepare("SELECT id,method,amount_rub,variant,auto_renew,created_at,promo_code,period_months FROM mock_orders WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(userId);
   const recurring = db.prepare("SELECT auto_renew,updated_at,period_months FROM mock_orders WHERE user_id=? AND status='success' ORDER BY updated_at DESC LIMIT 1").get(userId);
-  const firstValue = hasRecipe(userId) ? 'saved' : hasCookedDinner(userId) ? 'cooked' : getFirstRecipeStatus(userId).delivered ? 'received' : null;
+  const firstValue = hasRecipe(userId) ? 'saved' : hasCookedDinner(userId) ? 'cooked' : getPendingFirstRecipe(userId) ? 'selected' : getFirstRecipeStatus(userId).delivered ? 'received' : null;
   const access = getSubscriptionAccess(userId);
   const trial = getTrialStatus(userId);
   return {
     accessSource: access.source, trial: { ...trial, eligible: !trial.used && !access.active },
-    firstRecipe: getFirstRecipeStatus(userId),
+    firstRecipe: getFirstRecipeStatus(userId),pendingFirstRecipe:getPendingFirstRecipe(userId),unlockedFirstRecipe:unlockFirstRecipe(userId),
     active: access.active, expiresAt: access.expiresAt, lastResult: payment?.last_result || null, updatedAt: payment?.updated_at || null,
     hasFirstRecipe: Boolean(firstValue), firstValue, offerShown: Boolean(offer.shown_at),
     mode: 'mock', available: true, recurringSupported: true,
