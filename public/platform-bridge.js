@@ -42,6 +42,7 @@
         if (['menu', 'dinner', 'collection', 'offer', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding'].includes(input.view)) route.view = input.view;
         if (['results', 'request', 'search'].includes(route.view) && typeof input.q === 'string' && input.q.length <= 500 && !/[\u0000-\u001f\u007f]/.test(input.q)) route.q = input.q;
         if (typeof input.recipe === 'string' && /^(?:(?:seed|dinner):)?[A-Za-z0-9_-]{1,100}$/.test(input.recipe)) route.recipe = input.recipe;
+        if (route.view === 'payment-result' && typeof input.order === 'string' && /^[0-9a-f-]{36}$/i.test(input.order)) route.order = input.order;
         if (typeof input.notification === 'string' && /^[0-9a-f-]{36}$/i.test(input.notification)) route.notification = input.notification;
         if (Object.keys(route).length) return route;
       } catch { /* Try the next supported source; malformed navigation is ignored. */ }

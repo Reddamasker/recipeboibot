@@ -3,6 +3,9 @@
 set -euo pipefail
 umask 077
 mode=${1:?Missing mode}
+payment_flag=${5:-}
+[[ -z "$payment_flag" || ( "$mode" = --apply && "$payment_flag" = --enable-payments ) ]] || { echo 'Payment activation requires --apply --enable-payments' >&2; exit 2; }
+[[ $# -le 5 ]] || exit 2
 root=/opt/recipeboibot-max
 host=recipeboibot-max.89-223-123-75.sslip.io
 container=recipeboibot-max
@@ -16,10 +19,27 @@ check_tools() {
 
 assert_runtime() {
   docker exec "$container" node --input-type=module -e '
-    import {config} from "./src/config.js";
+    import {config,assertConfig} from "./src/config.js";
+    assertConfig();
     if(process.env.BOT_PLATFORM!=="max" || config.telegramPolling || process.env.TELEGRAM_POLLING!=="false" || process.env.MAX_BOT_USERNAME!=="id500912857935_bot" || process.env.MAX_API_ORIGIN!=="https://platform-api2.max.ru" || !/^[A-Za-z0-9_-]{32,256}$/.test(process.env.MAX_WEBHOOK_SECRET||"")) process.exit(1);
-    if(config.robokassaConfigured || config.billingRequired || config.robokassaRecurring || process.env.TELEGRAM_BOT_TOKEN || process.env.YANDEX_DIRECT_TOKEN || Object.keys(process.env).some(k=>k.startsWith("ROBOKASSA_") && k!=="ROBOKASSA_RECURRING_ENABLED")) process.exit(1);
+    if(process.env.TELEGRAM_BOT_TOKEN || process.env.YANDEX_DIRECT_TOKEN || config.testContour || config.robokassaTest) process.exit(1);
+    if(config.robokassaConfigured ? !config.billingRequired : config.billingRequired || config.robokassaRecurring) process.exit(1);
   '
+}
+
+assert_payment_namespace() {
+  # Read MAX invoices without importing billing or migrating its sequence.
+  docker exec "$container" node --input-type=module -e '
+    import {DatabaseSync} from "node:sqlite";
+    const db=new DatabaseSync("/app/data/recipes.sqlite",{readOnly:true});
+    try {
+      const exists=db.prepare("SELECT 1 FROM sqlite_master WHERE type=\u0027table\u0027 AND name=\u0027payment_orders\u0027").get();
+      if(exists && db.prepare("SELECT 1 FROM payment_orders WHERE typeof(inv_id)!=\u0027integer\u0027 OR inv_id<1000000000000 OR inv_id>9007199254740991 LIMIT 1").get())process.exitCode=1;
+      const sequenced=db.prepare("SELECT 1 FROM sqlite_master WHERE type=\u0027table\u0027 AND name=\u0027sqlite_sequence\u0027").get();
+      const seq=sequenced?db.prepare("SELECT seq FROM sqlite_sequence WHERE name=\u0027payment_orders\u0027").get()?.seq:0;
+      if(seq!=null && (!Number.isSafeInteger(seq)||seq<0||seq>=Number.MAX_SAFE_INTEGER))process.exitCode=1;
+    } finally {db.close();}
+  ' >/dev/null 2>&1 || { echo 'MAX payment invoice namespace validation failed' >&2; return 1; }
 }
 
 assert_endpoints() {
@@ -82,7 +102,9 @@ expected_tree=${4:?Missing source checksum}
 [[ "$revision" =~ ^[0-9a-f]{40}$ && "$release" =~ ^[0-9a-f]{64}$ && "$expected_tree" =~ ^[0-9a-f]{64}$ ]] || exit 2
 archive="/root/recipeboibot-max-release-$release.tgz"
 secret_file="/root/recipeboibot-max-release-$release.env"
-trap 'rm -f -- "$secret_file"' EXIT
+payment_candidate="$root/.env.max-payment-candidate"
+payment_docker_env="$root/.env.max-payment-validation"
+trap 'rm -f -- "$secret_file" "$payment_candidate" "$payment_docker_env"' EXIT
 printf '%s  %s\n' "$release" "$archive" | sha256sum -c -
 exec 9>/tmp/recipeboibot-max-deploy.lock
 flock -n 9 || { echo 'Another MAX deployment is running' >&2; exit 1; }
@@ -94,6 +116,9 @@ previous="$image:before-max-$stamp"
 nginx_created=false
 source_backup="backups/source-before-max-$stamp.tgz"
 existing=false
+payment_config_changed=false
+env_backup="$root/backups/env-before-max-payments-$stamp.local"
+compose_backup="$root/backups/compose-before-max-payments-$stamp.yaml"
 
 if [[ "$mode" = --setup ]]; then
   check_setup
@@ -149,9 +174,13 @@ rollback() {
   trap - ERR
   echo 'MAX release failed; preserving MAX database and restoring its previous source/image' >&2
   if [[ "$existing" = true ]]; then
-    # Fixed MAX source directories only; database/env are deliberately preserved.
+    # Fixed MAX source directories only; the database is deliberately preserved.
     rm -rf -- /opt/recipeboibot-max/src /opt/recipeboibot-max/public /opt/recipeboibot-max/deploy /opt/recipeboibot-max/scripts /opt/recipeboibot-max/test
     tar -xzf "$source_backup"
+    if [[ "$payment_config_changed" = true ]]; then
+      install -m 600 "$env_backup" "$root/.env.local"
+      install -m 600 "$compose_backup" "$root/compose.max.yaml"
+    fi
     docker tag "$previous" "$image:latest"
     export RELEASE_REVISION=$(cat DEPLOYED_REVISION)
     docker compose -f compose.max.yaml up -d --no-build app
@@ -227,6 +256,64 @@ NGINX
   install -m 644 deploy/nginx-max.conf /etc/nginx/sites-available/recipeboibot-max
   nginx -t
   systemctl reload nginx
+fi
+if [[ "$payment_flag" = --enable-payments ]]; then
+  [[ "$existing" = true ]] || { echo 'Payment activation requires an existing MAX contour' >&2; false; }
+  assert_payment_namespace
+  # Release tests, verified MAX TLS and encrypted DB backup completed above.
+  # Production credentials stay within this server and never enter shell argv.
+  install -m 600 .env.local "$env_backup"
+  install -m 600 compose.max.yaml "$compose_backup"
+  python3 - <<'PY'
+import json,pathlib,re,subprocess
+root=pathlib.Path('/opt/recipeboibot-max')
+allowed=['ROBOKASSA_MERCHANT_LOGIN','ROBOKASSA_PASSWORD1','ROBOKASSA_PASSWORD2','ROBOKASSA_HASH_ALGORITHM','ROBOKASSA_RECURRING_ENABLED','PAYMENT_TAX','PAYMENT_SNO','PAYMENT_METHOD','PAYMENT_PRICE_VARIANTS','PAYMENT_EXPERIMENT_KEY']
+probe='''import {config,assertConfig} from "./src/config.js";
+assertConfig();if(!config.robokassaConfigured||config.robokassaTest||config.testContour||config.botPlatform!=="telegram")process.exit(1);
+console.log(JSON.stringify({ROBOKASSA_MERCHANT_LOGIN:config.robokassaMerchantLogin,ROBOKASSA_PASSWORD1:config.robokassaPassword1,ROBOKASSA_PASSWORD2:config.robokassaPassword2,ROBOKASSA_HASH_ALGORITHM:config.robokassaHash,ROBOKASSA_RECURRING_ENABLED:String(config.robokassaRecurring),PAYMENT_TAX:config.paymentTax,PAYMENT_SNO:config.paymentSno,PAYMENT_METHOD:config.paymentMethod,PAYMENT_PRICE_VARIANTS:config.paymentPriceVariants.join(","),PAYMENT_EXPERIMENT_KEY:config.paymentExperimentKey}));'''
+try:
+    effective=json.loads(subprocess.check_output(['docker','exec','recipeboibot','node','--input-type=module','-e',probe],text=True,stderr=subprocess.DEVNULL))
+except Exception:
+    raise SystemExit('Production merchant validation failed')
+assert set(effective)==set(allowed), 'Unexpected merchant configuration shape'
+assert all(isinstance(v,str) and '\n' not in v and '\r' not in v and '\0' not in v and "'" not in v for v in effective.values()), 'Unsupported merchant configuration encoding'
+assert all(effective.get(k) for k in ['ROBOKASSA_MERCHANT_LOGIN','ROBOKASSA_PASSWORD1','ROBOKASSA_PASSWORD2','PAYMENT_TAX']), 'Production merchant is not configured'
+assert effective['ROBOKASSA_HASH_ALGORITHM'] in ['md5','ripemd160','sha1','sha256','sha384','sha512'], 'Unsupported merchant hash'
+assert effective['ROBOKASSA_RECURRING_ENABLED'] in ['true','false'], 'Invalid recurring configuration'
+effective.update(ROBOKASSA_TEST='false',BILLING_REQUIRED='true')
+source=(root/'.env.local').read_text()
+values={};retained=[]
+for line in source.splitlines():
+    m=re.match(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$',line)
+    if not m: retained.append(line); continue
+    assert m[1] not in values, 'Duplicate MAX environment setting'
+    value=m[2]
+    if len(value)>1 and value[0] in "\"'" and value[-1]==value[0]: value=value[1:-1]
+    assert '\n' not in value and '\r' not in value and '\0' not in value, 'Invalid MAX environment encoding'
+    values[m[1]]=value
+    if m[1] not in effective: retained.append(line)
+assert not values.get('TELEGRAM_BOT_TOKEN') and not values.get('YANDEX_DIRECT_TOKEN'), 'MAX isolation violation'
+assert values.get('TEST_CONTOUR','false')!='true', 'MAX must be a live contour'
+retained.extend(f"{key}='{value}'" for key,value in effective.items())
+candidate=root/'.env.max-payment-candidate'
+candidate.write_text('\n'.join(retained)+'\n');candidate.chmod(0o600)
+values.update(effective)
+validation=root/'.env.max-payment-validation'
+# Docker --env-file needs raw values instead of Compose single-quoted values.
+validation.write_text(''.join(f'{key}={value}\n' for key,value in values.items()));validation.chmod(0o600)
+PY
+  docker run --rm --network none --env-file "$payment_docker_env" \
+    -e NODE_ENV=production -e BOT_PLATFORM=max -e MAX_BOT_USERNAME=id500912857935_bot \
+    -e MAX_API_ORIGIN=https://platform-api2.max.ru -e TELEGRAM_POLLING=false \
+    -e DATABASE_PATH=/tmp/max-payment-validation.sqlite \
+    "$image:latest" node --input-type=module -e '
+      import {config,assertConfig} from "./src/config.js";assertConfig();
+      if(!config.robokassaConfigured||!config.billingRequired||config.robokassaTest||config.testContour||config.telegramToken||config.yandexDirectToken)process.exit(1);
+    ' >/dev/null 2>&1 || { echo 'MAX payment configuration validation failed' >&2; false; }
+  payment_config_changed=true
+  install -m 600 "$payment_candidate" .env.local
+  install -m 600 deploy/compose.max.yaml compose.max.yaml
+  rm -f -- "$payment_candidate" "$payment_docker_env"
 fi
 docker compose -f compose.max.yaml up -d --no-build app
 healthy=false

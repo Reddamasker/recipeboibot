@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { config } from './config.js';
+import { platformLegalDocument } from './platform-legal.js';
 
 export const PAYMENT_CONSENT_VERSION = '2026-10-03-v1';
 export const PAYMENT_CONSENT_TEXT = 'Я даю согласие на регулярные списания, на обработку персональных данных и принимаю условия публичной оферты.';
 const document = name => {
-  const content = readFileSync(new URL(`../public/${name}`, import.meta.url), 'utf8');
+  const content = platformLegalDocument(readFileSync(new URL(`../public/${name}`, import.meta.url), 'utf8'), config);
   return { url: `/${name}`, sha256: createHash('sha256').update(content).digest('hex'), content };
 };
 export const paymentConsentDocuments = { offer: document('offer.html'), privacy: document('privacy.html') };

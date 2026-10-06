@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { MAX_RESULT_URL } from './payment-routing.js';
 
 function loadEnvFile(file) {
   if (!fs.existsSync(file)) return;
@@ -70,6 +71,7 @@ export const config = Object.freeze({
   robokassaTest: process.env.ROBOKASSA_TEST === 'true',
   robokassaRecurring: process.env.ROBOKASSA_RECURRING_ENABLED === 'true',
   robokassaTestResultUrl: (process.env.ROBOKASSA_TEST_RESULT_URL || '').replace(/\/$/, ''),
+  robokassaMaxResultUrl: process.env.ROBOKASSA_MAX_RESULT_URL || MAX_RESULT_URL,
   robokassaConfigured: Object.values(robokassaCredentials).every(Boolean) && Boolean(process.env.PAYMENT_TAX),
   openaiKey: process.env.OPENAI_API_KEY || '',
   textModel: process.env.OPENAI_TEXT_MODEL || '',
@@ -104,7 +106,7 @@ export function assertConfig() {
     if (config.maxApiOrigin !== 'https://platform-api2.max.ru') throw new Error('Неверный MAX_API_ORIGIN');
     if (config.telegramToken) throw new Error('MAX-контур не должен содержать TELEGRAM_BOT_TOKEN');
     if (config.yandexDirectToken) throw new Error('MAX-контур не должен содержать YANDEX_DIRECT_TOKEN');
-    if (Object.values(robokassaCredentials).some(Boolean) || config.robokassaRecurring || config.billingRequired) throw new Error('Оплата MAX требует отдельной маршрутизации магазина');
+    if (config.testContour || config.robokassaTest) throw new Error('Оплата MAX использует отдельный основной контур');
   }
   if (config.botPlatform === 'telegram' && config.testContour && !/^[A-Za-z0-9_]{5,32}$/.test(config.testBotUsername)) throw new Error('Не настроен TEST_BOT_USERNAME');
   if (config.testContour && (config.testPriceVariants.length === 0 || config.testPriceVariants.some((value) => !Number.isSafeInteger(value) || value < 1 || value > 100000) || new Set(config.testPriceVariants).size !== config.testPriceVariants.length)) throw new Error('Неверный TEST_PRICE_VARIANTS');
@@ -119,6 +121,7 @@ export function assertConfig() {
     try { testResultUrl = new URL(config.robokassaTestResultUrl); } catch { throw new Error('Неверный ROBOKASSA_TEST_RESULT_URL'); }
     if (testResultUrl.protocol !== 'https:' || testResultUrl.pathname !== '/api/payments/robokassa/result') throw new Error('Неверный ROBOKASSA_TEST_RESULT_URL');
   }
+  if (config.robokassaMaxResultUrl !== MAX_RESULT_URL) throw new Error('Неверный ROBOKASSA_MAX_RESULT_URL');
   if (config.robokassaRecurring && !config.robokassaConfigured) throw new Error('Автопродление требует полной настройки Robokassa');
   if (config.billingRequired && config.testContour) throw new Error('BILLING_REQUIRED предназначен только для основного контура');
   if (config.billingRequired && !config.robokassaConfigured) throw new Error('BILLING_REQUIRED=true требует полной настройки Robokassa');

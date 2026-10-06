@@ -4,11 +4,13 @@ import path from 'node:path';
 import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
+import { platformLegalDocument } from './platform-legal.js';
 import { archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSharedRecipeImage, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { validateMaxInitData, verifyMaxWebhookSecret } from './max-auth.js';
+import { callbackDestination, jwsRoutingParameters } from './payment-routing.js';
 import { enqueueMaxUpdate } from './max-events.js';
 import { log } from './log.js';
 import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
@@ -58,16 +60,17 @@ async function bodyText(request, maxBytes = 16_000) {
   for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw Object.assign(new Error('Запрос слишком большой'), { status: 413 }); chunks.push(chunk); }
   return Buffer.concat(chunks).toString('utf8');
 }
-async function relayRobokassaTestResult(body, params) {
-  const response = await fetch(config.robokassaTestResultUrl, {
+async function relayRobokassaResult(destination, body, params, contentType = 'application/x-www-form-urlencoded; charset=utf-8') {
+  const response = await fetch(destination, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' },
+    headers: { 'content-type': contentType },
+    redirect: 'error',
     body,
     signal: AbortSignal.timeout(5000)
   });
   const acknowledgement = (await response.text()).trim();
   const invId = Number(params.InvId ?? params.invid ?? params.INVID);
-  if (!response.ok || !Number.isSafeInteger(invId) || acknowledgement !== `OK${invId}`) throw Object.assign(new Error('Тестовый callback не подтверждён'), { status: 502 });
+  if (!response.ok || !Number.isSafeInteger(invId) || acknowledgement !== `OK${invId}`) throw Object.assign(new Error('Callback платежа не подтверждён'), { status: 502 });
   return acknowledgement;
 }
 function htmlResponse(response, status, document, { paymentForm = false } = {}) {
@@ -369,9 +372,7 @@ function serveStatic(request, response, pathname) {
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
   if (config.botPlatform === 'max' && ['/privacy.html', '/terms.html', '/offer.html'].includes(requested)) {
-    let document = fs.readFileSync(file, 'utf8').replaceAll('Telegram', 'MAX').replaceAll('нажать Start', 'нажать «Начать»').replaceAll('https://t.me/Recipeboibot', `https://max.ru/${config.maxBotUsername}`).replaceAll('@Recipeboibot', `@${config.maxBotUsername}`);
-    document = document.replace('Исходные изображения и аудио обрабатываются в памяти и не сохраняются приложением.', 'Исходные изображения и аудио не сохраняются в коллекции. Для проверки аудио создаётся временный файл, который удаляется после обработки.');
-    document = document.replace('</header>', '</header><p>Оплата в MAX пока не подключена. Пробный период запускается отдельно по кнопке, без карты и списаний.</p>');
+    const document = platformLegalDocument(fs.readFileSync(file, 'utf8'), config);
     securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
   }
   securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': requested === '/dashboard.html' ? 'no-store' : requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
@@ -464,18 +465,20 @@ export function createServer() {
         let acknowledgement;
         if (request.method === 'POST') {
           const body = await bodyText(request);
-          if (body.trim().split('.').length === 3) acknowledgement = processRobokassaResultJws(body);
+          if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(body.trim())) {
+            const params = jwsRoutingParameters(body);
+            const destination = callbackDestination(params, config, { jws: true });
+            acknowledgement = destination ? await relayRobokassaResult(destination, body, params, 'application/jose') : processRobokassaResultJws(body);
+          }
           else {
             const params = Object.fromEntries(new URLSearchParams(body));
-            acknowledgement = !config.testContour && config.robokassaTestResultUrl && params.Shp_contour === 'test'
-              ? await relayRobokassaTestResult(body, params)
-              : processRobokassaResult(params);
+            const destination = callbackDestination(params, config);
+            acknowledgement = destination ? await relayRobokassaResult(destination, body, params) : processRobokassaResult(params);
           }
         } else {
           const params = Object.fromEntries(url.searchParams);
-          acknowledgement = !config.testContour && config.robokassaTestResultUrl && params.Shp_contour === 'test'
-            ? await relayRobokassaTestResult(url.searchParams.toString(), params)
-            : processRobokassaResult(params);
+          const destination = callbackDestination(params, config);
+          acknowledgement = destination ? await relayRobokassaResult(destination, url.searchParams.toString(), params) : processRobokassaResult(params);
         }
         securityHeaders(response);
         response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
@@ -483,8 +486,8 @@ export function createServer() {
       }
       const paymentStart = url.pathname.match(/^\/payment\/start\/([0-9a-f-]{36})$/i);
       if (request.method === 'GET' && paymentStart) return htmlResponse(response, 200, paymentRedirectDocument(paymentStart[1]), { paymentForm: true });
-      if (request.method === 'GET' && url.pathname === '/payment/success') return htmlResponse(response, 200, paymentReturnDocument('success'));
-      if (request.method === 'GET' && url.pathname === '/payment/fail') return htmlResponse(response, 200, paymentReturnDocument('fail'));
+      if (request.method === 'GET' && url.pathname === '/payment/success') return htmlResponse(response, 200, paymentReturnDocument('success', url.searchParams.get('order')));
+      if (request.method === 'GET' && url.pathname === '/payment/fail') return htmlResponse(response, 200, paymentReturnDocument('fail', url.searchParams.get('order')));
       if (request.method === 'GET' && /^\/dinner-images\/[0-9a-f-]{36}$/i.test(url.pathname)) {
         const image = getDinnerOptionImage(url.pathname.split('/').at(-1));
         if (!image) return json(response, 404, { error: 'Изображение недоступно' });

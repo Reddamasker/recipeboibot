@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual, verify as verifySignature } fr
 import { readFileSync } from 'node:fs';
 import { db } from './db.js';
 import { config } from './config.js';
+import { MAX_INVOICE_FLOOR, paymentContour, invoiceBelongsToContour } from './payment-routing.js';
 import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, hasUsedTrialOrPromo, monthsAfter } from './subscriptions.js';
 import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './promos.js';
 import { publicSubscriptionPlans, subscriptionPeriodLabel, subscriptionPlan } from './plans.js';
@@ -69,6 +70,33 @@ if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column
 // prove which mode was used for a payment created before this migration.
 if (!db.prepare('PRAGMA table_info(payment_orders)').all().some(column => column.name === 'is_test')) db.exec('ALTER TABLE payment_orders ADD COLUMN is_test INTEGER CHECK(is_test IN (0,1))');
 if (!db.prepare('PRAGMA table_info(payment_recurring)').all().some(column => column.name === 'period_months')) db.exec('ALTER TABLE payment_recurring ADD COLUMN period_months INTEGER NOT NULL DEFAULT 1');
+
+// Each database shares one merchant, so MAX invoices use a disjoint namespace.
+// Never reclassify or renumber existing orders: recurring parents keep their IDs.
+function assertInvoiceNamespace(invId) {
+  if (!invoiceBelongsToContour(invId, config)) throw error('Номер счёта не соответствует платёжному контуру', 400);
+}
+function reserveInvoiceNamespace() {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const invalid = config.botPlatform === 'max'
+      ? db.prepare('SELECT inv_id FROM payment_orders WHERE inv_id < ? OR inv_id > ? LIMIT 1').get(MAX_INVOICE_FLOOR, Number.MAX_SAFE_INTEGER)
+      : db.prepare('SELECT inv_id FROM payment_orders WHERE inv_id >= ? LIMIT 1').get(MAX_INVOICE_FLOOR);
+    if (invalid) throw new Error('Существующий счёт принадлежит другому платёжному контуру');
+    const sequence = Number(db.prepare("SELECT seq FROM sqlite_sequence WHERE name='payment_orders'").get()?.seq || 0);
+    if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence >= Number.MAX_SAFE_INTEGER || (config.botPlatform !== 'max' && sequence >= MAX_INVOICE_FLOOR - 1)) throw new Error('Платёжная нумерация исчерпана');
+    if (config.botPlatform === 'max' && sequence < MAX_INVOICE_FLOOR - 1) {
+      if (db.prepare("SELECT 1 FROM sqlite_sequence WHERE name='payment_orders'").get()) db.prepare("UPDATE sqlite_sequence SET seq=? WHERE name='payment_orders'").run(MAX_INVOICE_FLOOR - 1);
+      else db.prepare("INSERT INTO sqlite_sequence(name,seq) VALUES('payment_orders',?)").run(MAX_INVOICE_FLOOR - 1);
+    }
+    db.exec('COMMIT');
+  } catch (cause) { db.exec('ROLLBACK'); throw cause; }
+}
+function assertNextInvoiceNamespace() {
+  const next = Number(db.prepare("SELECT seq FROM sqlite_sequence WHERE name='payment_orders'").get()?.seq || 0) + 1;
+  assertInvoiceNamespace(next);
+}
+reserveInvoiceNamespace();
 
 const nowIso = (at = new Date()) => at.toISOString();
 db.exec(`CREATE TABLE IF NOT EXISTS payment_consent_history (
@@ -199,6 +227,7 @@ export function createPaymentOrder(userId, { autoRenew = false, consentVersion, 
   const existing = reserved ? db.prepare("SELECT * FROM payment_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId)
     : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND period_months=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, plan.months, recentAfter);
   if (existing) {
+    assertInvoiceNamespace(existing.inv_id);
     if (promo && (existing.period_months !== plan.months || existing.amount_kopeks !== Math.round(promo.priceRub * 100))) {
       throw error('С этим промокодом уже создан заказ на другой срок. Завершите его оплату перед созданием нового заказа.', 409);
     }
@@ -211,6 +240,7 @@ export function createPaymentOrder(userId, { autoRenew = false, consentVersion, 
   const timestamp = nowIso(at);
   db.exec('BEGIN IMMEDIATE');
   try {
+    assertNextInvoiceNamespace();
     db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,auto_renew,status,created_at,updated_at,promo_code,period_months,is_test)
       VALUES(?,?,?,?,?,'initial',?,'pending',?,?,?,?,?)`)
       .run(id, userId, campaignAssignment?.experiment_key || config.paymentExperimentKey, promo ? promo.discountPercent === 99 ? 'promo_99' : `promo_${promo.code}` : `period_${plan.months}_price_${plan.priceRub}`, Math.round((promo ? promo.priceRub : plan.priceRub) * 100), autoRenew ? 1 : 0, timestamp, timestamp, promo?.code || null, plan.months, config.robokassaTest || config.testContour ? 1 : 0);
@@ -245,7 +275,7 @@ function signatureForOrder(order, { recurringChild = false } = {}) {
   const outSum = formatAmount(order.amount_kopeks);
   const receipt = receiptFor(order);
   const resultUrl = `${config.appUrl}/api/payments/robokassa/result`;
-  const contour = config.testContour ? 'test' : 'production';
+  const contour = paymentContour(config);
   if (recurringChild) return hash(`${config.robokassaMerchantLogin}:${outSum}:${order.inv_id}:${receipt}:${resultUrl}:${config.robokassaPassword1}:Shp_contour=${contour}`);
   const successUrl = `${config.appUrl}/payment/success?order=${encodeURIComponent(order.id)}`;
   const failUrl = `${config.appUrl}/payment/fail?order=${encodeURIComponent(order.id)}`;
@@ -271,7 +301,7 @@ function paymentFields(order) {
     ['SuccessUrl2Method', 'GET'],
     ['FailUrl2', failUrl],
     ['FailUrl2Method', 'GET'],
-    ['Shp_contour', config.testContour ? 'test' : 'production'],
+    ['Shp_contour', paymentContour(config)],
     ...(config.robokassaTest ? [['IsTest', '1']] : []),
     ...(order.auto_renew ? [['Recurring', 'true'], ['PaymentMethods', 'BankCard']] : [])
   ];
@@ -280,21 +310,27 @@ function paymentFields(order) {
 export function paymentRedirectDocument(id, at = new Date()) {
   if (!config.robokassaConfigured) throw error('Оплата пока не настроена', 404);
   const order = db.prepare("SELECT * FROM payment_orders WHERE id=? AND kind='initial'").get(id);
+  if (order) assertInvoiceNamespace(order.inv_id);
   if (!order || order.status !== 'pending') throw error('Ссылка на оплату недоступна', 404);
   if (Date.parse(order.updated_at) < at.getTime() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
   const fields = paymentFields(order).map(([name, value]) => `<input type="hidden" name="${html(name)}" value="${html(value)}">`).join('');
   return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Переход к оплате</title><body><main><h1>Переходим к защищённой оплате</h1><p>Если страница не открылась автоматически, нажмите кнопку.</p><form id="pay" method="post" action="${PAYMENT_ACTION}">${fields}<button type="submit">Перейти к оплате</button></form></main><script>document.getElementById('pay').submit()</script></body></html>`;
 }
 
-export function paymentReturnDocument(kind) {
+export function paymentReturnDocument(kind, orderId) {
   const success = kind === 'success';
   const bot = config.testContour ? config.testBotUsername : 'Recipeboibot';
-  return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${success ? 'Платёж принят' : 'Платёж не завершён'}</title><style>body{margin:0;background:#f3f0f7;color:#2d2633;font:16px/1.5 system-ui}main{max-width:520px;margin:12vh auto;padding:32px}a{display:inline-block;margin-top:20px;padding:14px 20px;border-radius:12px;background:#6d4f7d;color:#fff;text-decoration:none;font-weight:700}</style><main><h1>${success ? 'Платёж принят' : 'Платёж не завершён'}</h1><p>${success ? 'Robokassa приняла платёж. Вернитесь в приложение: мы проверим серверное подтверждение и сразу откроем доступ.' : 'Деньги не списаны. Вернитесь в приложение, чтобы повторить оплату.'}</p><a href="https://t.me/${html(bot)}?start=dinner">Вернуться в бот</a></main></html>`;
+  const route = { view: 'payment-result', ...(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(String(orderId || '')) ? { order: String(orderId) } : {}) };
+  const returnUrl = config.botPlatform === 'max'
+    ? `https://max.ru/${config.maxBotUsername}?startapp=${Buffer.from(JSON.stringify(route)).toString('base64url')}`
+    : `https://t.me/${bot}?start=dinner`;
+  return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${success ? 'Платёж принят' : 'Платёж не завершён'}</title><style>body{margin:0;background:#f3f0f7;color:#2d2633;font:16px/1.5 system-ui}main{max-width:520px;margin:12vh auto;padding:32px}a{display:inline-block;margin-top:20px;padding:14px 20px;border-radius:12px;background:#6d4f7d;color:#fff;text-decoration:none;font-weight:700}</style><main><h1>${success ? 'Платёж принят' : 'Платёж не завершён'}</h1><p>${success ? 'Robokassa приняла платёж. Вернитесь в приложение: мы проверим серверное подтверждение и сразу откроем доступ.' : 'Деньги не списаны. Вернитесь в приложение, чтобы повторить оплату.'}</p><a href="${html(returnUrl)}">Вернуться в бот</a></main></html>`;
 }
 
 const parameter = (params, name) => params[name] ?? params[name.toLowerCase()] ?? params[name.toUpperCase()];
 
 function confirmRobokassaPayment({ outSum, invId, signatureHash, paymentMethod, opKey }, at = new Date()) {
+  assertInvoiceNamespace(invId);
   const order = db.prepare('SELECT * FROM payment_orders WHERE inv_id=?').get(invId);
   if (!order || parseAmount(outSum) !== order.amount_kopeks) throw error('Заказ или сумма не совпадают', 400);
   const timestamp = nowIso(at);
@@ -343,6 +379,8 @@ export function processRobokassaResult(params, at = new Date()) {
   const base = [outSum, String(invId), config.robokassaPassword2, ...shp].join(':');
   const expected = hash(base);
   if (!secureEqual(received, expected)) throw error('Некорректная подпись', 400);
+  const contour = parameter(params, 'Shp_contour');
+  if ((contour !== undefined && contour !== paymentContour(config)) || (config.botPlatform === 'max' && contour !== 'max')) throw error('Уведомление другого платёжного контура', 400);
   return confirmRobokassaPayment({
     outSum,
     invId,
@@ -402,6 +440,8 @@ export function cancelAutoRenew(userId, at = new Date()) {
 }
 
 function createRecurringOrder(row, at) {
+  assertInvoiceNamespace(row.parent_inv_id);
+  assertNextInvoiceNamespace();
   const assignment = db.prepare('SELECT * FROM payment_experiment_assignments WHERE user_id=? AND experiment_key=?').get(row.user_id, config.paymentExperimentKey);
   const parent = db.prepare('SELECT experiment_key,variant FROM payment_orders WHERE inv_id=? AND user_id=?').get(row.parent_inv_id, row.user_id);
   const id = randomUUID();
@@ -413,6 +453,8 @@ function createRecurringOrder(row, at) {
 }
 
 async function submitRecurring(order, transport = fetch) {
+  assertInvoiceNamespace(order.inv_id);
+  assertInvoiceNamespace(order.parent_inv_id);
   const period = subscriptionPeriodLabel(order.period_months || 1);
   const fields = new URLSearchParams({
     MerchantLogin: config.robokassaMerchantLogin,
@@ -423,7 +465,7 @@ async function submitRecurring(order, transport = fetch) {
     SignatureValue: signatureForOrder(order, { recurringChild: true }),
     Receipt: receiptFor(order),
     ResultUrl2: `${config.appUrl}/api/payments/robokassa/result`,
-    Shp_contour: config.testContour ? 'test' : 'production',
+    Shp_contour: paymentContour(config),
     ...(config.robokassaTest ? { IsTest: '1' } : {})
   });
   const response = await transport(RECURRING_ACTION, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded; charset=utf-8' }, body: fields, signal: AbortSignal.timeout(15000) });
@@ -446,6 +488,7 @@ export async function runRecurringCycle(at = new Date(), transport = fetch) {
         AND EXISTS(SELECT 1 FROM payment_consent_history c WHERE c.inv_id=p.inv_id AND c.user_id=r.user_id AND c.action='granted')
       ORDER BY r.next_charge_at LIMIT 20`).all(nowIso(at), config.robokassaTest || config.testContour ? 1 : 0);
     for (const recurring of due) {
+      if (!invoiceBelongsToContour(recurring.parent_inv_id, config)) continue;
       // Another request may cancel or replace a subscription while the previous transport is awaited.
       if (!db.prepare(`SELECT 1 FROM payment_recurring WHERE user_id=? AND enabled=1
         AND parent_inv_id=? AND next_charge_at IS NOT NULL AND next_charge_at<=?`)
