@@ -142,6 +142,29 @@ test('MAX sends by user_id, retains string mids, rate limits and edits only owne
   database.close();
 });
 
+test('MAX callback acknowledgements satisfy the API payload requirement for shared actions without text', async () => {
+  const { store, database } = fresh();
+  const answers = [];
+  store.rememberCallback('empty-answer', '17');
+  store.rememberCallback('explicit-answer', '17');
+  const client = createMaxClient({ maxToken: 'test' }, { store, sleep: async () => {}, fetchImpl: async (url, options) => {
+    assert.equal(url.pathname, '/answers');
+    assert.equal(options.method, 'POST');
+    const body = JSON.parse(options.body);
+    answers.push({ callback: url.searchParams.get('callback_id'), body });
+    const accepted = Boolean(body.notification?.trim() || body.message);
+    return new Response(JSON.stringify(accepted ? { success: true } : { code: 'proto.payload', message: 'Invalid request. `message` or `notification` required' }), { status: accepted ? 200 : 400 });
+  } });
+  try {
+    await client.chatCall('answerCallbackQuery', { callback_query_id: 'empty-answer' });
+    await client.chatCall('answerCallbackQuery', { callback_query_id: 'explicit-answer', text: 'Готово' });
+    assert.deepEqual(answers, [
+      { callback: 'empty-answer', body: { notification: 'Принято' } },
+      { callback: 'explicit-answer', body: { notification: 'Готово' } }
+    ]);
+  } finally { database.close(); }
+});
+
 test('MAX photos attach native images; opaque photos retain caption and buttons', async () => {
   const { store, database } = fresh(); const bodies = [];
   const client = createMaxClient({ maxToken: 'test', maxBotUsername: 'recipe_bot' }, { store, sleep: async () => {}, fetchImpl: async (url, options) => { bodies.push(JSON.parse(options.body)); return { ok: true, status: 200, json: async () => ({ message: sentMessage }) }; } });

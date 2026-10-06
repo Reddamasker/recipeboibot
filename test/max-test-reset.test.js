@@ -27,7 +27,10 @@ globalThis.fetch = async (url, options) => {
   assert.equal(target.hostname, 'platform-api2.max.ru', 'Tests must never make AI or Telegram requests');
   const body = JSON.parse(options.body);
   outgoing.push({ path: target.pathname, userId: target.searchParams.get('user_id'), body });
-  if (target.pathname === '/answers') return new Response(JSON.stringify({ success: true }));
+  if (target.pathname === '/answers') {
+    if (!body.notification?.trim() && !body.message) return new Response(JSON.stringify({ code: 'proto.payload', message: 'Invalid request. `message` or `notification` required' }), { status: 400 });
+    return new Response(JSON.stringify({ success: true }));
+  }
   const userId = target.searchParams.get('user_id');
   return new Response(JSON.stringify({ message: {
     sender: { user_id: 777, is_bot: true }, recipient: { chat_type: 'dialog', chat_id: 90000 + Number(userId) },

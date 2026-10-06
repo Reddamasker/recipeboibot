@@ -83,7 +83,9 @@ export function createMaxClient(settings, { fetchImpl = fetch, store = maxStore,
     if (method === 'answerCallbackQuery') {
       const userId = store.userForCallback(body.callback_query_id);
       if (!userId) throw new Error('Unknown MAX callback');
-      return limited(userId, () => api('/answers', { method: 'POST', query: { callback_id: body.callback_query_id }, body: { ...(body.text ? { notification: body.text } : {}) } }));
+      // Unlike Telegram, MAX rejects an empty answer: it requires a message
+      // or a notification. Acknowledge receipt before the shared action runs.
+      return limited(userId, () => api('/answers', { method: 'POST', query: { callback_id: body.callback_query_id }, body: { notification: body.text?.trim() || 'Принято' } }));
     }
     const userId = maxUserId(body.chat_id);
     const chatId = store.chatForUser(userId);
