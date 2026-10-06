@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { normalizeMealRequest, parseMealRequest, mergeMealRequests } from './meal-request.js';
+import { normalizedRecipeTitle, exactDishRequest, recipeSnapshot, excludedDialogueRecipe } from './recipe-rejection.js';
+export { normalizedRecipeTitle, excludedDialogueRecipe } from './recipe-rejection.js';
 
 // Separate from pending_intents: saving a recipe or editing the profile must
 // not erase the cooking task. Each card keeps its own, owner-scoped snapshot.
@@ -56,14 +58,18 @@ export function updateRecipeDialogue(userId, id, patch) {
   return { ...payload, id };
 }
 
-export const normalizedRecipeTitle = title => String(title || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-export function excludedDialogueRecipe(recipe, rejected = []) {
-  return rejected.some(item => (recipe.id && item.id === recipe.id) || normalizedRecipeTitle(item.title) === normalizedRecipeTitle(recipe.title));
-}
-
-export function rejectDialogueRecipe(dialogue) {
-  const rejected = [...(dialogue.rejectedRecipes || [])];
-  if (dialogue.recipe && !excludedDialogueRecipe(dialogue.recipe, rejected)) rejected.push({ id: dialogue.recipe.id || null, title: dialogue.recipe.title });
+export function rejectDialogueRecipe(dialogue, { mealRequest = dialogue.mealRequest || parseMealRequest(dialogue.query), action = 'replace' } = {}) {
+  const scope = action === 'refine' || exactDishRequest(mealRequest) ? 'recipe' : 'dish';
+  // Hydrate legacy title-only rejections from the persisted card, including failed retries.
+  const rejected = (dialogue.rejectedRecipes || []).map(item => {
+    if (!item.recipe && normalizedRecipeTitle(item.title) === normalizedRecipeTitle(dialogue.recipe?.title)) {
+      return { ...item, scope, refinement: action === 'refine', recipe: recipeSnapshot(dialogue.recipe) };
+    }
+    return item;
+  });
+  if (dialogue.recipe && !excludedDialogueRecipe(dialogue.recipe, rejected, mealRequest)) {
+    rejected.push({ id: dialogue.recipe.id || null, title: dialogue.recipe.title, scope, refinement: action === 'refine', recipe: recipeSnapshot(dialogue.recipe) });
+  }
   return rejected;
 }
 
