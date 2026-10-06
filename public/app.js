@@ -1686,12 +1686,17 @@ async function boot() {
     window.RecipePlatform?.setProfile(state.me);
     // Server authentication has succeeded; start parameters affect navigation only.
     const launchRoute = window.RecipePlatform?.initialRoute();
-    if (launchRoute && !new URLSearchParams(location.search).has('view') && !new URLSearchParams(location.search).has('recipe')) setRoute(launchRoute, { replace: true });
+    const launchParams = new URLSearchParams(location.search);
+    // MAX opens the registered base URL (which may already contain view=dinner).
+    // Its launch payload identifies the requested screen or recipe for this opening.
+    if (launchRoute && (window.RecipePlatform.name === 'max' || !launchParams.has('view') && !launchParams.has('recipe'))) setRoute(launchRoute, { replace: true });
     window.miniProbe?.('profile-loaded');
     await refresh();
     window.miniProbe?.('library-loaded');
     window.__miniRendered = true;
-    if (new URLSearchParams(location.search).get('view') === 'menu' || !await resumePendingTrialTastePreferences()) await render();
+    const routeParams = new URLSearchParams(location.search);
+    const maxRecipeLaunch = window.RecipePlatform?.name === 'max' && routeParams.has('recipe');
+    if (routeParams.get('view') === 'menu' || maxRecipeLaunch || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;
