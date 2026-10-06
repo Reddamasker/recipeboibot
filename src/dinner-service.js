@@ -2,7 +2,7 @@ import { listRecipes, saveDinnerRecipe, withNutrition } from './db.js';
 import { config } from './config.js';
 import { requireRecipeEntry, requireDinnerEntry, completeFirstDinner } from './subscriptions.js';
 import { invalidateDinnerBuffer, currentDinnerOptions, replaceDinnerOption, retainDinnerBufferContext, acceptedDinnerOptionId, getDinnerRejectionReason, getDislikedDinnerTitles } from './dinner-store.js';
-import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
+import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer, waitDinnerReserve, dinnerBufferSnapshot } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, getDinnerOptionImage, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
 import { addDinnerEvent, addDinnerRejectionReason, decideDinnerRecommendation, getDinnerContext, getDinnerHistory, getDinnerRecommendation, getDinnerRequestCategories, getDinnerSession, getFoodProfile, markDinnerCooked, openDinnerSession, rejectDinnerRecommendations, rejectedInSession, retryCountInSession, saveFoodProfile, setDinnerContext } from './dinner-store.js';
@@ -215,7 +215,7 @@ export async function nextDinner(userId, ids, options) {
   return recommendDinner(userId, result.sessionId, options);
 }
 
-export function replaceDinner(userId, recommendationId, reason, options) {
+export async function replaceDinner(userId, recommendationId, reason, options) {
   requireDinnerEntry(userId, false);
   if (!['not_today', 'dislike', 'missing_ingredients'].includes(reason)) throw badRequest('Неверная причина');
   const row = getDinnerRecommendation(userId, recommendationId);
@@ -225,12 +225,19 @@ export function replaceDinner(userId, recommendationId, reason, options) {
   if (acceptedDinnerOptionId(userId, sessionId)) throw Object.assign(new Error('Ужин уже выбран. Открой новую подборку.'), { status: 409 });
   const context = dinnerContext(userId, sessionId);
   const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
-  const snapshot = prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
+  let snapshot = prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
+  if (!snapshot.reserve.length && snapshot.preparing) {
+    snapshot = await waitDinnerReserve(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
+    // The first fill may only finish the visible cards; then request the reserve.
+    if (!snapshot.reserve.length) snapshot = await waitDinnerReserve(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
+    requireDinnerEntry(userId);
+    if (acceptedDinnerOptionId(userId, sessionId)) throw Object.assign(new Error('Ужин уже выбран. Открой новую подборку.'), { status: 409 });
+  }
   // Retrying a request after a lost HTTP response must not reject another card.
-  if (row.status === 'rejected' && getDinnerRejectionReason(userId, recommendationId)?.replacementId) return bufferResponse(userId, sessionId, snapshot);
+  if (getDinnerRecommendation(userId, recommendationId).status === 'rejected' && getDinnerRejectionReason(userId, recommendationId)?.replacementId) return bufferResponse(userId, sessionId, dinnerBufferSnapshot(userId, sessionId, () => dinnerContext(userId, sessionId)));
   const selected = snapshot.current.find(option => option.id === recommendationId);
   if (!selected) throw Object.assign(new Error('Этот вариант уже недоступен. Обнови подборку.'), { status: 409 });
-  const available = snapshot.reserve.filter(option => rankCandidates([option.recipe], context).length);
+  const available = snapshot.reserve.filter(option => rankCandidates([option.recipe], dinnerContext(userId, sessionId)).length);
   const replacement = available.find(option => option.role === selected.role) || available[0];
   if (!replacement) throw Object.assign(new Error('Других подходящих рецептов пока нет. Попробуй позже или измени пожелание.'), { status: 422 });
   replaceDinnerOption(userId, sessionId, recommendationId, replacement.id, reason);

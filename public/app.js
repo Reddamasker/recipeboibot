@@ -507,7 +507,7 @@ async function replaceDinnerCard(reason, panel = null) {
   dinner.revision = (dinner.revision || 0) + 1;
   clearTimeout(dinnerPollTimer);
   dinnerView();
-  if (panel) setDinnerDislikeBusy(panel, true, 'Заменяю рецепт…');
+  if (panel) setDinnerDislikeBusy(panel, true, 'Готовлю замену…');
   try {
     const result = await api(`/api/dinner/recommendations/${id}/replace`, { method: 'POST', body: JSON.stringify({ reason }) });
     if (state.dinner !== dinner) return;
