@@ -383,3 +383,18 @@ span.recipe-tag { cursor: default; }
 .benefits-page .first-recipe-preview{display:flex;align-items:center;gap:12px;margin-bottom:14px;color:var(--ink)}
 .benefits-page .first-recipe-preview img{flex:none;width:64px;height:64px;object-fit:cover;border-radius:16px}
 .benefits-page .first-recipe-preview strong{min-width:0;font-size:15px;line-height:1.4}
+
+/* Selected first recipe: compact trial window inside messenger viewports. */
+.app-shell:has(>.first-recipe-gate)>header{display:none}
+.first-recipe-gate .offer-hero{padding:8px 4px 0}
+.first-recipe-gate .offer-hero h1{font-size:clamp(28px,8vw,32px);margin:0 0 12px;line-height:1.08}
+.first-recipe-gate .offer-hero p{font-size:13px;line-height:1.4}
+.first-recipe-gate .first-recipe-preview{margin-bottom:10px}
+.first-recipe-gate .first-recipe-preview img{width:48px;height:48px;border-radius:12px}
+.first-recipe-gate .offer-banner{margin-top:16px;gap:10px}
+.first-recipe-gate .offer-feature-grid{gap:10px}
+.first-recipe-gate .offer-feature{grid-template-columns:56px minmax(0,1fr);gap:10px;padding:10px 12px;border-radius:18px}
+.first-recipe-gate .offer-feature-icon{width:56px;height:56px}
+.first-recipe-gate .offer-feature h3{font-size:18px;margin-bottom:4px}
+.first-recipe-gate .offer-feature p{font-size:12px;line-height:1.35}
+.first-recipe-gate .offer-banner .primary{margin-top:4px;min-height:54px;font-size:14px}

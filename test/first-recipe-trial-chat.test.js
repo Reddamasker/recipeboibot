@@ -17,7 +17,7 @@ process.env.DINNER_LLM_ENABLED = 'false';
 process.env.DINNER_IMAGES_ENABLED = 'false';
 const { db, upsertTelegramUser, allowUser, createRecipe, createRecipeSuggestion, getRecipe } = await import('../src/db.js');
 const { stageFirstRecipe, requireDinnerEntry, getPendingFirstRecipe, isFirstRecipeAwaitingTrial, getTrialStatus, grantSubscription } = await import('../src/subscriptions.js');
-const { handleMessage, handleTrialCallback, handleRecipeDialogueCallback, handleSuggestionCallback, sendFirstFreeRecipe, sendSuggestion } = await import('../src/telegram.js');
+const { handleMessage, handleTrialCallback, handleRecipeDialogueCallback, handleSuggestionCallback, sendFirstFreeRecipe, sendSuggestion, revealDinnerButton } = await import('../src/telegram.js');
 const { createRecipeDialogue } = await import('../src/recipe-dialogue.js');
 test.after(() => { db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
 let serial = 7351000;
@@ -105,6 +105,34 @@ test('inactive spent trials never unlock pending details through the old callbac
     assert.equal(getTrialStatus(value.user.id).active, false);
     assert.ok(!textOf(calls).includes('Скрытый шаг приготовления.'));
     assert.equal(getPendingFirstRecipe(value.user.id).unlocked, false);
+  });
+});
+
+test('an obsolete dinner background response sends one benefits card and clears its old keyboard', async () => {
+  const value = fresh(); stage(value);
+  await capture(async calls => {
+    await revealDinnerButton(value.chat.id, 8, value.user.id, 'obsolete-session');
+    const sent = calls.filter(call => call.method === 'sendMessage');
+    assert.equal(sent.length, 1);
+    assertLocked(sent, value.recipe.title);
+    assert.ok(!textOf(calls).includes('Первый бесплатный рецепт'));
+    assert.ok(!textOf(calls).includes('Показываю его ещё раз'));
+    assert.ok(calls.some(call => call.method === 'editMessageReplyMarkup' && call.message_id === 8 && call.reply_markup.inline_keyboard.length === 0));
+  });
+});
+
+test('missing selected data after activation does not substitute another recipe or invent an invalid direct link', async () => {
+  const value = fresh(); stage(value);
+  db.prepare('DELETE FROM recipes WHERE id=?').run(value.recipe.id);
+  createRecipe(value.user.id, { title: 'Другой рецепт', status: 'ready', ingredients: [{ name: 'посторонний продукт' }], steps: [{ text: 'Посторонние шаги.' }] });
+  await capture(async calls => {
+    await handleTrialCallback({ id: 'missing', data: 'trial:start', from: value.from, message: { chat: value.chat, message_id: 1 } });
+    assert.equal(getTrialStatus(value.user.id).active, true);
+    assert.ok(textOf(calls).includes('Не удалось открыть выбранный рецепт в чате'));
+    assert.ok(!textOf(calls).includes('Посторонние шаги.'));
+    assert.ok(!textOf(calls).includes('Ваш выбранный рецепт сохранён'));
+    assert.ok(!calls.some(call => call.reply_markup?.inline_keyboard?.flat().some(button => button.web_app?.url.includes(`recipe=${value.recipe.id}`))));
+    assert.equal(getPendingFirstRecipe(value.user.id).recipeId, value.recipe.id);
   });
 });
 

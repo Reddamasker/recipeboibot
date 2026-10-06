@@ -173,7 +173,8 @@ function benefitsPage() {
   const title = chosen ? 'Твой первый рецепт готов' : 'А вот что я ещё умею';
   const trialAction = chosen ? 'Начать 7 дней бесплатно и открыть рецепт' : 'Попробовать 7 дней бесплатно';
   const chosenImage = chosen && safeImage(pending.imageUrl);
-  root.innerHTML = `${header()}<main class="offer-page benefits-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>${title}</h1>${chosen ? `<p class="first-recipe-preview">${chosenImage ? `<img src="${chosenImage}" alt="" referrerpolicy="no-referrer">` : ''}<strong>${esc(pending.title || 'Выбранный рецепт')}</strong></p>` : ''}<p>Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>${trialAction}</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
+  const copy = chosen ? 'Начни 7 дней полного доступа и открой выбранный рецепт.' : 'Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.';
+  root.innerHTML = `${header()}<main class="offer-page benefits-page${chosen ? ' first-recipe-gate' : ''}"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>${title}</h1>${chosen ? `<p class="first-recipe-preview">${chosenImage ? `<img src="${chosenImage}" alt="" referrerpolicy="no-referrer">` : ''}<strong>${esc(pending.title || 'Выбранный рецепт')}</strong></p>` : ''}<p>${copy}</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>${chosen ? 'Рецепты из ссылок, фото и голосовых' : 'Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.'}</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>${chosen ? 'Под твои вкусы и ограничения' : 'Идеи с учётом твоих вкусов, ограничений и любимых рецептов.'}</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>${chosen ? 'Когда пора готовить' : 'Бот напомнит об ужине и сразу предложит, что приготовить.'}</p></div></article></div><button class="primary accent" type="button" data-start-trial>${trialAction}</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
   bindCommon();
   document.querySelector('#benefits-back').onclick = () => { setRoute({ view: chosen ? 'menu' : 'dinner' }); void render(); };
   document.querySelector('#benefits-pricing').onclick = () => { setRoute({ view: 'pricing' }); void render(); };
@@ -1562,6 +1563,14 @@ function paymentSuccessPage() {
   bindCommon();
   document.querySelector('#payment-success-next').onclick = async (event) => {
     event.currentTarget.disabled = true;
+    const firstRecipe = state.payment?.pendingFirstRecipe;
+    if (state.payment?.firstRecipe?.trialGateUsed && firstRecipe?.unlocked && firstRecipe.recipeId) {
+      if (state.dinner) state.dinner.awaitingTrial = false;
+      setTrialOnboardingStep(null);
+      setRoute({ view: 'collection' }, { replace: true });
+      await openRecipe(firstRecipe.recipeId, true);
+      return;
+    }
     setTrialOnboardingStep('taste');
     setRoute({ view: 'dinner' });
     await beginDinner(false, true);

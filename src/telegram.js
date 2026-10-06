@@ -82,7 +82,8 @@ async function sendUnlockedFirstRecipe(chatId, userId) {
   unlockFirstRecipe(userId);
   const recipe = selectedFirstRecipe(userId, pending);
   if (!recipe) {
-    await send(chatId, 'Пробный период активен. Ваш выбранный рецепт сохранён — откройте его в приложении.', { reply_markup: { inline_keyboard: [[{ text: 'Открыть выбранный рецепт', web_app: { url: webAppUrl({ recipe: pending.recipeId, view: 'dinner' }) } }]] } });
+    const url = webAppUrl({ view: 'dinner' });
+    await send(chatId, 'Пробный период активен. Не удалось открыть выбранный рецепт в чате. Откройте приложение и повторите.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть приложение', web_app: { url } }]] } } : {});
     return true;
   }
   await sendFirstFreeRecipe(chatId, recipe, { userId });
@@ -196,10 +197,16 @@ function dinnerPreparingMarkup() {
 function dinnerUnavailableMarkup() {
   return { inline_keyboard: [[{ text: 'Рецепты пока не готовы', callback_data: 'dinner:unavailable' }]] };
 }
-async function revealDinnerButton(chatId, messageId, userId, sessionId) {
+export async function revealDinnerButton(chatId, messageId, userId, sessionId) {
   if (!messageId || !sessionId) return;
+  const finishAwaiting = async () => {
+    await sendFirstRecipeBenefits(chatId, userId);
+    try { await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }); }
+    catch (error) { log('warn', 'telegram_obsolete_dinner_keyboard_clear_failed', { userId, error }); }
+  };
   try {
     const dinner = await recommendDinner(userId, sessionId);
+    if (awaitingFirstRecipe(userId)) { await finishAwaiting(); return; }
     await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: dinner.recommendations.length ? dinnerWebAppMarkup() : dinnerUnavailableMarkup() });
     if (dinner.firstFreeRecipe && dinner.recommendation) {
       await sendFirstFreeRecipe(chatId, dinner.recommendation.recipe, { userId });
@@ -208,6 +215,7 @@ async function revealDinnerButton(chatId, messageId, userId, sessionId) {
   } catch (error) {
     log('warn', 'telegram_dinner_open_button_reveal_failed', { error: error.message, userId });
     if (error.status === 402) {
+      if (awaitingFirstRecipe(userId)) { await finishAwaiting(); return; }
       const first = getFirstRecipeResult(userId);
       const recipe = first?.recommendation?.recipe || first?.recipe;
       if (recipe) {

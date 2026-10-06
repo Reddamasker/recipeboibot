@@ -239,7 +239,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.76/);
+  assert.match(document, /app\.js\?v=dinner-10\.77/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -685,4 +685,23 @@ test('a stale direct full recipe render redirects to the first-trial gate', () =
   sandbox.recipeDetail({ id: 'first', ingredients: [{ name: 'hidden' }], steps: [{ text: 'hidden' }] });
   assert.deepEqual(calls, ['close', 'benefits']);
   assert.equal(routes.at(-1).view, 'benefits');
+});
+
+
+test('paid first-recipe access Continue opens the same unlocked choice while legacy payment keeps onboarding', async () => {
+  const source = fs.readFileSync('public/app.js', 'utf8');
+  const handler = source.slice(source.indexOf('function paymentSuccessPage()'), source.indexOf('function legacyProviderOfferPage()'));
+  for (const newFlow of [true, false]) {
+    const routes = [], steps = [], opened = [], dinners = [], button = { disabled: false };
+    const state = { payment: { active: true, firstRecipe: { trialGateUsed: newFlow }, pendingFirstRecipe: newFlow ? { recipeId: 'chosen-paid', unlocked: true } : null } };
+    const sandbox = { state, root: {}, paymentPollTimer: null, clearTimeout() {}, resetPageScroll() {}, header: () => '', esc: String, bindCommon() {},
+      document: { querySelector: () => button }, setTrialOnboardingStep: step => steps.push(step), setRoute: route => routes.push(route),
+      openRecipe: async (...args) => opened.push(args), beginDinner: async (...args) => dinners.push(args) };
+    vm.runInNewContext(handler, sandbox); sandbox.paymentSuccessPage();
+    await button.onclick({ currentTarget: button });
+    assert.equal(routes[0].view, newFlow ? 'collection' : 'dinner');
+    assert.deepEqual(steps, [newFlow ? null : 'taste']);
+    assert.deepEqual(opened, newFlow ? [['chosen-paid', true]] : []);
+    assert.deepEqual(dinners, newFlow ? [] : [[false, true]]);
+  }
 });
