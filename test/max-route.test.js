@@ -20,7 +20,7 @@ function signed(payload) {
   return params.toString();
 }
 
-async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false, firstGate = false, firstUnlocked = false } = {}) {
+async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false, firstGate = false, firstUnlocked = false, guide = false } = {}) {
   const location = new URL(`https://recipes.test/${shared ? 'share/' + 'a'.repeat(32) : ''}${search}`);
   location.hash = hash;
   const requests = [], pages = [], details = [], probes = [], navigations = [];
@@ -46,7 +46,8 @@ async function bootFixture({ route, payload = route && encode(route), search = '
       let response;
       if (path === '/api/me') response = { id: identity.id, displayName: identity.first_name };
       else if (path === '/api/library') response = { recipes: [], jobs: [] };
-      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid' || firstUnlocked, available: !!paymentStatus || trialEligible, mode: paymentStatus || trialEligible ? 'provider' : undefined, trial: trialEligible || firstGate ? { eligible: true, used: false } : undefined, firstRecipe: firstGate || firstUnlocked ? { awaitingTrial: firstGate, trialGateUsed: true } : undefined, pendingFirstRecipe: firstGate || firstUnlocked ? { recipeId: generatedKey, title: 'Выбранная паста', unlocked: firstUnlocked } : undefined };
+      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid' || firstUnlocked, available: !!paymentStatus || trialEligible, mode: paymentStatus || trialEligible ? 'provider' : undefined, trial: trialEligible || firstGate ? { eligible: true, used: false } : undefined, firstRecipe: firstGate || firstUnlocked || guide ? { awaitingTrial: firstGate, trialGateUsed: true } : undefined, pendingFirstRecipe: firstGate || firstUnlocked ? { recipeId: generatedKey, title: 'Выбранная паста', unlocked: firstUnlocked } : undefined };
+      else if (path === '/api/dinner/profile' && guide) response = { preferredCategories: { pasta: 1 }, dishPreferences: {}, tastePreferencesStatus: 'pending' };
       else if (path.startsWith('/api/billing/orders/')) response = { id: decodeURIComponent(path.split('/').at(-1)), status: paymentStatus };
       else if (/^\/api\/(?:dinner\/)?recipes\//.test(path)) response = { id: decodeURIComponent(path.split('/').at(-1)), title: 'Выбранный рецепт' };
       else assert.fail(`Unexpected request (including AI generation): ${path}`);
@@ -65,6 +66,9 @@ async function bootFixture({ route, payload = route && encode(route), search = '
     mainMenuPage = () => recordPage('menu');
     collection = () => recordPage('collection');
     beginDinner = async () => recordPage('dinner');
+    showDinnerTastePreferences = () => recordPage('guide:taste');
+    trialOnboardingPage = () => recordPage('guide:' + state.trialOnboarding);
+    notificationSettingsPage = async () => recordPage('guide:notifications-settings');
     recipeDetail = (recipe, options) => recordDetail({ recipe, shared: options?.shared === true });
     closeOverlay = () => {};
     window.runBoot = boot;
@@ -225,4 +229,25 @@ test('confirmed first trial reopens the same recipe from a stale benefits or off
       assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer', '/api/dinner/recipes/' + encodeURIComponent(generatedKey)]);
     }
   }
+});
+
+
+test('explicit feature-guide route starts the old screens on both platforms after authentication without trial or recipe generation', async () => {
+  for (const platform of ['max', 'telegram']) {
+    const f = await bootFixture({ platform, search: '?view=trial-guide', pendingTrial: true, guide: true });
+    assert.deepEqual(f.pages, ['guide:notifications']);
+    assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
+    assert.equal(f.location.searchParams.get('view'), 'trial-guide');
+    const fresh = await bootFixture({ platform, search: '?view=trial-guide', firstUnlocked: true, guide: true });
+    assert.deepEqual(fresh.pages, ['guide:taste']);
+    assert.deepEqual(fresh.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer', '/api/dinner/profile']);
+    assert.equal(fresh.details.length, 0);
+  }
+});
+
+test('MAX signed feature-guide launch is retained independently of generic recipe resume', async () => {
+  const f = await bootFixture({ route: { view: 'trial-guide' }, firstUnlocked: true, guide: true, unsafe: false });
+  assert.deepEqual(f.pages, ['guide:taste']);
+  assert.equal(f.location.searchParams.get('view'), 'trial-guide');
+  assert.equal(f.details.length, 0);
 });

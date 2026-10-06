@@ -25,6 +25,7 @@ import { maxChatCall } from './max-client.js';
 import { safeFetchBuffer } from './security.js';
 import { inspectMaxAudio } from './max-media.js';
 import { createHash } from 'node:crypto';
+import { queueTrialWelcome, markTrialWelcomeReady, deliverTrialWelcome } from './trial-welcome.js';
 
 const chatPlatformLabel = config.botPlatform === 'max' ? 'MAX' : 'Telegram';
 
@@ -84,10 +85,17 @@ async function sendUnlockedFirstRecipe(chatId, userId) {
   if (!recipe) {
     const url = webAppUrl({ view: 'dinner' });
     await send(chatId, 'Пробный период активен. Не удалось открыть выбранный рецепт в чате. Откройте приложение и повторите.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть приложение', web_app: { url } }]] } } : {});
-    return true;
+    return false;
   }
   await sendFirstFreeRecipe(chatId, recipe, { userId });
   return true;
+}
+
+export async function sendTrialWelcomeMessage(userId, chatId, trial) {
+  if (!trial?.active) throw new Error('Пробный период уже не активен');
+  const url = webAppUrl({ view: 'trial-guide' });
+  const text = '<b>Спасибо, что запустил пробный период!</b>\n\nПознакомься с возможностями «Рецептов» — они помогут проще решать, что приготовить.\n\n<b>Вкусы и предпочтения</b>\nУкажи любимые блюда и то, что тебе не по вкусу — подбор станет точнее.\n\n<b>Напоминания</b>\nВыбери удобное время, чтобы не вспоминать об ужине в последний момент.\n\n<b>Коллекция</b>\nСохраняй понравившиеся блюда и возвращайся к ним, когда захочется повторить.\n\nЗнакомство можно пройти сейчас или открыть позже.';
+  return send(chatId, text, url ? { reply_markup: { inline_keyboard: [[{ text: 'Познакомиться с возможностями', web_app: { url } }]] } } : {});
 }
 
 export async function handleMainMenuCallback(callback) {
@@ -135,14 +143,18 @@ export async function handleTrialCallback(callback) {
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   const access = getSubscriptionAccess(user.id);
   if (access.active && access.source !== 'trial') {
-    if (await sendUnlockedFirstRecipe(chatId, user.id)) return true;
+    if (getPendingFirstRecipe(user.id)) { await sendUnlockedFirstRecipe(chatId, user.id); return true; }
     await send(chatId, 'Полный доступ уже активен. Можно продолжить подбор рецептов.', { reply_markup: dinnerWebAppMarkup() });
     return true;
   }
   const used = getTrialStatus(user.id).used;
+  const selected = getPendingFirstRecipe(user.id);
   const trial = startTrial(user.id);
   if (!trial.active || !getSubscriptionAccess(user.id).active) { await sendTestOffer(chatId, user.id, true); return true; }
-  if (!used) addDinnerEvent(user.id, 'trial_started', { detail: { source: config.botPlatform } });
+  if (!used) {
+    await queueTrialWelcome(user.id, chatId, { ready: false });
+    addDinnerEvent(user.id, 'trial_started', { detail: { source: config.botPlatform } });
+  }
   const text = '<b>Пробный период начался</b>\n\nПолный доступ до ' + escapeHtml(new Date(trial.expiresAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })) + ' МСК. Можно подбирать новые блюда, сохранять рецепты и настраивать напоминания. Карта не нужна, списаний нет.';
   const reply_markup = dinnerWebAppMarkup();
   try {
@@ -150,7 +162,11 @@ export async function handleTrialCallback(callback) {
   } catch {
     await send(chatId, text, { reply_markup });
   }
-  await sendUnlockedFirstRecipe(chatId, user.id);
+  const recipeSent = await sendUnlockedFirstRecipe(chatId, user.id);
+  if (!selected || recipeSent) {
+    markTrialWelcomeReady(user.id);
+    await deliverTrialWelcome(user.id, sendTrialWelcomeMessage);
+  }
   return true;
 }
 export function canUsePlaylistImport(userId) { return getSubscriptionAccess(userId).active; }

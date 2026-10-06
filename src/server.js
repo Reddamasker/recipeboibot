@@ -25,7 +25,8 @@ import { sendNotificationRecipeLink, sendFeedbackNotification } from './telegram
 import { submitFeedback, restoreFeedbackConversation } from './feedback.js';
 import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
-import { getSubscriptionAccess, startTrial, getTrialStatus, requireRecipeEntry, protectFirstRecipeResponse, assertFirstRecipeReadable } from './subscriptions.js';
+import { getSubscriptionAccess, getPendingFirstRecipe, startTrial, getTrialStatus, requireRecipeEntry, protectFirstRecipeResponse, assertFirstRecipeReadable } from './subscriptions.js';
+import { queueTrialWelcome, deliverTrialWelcome, markFirstRecipeReadForWelcome } from './trial-welcome.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
@@ -145,7 +146,11 @@ async function api(request, response, url) {
   if (request.method === 'POST' && url.pathname === '/api/billing/trial') {
     const used = getTrialStatus(user.id).used;
     const trial = startTrial(user.id);
-    if (!used && trial.active) addDinnerEvent(user.id, 'trial_started', { detail: { source: 'app' } });
+    if (!used && trial.active) {
+      addDinnerEvent(user.id, 'trial_started', { detail: { source: 'app' } });
+      queueTrialWelcome(user.id, request.telegramUser.id, { ready: !getPendingFirstRecipe(user.id) });
+    }
+    response.once('finish', () => { void deliverTrialWelcome(user.id); });
     return json(response, 200, config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id));
   }
   if (request.method === 'GET' && url.pathname === '/api/billing/offer') {
@@ -225,6 +230,7 @@ async function api(request, response, url) {
     if(!found)return json(response,404,{error:'Рецепт не найден'});
     assertFirstRecipeReadable(user.id,{catalog:true});
     const recipe = await ensureNutrition(user.id, found);
+    if(recipe)response.once('finish',()=>markFirstRecipeReadForWelcome(user.id,decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length))));
     return json(response, recipe ? 200 : 404, recipe ? { ...recipe, pantryMatch: pantryCoverage(recipe, getDinnerContext(user.id)) } : { error: 'Рецепт не найден' });
   }
   const dinnerShare = url.pathname.match(/^\/api\/dinner\/recipes\/([^/]+)\/share$/);
@@ -326,6 +332,7 @@ async function api(request, response, url) {
     if(!found)return json(response,404,{error:'Рецепт не найден'});
     assertFirstRecipeReadable(user.id);
     const recipe = await ensureNutrition(user.id, found);
+    if(recipe)response.once('finish',()=>markFirstRecipeReadForWelcome(user.id,recipe.id));
     return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && /^\/api\/recipes\/[^/]+\/share$/.test(url.pathname)) {

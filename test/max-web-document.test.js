@@ -57,7 +57,7 @@ test('MAX start payload provides only bounded route fields, never authentication
 });
 
 test('MAX route payload preserves Unicode search queries and every existing view without accepting arbitrary parameters', () => {
-  for (const view of ['menu', 'dinner', 'collection', 'offer', 'benefits', 'pricing', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding']) {
+  for (const view of ['menu', 'dinner', 'collection', 'offer', 'benefits', 'pricing', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding', 'trial-guide']) {
     const input = { view, q: 'Ужин из риса без орехов', userId: 'other-account', url: 'https://other.test', payment: 'paid' };
     const encoded = Buffer.from(JSON.stringify(input)).toString('base64url');
     const { bridge } = bridgeFixture('max', { initDataUnsafe: { start_param: encoded } });

@@ -239,7 +239,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.77/);
+  assert.match(document, /app\.js\?v=dinner-10\.78/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -316,7 +316,7 @@ test('provider confirmation shows congratulations only for a paid order and wait
   const button = {};
   let route, dinnerArgs, refreshes = 0;
   const sandbox = { state: { me: {}, payment: { active: true, expiresAt: '2027-01-04T12:00:00Z' } }, root: { innerHTML: '' },
-    paymentPollTimer: null, clearTimeout() {}, resetPageScroll() {}, header: () => '', esc: String, bindCommon() {},
+    paymentPollTimer: null, clearTimeout() {}, resetPageScroll() {}, header: () => '', esc: String, bindCommon() {}, trialGuideCloseButton: () => '',
     document: { querySelector: () => button }, refresh: async () => { refreshes++; },
     setTrialOnboardingStep: step => { sandbox.state.trialOnboarding = step; },
     setRoute: value => { route = value; }, beginDinner: async (...args) => { dinnerArgs = args; } };
@@ -346,7 +346,7 @@ test('taste tags switch between like, dislike and neutral; failed saves retain d
   const root = { innerHTML: '' }, requests = [], errors = [];
   let fail = true, dinners = 0;
   const state = { dinner: { profile: { preferredCategories: { pasta: 0.8 } } } };
-  const sandbox = { root, state, clearTimeout() {}, dinnerPollTimer: null, header: () => '', bindCommon() {}, esc: String,
+  const sandbox = { root, state, clearTimeout() {}, dinnerPollTimer: null, header: () => '', bindCommon() {}, trialGuideCloseButton: () => '', esc: String,
     document: { querySelectorAll: () => buttons, querySelector: (key) => elements[key] || { focus() {} } },
     dinnerView: () => sandbox.tastePreferencesView(),
     beginDinner: async () => { dinners++; }, toast: (message) => errors.push(message),
@@ -382,7 +382,7 @@ test('trial onboarding continues from tastes to notifications and collection ins
   const routes = [];
   const state = { trialOnboarding: 'notifications' };
   const sandbox = {
-    root, state, header: () => '<header></header>', bindCommon() {}, resetPageScroll() {}, tg: { close: assert.fail },
+    root, state, header: () => '<header></header>', bindCommon() {}, trialGuideCloseButton: () => '', resetPageScroll() {}, tg: { close: assert.fail },
     document: { querySelector: (selector) => (elements[selector] ||= {}) },
     setTrialOnboardingStep: (step) => { state.trialOnboarding = step; },
     setRoute: (route, options) => routes.push([route, options]), render() {},
@@ -694,7 +694,7 @@ test('paid first-recipe access Continue opens the same unlocked choice while leg
   for (const newFlow of [true, false]) {
     const routes = [], steps = [], opened = [], dinners = [], button = { disabled: false };
     const state = { payment: { active: true, firstRecipe: { trialGateUsed: newFlow }, pendingFirstRecipe: newFlow ? { recipeId: 'chosen-paid', unlocked: true } : null } };
-    const sandbox = { state, root: {}, paymentPollTimer: null, clearTimeout() {}, resetPageScroll() {}, header: () => '', esc: String, bindCommon() {},
+    const sandbox = { state, root: {}, paymentPollTimer: null, clearTimeout() {}, resetPageScroll() {}, header: () => '', esc: String, bindCommon() {}, trialGuideCloseButton: () => '',
       document: { querySelector: () => button }, setTrialOnboardingStep: step => steps.push(step), setRoute: route => routes.push(route),
       openRecipe: async (...args) => opened.push(args), beginDinner: async (...args) => dinners.push(args) };
     vm.runInNewContext(handler, sandbox); sandbox.paymentSuccessPage();

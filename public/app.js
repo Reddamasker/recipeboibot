@@ -46,6 +46,13 @@ function setRoute(values, { replace = false, historyState = {} } = {}) {
   history[replace ? 'replaceState' : 'pushState'](historyState, '', url);
 }
 
+const trialGuideKey = () => `recipeboibot-trial-guide-v1:${state.me?.id || 'unknown'}`;
+function savedTrialGuideStep() {
+  try {
+    const step = window.localStorage?.getItem(trialGuideKey());
+    return ['taste', 'notifications', 'notifications-settings', 'collection'].includes(step) ? step : null;
+  } catch { return null; }
+}
 const trialOnboardingKey = () => `recipeboibot-trial-onboarding-v1:${state.me?.id || 'unknown'}`;
 function savedTrialOnboardingStep() {
   try {
@@ -56,8 +63,9 @@ function savedTrialOnboardingStep() {
 function setTrialOnboardingStep(step) {
   state.trialOnboarding = step;
   try {
-    if (step) window.localStorage?.setItem(trialOnboardingKey(), step);
-    else window.localStorage?.removeItem(trialOnboardingKey());
+    const key = state.trialGuideActive ? trialGuideKey() : trialOnboardingKey();
+    if (step) window.localStorage?.setItem(key, step);
+    else window.localStorage?.removeItem(key);
   } catch {}
 }
 
@@ -123,6 +131,8 @@ function bindCommon() {
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
   document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
+  document.querySelectorAll('[data-open-trial-guide]').forEach(el => el.addEventListener('click', openTrialGuide));
+  document.querySelectorAll('[data-close-trial-guide]').forEach(el => el.addEventListener('click', returnFromTrialGuide));
   document.querySelectorAll('[data-open-benefits]').forEach((el) => el.addEventListener('click', openBenefits));
   bindTrialButtons();
   if (document.querySelector('[data-open-offer], [data-start-trial]')) void api('/api/billing/exposure', { method: 'POST', body: '{}' }).catch(() => {});
@@ -165,6 +175,44 @@ function offerBanner() {
 function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
 
 function openBenefits() { closeOverlay(); setRoute({ view: 'benefits' }); void render(); }
+
+function openTrialGuide() { closeOverlay(); setRoute({ view: 'trial-guide' }); void render(); }
+function trialGuideCloseButton() {
+  return state.trialGuideActive ? '<button class="back-link" type="button" data-close-trial-guide>Вернуться к рецепту</button>' : '';
+}
+function returnFromTrialGuide() {
+  state.trialGuideActive = false;
+  state.trialOnboarding = null;
+  state.onboarding = null;
+  const selected = state.payment?.active && state.payment.pendingFirstRecipe?.unlocked && state.payment.pendingFirstRecipe.recipeId;
+  setRoute({ view: 'collection', ...(selected ? { recipe: selected } : {}) }, { replace: true });
+  void render();
+}
+async function startTrialGuide() {
+  if (!state.payment?.active) {
+    state.trialGuideActive = false; state.onboarding = null;
+    setRoute({ view: 'pricing' }, { replace: true }); providerOfferPage(); return;
+  }
+  if (state.trialGuideLoading) return;
+  state.trialGuideLoading = true;
+  try {
+    const step = savedTrialGuideStep() || 'taste';
+    state.trialGuideActive = true;
+    if (step === 'taste') {
+      const profile = state.dinner?.profile || await api('/api/dinner/profile', { signal: AbortSignal.timeout(12000) });
+      if (!state.trialGuideActive) return;
+      if (!state.dinner) state.dinner = { profile, recommendations: [], pantry: [] };
+      else state.dinner.profile = profile;
+      setTrialOnboardingStep('taste');
+      showDinnerTastePreferences();
+    } else {
+      setTrialOnboardingStep(step);
+      if (step === 'notifications-settings') await notificationSettingsPage();
+      else trialOnboardingPage();
+    }
+  } catch (error) { toast(error.message); returnFromTrialGuide(); }
+  finally { state.trialGuideLoading = false; }
+}
 
 function benefitsPage() {
   if (!state.payment?.trial?.eligible || state.payment.active) { offerPage(); return; }
@@ -320,7 +368,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
     else if (session.needsTastePreferences) showDinnerTastePreferences();
     else if (startTrialTastePreferences) {
       setTrialOnboardingStep('notifications');
-      setRoute({ view: 'trial-onboarding' });
+      setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'trial-onboarding' });
       trialOnboardingPage();
     } else await loadDinnerRecommendation();
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
@@ -384,7 +432,10 @@ function showDinnerTastePreferences() {
 function tastePreferencesView() {
   const data = state.onboarding;
   const trial = state.trialOnboarding === 'taste';
-  root.innerHTML = `${header()}<main class="dinner-page ${trial ? 'trial-onboarding' : ''}">${trial ? '<div class="trial-progress" aria-label="Шаг 1 из 3"><span class="active"></span><span></span><span></span></div><section class="trial-welcome"><div class="trial-icon" aria-hidden="true">✓</div><div><div class="eyebrow">ПРОБНЫЙ ПЕРИОД НАЧАЛСЯ</div><h2>Спасибо, что пробуешь «Твои рецепты»</h2><p>Настроим всё за пару минут, чтобы бот лучше понимал твои вкусы и помогал каждый день.</p></div></section>' : '<div class="eyebrow">ТВОИ ВКУСЫ</div>'}<section class="dinner-onboarding">${tasteChoices(data.preferredCategories, trial ? { title: 'Что ты любишь есть?', copy: 'Выбери любимые направления и то, что тебе не по вкусу. Это улучшит качество определения и подбора рецептов.' } : {})}<label for="liked-dishes">Любимые блюда (через запятую)</label><input class="field" id="liked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v > 0).map(([k]) => k).join(', '))}" placeholder="Стейк, лазанья"><label for="disliked-dishes">Нелюбимые блюда (через запятую)</label><input class="field" id="disliked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v < 0).map(([k]) => k).join(', '))}"><div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : trial ? 'Сохранить и продолжить' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>${trial ? 'Пропустить этот шаг' : 'Пока пропустить'}</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
+  const trialAccess = !state.trialGuideActive || state.payment?.accessSource === 'trial';
+  const welcomeKicker = trialAccess ? 'ПРОБНЫЙ ПЕРИОД НАЧАЛСЯ' : 'ТВОИ РЕЦЕПТЫ';
+  const welcomeTitle = trialAccess ? 'Спасибо, что пробуешь «Твои рецепты»' : 'Спасибо, что ты с нами';
+  root.innerHTML = `${header()}<main class="dinner-page ${trial ? 'trial-onboarding' : ''}">${trialGuideCloseButton()}${trial ? `<div class="trial-progress" aria-label="Шаг 1 из 3"><span class="active"></span><span></span><span></span></div><section class="trial-welcome"><div class="trial-icon" aria-hidden="true">✓</div><div><div class="eyebrow">${welcomeKicker}</div><h2>${welcomeTitle}</h2><p>Настроим всё за пару минут, чтобы бот лучше понимал твои вкусы и помогал каждый день.</p></div></section>` : '<div class="eyebrow">ТВОИ ВКУСЫ</div>'}<section class="dinner-onboarding">${tasteChoices(data.preferredCategories, trial ? { title: 'Что ты любишь есть?', copy: 'Выбери любимые направления и то, что тебе не по вкусу. Это улучшит качество определения и подбора рецептов.' } : {})}<label for="liked-dishes">Любимые блюда (через запятую)</label><input class="field" id="liked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v > 0).map(([k]) => k).join(', '))}" placeholder="Стейк, лазанья"><label for="disliked-dishes">Нелюбимые блюда (через запятую)</label><input class="field" id="disliked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v < 0).map(([k]) => k).join(', '))}"><div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : trial ? 'Сохранить и продолжить' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>${trial ? 'Пропустить этот шаг' : 'Пока пропустить'}</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
   bindCommon();
   bindTasteChoices(data, tastePreferencesView);
   const captureDishes = () => { data.dishPreferences = Object.fromEntries([[1, '#liked-dishes'], [-1, '#disliked-dishes']].flatMap(([weight, selector]) => document.querySelector(selector).value.split(',').map((v) => v.trim().toLocaleLowerCase('ru')).filter(Boolean).map((name) => [name, weight]))); };
@@ -393,13 +444,15 @@ function tastePreferencesView() {
   const finish = async (skip) => {
     if (data.saving) return;
     data.saving = true; tastePreferencesView();
+    const guideWasActive = state.trialGuideActive;
     try {
       const input = skip ? { tastePreferencesStatus: 'skipped' } : { preferredCategories: data.preferredCategories, dishPreferences: data.dishPreferences, tastePreferencesStatus: 'completed' };
       await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify(input) });
+      if (guideWasActive && !state.trialGuideActive) return;
       state.onboarding = null;
       if (trial) {
         setTrialOnboardingStep('notifications');
-        setRoute({ view: 'trial-onboarding' });
+        setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'trial-onboarding' });
         trialOnboardingPage();
       } else await beginDinner();
     } catch (error) { data.saving = false; tastePreferencesView(); toast(error.message); }
@@ -412,9 +465,9 @@ function trialOnboardingPage() {
   const step = state.trialOnboarding === 'collection' ? 'collection' : 'notifications';
   resetPageScroll();
   if (step === 'notifications') {
-    root.innerHTML = `${header()}<main class="trial-onboarding"><div class="trial-progress" aria-label="Шаг 2 из 3"><span></span><span class="active"></span><span></span></div><section class="trial-feature"><div class="trial-feature-art trial-bell" aria-hidden="true"><span></span></div><div class="eyebrow">ШАГ 2 · НАПОМИНАНИЯ</div><h1>Не думай об ужине заранее</h1><p>Выбери удобные дни и время. Бот сам пришлёт три варианта — останется только выбрать.</p><ul class="trial-benefits"><li><span>1</span> Подборка приходит прямо в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}</li><li><span>2</span> Расписание можно изменить в любой момент</li></ul><div class="trial-actions"><button class="primary accent" id="trial-notifications">Настроить напоминания</button><button class="secondary" id="trial-notifications-skip">Не сейчас</button></div></section></main>`;
+    root.innerHTML = `${header()}<main class="trial-onboarding">${trialGuideCloseButton()}<div class="trial-progress" aria-label="Шаг 2 из 3"><span></span><span class="active"></span><span></span></div><section class="trial-feature"><div class="trial-feature-art trial-bell" aria-hidden="true"><span></span></div><div class="eyebrow">ШАГ 2 · НАПОМИНАНИЯ</div><h1>Не думай об ужине заранее</h1><p>Выбери удобные дни и время. Бот сам пришлёт три варианта — останется только выбрать.</p><ul class="trial-benefits"><li><span>1</span> Подборка приходит прямо в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}</li><li><span>2</span> Расписание можно изменить в любой момент</li></ul><div class="trial-actions"><button class="primary accent" id="trial-notifications">Настроить напоминания</button><button class="secondary" id="trial-notifications-skip">Не сейчас</button></div></section></main>`;
     bindCommon();
-    document.querySelector('#trial-notifications').onclick = () => { setTrialOnboardingStep('notifications-settings'); setRoute({ view: 'notifications' }); void render(); };
+    document.querySelector('#trial-notifications').onclick = () => { setTrialOnboardingStep('notifications-settings'); setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'notifications' }); void render(); };
     document.querySelector('#trial-notifications-skip').onclick = () => { setTrialOnboardingStep('collection'); trialOnboardingPage(); };
     return;
   }
@@ -422,7 +475,8 @@ function trialOnboardingPage() {
   bindCommon();
   const finish = (closeChat = false) => {
     setTrialOnboardingStep(null);
-    if (closeChat && typeof tg?.close === 'function') tg.close();
+    if (closeChat && typeof tg?.close === 'function') { state.trialGuideActive = false; tg.close(); }
+    else if (state.trialGuideActive) returnFromTrialGuide();
     else { setRoute({}, { replace: true }); void render(); }
   };
   document.querySelector('#trial-open-chat').onclick = () => finish(true);
@@ -829,9 +883,11 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
 }
 
 async function notificationSettingsPage() {
+  const guideWasActive = state.trialGuideActive;
   const trial = state.trialOnboarding === 'notifications-settings';
   const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
   state.notificationSchedule = await api('/api/notifications/schedule', { signal: AbortSignal.timeout(12000) });
+  if (guideWasActive && !state.trialGuideActive) return;
   const schedule = state.notificationSchedule;
   const hasAccess = schedule.access?.active === true;
   const timezone = schedule.timezone || deviceTimezone;
@@ -840,11 +896,11 @@ async function notificationSettingsPage() {
   if (hasAccess && schedule.enabled && schedule.nextDueAt) {
     try { next = new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.nextDueAt)); } catch {}
   }
-  root.innerHTML = `${header()}<main class="notification-page ${trial ? 'trial-notification-settings' : ''}">${trial ? '<div class="trial-progress" aria-label="Настройка шага 2 из 3"><span></span><span class="active"></span><span></span></div>' : ''}<button class="back-link" id="notifications-back">← ${trial ? 'Назад' : 'На главную'}</button><div class="eyebrow">УВЕДОМЛЕНИЯ В TELEGRAM</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">${trial ? 'Сохранить и продолжить' : 'Сохранить расписание'}</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
+  root.innerHTML = `${header()}<main class="notification-page ${trial ? 'trial-notification-settings' : ''}">${trialGuideCloseButton()}${trial ? '<div class="trial-progress" aria-label="Настройка шага 2 из 3"><span></span><span class="active"></span><span></span></div>' : ''}<button class="back-link" id="notifications-back">← ${trial ? 'Назад' : 'На главную'}</button><div class="eyebrow">УВЕДОМЛЕНИЯ В ${esc(globalThis.window?.RecipePlatform?.label || 'Telegram').toUpperCase()}</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">${trial ? 'Сохранить и продолжить' : 'Сохранить расписание'}</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
   if (trial) resetPageScroll();
   bindCommon();
   document.querySelector('#notifications-back').onclick = () => {
-    if (trial) { setTrialOnboardingStep('notifications'); setRoute({ view: 'trial-onboarding' }); }
+    if (trial) { setTrialOnboardingStep('notifications'); setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'trial-onboarding' }); }
     else setRoute({});
     void render();
   };
@@ -878,9 +934,10 @@ async function notificationSettingsPage() {
     button.disabled = true; button.textContent = 'Сохраняю…';
     try {
       state.notificationSchedule = await api('/api/notifications/schedule', { method: 'PUT', body: JSON.stringify({ enabled: enabled.checked, weekdays, time: document.querySelector('#notification-time').value, timezone: deviceTimezone }) });
+      if (guideWasActive && !state.trialGuideActive) return;
       if (trial) {
         setTrialOnboardingStep('collection');
-        setRoute({ view: 'trial-onboarding' }, { replace: true });
+        setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'trial-onboarding' }, { replace: true });
         trialOnboardingPage();
       } else await notificationSettingsPage();
       toast(enabled.checked ? 'Расписание сохранено' : 'Уведомления выключены');
@@ -890,7 +947,8 @@ async function notificationSettingsPage() {
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
-  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !['pricing', 'promo', 'feedback', 'menu'].includes(view)) {
+  if (state.trialGuideActive && view !== 'trial-guide') { state.trialGuideActive = false; state.trialOnboarding = null; state.onboarding = null; }
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !['pricing', 'promo', 'feedback', 'menu', 'trial-guide'].includes(view)) {
     closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return;
   }
   if (view === 'menu') mainMenuPage();
@@ -899,6 +957,7 @@ async function render() {
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
   else if (view === 'benefits') benefitsPage();
   else if (view === 'pricing') providerOfferPage();
+  else if (view === 'trial-guide') await startTrialGuide();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && (state.payment?.available || state.payment?.active)) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
@@ -1181,7 +1240,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     : shared
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
-  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>${nutritionNote}` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}${editButton ? `<div class="detail-management">${editButton}</div>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>${nutritionNote}` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}${!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : ''}${editButton ? `<div class="detail-management">${editButton}</div>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
   if (imagePending) void waitForSuggestionImage(suggestion.id, el);
   if (shared) el.classList.add('shared-overlay');
@@ -1193,6 +1252,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     banner.querySelector('[data-open-benefits]')?.addEventListener('click', openBenefits);
     bindTrialButtons(banner);
   }
+  el.querySelector('[data-open-trial-guide]')?.addEventListener('click', openTrialGuide);
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
   el.querySelector('#request-refine')?.addEventListener('click', () => { closeOverlay(); setRoute({ view: 'request', q: state.query }, { replace: true }); recipeRequestView({ focus: true }); });
   el.querySelector('#edit')?.addEventListener('click', () => { closeOverlay(); editRecipe(r); });
@@ -1615,7 +1675,7 @@ function providerOfferPage() {
   const activeCopy = expiredTrial ? 'Ваши рецепты сохранены. Выберите срок подписки, чтобы продолжить.' : activeTrial ? `Полный доступ действует до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}. Оплаченный период начнётся после окончания пробного периода.` : payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : eligibleTrial ? 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.' : 'Выберите срок доступа.';
   const trialAction = eligibleTrial ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>' : '';
   const trialReturn = activeTrial ? '<button class="secondary trial-return" id="trial-return">Продолжить пробный период</button>' : '';
-  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${trialAction}${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : requiresTrial ? 'Сначала начните пробный период' : 'Оплата пока подключается'}</button>${trialReturn}<p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${trialAction}${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : requiresTrial ? 'Сначала начните пробный период' : 'Оплата пока подключается'}</button>${trialReturn}${payment.active ? '<button class="secondary trial-guide-entry" type="button" data-open-trial-guide>Познакомиться с возможностями</button>' : ''}<p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
   document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
   document.querySelector('#start-trial')?.addEventListener('click', event => activateTrial(event));
@@ -1754,7 +1814,7 @@ async function boot() {
     window.__miniRendered = true;
     const routeParams = new URLSearchParams(location.search);
     const maxRecipeLaunch = window.RecipePlatform?.name === 'max' && routeParams.has('recipe');
-    const maxAccessLaunch = window.RecipePlatform?.name === 'max' && ['benefits', 'pricing'].includes(routeParams.get('view'));
+    const maxAccessLaunch = window.RecipePlatform?.name === 'max' && ['benefits', 'pricing', 'trial-guide'].includes(routeParams.get('view'));
     const maxPaymentLaunch = window.RecipePlatform?.name === 'max' && routeParams.get('view') === 'payment-result';
     const paymentOrderId = routeParams.get('order');
     if (maxPaymentLaunch && /^[0-9a-f-]{36}$/i.test(paymentOrderId || '')) {
@@ -1767,7 +1827,7 @@ async function boot() {
       setRoute({ view: 'collection', recipe: firstRecipeReopen }, { replace: true });
       await render();
     } else if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) await render();
-    else if (routeParams.get('view') === 'menu' || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
+    else if (routeParams.get('view') === 'menu' || routeParams.get('view') === 'trial-guide' || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;

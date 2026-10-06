@@ -234,7 +234,7 @@ test('notification UI locks free access, permits opting out after expiry, and re
   elements['#notification-form'].before = (notice) => notices.push(notice);
   elements['#notification-form'].querySelector = () => elements['#notification-form [type=submit]'];
   const sandbox = { root: {}, state: { me: { testContour: false } }, Intl, AbortSignal,
-    header: () => '', esc: String, bindCommon() {}, setRoute() {}, render() {}, openOffer() {}, toast() {},
+    header: () => '', esc: String, bindCommon() {}, trialGuideCloseButton: () => '', setRoute() {}, render() {}, openOffer() {}, toast() {},
     document: { querySelector: (id) => elements[id], querySelectorAll: () => [{ value: '1' }], createElement: () => ({ setAttribute() {}, querySelector: () => null }) },
     api: async (_path, options) => {
       if (options?.method === 'PUT') { const input = JSON.parse(options.body); writes.push(input); schedule = { ...schedule, ...input }; }
@@ -242,8 +242,10 @@ test('notification UI locks free access, permits opting out after expiry, and re
       return schedule;
     }
   };
+  sandbox.window = { RecipePlatform: { label: 'MAX' } };
   vm.runInNewContext(handler, sandbox);
   await sandbox.notificationSettingsPage();
+  assert.match(sandbox.root.innerHTML, /УВЕДОМЛЕНИЯ В MAX/);
   assert.equal(elements['#notification-enabled'].disabled, true);
   assert.equal(elements['#notification-fields'].disabled, true);
   assert.equal(elements['#notification-form [type=submit]'].disabled, true);

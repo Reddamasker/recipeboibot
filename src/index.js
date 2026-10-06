@@ -1,6 +1,6 @@
 import { assertConfig, config } from './config.js';
 import { createServer } from './server.js';
-import { sendNotificationRecipeLink, sendNotificationReminder, sendFeedbackNotification, startTelegramPolling, stopTelegramPolling, handleChatUpdate } from './telegram.js';
+import { sendTrialWelcomeMessage, sendNotificationRecipeLink, sendNotificationReminder, sendFeedbackNotification, startTelegramPolling, stopTelegramPolling, handleChatUpdate } from './telegram.js';
 import { maxApiCall } from './max-client.js';
 import { startMaxWorker } from './max-events.js';
 import { startFeedbackScheduler, stopFeedbackScheduler } from './feedback.js';
@@ -9,6 +9,7 @@ import { getRecipe, interruptActiveJobs, listGeneratedRecipesWithoutImages } fro
 import { ensureRecipeImage } from './recipe-images.js';
 import { startNotificationScheduler, stopNotificationScheduler } from './notifications.js';
 import { startBillingScheduler, stopBillingScheduler } from './billing.js';
+import { startTrialWelcomeScheduler, stopTrialWelcomeScheduler } from './trial-welcome.js';
 import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
 
 assertConfig();
@@ -30,6 +31,7 @@ server.listen(config.port, '0.0.0.0', () => {
     for (const item of listGeneratedRecipesWithoutImages()) await ensureRecipeImage(item.userId, getRecipe(item.userId, item.id));
   })().catch((error) => log('warn', 'recipe_image_backfill_failed', { error }));
   if (config.telegramPolling || config.botPlatform === 'max') {
+    startTrialWelcomeScheduler(sendTrialWelcomeMessage);
     startFeedbackScheduler(sendFeedbackNotification);
     startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
     if (config.telegramPolling) startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
@@ -39,7 +41,7 @@ let shuttingDown = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
   if (shuttingDown) return;
   shuttingDown = true;
-  stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
+  stopTrialWelcomeScheduler(); stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
   const deadline = setTimeout(() => process.exit(1), 80000); deadline.unref();
   await Promise.all([maxWorker?.stop(), new Promise(resolve => server.close(resolve))]);
   clearTimeout(deadline); process.exit(0);
