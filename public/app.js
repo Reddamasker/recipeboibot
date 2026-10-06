@@ -158,9 +158,10 @@ function openBenefits() { closeOverlay(); setRoute({ view: 'benefits' }); void r
 
 function benefitsPage() {
   if (!state.payment?.trial?.eligible || state.payment.active) { offerPage(); return; }
-  root.innerHTML = `${header()}<main class="offer-page benefits-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>А вот что я ещё умею</h1><p>Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>Попробовать 7 дней бесплатно</button><small class="offer-disclaimer">Без карты и автоматического списания.</small></section></main>`;
+  root.innerHTML = `${header()}<main class="offer-page benefits-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>А вот что я ещё умею</h1><p>Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>Попробовать 7 дней бесплатно</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
   bindCommon();
   document.querySelector('#benefits-back').onclick = () => { setRoute({ view: 'dinner' }); void render(); };
+  document.querySelector('#benefits-pricing').onclick = () => { setRoute({ view: 'pricing' }); void render(); };
 }
 
 function mainMenuPage() {
@@ -864,6 +865,7 @@ async function render() {
   else if (view === 'promo') promoPage();
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
   else if (view === 'benefits') benefitsPage();
+  else if (view === 'pricing') providerOfferPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && (state.payment?.available || state.payment?.active)) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
@@ -1444,6 +1446,7 @@ function trialOfferPage() {
 }
 
 function offerPage() {
+  if (state.payment?.trial?.eligible && !state.payment.active) { benefitsPage(); return; }
   if (state.payment?.trial && (state.payment.trial.eligible || state.payment.accessSource === 'trial' || (state.payment.trial.used && !state.payment.active))) { trialOfferPage(); return; }
   const payment = state.payment;
   if (['provider', 'unavailable', 'mock'].includes(payment?.mode)) { providerOfferPage(); return; }
@@ -1701,13 +1704,14 @@ async function boot() {
     window.__miniRendered = true;
     const routeParams = new URLSearchParams(location.search);
     const maxRecipeLaunch = window.RecipePlatform?.name === 'max' && routeParams.has('recipe');
+    const maxAccessLaunch = window.RecipePlatform?.name === 'max' && ['benefits', 'pricing'].includes(routeParams.get('view'));
     const maxPaymentLaunch = window.RecipePlatform?.name === 'max' && routeParams.get('view') === 'payment-result';
     const paymentOrderId = routeParams.get('order');
     if (maxPaymentLaunch && /^[0-9a-f-]{36}$/i.test(paymentOrderId || '')) {
       state.checkoutOrder = await api(`/api/billing/orders/${encodeURIComponent(paymentOrderId)}`);
       if (state.checkoutOrder.status === 'paid') setTrialOnboardingStep('payment-success');
     }
-    if (routeParams.get('view') === 'menu' || maxRecipeLaunch || maxPaymentLaunch || !await resumePendingTrialTastePreferences()) await render();
+    if (routeParams.get('view') === 'menu' || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;

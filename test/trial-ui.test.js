@@ -17,7 +17,7 @@ test('trial button starts server entitlement directly without checkout and begin
   assert.equal(state.payment.active, true);
 });
 
-function combinedOfferHarness(payment, quote = null) {
+function combinedOfferHarness(payment, quote = null, entry = 'pricing') {
   const nodes = {}, calls = [], steps = [], routes = [];
   const state = { payment, paymentPeriodMonths: quote?.periodMonths || 1, paymentPromoQuote: quote, paymentPromoMessage: '' };
   const root = { innerHTML: '' };
@@ -29,12 +29,15 @@ function combinedOfferHarness(payment, quote = null) {
       return { ...payment, active: true, accessSource: 'trial', trial: { used: true, eligible: false, expiresAt: '2026-10-08T10:00:00Z' } };
     },
     setTrialOnboardingStep: step => steps.push(step), beginDinner: async (...args) => steps.push(args),
-    setRoute: route => routes.push(route), closeOverlay() {}, render() {}, toast: assert.fail };
+    setRoute: route => routes.push(route), closeOverlay() {}, render() {
+      if (routes.at(-1)?.view === 'pricing') sandbox.providerOfferPage();
+    }, toast: assert.fail };
   vm.runInNewContext(source.slice(source.indexOf('async function activateTrial('), source.indexOf('function bindCommon()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('const paymentMoney ='), source.indexOf('function bindPaymentOfferControls()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function providerOfferPage()'), source.indexOf('\nfunction providerCheckoutPage()')), sandbox);
   vm.runInNewContext(source.slice(source.indexOf('function trialOfferPage()'), source.indexOf('\nfunction checkoutPage()')), sandbox);
-  sandbox.offerPage();
+  vm.runInNewContext(source.slice(source.indexOf('function openBenefits('), source.indexOf('function mainMenuPage(')), sandbox);
+  if (entry === 'offer') sandbox.offerPage(); else sandbox.providerOfferPage();
   return { sandbox, nodes, state, calls, steps, routes };
 }
 
@@ -48,6 +51,39 @@ const expiredPayment = {
     { months: 12, priceRub: 1499, fullPriceRub: 2388, savingRub: 889, discountPercent: 37 }
   ]
 };
+
+test('eligible offer shows illustrated benefits and explicit pricing preserves selection without starting access', () => {
+  const payment = { ...expiredPayment, available: true, active: false, trial: { eligible: true, used: false } };
+  const quote = { code: 'DINNER159', periodMonths: 3, priceRub: 399, discountPercent: 20 };
+  const { sandbox, nodes, state, calls, routes } = combinedOfferHarness(payment, quote, 'offer');
+  assert.equal((sandbox.root.innerHTML.match(/class="offer-feature"/g) || []).length, 3);
+  assert.match(sandbox.root.innerHTML, /offer-feature-icon-save/);
+  assert.match(sandbox.root.innerHTML, /offer-feature-icon-dinner/);
+  assert.match(sandbox.root.innerHTML, /offer-feature-icon-reminder/);
+  assert.match(sandbox.root.innerHTML, /data-start-trial>Попробовать 7 дней бесплатно/);
+  assert.match(sandbox.root.innerHTML, /Тарифы и промокод/);
+  assert.doesNotMatch(sandbox.root.innerHTML, /data-period-months|id="offer-pay"/);
+  assert.equal(calls.length, 0);
+  nodes['#benefits-pricing'].onclick();
+  assert.equal(routes.at(-1).view, 'pricing');
+  assert.equal((sandbox.root.innerHTML.match(/data-period-months=/g) || []).length, 3);
+  assert.equal(state.paymentPeriodMonths, 3);
+  assert.equal(state.paymentPromoQuote, quote);
+  assert.equal(calls.length, 0);
+});
+
+test('offer keeps three tariffs for active trial, expired trial and paid access', () => {
+  for (const status of [
+    { active: true, accessSource: 'trial', trial: { used: true, eligible: false, expiresAt: '2026-10-08T10:00:00Z' } },
+    { active: false, trial: { used: true, eligible: false } },
+    { active: true, accessSource: 'subscription', trial: { used: true, eligible: false }, expiresAt: '2026-11-08T10:00:00Z' }
+  ]) {
+    const { sandbox, calls } = combinedOfferHarness({ ...expiredPayment, available: true, ...status }, null, 'offer');
+    assert.equal((sandbox.root.innerHTML.match(/data-period-months=/g) || []).length, 3);
+    assert.doesNotMatch(sandbox.root.innerHTML, /offer-feature-grid|benefits-pricing/);
+    assert.equal(calls.length, 0);
+  }
+});
 
 test('the same three tariffs appear before trial, during trial, after trial and with paid access', () => {
   const trial = { used: true, eligible: false, expiresAt: '2026-10-08T10:00:00Z' };
