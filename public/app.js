@@ -41,7 +41,7 @@ let requestRecorder = null;
 function setRoute(values, { replace = false, historyState = {} } = {}) {
   if (values.view && requestRecorder?.state === 'recording') requestRecorder.stop();
   const url = new URL(location.href);
-  for (const key of ['view', 'q', 'recipe', 'notification']) url.searchParams.delete(key);
+  for (const key of ['view', 'q', 'recipe', 'notification', 'order']) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(values)) if (value) url.searchParams.set(key, value);
   history[replace ? 'replaceState' : 'pushState'](historyState, '', url);
 }
@@ -1433,7 +1433,7 @@ function promoPage(quote = null, promotion = state.payment?.campaignPromotion) {
         state.paymentResult = 'pending';
         if (tg?.openLink) tg.openLink(order.paymentUrl);
         else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
-        setRoute({ view: 'payment-result' }); providerPaymentResultPage();
+        setRoute({ view: 'payment-result', ...(globalThis.window?.RecipePlatform?.name === 'max' ? { order: order.id } : {}) }); providerPaymentResultPage();
       }
     } catch (failure) { document.querySelector('#promo-message').textContent = failure.message; button.disabled = false; }
   });
@@ -1497,7 +1497,7 @@ function checkoutPage() {
 }
 
 function paymentResultPage() {
-  if (state.payment?.active && state.trialOnboarding === 'payment-success') { paymentSuccessPage(); return; }
+  if (state.payment?.active && state.trialOnboarding === 'payment-success' && (!state.checkoutOrder || state.checkoutOrder.status === 'paid')) { paymentSuccessPage(); return; }
   if (state.payment?.mode === 'provider') { providerPaymentResultPage(); return; }
   const result = state.paymentResult || state.payment?.lastResult;
   const success = result === 'success';
@@ -1597,7 +1597,7 @@ function providerOfferPage() {
         state.paymentResult = 'pending';
         if (tg?.openLink) tg.openLink(order.paymentUrl);
         else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
-        setRoute({ view: 'payment-result' }); providerPaymentResultPage();
+        setRoute({ view: 'payment-result', ...(globalThis.window?.RecipePlatform?.name === 'max' ? { order: order.id } : {}) }); providerPaymentResultPage();
       }
     } catch (failure) {
       state.paymentPromoMessage = failure.message;
@@ -1619,7 +1619,7 @@ async function completeProviderPayment(order) {
   state.checkoutOrder = order;
   await refresh();
   setTrialOnboardingStep('payment-success');
-  setRoute({ view: 'payment-result' }, { replace: true });
+  setRoute({ view: 'payment-result', ...(globalThis.window?.RecipePlatform?.name === 'max' ? { order: order.id } : {}) }, { replace: true });
   paymentSuccessPage();
 }
 
@@ -1642,7 +1642,7 @@ function providerPaymentResultPage() {
   const status = order?.status || state.paymentResult || 'pending';
   const success = status === 'paid';
   if (success && state.payment?.active) { paymentSuccessPage(); return; }
-  root.innerHTML = `${header()}<main class="payment-result"><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : '…'}</span><h1>${success ? 'Оплата подтверждена' : 'Ожидаем подтверждение'}</h1><p>${success ? 'Доступ открыт. Теперь можно сохранять следующие рецепты и включить напоминания.' : 'Завершите оплату в открывшемся окне и вернитесь сюда. Доступ появится только после серверного подтверждения Robokassa.'}</p><div class="payment-result-price">Твои рецепты Плюс · ${order?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / ${paymentPeriodLabel(order?.periodMonths || 1)}</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Проверить оплату'}</button><small>${order?.autoRenew ? 'Автопродление включится после успешной оплаты.' : 'Автопродление не подключено.'}</small></main>`;
+  root.innerHTML = `${header()}<main class="payment-result"><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : '…'}</span><h1>${success ? 'Оплата подтверждена' : 'Ожидаем подтверждение'}</h1><p>${success ? 'Доступ открыт. Теперь можно сохранять следующие рецепты и включить напоминания.' : 'Завершите оплату в открывшемся окне и вернитесь сюда. Доступ появится только после серверного подтверждения Robokassa.'}</p><div class="payment-result-price">Твои рецепты Плюс · ${order?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / ${paymentPeriodLabel(order?.periodMonths || 1)}</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Проверить оплату'}</button>${!success && window.RecipePlatform?.name === 'max' && order?.id ? '<button class="secondary" id="resume-provider-payment">Открыть оплату</button>' : ''}<small>${order?.autoRenew ? 'Автопродление включится после успешной оплаты.' : 'Автопродление не подключено.'}</small></main>`;
   bindCommon();
   document.querySelector('#result-next').onclick = async (event) => {
     if (success) { setRoute({}); await render(); return; }
@@ -1654,6 +1654,11 @@ function providerPaymentResultPage() {
       if (fresh.status === 'paid') await completeProviderPayment(fresh);
       else { toast('Подтверждение пока не пришло'); providerPaymentResultPage(); }
     } catch (failure) { toast(failure.message); event.currentTarget.disabled = false; }
+  };
+  const resume = document.querySelector('#resume-provider-payment');
+  if (resume) resume.onclick = () => {
+    const url = new URL(`/payment/start/${encodeURIComponent(order.id)}`, location.origin).href;
+    if (tg?.openLink) tg.openLink(url); else window.open(url, '_blank', 'noopener,noreferrer');
   };
   if (!success) pollProviderPayment();
 }
@@ -1696,7 +1701,13 @@ async function boot() {
     window.__miniRendered = true;
     const routeParams = new URLSearchParams(location.search);
     const maxRecipeLaunch = window.RecipePlatform?.name === 'max' && routeParams.has('recipe');
-    if (routeParams.get('view') === 'menu' || maxRecipeLaunch || !await resumePendingTrialTastePreferences()) await render();
+    const maxPaymentLaunch = window.RecipePlatform?.name === 'max' && routeParams.get('view') === 'payment-result';
+    const paymentOrderId = routeParams.get('order');
+    if (maxPaymentLaunch && /^[0-9a-f-]{36}$/i.test(paymentOrderId || '')) {
+      state.checkoutOrder = await api(`/api/billing/orders/${encodeURIComponent(paymentOrderId)}`);
+      if (state.checkoutOrder.status === 'paid') setTrialOnboardingStep('payment-success');
+    }
+    if (routeParams.get('view') === 'menu' || maxRecipeLaunch || maxPaymentLaunch || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;

@@ -20,7 +20,7 @@ function signed(payload) {
   return params.toString();
 }
 
-async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false } = {}) {
+async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus } = {}) {
   const location = new URL(`https://recipes.test/${shared ? 'share/' + 'a'.repeat(32) : ''}${search}`);
   location.hash = hash;
   const requests = [], pages = [], details = [], probes = [], navigations = [];
@@ -46,7 +46,8 @@ async function bootFixture({ route, payload = route && encode(route), search = '
       let response;
       if (path === '/api/me') response = { id: identity.id, displayName: identity.first_name };
       else if (path === '/api/library') response = { recipes: [], jobs: [] };
-      else if (path === '/api/billing/offer') response = { active: pendingTrial };
+      else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid', available: !!paymentStatus, mode: paymentStatus ? 'provider' : undefined };
+      else if (path.startsWith('/api/billing/orders/')) response = { id: decodeURIComponent(path.split('/').at(-1)), status: paymentStatus };
       else if (/^\/api\/(?:dinner\/)?recipes\//.test(path)) response = { id: decodeURIComponent(path.split('/').at(-1)), title: 'Выбранный рецепт' };
       else assert.fail(`Unexpected request (including AI generation): ${path}`);
       return { ok: true, status: 200, json: async () => response };
@@ -57,6 +58,7 @@ async function bootFixture({ route, payload = route && encode(route), search = '
   // Keep the real boot, authentication, refresh, render routing and openRecipe fetch.
   // Replace only DOM-heavy page/dialog boundaries; the fixture never invokes AI.
   vm.runInContext(appSource.replace(/boot\(\);\s*$/, '') + `
+    paymentResultPage = () => recordPage('payment:' + state.checkoutOrder?.status);
     home = () => recordPage('home');
     collection = () => recordPage('collection');
     beginDinner = async () => recordPage('dinner');
@@ -163,4 +165,14 @@ test('Telegram query route and public share startup ignore MAX navigation', asyn
   assert.equal(shared.details[0]?.shared, true);
   assert.deepEqual(shared.requests.map(request => request.path), ['/api/shares/' + 'a'.repeat(32)]);
   assert.equal(shared.navigations.length, 0);
+});
+
+test('MAX payment return retrieves its exact owned order and bypasses pending onboarding', async () => {
+  const order = '12345678-1234-1234-1234-123456789012';
+  for (const status of ['pending','paid']) {
+    const f = await bootFixture({route:{view:'payment-result',order},paymentStatus:status,pendingTrial:true});
+    assert.ok(f.requests.some(r=>r.path === '/api/billing/orders/'+order));
+    assert.deepEqual(f.pages,['payment:'+status]);
+    assert.equal(new URLSearchParams(f.location.search).get('order'),order);
+  }
 });
