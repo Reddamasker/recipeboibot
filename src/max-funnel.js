@@ -4,7 +4,7 @@ import { db } from './db.js';
 import { funnelReport } from './funnel.js';
 import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 
-const stages = ['starts', 'firstRecipe', 'trial', 'paid'];
+const stages = ['starts', 'firstRecipe', 'selectedRecipe', 'trial', 'paid'];
 const count = value => Number.isSafeInteger(value) && value >= 0;
 const ratio = (n, d) => d ? Number((100 * n / d).toFixed(1)) : null;
 const digest = value => createHash('sha256').update(value).digest();
@@ -21,15 +21,15 @@ export function maxFunnelSnapshot() {
   };
   const summary = report => Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'returningStarts',
     'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment'].map(k => [k, report[k]]));
-  return { version: 1, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
+  return { version: 2, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
 }
 function validateSnapshot(data) {
-  if (data?.version !== 1 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+  if (data?.version !== 2 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');
     for (const key of stages) if (!count(report.totals?.[key]) || !count(report.ordered?.[key]) || report.ordered[key] > report.totals[key]) throw new Error('Invalid MAX counts');
-    if (report.ordered.firstRecipe > report.ordered.starts || report.ordered.trial > report.ordered.firstRecipe || report.ordered.paid > report.ordered.trial) throw new Error('Invalid MAX order');
+    if (report.ordered.firstRecipe > report.ordered.starts || report.ordered.selectedRecipe > report.ordered.firstRecipe || report.ordered.trial > report.ordered.selectedRecipe || report.ordered.paid > report.ordered.trial) throw new Error('Invalid MAX order');
   }
   if (!count(data.campaign.convertedClicks) || data.campaign.convertedClicks > data.campaign.totals.starts) throw new Error('Invalid MAX attribution');
   return data;
@@ -82,6 +82,8 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     if (specific) result.linkRequests = null;
     result.conversions = { ...result.conversions, startFromClick: ratio(result.convertedClicks, result.clicks),
       firstRecipeFromStart: ratio(result.ordered.firstRecipe, result.ordered.starts),
+      selectionFromRecipe: ratio(result.ordered.selectedRecipe, result.ordered.firstRecipe),
+      trialAfterSelection: ratio(result.ordered.trial, result.ordered.selectedRecipe),
       trialAfterRecipe: ratio(result.ordered.trial, result.ordered.firstRecipe), paidAfterTrial: ratio(result.ordered.paid, result.ordered.trial) };
     result.remoteFunnel = { platform: 'max', status: 'ready', generatedAt: remote.generatedAt, error: null };
     return result;
@@ -94,7 +96,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     if (specific) {
       for (const key of stages) unavailable.totals[key] = unavailable.ordered[key] = null;
       unavailable.priceExperiment = null; unavailable.convertedClicks = null; unavailable.linkRequests = null;
-      for (const key of ['startFromClick', 'firstRecipeFromStart', 'trialAfterRecipe', 'paidAfterTrial']) unavailable.conversions[key] = null;
+      for (const key of ['startFromClick', 'firstRecipeFromStart', 'selectionFromRecipe', 'trialAfterSelection', 'trialAfterRecipe', 'paidAfterTrial']) unavailable.conversions[key] = null;
     } else unavailable.conversions.startFromClick = null;
     return unavailable;
   }

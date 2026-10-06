@@ -22,6 +22,8 @@ test('MAX payload survives webhook normalization, first attribution is immutable
  assert.equal(campaignPriceAssignment(newcomer.id)?.campaign,MAX_AD_PLACEMENT);
  start(user(500));const returning=user(502);allowUser(returning.telegram_id);start({...returning,is_allowed:1});
  start(user(503),'campaign_unknown');
+ db.prepare('INSERT INTO dinner_events(id,user_id,event,created_at) VALUES(?,?,?,?)').run(randomUUID(),newcomer.id,'recommendation_shown',new Date().toISOString());
+ db.prepare('INSERT INTO dinner_events(id,user_id,event,created_at) VALUES(?,?,?,?)').run(randomUUID(),newcomer.id,'recommendation_accepted',new Date().toISOString());
  const report=funnelReport(MAX_AD_PLACEMENT);
  assert.equal(report.totals.starts,1);assert.equal(report.returningStarts,1);assert.equal(report.convertedClicks,1);
  assert.equal(report.clicks,0);assert.equal(db.prepare('SELECT COUNT(*) AS n FROM acquisition_clicks').get().n,0);
@@ -41,21 +43,21 @@ test('aggregate endpoint requires its own token, returns no identities and is re
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM acquisition_starts').get().n,before);
  } finally {await new Promise(r=>server.close(r));}
 });
-const counters={starts:4,firstRecipe:2,trial:1,paid:0};
+const counters={starts:4,firstRecipe:2,selectedRecipe:1,trial:1,paid:0};
 const report=(slug=MAX_AD_PLACEMENT)=>({campaign:slug?{slug}:null,totals:{...counters},ordered:{...counters},convertedClicks:4,clicks:20,impressions:100,campaigns:[],conversions:{startFromClick:20,firstRecipeFromStart:50,trialAfterRecipe:50,paidAfterTrial:0},priceExperiment:null,testPaidUsers:0,unclassifiedPaidUsers:0,historicalStartsWithoutDate:0,linkRequests:9});
 const options={enabled:true,origin:'https://recipeboibot-max.89-223-123-75.sslip.io',token:'a'.repeat(43)};
 test('specific MAX funnel uses MAX stages and Direct clicks, all-users adds MAX accounts exactly once',async()=>{
  const snapshot=maxFunnelSnapshot();
  const transport=async(url,init)=>{assert.equal(url,options.origin+'/api/internal/max-funnel');assert.equal(init.headers.authorization,'Bearer '+options.token);return Response.json(snapshot);};
  const specific=await mergeMaxFunnelReport(report(),{...options,transport});
- assert.equal(specific.totals.starts,1);assert.equal(specific.clicks,20);assert.equal(specific.conversions.startFromClick,5);assert.equal(specific.linkRequests,null);
+ assert.equal(specific.totals.selectedRecipe,1);assert.equal(specific.ordered.selectedRecipe,1);assert.equal(specific.totals.starts,1);assert.equal(specific.clicks,20);assert.equal(specific.conversions.startFromClick,5);assert.equal(specific.linkRequests,null);
  const combined=await mergeMaxFunnelReport(report(null),{...options,transport});
- assert.equal(combined.totals.starts,7);assert.equal(combined.convertedClicks,5);assert.equal(combined.conversions.startFromClick,25);
+ assert.equal(combined.totals.selectedRecipe,2);assert.equal(combined.ordered.selectedRecipe,2);assert.equal(combined.totals.starts,7);assert.equal(combined.convertedClicks,5);assert.equal(combined.conversions.startFromClick,25);
  const original=report('ya-dinner-202610');assert.equal(await mergeMaxFunnelReport(original,{...options,transport:()=>{throw new Error('should not fetch');}}),original);
 });
 test('MAX outage preserves advertising stats and marks stages unknown without false zeroes or credential errors',async()=>{
  const transport=async()=>{throw new Error('private '+options.token);};
- const failed=await mergeMaxFunnelReport(report(),{...options,transport});assert.equal(failed.clicks,20);assert.equal(failed.totals.starts,null);assert.equal(failed.conversions.startFromClick,null);
+ const failed=await mergeMaxFunnelReport(report(),{...options,transport});assert.equal(failed.clicks,20);assert.equal(failed.totals.starts,null);assert.equal(failed.totals.selectedRecipe,null);assert.equal(failed.conversions.trialAfterSelection,null);assert.equal(failed.conversions.startFromClick,null);
  assert.ok(!JSON.stringify(failed).includes(options.token));
  const all=await mergeMaxFunnelReport(report(null),{...options,transport});assert.equal(all.totals.starts,4);assert.equal(all.conversions.startFromClick,null);assert.equal(all.remoteFunnel.status,'error');
 });
@@ -63,4 +65,11 @@ test('bridge rejects unexpected destinations and invalid aggregate sources befor
  let calls=0;const transport=async()=>{calls++;return Response.json({...maxFunnelSnapshot(),placement:'wrong'});};
  const wrong=await mergeMaxFunnelReport(report(),{...options,origin:'https://other.example',transport});assert.equal(calls,0);assert.equal(wrong.totals.starts,null);
  const invalid=await mergeMaxFunnelReport(report(),{...options,transport});assert.equal(calls,1);assert.equal(invalid.totals.starts,null);
+});
+
+test('old MAX aggregates and impossible selection order remain unknown rather than inventing zeroes',async()=>{
+ for(const snapshot of [{...maxFunnelSnapshot(),version:1},(()=>{const s=maxFunnelSnapshot();s.campaign.ordered.selectedRecipe=s.campaign.ordered.firstRecipe+1;return s;})()]){
+  const result=await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)});
+  assert.equal(result.remoteFunnel.status,'error');assert.equal(result.totals.selectedRecipe,null);assert.equal(result.clicks,20);
+ }
 });

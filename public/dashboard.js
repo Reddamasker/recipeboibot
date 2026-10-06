@@ -31,15 +31,15 @@ function render(data) {
   const advertisingNote = data.directStats?.aggregate
     ? coverage.includedCampaignCount < coverage.campaignCount ? `Есть данные по ${coverage.includedCampaignCount} из ${coverage.campaignCount} кампаний Директа` : `По всем кампаниям Директа: ${coverage.campaignCount}`
     : data.clickSource === 'direct' ? 'По статистике Директа' : 'По статистике площадки';
-  const metrics = [ ['Показы рекламы', data.impressions, advertisingNote], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? advertisingNote : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, data.platform === 'combined' ? data.remoteFunnel?.status === 'error' ? 'Учтён только Telegram' : 'Аккаунты Telegram и MAX' : 'Уникальные пользователи'], ['Первый рецепт', data.totals.firstRecipe, 'Получили готовый результат'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
+  const metrics = [ ['Показы рекламы', data.impressions, advertisingNote], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? advertisingNote : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, data.platform === 'combined' ? data.remoteFunnel?.status === 'error' ? 'Учтён только Telegram' : 'Аккаунты Telegram и MAX' : 'Уникальные пользователи'], ['Результат подбора', data.totals.firstRecipe, 'Рецепт или предложенные варианты'], ['Выбрали рецепт', data.totals.selectedRecipe, 'Выбрали блюдо из предложенных'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
   $('#metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'), title = node('p', 'metric-label'); title.append(node('span', 'stage-dot'), document.createTextNode(label)); card.append(title, node('p', `metric-number${value === null ? ' unknown' : ''}`, number(value)), node('p', 'metric-note', note)); return card; }));
-  const ordered = [['Запустили бота', data.ordered.starts], ['Первый рецепт', data.ordered.firstRecipe], ['Начали триал', data.ordered.trial], ['Оплатили', data.ordered.paid]];
+  const ordered = [['Запустили бота', data.ordered.starts], ['Результат подбора', data.ordered.firstRecipe], ['Выбрали рецепт', data.ordered.selectedRecipe], ['Начали триал', data.ordered.trial], ['Оплатили', data.ordered.paid]];
   $('#funnel').replaceChildren(...ordered.map(([label, value]) => { const row = node('div', 'funnel-row'), track = node('div', 'bar-track'), bar = node('div', 'bar'); bar.style.width = `${data.ordered.starts ? value / data.ordered.starts * 100 : 0}%`; track.append(bar); row.append(node('span', 'funnel-label', label), track, node('span', 'funnel-count', number(value))); return row; }));
   $('#funnel-note').textContent = selected === 'all' ? data.directStats?.aggregate ? 'Показы и клики — по кампаниям Директа. Запуски и следующие этапы включают всех пользователей, в том числе органику. Конверсия из клика учитывает только рекламные запуски.' : 'Общий запуск включает органику. Для оценки рекламы выберите отдельное размещение.' : `Новые пользователи этого размещения.${data.returningStarts ? ` Повторных пользователей: ${number(data.returningStarts)}.` : ''}`;
   if (data.remoteFunnel?.error) $('#funnel-note').textContent += ' ' + data.remoteFunnel.error;
   if (data.platform === 'max') $('#funnel-note').textContent += ' Источник определяется по метке запуска MAX. Отдельное открытие чата неизвестно.';
   const c = data.conversions;
-  const conversions = [['Показ → клик', c.clickFromImpression], [data.clickSource === 'direct' ? 'Клик → запуск' : 'Обращение → запуск', c.startFromClick], ['Запуск → рецепт', c.firstRecipeFromStart], ['Рецепт → триал', c.trialAfterRecipe], ['Триал → оплата', c.paidAfterTrial]];
+  const conversions = [['Показ → клик', c.clickFromImpression], [data.clickSource === 'direct' ? 'Клик → запуск' : 'Обращение → запуск', c.startFromClick], ['Запуск → подбор', c.firstRecipeFromStart], ['Подбор → выбор', c.selectionFromRecipe], ['Выбор → триал', c.trialAfterSelection], ['Триал → оплата', c.paidAfterTrial]];
   $('#conversions').replaceChildren(...conversions.map(([label, value]) => { const row = node('div', 'conversion'); row.append(node('span', 'conversion-label', label), node('span', `conversion-value${value === null ? ' empty' : ''}`, percent(value))); return row; }));
   $('#placement-count').textContent = `${data.campaigns.length} размещений`;
   $('#empty-placements').hidden = Boolean(data.campaigns.length); $('#placements').closest('.table-scroll').hidden = !data.campaigns.length;
@@ -95,7 +95,7 @@ function renderAttribution(groups) {
   $('#attribution').replaceChildren(...groups.map(group => {
     const row = node('tr'), campaign = node('td', '', group.campaign || 'Без UTM-кампании');
     campaign.append(node('small', '', [group.placement, group.source, group.medium].filter(Boolean).join(' / ')));
-    row.append(campaign, node('td', '', group.ad || 'Без метки'), node('td', '', group.keyword || 'Без метки'), ...['clicks', 'starts', 'firstRecipe', 'trial', 'paid'].map(key => node('td', '', number(group[key]))));
+    row.append(campaign, node('td', '', group.ad || 'Без метки'), node('td', '', group.keyword || 'Без метки'), ...['clicks', 'starts', 'firstRecipe', 'selectedRecipe', 'trial', 'paid'].map(key => node('td', '', number(group[key]))));
     return row;
   }));
 }

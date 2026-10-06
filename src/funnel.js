@@ -99,6 +99,14 @@ function recipeSources() {
   if (exists('dinner_events')) sources.push("SELECT user_id,created_at AS at FROM dinner_events WHERE event='recommendation_shown'");
   return sources.join(' UNION ALL ');
 }
+function selectedRecipeTimes() {
+  const sources = [];
+  if (exists('dinner_events')) sources.push("SELECT user_id,created_at AS at FROM dinner_events WHERE event IN ('recommendation_accepted','dinner_recommendation_accepted')");
+  if (exists('first_recipe_selections')) sources.push("SELECT user_id,selected_at AS at FROM first_recipe_selections WHERE source='dinner'");
+  // Older clients also persisted their explicit dinner choice here.
+  if (exists('first_dinner_previews') && exists('first_recipe_results')) sources.push("SELECT p.user_id,COALESCE(r.completed_at,r.started_at) AS at FROM first_dinner_previews p JOIN first_recipe_results r ON r.user_id=p.user_id WHERE p.selected_id IS NOT NULL");
+  return new Map(sources.length ? db.prepare('SELECT user_id,MIN(at) AS at FROM (' + sources.join(' UNION ALL ') + ') GROUP BY user_id').all().map(r => [r.user_id, r.at]) : []);
+}
 const percentage = (count, base) => base ? Number((100 * count / base).toFixed(1)) : null;
 
 function priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, at) {
@@ -153,29 +161,32 @@ export function funnelReport(slug = 'all') {
     ? `SELECT user_id,is_test FROM payment_orders WHERE status='paid' AND (is_test=1 OR is_test IS NULL) GROUP BY user_id,is_test`
     : `SELECT DISTINCT user_id,NULL AS is_test FROM payment_orders WHERE status='paid'`).all() : [];
   const ids = new Set(cohort.map(u => u.id));
-  const totals = { starts: cohort.length, firstRecipe: 0, trial: 0, paid: 0 };
-  const ordered = { starts: cohort.length, firstRecipe: 0, trial: 0, paid: 0 };
+  const selectionTimes = selectedRecipeTimes();
+  const totals = { starts: cohort.length, firstRecipe: 0, selectedRecipe: 0, trial: 0, paid: 0 };
+  const ordered = { starts: cohort.length, firstRecipe: 0, selectedRecipe: 0, trial: 0, paid: 0 };
   const clickRows = db.prepare(`SELECT token,campaign,tags_json FROM acquisition_clicks ${campaign ? 'WHERE campaign=?' : ''}`).all(...(campaign ? [slug] : []));
   const groups = new Map(), clickGroups = new Map();
   for (const click of clickRows) {
     const tags = JSON.parse(click.tags_json);
     const values = [click.campaign, ...['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].map(key => tags[key] || '')];
     const key = JSON.stringify(values);
-    if (!groups.has(key)) groups.set(key, { placement: values[0], source: values[1], medium: values[2], campaign: values[3], ad: values[4], keyword: values[5], clicks: 0, starts: 0, firstRecipe: 0, trial: 0, paid: 0 });
+    if (!groups.has(key)) groups.set(key, { placement: values[0], source: values[1], medium: values[2], campaign: values[3], ad: values[4], keyword: values[5], clicks: 0, starts: 0, firstRecipe: 0, selectedRecipe: 0, trial: 0, paid: 0 });
     const group = groups.get(key); group.clicks++; clickGroups.set(click.token, group);
   }
   for (const user of cohort) {
-    const recipe = recipeTimes.get(user.id), trial = trialTimes.get(user.id), paid = paidTimes.get(user.id);
+    const recipe = recipeTimes.get(user.id), selected = selectionTimes.get(user.id), trial = trialTimes.get(user.id), paid = paidTimes.get(user.id);
     const afterStart = time => Boolean(time && (!campaign || time >= user.started_at));
     const group = clickGroups.get(user.click_token);
     if (group) group.starts++;
     if (afterStart(recipe)) totals.firstRecipe++;
+    if (afterStart(selected)) { totals.selectedRecipe++; if (group) group.selectedRecipe++; }
     if (afterStart(trial)) totals.trial++;
     if (afterStart(paid)) totals.paid++;
     if (afterStart(recipe)) {
       ordered.firstRecipe++;
       if (group && recipe >= user.started_at) group.firstRecipe++;
-      if (afterStart(trial) && trial >= recipe) {
+      if (afterStart(selected) && selected >= recipe) ordered.selectedRecipe++;
+      if (afterStart(selected) && selected >= recipe && afterStart(trial) && trial >= selected) {
         ordered.trial++;
         if (group && recipe >= user.started_at) group.trial++;
         if (afterStart(paid) && paid >= trial) { ordered.paid++; if (group && recipe >= user.started_at) group.paid++; }
@@ -196,7 +207,7 @@ export function funnelReport(slug = 'all') {
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,
     convertedClicks,
     conversions: { clickFromImpression: percentage(clicks, impressions), startFromClick: campaign ? percentage(convertedClicks, clicks) : null,
-      firstRecipeFromStart: percentage(ordered.firstRecipe, ordered.starts), trialAfterRecipe: percentage(ordered.trial, ordered.firstRecipe), paidAfterTrial: percentage(ordered.paid, ordered.trial) },
+      firstRecipeFromStart: percentage(ordered.firstRecipe, ordered.starts), selectionFromRecipe: percentage(ordered.selectedRecipe, ordered.firstRecipe), trialAfterSelection: percentage(ordered.trial, ordered.selectedRecipe), trialAfterRecipe: percentage(ordered.trial, ordered.firstRecipe), paidAfterTrial: percentage(ordered.paid, ordered.trial) },
     returningStarts: campaign ? db.prepare(`SELECT COUNT(*) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=1 AND ${analyticsUserCondition}`).get(slug, ...analyticsExcludedIds).count : null,
     historicalStartsWithoutDate: cohort.filter(u => !u.started_at).length,
     testPaidUsers: excludedPayments.filter(p => p.is_test === 1 && ids.has(p.user_id)).length,

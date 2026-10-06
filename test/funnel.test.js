@@ -51,7 +51,7 @@ test('owner and Albina identities on both platforms are excluded retroactively a
   assert.deepEqual(funnelReport('all').totals, before.totals);
   assert.deepEqual(maxFunnelSnapshot().all.totals, before.totals);
   const campaign = funnelReport(slug);
-  assert.deepEqual(campaign.totals, { starts: 0, firstRecipe: 0, trial: 0, paid: 0 });
+  assert.deepEqual(campaign.totals, { starts: 0, firstRecipe: 0, selectedRecipe: 0, trial: 0, paid: 0 });
   assert.equal(campaign.convertedClicks, 0);
   assert.equal(campaign.returningStarts, 0);
   assert.equal(campaign.priceExperiment.rows.reduce((sum, row) => sum + row.revenueRub, 0), 0);
@@ -116,6 +116,7 @@ test('ordered funnel counts unique users while direct trial and payment remain v
   const recipe = createRecipe(a.id, { status: 'ready', title: 'Готовый рецепт' });
   db.prepare('UPDATE recipes SET created_at=? WHERE id=?').run(at('10:01').toISOString(), recipe.id);
   createRecipe(a.id, { status: 'ready', title: 'Второй рецепт' });
+  db.prepare('INSERT INTO dinner_events(id,user_id,event,created_at) VALUES(?,?,?,?)').run(randomUUID(), a.id, 'recommendation_accepted', at('10:01').toISOString());
   startTrial(a.id, at('10:02')); startTrial(a.id, at('10:03'));
   startTrial(b.id, at('10:01'));
   const order = createPaymentOrder(a.id, {}, at('10:04'));
@@ -124,8 +125,8 @@ test('ordered funnel counts unique users while direct trial and payment remain v
   processRobokassaResult(params, at('10:05')); processRobokassaResult(params, at('10:06'));
   assert.equal(db.prepare('SELECT is_test FROM payment_orders WHERE id=?').get(order.id).is_test, 0);
   const report = funnelReport('chain');
-  assert.deepEqual(report.ordered, { starts: 2, firstRecipe: 1, trial: 1, paid: 1 });
-  assert.deepEqual(report.totals, { starts: 2, firstRecipe: 1, trial: 2, paid: 1 });
+  assert.deepEqual(report.ordered, { starts: 2, firstRecipe: 1, selectedRecipe: 1, trial: 1, paid: 1 });
+  assert.deepEqual(report.totals, { starts: 2, firstRecipe: 1, selectedRecipe: 1, trial: 2, paid: 1 });
   assert.equal(report.impressions, 1000); assert.equal(report.reach, 700);
   assert.equal(report.conversions.firstRecipeFromStart, 50);
   assert.equal(report.conversions.clickFromImpression, 0.2);
@@ -182,6 +183,7 @@ test('Yandex tags survive Telegram start and identify the ordered recipe, trial 
   recordBotStart(user, `/start ${payload}`, at('10:00')); allowUser(user.id);
   const recipe = createRecipe(user.id, { status: 'ready', title: 'Ужин' });
   db.prepare('UPDATE recipes SET created_at=? WHERE id=?').run(at('10:01').toISOString(), recipe.id);
+  db.prepare('INSERT INTO dinner_events(id,user_id,event,created_at) VALUES(?,?,?,?)').run(randomUUID(), user.id, 'recommendation_accepted', at('10:01').toISOString());
   startTrial(user.id, at('10:02'));
   const order = createPaymentOrder(user.id, {}, at('10:03'));
   db.prepare("UPDATE payment_orders SET status='paid',paid_at=?,is_test=0 WHERE id=?").run(at('10:04').toISOString(), order.id);
@@ -189,7 +191,7 @@ test('Yandex tags survive Telegram start and identify the ordered recipe, trial 
   recordBotStart({ ...returning, is_allowed: 1 }, `/start ${payload}`, at('10:05'));
   advertisingRedirect('yandex', { searchParams: tags });
   const group = funnelReport('yandex').attribution[0];
-  assert.deepEqual(group, { placement: 'yandex', source: 'ya', medium: 'cpc', campaign: 'dinner_search', ad: '123', keyword: 'что приготовить на ужин', clicks: 2, starts: 1, firstRecipe: 1, trial: 1, paid: 1 });
+  assert.deepEqual(group, { placement: 'yandex', source: 'ya', medium: 'cpc', campaign: 'dinner_search', ad: '123', keyword: 'что приготовить на ужин', clicks: 2, starts: 1, firstRecipe: 1, selectedRecipe: 1, trial: 1, paid: 1 });
   assert.deepEqual(funnelReport().attribution.find(row => row.placement === 'yandex'), group);
   const long = new URLSearchParams({ utm_term: 'a'.repeat(600) + '\n', utm_content: '<script>alert(1)</script>' });
   const next = tokenFrom(advertisingRedirect('yandex', { searchParams: long }));
@@ -251,4 +253,23 @@ test('dashboard requires password and cookie, rejects cross-origin writes, and s
     assert.equal((await fetch(`${base}/api/dashboard/logout`, { method: 'POST', headers, body: '{}' })).status, 200);
     assert.equal((await fetch(`${base}/api/dashboard/funnel`, { headers })).status, 401);
   } finally { globalThis.fetch = original; await new Promise(resolve => server.close(resolve)); }
+});
+
+test('recipe choice is distinct from viewing, deduplicated across stored sources and excludes pre-start and internal actions', () => {
+  createCampaign('selection');
+  const shown = fixture().user, chosen = fixture().user, early = fixture().user;
+  for (const user of [shown, chosen, early]) { recordBotStart(user, '/start ' + tokenFrom(advertisingRedirect('selection')), at('10:00')); allowUser(user.id); }
+  const event = (user, name, time) => db.prepare('INSERT INTO dinner_events(id,user_id,event,created_at) VALUES(?,?,?,?)').run(randomUUID(), user.id, name, at(time).toISOString());
+  for (const user of [shown, chosen, early]) { event(user, 'recommendation_shown', '10:01'); event(user, 'dinner_recommendation_opened', '10:01'); }
+  event(chosen, 'recommendation_accepted', '10:02'); event(chosen, 'dinner_recommendation_accepted', '10:02'); event(chosen, 'recommendation_accepted', '10:03');
+  event(early, 'recommendation_accepted', '09:59');
+  db.prepare('INSERT INTO first_recipe_selections(user_id,recipe_id,title,source,recipe_json,selected_at) VALUES(?,?,?,?,?,?)').run(chosen.id, 'selected', 'Choice', 'dinner', '{}', at('10:02').toISOString());
+  startTrial(chosen.id, at('10:04')); startTrial(shown.id, at('10:04'));
+  const report = funnelReport('selection');
+  assert.equal(report.totals.selectedRecipe, 1); assert.equal(report.ordered.selectedRecipe, 1);
+  assert.equal(report.totals.trial, 2); assert.equal(report.ordered.trial, 1);
+  assert.equal(report.conversions.selectionFromRecipe, 33.3); assert.equal(report.conversions.trialAfterSelection, 100);
+  assert.equal(report.attribution.reduce((sum,row) => sum + row.selectedRecipe, 0), 1);
+  const internal = upsertTelegramUser({ id: '193553580' }); event(internal, 'recommendation_accepted', '10:02');
+  assert.equal(funnelReport('selection').totals.selectedRecipe, 1);
 });
