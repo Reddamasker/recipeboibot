@@ -3,7 +3,7 @@ import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimU
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
 import { extractDinnerIntake, transcribeAudio, interpretRecipeDialogue } from './openai.js';
 import { getRecipe, saveDinnerRecipe } from './db.js';
-import { getDinnerHistory } from './dinner-store.js';
+import { getDinnerHistory, getDinnerOption } from './dinner-store.js';
 import { normalizeMealRequest, parseMealRequest } from './meal-request.js';
 import { getRecipeDialogue, getSuggestionDialogue, createRecipeDialogue, updateRecipeDialogue, clearRecipeDialogue, localDialogueAction, refineDialogueRequest, rejectDialogueRecipe } from './recipe-dialogue.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
@@ -16,7 +16,7 @@ import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
 import { canResetTestUser, canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { billingAvailable, canUseAutomaticImport, getBillingOffer, recordBillingExposure } from './billing.js';
-import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult, startTrial, getTrialStatus, canChooseFirstDinner } from './subscriptions.js';
+import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFirstRecipeResult, startTrial, getTrialStatus, canChooseFirstDinner, getPendingFirstRecipe, isFirstRecipeAwaitingTrial, unlockFirstRecipe, assertFirstRecipeReadable } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
@@ -42,6 +42,53 @@ async function telegram(method, body = {}) {
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: { remove_keyboard: true } } : {}), ...extra });
 
+const awaitingFirstRecipe = (userId) => Boolean(userId && isFirstRecipeAwaitingTrial(userId) && !getSubscriptionAccess(userId).active);
+function firstRecipeBenefitsMarkup() {
+  const url = webAppUrl({ view: 'benefits' });
+  return { inline_keyboard: [[url ? { text: 'Открыть рецепт · 7 дней бесплатно', web_app: { url } } : { text: 'Попробовать 7 дней бесплатно', callback_data: 'trial:start' }]] };
+}
+async function sendFirstRecipeBenefits(chatId, userId, options = {}) {
+  const pending = getPendingFirstRecipe(userId);
+  const title = pending?.title || 'Ваш первый рецепт';
+  const caption = `<b>${escapeHtml(title)}</b>\n\nРецепт готов и ждёт вас.\n\nПопробуйте 7 дней бесплатно: готовые рецепты с учётом ваших вкусов, коллекция любимых блюд и напоминания об ужине.\n\nБез карты и списаний. После запуска откроется именно этот рецепт.`;
+  const reply_markup = firstRecipeBenefitsMarkup();
+  const photo = pending?.imageUrl && (pending.imageUrl.startsWith('/') && config.appUrl ? new URL(pending.imageUrl, config.appUrl).toString() : pending.imageUrl);
+  if (photo) {
+    try { const sent = await telegram('sendPhoto', { chat_id: chatId, photo, caption, parse_mode: 'HTML', reply_markup }); rememberDialogueCard(options, sent); return; }
+    catch (error) { log('warn', 'first_recipe_benefits_photo_failed', { userId, error }); }
+  }
+  rememberDialogueCard(options, await send(chatId, caption, { reply_markup }));
+}
+function selectedFirstRecipe(userId, pending) {
+  if (!pending) return null;
+  const saved = pending.recipeId && getRecipe(userId, pending.recipeId);
+  if (saved) return saved;
+  if (String(pending.recipeId || '').startsWith('suggestion:')) {
+    const suggestion = getRecipeSuggestion(userId, pending.recipeId.slice('suggestion:'.length));
+    if (suggestion?.recipe) return suggestion.recipe;
+  }
+  if (pending.selectedId) {
+    const option = getDinnerOption(userId, pending.selectedId);
+    if (option?.recipe) return option.recipe;
+  }
+  const first = getFirstRecipeResult(userId);
+  const candidate = first?.recipe || first?.recommendation?.recipe || first?.suggestion?.recipe;
+  if (candidate && (candidate.id === pending.recipeId || pending.recipeId === `suggestion:${first?.suggestion?.id}`)) return candidate;
+  return null;
+}
+async function sendUnlockedFirstRecipe(chatId, userId) {
+  const pending = getPendingFirstRecipe(userId);
+  if (!pending || !getSubscriptionAccess(userId).active) return false;
+  unlockFirstRecipe(userId);
+  const recipe = selectedFirstRecipe(userId, pending);
+  if (!recipe) {
+    await send(chatId, 'Пробный период активен. Ваш выбранный рецепт сохранён — откройте его в приложении.', { reply_markup: { inline_keyboard: [[{ text: 'Открыть выбранный рецепт', web_app: { url: webAppUrl({ recipe: pending.recipeId, view: 'dinner' }) } }]] } });
+    return true;
+  }
+  await sendFirstFreeRecipe(chatId, recipe, { userId });
+  return true;
+}
+
 export async function handleMainMenuCallback(callback) {
   const match = String(callback.data || '').match(/^menu:(dinner|find|collection|feedback)$/);
   if (!match || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
@@ -50,6 +97,7 @@ export async function handleMainMenuCallback(callback) {
   return true;
 }
 async function sendTestOffer(chatId, userId, force = false) {
+  if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return; }
   const mock = config.testContour && !billingAvailable();
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
   if (status.trial?.eligible && (force || status.hasFirstRecipe)) {
@@ -86,6 +134,7 @@ export async function handleTrialCallback(callback) {
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   const access = getSubscriptionAccess(user.id);
   if (access.active && access.source !== 'trial') {
+    if (await sendUnlockedFirstRecipe(chatId, user.id)) return true;
     await send(chatId, 'Полный доступ уже активен. Можно продолжить подбор рецептов.', { reply_markup: dinnerWebAppMarkup() });
     return true;
   }
@@ -100,6 +149,7 @@ export async function handleTrialCallback(callback) {
   } catch {
     await send(chatId, text, { reply_markup });
   }
+  await sendUnlockedFirstRecipe(chatId, user.id);
   return true;
 }
 export function canUsePlaylistImport(userId) { return getSubscriptionAccess(userId).active; }
@@ -118,6 +168,7 @@ function prepareDinner(userId) {
   }
 }
 async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) {
+  if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return true; }
   if (userId && !skipOnboarding && !getFoodProfile(userId).onboardingCompleted) {
     const pending = getPendingIntent(userId);
     if (['dinner-intake', 'dinner-confirm'].includes(pending?.kind)) await resumeDinnerIntake(chatId, userId, pending);
@@ -152,7 +203,7 @@ async function revealDinnerButton(chatId, messageId, userId, sessionId) {
     await telegram('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: dinner.recommendations.length ? dinnerWebAppMarkup() : dinnerUnavailableMarkup() });
     if (dinner.firstFreeRecipe && dinner.recommendation) {
       await sendFirstFreeRecipe(chatId, dinner.recommendation.recipe, { userId });
-      await sendTestOffer(chatId, userId);
+      if (!awaitingFirstRecipe(userId)) await sendTestOffer(chatId, userId);
     }
   } catch (error) {
     log('warn', 'telegram_dinner_open_button_reveal_failed', { error: error.message, userId });
@@ -268,6 +319,7 @@ export async function handleDinnerIntakeCallback(callback) {
   const data = String(callback.data || '');
   if (!/^dinner:(?:skip|redo|confirm|preparing|unavailable|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  if (awaitingFirstRecipe(user.id)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chatId, user.id); return true; }
   if (['dinner:preparing', 'dinner:unavailable'].includes(data)) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: data === 'dinner:preparing' ? 'Рецепты ещё готовятся' : 'Не удалось подготовить рецепты. Попробуйте ещё раз позже.' });
     return true;
@@ -450,8 +502,9 @@ export async function interpretVoice(message, user, adapters = {}) {
   return { text, sourceKey: `${config.botPlatform}-voice:${media.file_unique_id || media.file_id}` };
 }
 
-function recipeButton(recipe, { groupMode = false } = {}) {
+function recipeButton(recipe, { groupMode = false, userId = recipe.user_id } = {}) {
   if (groupMode) return undefined;
+  if (awaitingFirstRecipe(userId)) return firstRecipeBenefitsMarkup();
   const url = webAppUrl({ recipe: recipe.id });
   return url ? { inline_keyboard: [[{ text: 'Открыть рецепт', web_app: { url } }]] } : undefined;
 }
@@ -512,6 +565,8 @@ function rememberDialogueCard(options, sent) {
 }
 
 async function sendRecipeCard(chatId, recipe, options = {}) {
+  const userId = options.userId || recipe.user_id;
+  if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId, options); return; }
   const caption = `<b>${escapeHtml(recipe.title)}</b>${recipe.sourceName ? `\n${escapeHtml(recipe.sourceName)}` : ''}`;
   const reply_markup = options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe, options);
   const photo = recipe.thumbnailUrl?.startsWith('/assets/dinner/') && config.appUrl ? new URL(recipe.thumbnailUrl, config.appUrl).toString() : recipe.thumbnailUrl;
@@ -523,14 +578,21 @@ async function sendRecipeCard(chatId, recipe, options = {}) {
   rememberDialogueCard(options, sent);
 }
 
-async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
+export async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
+  const userId = options.userId || recipe.user_id;
+  if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId, options); return; }
+  if (userId) assertFirstRecipeReadable(userId, recipe.id);
   if (options.userId && !options.dialogue) options = { ...options, dialogue: captureDinnerDialogue(options.userId, recipe) };
   const ingredients = (recipe.ingredients || []).map(item => [item.quantity, item.unit, item.name || item.raw].filter(value => value !== null && value !== undefined && value !== '').join(' ')).join('\n');
   const steps = (recipe.steps || []).map((step, index) => `${index + 1}. ${step.text || step}`).join('\n');
   const n = recipe.nutrition;
   const nutrition = n ? `\n${n.calories} ккал · Б ${n.protein} г · Ж ${n.fat} г · У ${n.carbs} г${n.source === 'calculated' ? '\nПримерный расчёт' : ''}` : '';
   const detail = `${recipe.title}${nutrition}${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}`;
-  const sent = await send(chatId, escapeHtml(detail.slice(0, 3500)), { reply_markup: options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe) });
+  const chunks = []; let current = '';
+  for (const character of detail) { const escaped = escapeHtml(character); if (current.length + escaped.length > 3500) { chunks.push(current); current = ''; } current += escaped; }
+  if (current) chunks.push(current);
+  for (const part of chunks.slice(0, -1)) await send(chatId, part);
+  const sent = await send(chatId, chunks.at(-1) || '', { reply_markup: options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe, { userId }) });
   rememberDialogueCard(options, sent);
 }
 
@@ -558,11 +620,11 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
         await send(chatId, 'Нашёл подходящий готовый рецепт.');
         if (result.firstFreeRecipe) await sendFirstFreeRecipe(chatId, result.recipe, { dialogue, userId: user.id });
         else await sendRecipeCard(chatId, result.recipe, { dialogue, userId: user.id });
-        await sendTestOffer(chatId, user.id);
+        if (!awaitingFirstRecipe(user.id)) await sendTestOffer(chatId, user.id);
         return [result.recipe];
       }
       await sendSuggestion(chatId, result.suggestion, { userId: user.id, dialogue });
-      await sendTestOffer(chatId, user.id);
+      if (!awaitingFirstRecipe(user.id)) await sendTestOffer(chatId, user.id);
     } catch (error) {
       log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
       if (error.status === 402) { await sendTestOffer(chatId, user.id, true); return []; }
@@ -578,11 +640,13 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
   }
   const allUrl = groupMode ? null : webAppUrl({ view: 'results', q: normalizedQuery });
   await send(chatId, `Как понял: ищу ${groupMode ? 'в коллекции владельца группы' : 'в вашей коллекции'} «<b>${escapeHtml(normalizedQuery)}</b>».\nНашёл: ${results.length}.`, allUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Все результаты', web_app: { url: allUrl } }]] } } : {});
-  for (const recipe of results.slice(0, 3)) await sendRecipeCard(chatId, recipe, { groupMode });
+  for (const recipe of results.slice(0, 3)) await sendRecipeCard(chatId, recipe, { groupMode, userId: user.id });
   return results;
 }
 
-async function sendSuggestion(chatId, suggestion, { groupMode = false, userId = null, dialogue = null } = {}) {
+export async function sendSuggestion(chatId, suggestion, { groupMode = false, userId = null, dialogue = null } = {}) {
+  if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId, { userId, dialogue }); return; }
+  if (userId) assertFirstRecipeReadable(userId, `suggestion:${suggestion.id}`);
   const recipe = suggestion.recipe;
   const ingredients = recipe.ingredients.map((item) => `• ${[item.quantity, item.unit, item.name || item.raw].filter((x) => x !== null && x !== '' && x !== undefined).join(' ')}`).join('\n');
   const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join('\n');
@@ -696,6 +760,7 @@ export async function handleRecipeDialogueCallback(callback) {
   if (!match) return false;
   if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from?.id)) return true;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  if (awaitingFirstRecipe(user.id)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chatId, user.id); return true; }
   let dialogue = getRecipeDialogue(user.id, match[2]);
   if (!dialogue) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт больше недоступен', show_alert: true }); return true;
@@ -750,6 +815,7 @@ export async function handleSuggestionCallback(callback) {
     return;
   }
   const userId = groupMode ? owner.owner_user_id : owner.id;
+  if (awaitingFirstRecipe(userId)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chat.id, userId); return; }
   const proposal = match[1] === 'offer' ? getSearchOffer(userId, match[3]) : getRecipeSuggestion(userId, match[3]);
   if (!proposal) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Предложение больше недоступно', show_alert: true });
@@ -795,6 +861,8 @@ export async function handleSuggestionCallback(callback) {
 async function finishImport(chatId, outcome, options = {}) {
   if (outcome.state === 'processing') { await send(chatId, 'Этот источник уже обрабатывается. Новую задачу не создаю.'); return; }
   const recipe = outcome.recipe;
+  const userId = options.userId || recipe?.user_id;
+  if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return; }
   if (outcome.state === 'existing') { await send(chatId, `Этот рецепт уже есть: <b>${escapeHtml(recipe.title)}</b>.`, { reply_markup: recipeButton(recipe, options) }); return; }
   await send(chatId, `Сохранено: <b>${escapeHtml(recipe.title)}</b>. Рецепт уже появился ${options.groupMode ? 'в коллекции владельца группы' : 'в вашей коллекции'}.`, { reply_markup: recipeButton(recipe, options) });
 }
@@ -842,7 +910,7 @@ async function saveContent(message, user, content, options = {}) {
   } else if (content.url) outcome = await importUrl(user.id, content.url);
   else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : `Сообщение в ${chatPlatformLabel}`, label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
   await finishImport(chatId, outcome, options);
-  if (!options.groupMode && outcome.state === 'created') await sendTestOffer(chatId, user.id);
+  if (!options.groupMode && outcome.state === 'created' && !awaitingFirstRecipe(user.id)) await sendTestOffer(chatId, user.id);
   return true;
 }
 
@@ -945,6 +1013,11 @@ export async function handleMessage(message) {
   }
   if (text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
+  if (awaitingFirstRecipe(user.id) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text)) {
+    if (text.startsWith('/start') && !user.is_allowed) allowUser(user.id);
+    await sendFirstRecipeBenefits(chatId, user.id);
+    return;
+  }
   if (text.startsWith('/start')) {
     const isFirstStart = !user.is_allowed;
     let pending = getPendingIntent(user.id);

@@ -25,7 +25,7 @@ import { sendNotificationRecipeLink, sendFeedbackNotification } from './telegram
 import { submitFeedback, restoreFeedbackConversation } from './feedback.js';
 import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
-import { getSubscriptionAccess, startTrial, getTrialStatus, requireRecipeEntry } from './subscriptions.js';
+import { getSubscriptionAccess, startTrial, getTrialStatus, requireRecipeEntry, protectFirstRecipeResponse, assertFirstRecipeReadable } from './subscriptions.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
@@ -50,6 +50,7 @@ function securityHeaders(response, scriptHashes = '') {
   response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors ${frameOrigins}`);
 }
 function json(response, status, value) {
+  if(response.recipeGateUserId)value=protectFirstRecipeResponse(response.recipeGateUserId,value);
   securityHeaders(response); response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value));
 }
 async function bodyJson(request, maxBytes = Math.ceil(config.maxUploadBytes * 4 / 3) + 100_000) {
@@ -125,6 +126,7 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  response.recipeGateUserId=user.id;
   if (request.method === 'POST' && url.pathname === '/api/feedback') {
     const input = await bodyJson(request, 16000);
     const result = await submitFeedback(user.id, request.telegramUser, { ...input, source: 'app' }, sendFeedbackNotification);
@@ -219,11 +221,15 @@ async function api(request, response, url) {
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
   if (request.method === 'GET' && url.pathname === '/api/dinner/profile') return json(response, 200, getFoodProfile(user.id));
   if (request.method === 'GET' && url.pathname.startsWith('/api/dinner/recipes/')) {
-    const recipe = await ensureNutrition(user.id, getDinnerRecipe(user.id, decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length))));
+    const found=getDinnerRecipe(user.id,decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length)));
+    if(!found)return json(response,404,{error:'Рецепт не найден'});
+    assertFirstRecipeReadable(user.id,{catalog:true});
+    const recipe = await ensureNutrition(user.id, found);
     return json(response, recipe ? 200 : 404, recipe ? { ...recipe, pantryMatch: pantryCoverage(recipe, getDinnerContext(user.id)) } : { error: 'Рецепт не найден' });
   }
   const dinnerShare = url.pathname.match(/^\/api\/dinner\/recipes\/([^/]+)\/share$/);
   if (request.method === 'POST' && dinnerShare) {
+    assertFirstRecipeReadable(user.id,{catalog:true});
     const key = decodeURIComponent(dinnerShare[1]);
     const recipe = await ensureNutrition(user.id, getDinnerRecipe(user.id, key));
     const image = key.startsWith('dinner:') ? getDinnerOptionImage(key.slice(7)) : null;
@@ -259,7 +265,7 @@ async function api(request, response, url) {
   if (request.method === 'POST' && dinnerAction) {
     const [, id, action] = dinnerAction;
     if (action === 'accept' || action === 'reject') return json(response, 200, decideDinner(user.id, id, action === 'accept' ? 'accepted' : 'rejected'));
-    if (action === 'cooked') return json(response, 200, finishDinner(user.id, id));
+    if (action === 'cooked') { assertFirstRecipeReadable(user.id); return json(response, 200, finishDinner(user.id, id)); }
     const input = await bodyJson(request, 1000);
     if (action === 'replace') {
       rateLimit(`dinner:${user.id}`, 12, 60_000);
@@ -293,6 +299,8 @@ async function api(request, response, url) {
   }
   if (request.method === 'GET' && /^\/api\/suggestions\/[0-9a-f-]{36}$/i.test(url.pathname)) {
     const suggestion = getRecipeSuggestion(user.id, url.pathname.split('/').at(-1));
+    if(!suggestion)return json(response,404,{error:'Рецепт не найден'});
+    assertFirstRecipeReadable(user.id);
     if (suggestion) suggestion.recipe = await ensureNutrition(user.id, suggestion.recipe);
     return json(response, suggestion ? 200 : 404, suggestion || { error: 'Рецепт не найден' });
   }
@@ -305,6 +313,7 @@ async function api(request, response, url) {
     const suggestionId = url.pathname.split('/').at(-2);
     const suggestion = getRecipeSuggestion(user.id, suggestionId);
     if (!suggestion) return json(response, 404, { error: 'Предложение больше недоступно' });
+    assertFirstRecipeReadable(user.id);
     assertSuggestionCurrent(user.id, suggestion);
     const recipe = saveRecipeSuggestion(user.id, suggestionId);
     if (!recipe) return json(response, 404, { error: 'Предложение больше недоступно' });
@@ -313,13 +322,17 @@ async function api(request, response, url) {
     return json(response, 200, recipe);
   }
   if (request.method === 'GET' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
-    const recipe = await ensureNutrition(user.id, getRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1))));
+    const found=getRecipe(user.id,decodeURIComponent(url.pathname.split('/').at(-1)));
+    if(!found)return json(response,404,{error:'Рецепт не найден'});
+    assertFirstRecipeReadable(user.id);
+    const recipe = await ensureNutrition(user.id, found);
     return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Рецепт не найден' });
   }
   if (request.method === 'POST' && /^\/api\/recipes\/[^/]+\/share$/.test(url.pathname)) {
     const id = decodeURIComponent(url.pathname.split('/').at(-2));
     const recipe = getRecipe(user.id, id);
     if (!recipe) return json(response, 404, { error: 'Рецепт не найден' });
+    assertFirstRecipeReadable(user.id);
     await ensureNutrition(user.id, recipe);
     const token = createRecipeShare(user.id, id);
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
@@ -349,6 +362,7 @@ async function api(request, response, url) {
   if (request.method === 'PUT' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
     const id = decodeURIComponent(url.pathname.split('/').at(-1)), existing = getRecipe(user.id, id);
     if (!existing) return json(response, 404, { error: 'Рецепт не найден' });
+    assertFirstRecipeReadable(user.id);
     const input = cleanRecipeInput(await bodyJson(request), existing);
     const changed = input.servings !== existing.servings || JSON.stringify(input.ingredients) !== JSON.stringify(existing.ingredients) || JSON.stringify(input.steps) !== JSON.stringify(existing.steps);
     const enriched = await ensureNutrition(user.id, { ...existing, ...input, nutrition: changed ? null : existing.nutrition });

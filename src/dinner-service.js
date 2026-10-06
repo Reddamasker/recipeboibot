@@ -1,6 +1,6 @@
 import { listRecipes, saveDinnerRecipe, withNutrition } from './db.js';
 import { config } from './config.js';
-import { requireRecipeEntry, requireDinnerEntry, completeFirstDinner } from './subscriptions.js';
+import { requireRecipeEntry, requireDinnerEntry, completeFirstDinner, stageFirstRecipe, getPendingFirstRecipe, isFirstRecipeAwaitingTrial, assertFirstRecipeReadable } from './subscriptions.js';
 import { invalidateDinnerBuffer, currentDinnerOptions, replaceDinnerOption, retainDinnerBufferContext, acceptedDinnerOptionId, getDinnerRejectionReason, getDislikedDinnerTitles } from './dinner-store.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, getDinnerOptionImage, markDinnerSessionOpened } from './dinner-store.js';
@@ -268,6 +268,9 @@ export function decideDinner(userId, recommendationId, decision) {
   const firstFreeRecipe = updated.status === 'accepted' ? completeFirstDinner(userId, recommendationId, recipe) : false;
   const image = updated.status === 'accepted' && updated.recipe_key.startsWith('dinner:') ? getDinnerOptionImage(recommendationId) : null;
   const savedRecipe = updated.status === 'accepted' ? saveDinnerRecipe(userId, updated.recipe_key, recipe, image) : null;
+  if(firstFreeRecipe&&savedRecipe)stageFirstRecipe(userId,{recipe,recipeId:savedRecipe.id,recipeKey:updated.recipe_key,selectedId:recommendationId,source:'dinner',imageUrl:savedRecipe.imageUrl});
+  const awaitingTrial=isFirstRecipeAwaitingTrial(userId);
+  if(awaitingTrial)return {firstFreeRecipe:false,awaitingTrial:true,pendingFirstRecipe:getPendingFirstRecipe(userId),status:updated.status,sessionId:updated.session_id,recipeKey:updated.recipe_key,rejectedCount:rejectedInSession(userId,updated.session_id).length};
   return { firstFreeRecipe, status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, savedRecipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
 }
 
@@ -285,6 +288,7 @@ export function setDinnerRejectionReason(userId, recommendationId, reason, detai
 }
 
 export function finishDinner(userId, recommendationId) {
+  assertFirstRecipeReadable(userId);
   const row = getDinnerRecommendation(userId, recommendationId);
   if (!row) throw notFound();
   const recipe = recipeForDecision(userId, row.recipe_key);

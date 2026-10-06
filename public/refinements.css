@@ -379,3 +379,7 @@ span.recipe-tag { cursor: default; }
 .app-shell:has(>.paywall){padding-inline:12px}
 .app-shell:has(>.paywall)>header{min-height:64px;padding:10px 2px}
 .benefits-page .benefits-pricing{width:100%;min-height:48px}
+
+.benefits-page .first-recipe-preview{display:flex;align-items:center;gap:12px;margin-bottom:14px;color:var(--ink)}
+.benefits-page .first-recipe-preview img{flex:none;width:64px;height:64px;object-fit:cover;border-radius:16px}
+.benefits-page .first-recipe-preview strong{min-width:0;font-size:15px;line-height:1.4}

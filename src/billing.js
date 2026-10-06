@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { db } from './db.js';
 import { config } from './config.js';
 import { MAX_INVOICE_FLOOR, paymentContour, invoiceBelongsToContour } from './payment-routing.js';
-import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, hasUsedTrialOrPromo, monthsAfter } from './subscriptions.js';
+import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, hasUsedTrialOrPromo, monthsAfter, getPendingFirstRecipe, unlockFirstRecipe } from './subscriptions.js';
 import { promoQuote, reservedPromoOrder, reservePromo, consumePromo } from './promos.js';
 import { publicSubscriptionPlans, subscriptionPeriodLabel, subscriptionPlan } from './plans.js';
 import { log } from './log.js';
@@ -132,7 +132,7 @@ function hasFirstValue(userId) {
   if (db.prepare("SELECT 1 FROM recipes WHERE user_id=? AND status='ready' LIMIT 1").get(userId)) return 'saved';
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='dinner_events'").get()
       && db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recipe_cooked' LIMIT 1").get(userId)) return 'cooked';
-  return getFirstRecipeStatus(userId).delivered ? 'received' : null;
+  return getPendingFirstRecipe(userId) ? 'selected' : getFirstRecipeStatus(userId).delivered ? 'received' : null;
 }
 
 function assignmentFor(userId, at = new Date()) {
@@ -160,6 +160,7 @@ export function canUseAutomaticImport(userId, at = new Date()) {
 }
 
 export function getBillingOffer(userId, at = new Date()) {
+  const unlockedFirstRecipe=unlockFirstRecipe(userId,at);
   const firstValue = hasFirstValue(userId);
   const access = getSubscriptionAccess(userId, at);
   const trial = getTrialStatus(userId, at);
@@ -171,6 +172,8 @@ export function getBillingOffer(userId, at = new Date()) {
     active: access.active,
     accessSource: access.source,
     firstRecipe: getFirstRecipeStatus(userId),
+    pendingFirstRecipe:getPendingFirstRecipe(userId),
+    unlockedFirstRecipe,
     trial: { ...trial, eligible: !trial.used && !access.active },
     expiresAt: access.expiresAt,
     hasFirstRecipe: Boolean(firstValue),

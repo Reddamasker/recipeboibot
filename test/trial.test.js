@@ -29,7 +29,7 @@ let serial = 610000100;
 function fresh() { const telegram = { id: serial++, first_name: 'Trial' }; const user = upsertTelegramUser(telegram); allowUser(user.id); return { user, telegram }; }
 test.after(() => { db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
 
-test('a new user receives one free recipe before trial; further AI entry points require access', async () => {
+test('a new user selects one first recipe and awaits trial; further AI entry points require access', async () => {
   const { user } = fresh();
   const adapters = { generate: assert.fail, interpret: assert.fail, validate: assert.fail };
   assert.equal(canUseAutomaticImport(user.id), true);
@@ -43,7 +43,8 @@ test('a new user receives one free recipe before trial; further AI entry points 
   const first = await resolveRecipeRequest(user.id, 'рис с овощами', { generate: assert.fail });
   assert.equal(first.kind, 'existing');
   assert.equal(getTrialStatus(user.id).used, false);
-  assert.equal(getFirstRecipeStatus(user.id).delivered, true);
+  assert.equal(getFirstRecipeStatus(user.id).delivered, false);
+  assert.equal(getFirstRecipeStatus(user.id).awaitingTrial, true);
   assert.equal(getBillingOffer(user.id).hasFirstRecipe, true);
   assert.deepEqual(await resolveRecipeRequest(user.id, 'рис с овощами', adapters), first);
   assert.equal(canUseAutomaticImport(user.id), false);
@@ -103,11 +104,13 @@ test('first dinner keeps three choices and replacements free until one like', as
   assert.equal(next.recommendations.length, 3);
   await assert.rejects(() => resolveRecipeRequest(user.id, 'Суп', { generate: assert.fail, interpret: assert.fail }), { status: 402 });
   const selected = decideDinner(user.id, next.recommendation.id, 'accepted');
-  assert.equal(selected.firstFreeRecipe, true);
-  assert.ok(selected.savedRecipe);
-  assert.equal(getFirstRecipeStatus(user.id).delivered, true);
+  assert.equal(selected.firstFreeRecipe, false);
+  assert.equal(selected.awaitingTrial, true);
+  assert.ok(selected.pendingFirstRecipe.recipeId);
+  assert.equal(selected.savedRecipe, undefined);
+  assert.equal(getFirstRecipeStatus(user.id).delivered, false);
   assert.equal(getTrialStatus(user.id).used, false);
-  assert.equal(decideDinner(user.id, next.recommendation.id, 'accepted').savedRecipe.id, selected.savedRecipe.id);
+  assert.equal(decideDinner(user.id, next.recommendation.id, 'accepted').pendingFirstRecipe.recipeId, selected.pendingFirstRecipe.recipeId);
   assert.throws(() => decideDinner(user.id, next.recommendations[1].id, 'accepted'), { status: 402 });
   assert.throws(() => prefetchDinner(user.id, session.sessionId), { status: 402 });
   await assert.rejects(() => recommendDinner(user.id, startDinner(user.id).sessionId), { status: 402 });
@@ -120,6 +123,7 @@ test('legacy unliked first dinner resumes three choices without resetting the ac
   updateDinnerProfile(user.id, { onboardingCompleted: true });
   const session = startDinner(user.id);
   await withFirstRecipe(user.id, 'dinner:' + session.sessionId, async () => ({ recommendation: { recipe: { title: 'Старый показ' } } }));
+  db.prepare('UPDATE first_recipe_results SET trial_required=0 WHERE user_id=?').run(user.id);
   const picks = await recommendDinner(user.id, session.sessionId);
   assert.equal(picks.recommendations.length, 3);
   assert.equal(getFirstRecipeStatus(user.id).delivered, false);

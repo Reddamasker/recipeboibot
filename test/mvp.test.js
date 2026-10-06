@@ -198,6 +198,9 @@ test('owner can create a public recipe link that opens without Telegram auth', a
     assert.equal(publicRecipe.title, 'Шарлотка');
     assert.equal(publicRecipe.sharedBy, 'Лена');
     assert.equal('notes' in publicRecipe, false);
+    const beforeTrial = await fetch(`${base}/api/dinner/recipes/${encodeURIComponent(SEED_RECIPES[0].id)}/share`, { method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(beforeTrial.status,402);
+    const {startTrial}=await import('../src/subscriptions.js');startTrial(owner.id);
     const dinnerCreated = await fetch(`${base}/api/dinner/recipes/${encodeURIComponent(SEED_RECIPES[0].id)}/share`, { method: 'POST', headers: { authorization: `tma ${initData}`, 'content-type': 'application/json' }, body: '{}' });
     assert.equal(dinnerCreated.status, 200);
     const dinnerShare = await dinnerCreated.json();

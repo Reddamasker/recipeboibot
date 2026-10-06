@@ -81,10 +81,20 @@ async function activateTrial(event) {
   state.trialStarting = true;
   const button = event.currentTarget;
   button.disabled = true;
+  const pendingFirstRecipe = state.payment?.pendingFirstRecipe;
   try {
     state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
     if (!state.payment.active) { closeOverlay(); openOffer(); return; }
     closeOverlay();
+    const unlocked = state.payment.unlockedFirstRecipe || state.payment.pendingFirstRecipe || pendingFirstRecipe;
+    if (unlocked?.recipeId) {
+      if (state.dinner) state.dinner.awaitingTrial = false;
+      setTrialOnboardingStep(null);
+      setRoute({ view: 'collection' }, { replace: true });
+      await refresh();
+      await openRecipe(unlocked.recipeId, true);
+      return;
+    }
     setRoute({ view: 'dinner' });
     if (state.payment.accessSource === 'trial') {
       setTrialOnboardingStep('taste');
@@ -158,9 +168,14 @@ function openBenefits() { closeOverlay(); setRoute({ view: 'benefits' }); void r
 
 function benefitsPage() {
   if (!state.payment?.trial?.eligible || state.payment.active) { offerPage(); return; }
-  root.innerHTML = `${header()}<main class="offer-page benefits-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>А вот что я ещё умею</h1><p>Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>Попробовать 7 дней бесплатно</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
+  const pending = state.payment.pendingFirstRecipe;
+  const chosen = state.payment.firstRecipe?.awaitingTrial && pending?.recipeId;
+  const title = chosen ? 'Твой первый рецепт готов' : 'А вот что я ещё умею';
+  const trialAction = chosen ? 'Начать 7 дней бесплатно и открыть рецепт' : 'Попробовать 7 дней бесплатно';
+  const chosenImage = chosen && safeImage(pending.imageUrl);
+  root.innerHTML = `${header()}<main class="offer-page benefits-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>${title}</h1>${chosen ? `<p class="first-recipe-preview">${chosenImage ? `<img src="${chosenImage}" alt="" referrerpolicy="no-referrer">` : ''}<strong>${esc(pending.title || 'Выбранный рецепт')}</strong></p>` : ''}<p>Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>${trialAction}</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
   bindCommon();
-  document.querySelector('#benefits-back').onclick = () => { setRoute({ view: 'dinner' }); void render(); };
+  document.querySelector('#benefits-back').onclick = () => { setRoute({ view: chosen ? 'menu' : 'dinner' }); void render(); };
   document.querySelector('#benefits-pricing').onclick = () => { setRoute({ view: 'pricing' }); void render(); };
 }
 
@@ -241,7 +256,10 @@ async function showRequestedRecipe(event, { query: suppliedQuery = '', hideRawQu
     const params = new URLSearchParams(location.search);
     if (params.get('view') !== 'request' || (!hideRawQuery && params.get('q') !== query)) return;
     state.query = String(result.query || '').trim();
-    if (result.kind === 'existing') await openRecipe(result.recipe.id, true);
+    if (result.awaitingTrial || state.payment?.firstRecipe?.awaitingTrial) {
+      if (result.pendingFirstRecipe) state.payment = { ...state.payment, firstRecipe: { ...state.payment?.firstRecipe, awaitingTrial: true, trialGateUsed: true }, pendingFirstRecipe: result.pendingFirstRecipe };
+      closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage();
+    } else if (result.kind === 'existing') await openRecipe(result.recipe.id, true);
     else if (result.kind === 'generated') recipeDetail({ ...result.suggestion.recipe, origin: 'generated', sourceName: 'Создано в «Рецептах»' }, { suggestion: result.suggestion });
     else throw new Error('Не получилось подобрать рецепт');
   } catch (error) { if (error.status === 402) { await refresh(); openOffer(); } else toast(error.message); }
@@ -308,7 +326,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
 }
 
 async function resumePendingTrialTastePreferences() {
-  if (!state.payment?.active) return false;
+  if (!state.payment?.active || state.payment.firstRecipe?.trialGateUsed) return false;
   const savedStep = savedTrialOnboardingStep();
   if (savedStep && savedStep !== 'taste') {
     state.trialOnboarding = savedStep;
@@ -678,6 +696,7 @@ function updateDinnerIngredients() {
 }
 
 function dinnerView() {
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   if (state.onboarding) return onboardingView();
   const dinner = state.dinner, items = dinner?.recommendations || [];
   const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
@@ -718,7 +737,7 @@ function dinnerView() {
   };
   document.querySelector('#dinner-request-form')?.addEventListener('submit', (event) => { event.preventDefault(); void changeRequest(document.querySelector('#dinner-request-text').value); });
   document.querySelector('#dinner-request-clear')?.addEventListener('click', () => changeRequest(''));
-  document.querySelectorAll('[data-dinner-full]').forEach((button) => button.onclick = () => { const selected = items.find((option) => option.id === button.dataset.dinnerFull); openRecipe(selected.recipe.id, true); });
+  document.querySelectorAll('[data-dinner-full]').forEach((button) => button.onclick = () => { const selected = items.find((option) => option.id === button.dataset.dinnerFull); if (!state.payment?.active && (state.payment?.firstRecipe?.available || state.payment?.firstRecipe?.trialGateUsed)) void acceptDinnerItem(selected); else openRecipe(selected.recipe.id, true); });
   document.querySelector('#dinner-full-recipe')?.addEventListener('click', () => { openRecipe(recipe.id, true); });
   document.querySelector('#dinner-start-cooking')?.addEventListener('click', () => { if (recipe.steps?.length) cookMode(recipe, () => markDinnerCooked(item.id)); else openRecipe(recipe.id, true); });
   document.querySelector('#dinner-mark-cooked')?.addEventListener('click', () => markDinnerCooked(item.id));
@@ -736,6 +755,13 @@ async function acceptDinnerItem(option, { openSelectedRecipe = true } = {}) {
     const result = await api(dinner.notificationId ? `/api/notifications/${encodeURIComponent(dinner.notificationId)}/select` : `/api/dinner/recommendations/${option.id}/accept`, { method: 'POST', body: dinner.notificationId ? JSON.stringify({ recommendationId: option.id }) : '{}' });
     if (state.dinner !== dinner) return false;
     if (result.status !== 'accepted') throw new Error('Этот вариант уже недоступен');
+    if (result.awaitingTrial) {
+      Object.assign(dinner, { recommendation: option, accepted: true, awaitingTrial: true, switching: false, acceptingId: null });
+      state.payment = { ...state.payment, firstRecipe: { ...state.payment?.firstRecipe, awaitingTrial: true, trialGateUsed: true }, pendingFirstRecipe: result.pendingFirstRecipe || state.payment?.pendingFirstRecipe };
+      await refresh();
+      closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage();
+      return true;
+    }
     if (result.savedRecipe) state.recipes = [result.savedRecipe, ...state.recipes.filter((recipe) => recipe.id !== result.savedRecipe.id)];
     Object.assign(dinner, { recommendation: option, accepted: true, firstFreeRecipe: Boolean(result.firstFreeRecipe), switching: false, acceptingId: null });
     if (result.firstFreeRecipe) await refresh();
@@ -750,9 +776,11 @@ async function acceptDinnerItem(option, { openSelectedRecipe = true } = {}) {
 }
 
 async function cookFromDinnerDetail(recipe) {
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const inDinner = new URLSearchParams(location.search).get('view') === 'dinner';
   const option = inDinner ? state.dinner?.recommendations.find((item) => item.recipe.id === recipe.id) : null;
   if (option && !state.dinner.accepted && !await acceptDinnerItem(option, { openSelectedRecipe: false })) return;
+  if (!state.payment?.active && (state.dinner?.awaitingTrial || state.payment?.firstRecipe?.awaitingTrial)) return;
   closeOverlay();
   cookMode(recipe, option && state.dinner?.recommendation?.id === option.id ? () => markDinnerCooked(option.id) : null);
 }
@@ -787,7 +815,8 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
     button.disabled = true; button.textContent = 'Составляю рецепт…';
     try {
       const proposal = await api('/api/suggestions', { method: 'POST', body: JSON.stringify({ query }) });
-      if (new URLSearchParams(location.search).get('q') === query) collection([], `Результаты: ${query}`, proposal);
+      if (proposal.awaitingTrial) { await refresh(); closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); }
+      else if (new URLSearchParams(location.search).get('q') === query) collection([], `Результаты: ${query}`, proposal);
     } catch (error) { toast(error.message); button.disabled = false; button.textContent = 'Создать новый рецепт'; }
   });
   document.querySelector('#dismiss-suggestion')?.addEventListener('click', () => collection([], title));
@@ -860,6 +889,9 @@ async function notificationSettingsPage() {
 
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !['pricing', 'promo', 'feedback', 'menu'].includes(view)) {
+    closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return;
+  }
   if (view === 'menu') mainMenuPage();
   else if (view === 'feedback') feedbackPage();
   else if (view === 'promo') promoPage();
@@ -1042,7 +1074,10 @@ async function submitImport(event) {
     closeOverlay();
     try {
       await refresh();
-      if (outcome.state === 'playlist') { toast('Плейлист принят. Рецепты будут появляться в коллекции по мере обработки.'); await render(); }
+      if (outcome.awaitingTrial || state.payment?.firstRecipe?.awaitingTrial) {
+        if (outcome.pendingFirstRecipe) state.payment = { ...state.payment, firstRecipe: { ...state.payment?.firstRecipe, awaitingTrial: true, trialGateUsed: true }, pendingFirstRecipe: outcome.pendingFirstRecipe };
+        setRoute({ view: 'benefits' }, { replace: true }); benefitsPage();
+      } else if (outcome.state === 'playlist') { toast('Плейлист принят. Рецепты будут появляться в коллекции по мере обработки.'); await render(); }
       else if (outcome.recipe) { toast(outcome.state === 'existing' ? 'Этот рецепт уже есть' : 'Рецепт сохранён'); await openRecipe(outcome.recipe.id, true); }
       else { toast('Источник уже обрабатывается'); await render(); }
     } catch { toast('Источник получен, но обновить коллекцию не удалось. Откройте её снова.'); }
@@ -1073,6 +1108,7 @@ function closeDetailRoute() {
 }
 
 async function openRecipe(id, pushRoute = false) {
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const revision = ++recipeOpenRevision;
   try {
     if (pushRoute && new URLSearchParams(location.search).get('recipe') !== id) { state.scrollY = scrollY; const params = Object.fromEntries(new URLSearchParams(location.search)); params.recipe = id; setRoute(params, { historyState: { recipeOverlay: true, scrollY: state.scrollY } }); }
@@ -1082,7 +1118,11 @@ async function openRecipe(id, pushRoute = false) {
     if (revision !== recipeOpenRevision || new URLSearchParams(location.search).get('recipe') !== id) return;
     closeOverlay(); recipeDetail(recipe);
     if (recipe.dinnerGenerated && !recipe.thumbnailUrl) void waitForRecipeImage(recipe.id);
-  } catch (error) { if (revision === recipeOpenRevision) toast(error.message); }
+  } catch (error) {
+    if (revision !== recipeOpenRevision) return;
+    if (error.status === 402) { await refresh(); closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); }
+    else toast(error.message);
+  }
 }
 
 async function waitForRecipeImage(id) {
@@ -1101,6 +1141,7 @@ async function waitForRecipeImage(id) {
 }
 
 function recipeDetail(r, { shared = false, suggestion = null } = {}) {
+  if (!shared && state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const catalog = r.origin === 'seed' || r.dinnerGenerated || Boolean(suggestion);
   const requestMode = !shared && new URLSearchParams(location.search).get('view') === 'request';
   const dinnerOption = state.dinner?.recommendations.find((option) => option.recipe.id === r.id);
@@ -1711,7 +1752,13 @@ async function boot() {
       state.checkoutOrder = await api(`/api/billing/orders/${encodeURIComponent(paymentOrderId)}`);
       if (state.checkoutOrder.status === 'paid') setTrialOnboardingStep('payment-success');
     }
-    if (routeParams.get('view') === 'menu' || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
+    const firstRecipeReopen = ['benefits', 'offer'].includes(routeParams.get('view')) && state.payment?.active && state.payment.firstRecipe?.trialGateUsed && state.payment.pendingFirstRecipe?.unlocked && state.payment.pendingFirstRecipe.recipeId;
+    if (firstRecipeReopen) {
+      setTrialOnboardingStep(null);
+      setRoute({ view: 'collection', recipe: firstRecipeReopen }, { replace: true });
+      await render();
+    } else if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) await render();
+    else if (routeParams.get('view') === 'menu' || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;

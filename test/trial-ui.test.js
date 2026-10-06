@@ -21,7 +21,7 @@ function combinedOfferHarness(payment, quote = null, entry = 'pricing') {
   const nodes = {}, calls = [], steps = [], routes = [];
   const state = { payment, paymentPeriodMonths: quote?.periodMonths || 1, paymentPromoQuote: quote, paymentPromoMessage: '' };
   const root = { innerHTML: '' };
-  const sandbox = { state, root, esc: String, header: () => '', bindCommon() {}, bindPaymentOfferControls() {},
+  const sandbox = { state, root, safeImage: () => '', esc: String, header: () => '', bindCommon() {}, bindPaymentOfferControls() {},
     document: { querySelector: id => nodes[id] ||= { addEventListener(_event, fn) { this.handler = fn; } } },
     api: async (path, options) => {
       if (path.endsWith('/exposure')) return {};
@@ -365,4 +365,48 @@ test('first recipe banner opens three benefits and only their trial button start
   assert.equal(calls.length, 0);
   nodes.trial.click();
   assert.deepEqual(calls, ['/api/billing/trial']);
+});
+
+
+test('selected first recipe trial waits for confirmation, retries and opens the same recipe without onboarding', async () => {
+  const pending = { recipeId: 'saved-first', title: 'Томатная паста', selectedId: 'choice', unlocked: false };
+  const state = { payment: { firstRecipe: { awaitingTrial: true, trialGateUsed: true }, pendingFirstRecipe: pending, trial: { eligible: true } }, dinner: { awaitingTrial: true } };
+  const calls = [], routes = [], opened = [], onboarding = [], errors = [];
+  let settle;
+  const sandbox = { state,
+    api(path, options) { calls.push([path, options.method]); return new Promise((resolve, reject) => { settle = { resolve, reject }; }); },
+    refresh: async () => calls.push(['refresh']), openRecipe: async (...args) => opened.push(args),
+    setTrialOnboardingStep: value => onboarding.push(value), setRoute: route => routes.push(route), closeOverlay() {},
+    beginDinner: assert.fail, openOffer: assert.fail, toast: message => errors.push(message) };
+  vm.runInNewContext(source.slice(source.indexOf('async function activateTrial('), source.indexOf('function bindCommon()')), sandbox);
+  const button = { disabled: false };
+  assert.equal(calls.length, 0);
+  const failed = sandbox.activateTrial({ currentTarget: button });
+  await sandbox.activateTrial({ currentTarget: button });
+  assert.equal(calls.length, 1); assert.equal(button.disabled, true); assert.equal(opened.length, 0);
+  settle.reject(new Error('Попробуйте ещё раз')); await failed;
+  assert.equal(state.payment.pendingFirstRecipe.recipeId, pending.recipeId);
+  assert.equal(button.disabled, false); assert.deepEqual(errors, ['Попробуйте ещё раз']);
+  const success = sandbox.activateTrial({ currentTarget: button });
+  assert.equal(opened.length, 0);
+  settle.resolve({ active: true, accessSource: 'trial', firstRecipe: { awaitingTrial: false, trialGateUsed: true }, unlockedFirstRecipe: { ...pending, unlocked: true }, pendingFirstRecipe: { ...pending, unlocked: true } });
+  await success;
+  assert.deepEqual(calls, [['/api/billing/trial', 'POST'], ['/api/billing/trial', 'POST'], ['refresh']]);
+  assert.deepEqual(opened, [['saved-first', true]]);
+  assert.equal(state.dinner.awaitingTrial, false);
+  assert.deepEqual(onboarding, [null]);
+  assert.equal(routes[0].view, 'collection');
+});
+
+test('selected benefits show chosen title, gate CTA and allow leaving without a trial API call', () => {
+  const { sandbox, nodes, calls, routes } = combinedOfferHarness({ ...expiredPayment, available: true, active: false,
+    trial: { eligible: true, used: false }, firstRecipe: { awaitingTrial: true, trialGateUsed: true },
+    pendingFirstRecipe: { recipeId: 'saved-first', title: 'Паста <любимая>', imageUrl: '' } }, null, 'offer');
+  assert.match(sandbox.root.innerHTML, /Твой первый рецепт готов/);
+  assert.match(sandbox.root.innerHTML, /Паста/);
+  assert.match(sandbox.root.innerHTML, /Начать 7 дней бесплатно и открыть рецепт/);
+  assert.doesNotMatch(sandbox.root.innerHTML, /Ингредиенты|Как готовить/);
+  nodes['#benefits-back'].onclick();
+  assert.equal(routes.at(-1).view, 'menu');
+  assert.equal(calls.length, 0);
 });

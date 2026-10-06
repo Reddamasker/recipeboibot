@@ -125,3 +125,20 @@ test('dismissed successful request cannot close a newer dialog; refresh failure 
   await g.submit(); assert.equal(g.closed, 1);
   assert.match(g.notices[0], /Источник получен/);
 });
+
+
+test('a first imported recipe waits at benefits without fetching its full content or starting trial', async () => {
+  const f = fixture(); f.text.value = 'Сохранить рецепт';
+  const routes = [], calls = [];
+  const pending = { recipeId: 'saved-first', title: 'Паста' };
+  f.sandbox.api = async path => { calls.push(path); return { awaitingTrial: true, pendingFirstRecipe: pending }; };
+  f.sandbox.refresh = async () => { f.sandbox.state.payment = { active: false, firstRecipe: { awaitingTrial: true, trialGateUsed: true }, pendingFirstRecipe: pending }; };
+  f.sandbox.setRoute = route => routes.push(route);
+  f.sandbox.benefitsPage = () => calls.push('benefits');
+  await f.submit();
+  assert.deepEqual(calls, ['/api/import', 'benefits']);
+  assert.deepEqual(f.opened, []);
+  assert.equal(routes.at(-1).view, 'benefits');
+  assert.equal(f.sandbox.state.payment.pendingFirstRecipe.recipeId, pending.recipeId);
+  assert.deepEqual(f.notices, []);
+});
