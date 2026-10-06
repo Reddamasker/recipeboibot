@@ -1,3 +1,4 @@
+import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { db } from './db.js';
 import { config } from './config.js';
 import { advertisingRedirect, createCampaign, isAdvertisingProbe } from './funnel.js';
@@ -71,8 +72,8 @@ export function landingReport(slug = 'all') {
   const counts = db.prepare(`SELECT COUNT(*) AS views,COUNT(telegram_clicked_at) AS telegramClicks FROM landing_visits v ${scope}`).get(...params);
   const starts = db.prepare(`SELECT COUNT(DISTINCT s.user_id) AS n FROM landing_visits v
     JOIN acquisition_starts s ON s.click_token=v.click_token JOIN users u ON u.id=s.user_id
-    WHERE s.is_returning=0 AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'
-    ${slug === 'all' ? '' : slug === 'site-landing' ? 'AND v.campaign IS NULL' : 'AND v.campaign=?'}`).get(config.analyticsOwnerId, ...params).n;
+    WHERE s.is_returning=0 AND ${analyticsUserCondition}
+    ${slug === 'all' ? '' : slug === 'site-landing' ? 'AND v.campaign IS NULL' : 'AND v.campaign=?'}`).get(...analyticsExcludedIds, ...params).n;
   return { trackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_tracking_since'").get().value,
     totalViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits').get().n,
     taggedViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits WHERE campaign IS NOT NULL').get().n,
