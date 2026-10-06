@@ -469,14 +469,14 @@ export function createServer() {
         const input = await bodyJson(request, 6000);
         return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
       }
-      if (url.pathname === '/open/telegram') {
+      if (url.pathname === '/open/telegram' || url.pathname === '/open/telegram/button') {
         if (config.botPlatform === 'max') return json(response, 404, { error: 'Не найдено' });
         if (!['GET', 'HEAD'].includes(request.method)) return json(response, 405, { error: 'Метод не поддерживается' });
         const campaign = url.searchParams.get('campaign');
         const destination = campaign
           ? advertisingRedirect(campaign, { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}`, searchParams: url.searchParams })
           : `https://t.me/${config.testContour ? config.testBotUsername : 'Recipeboibot'}?start=dinner`;
-        const document = telegramOpenDocument(destination);
+        const document = telegramOpenDocument(destination, { button: url.pathname.endsWith('/button') });
         securityHeaders(response);
         response.setHeader('x-robots-tag', 'noindex, nofollow');
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });

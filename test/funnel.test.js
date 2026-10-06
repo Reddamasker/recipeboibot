@@ -255,7 +255,7 @@ test('dashboard requires password and cookie, rejects cross-origin writes, and s
   } finally { globalThis.fetch = original; await new Promise(resolve => server.close(resolve)); }
 });
 
-test('automatic Telegram route preserves attribution, skips probes and leaves existing redirects intact', async () => {
+test('Telegram auto and button routes preserve attribution, skip probes and leave existing redirects intact', async () => {
   createCampaign('auto-open');
   const server = createServer();
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -267,6 +267,13 @@ test('automatic Telegram route preserves attribution, skips probes and leaves ex
     assert.equal(organic.headers.get('cache-control'), 'no-store');
     assert.ok(organic.headers.get('content-security-policy').includes("script-src 'self'"));
     assert.ok((await organic.text()).includes('https://t.me/Recipeboibot?start=dinner'));
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM acquisition_clicks').get().n, before);
+    const button = await fetch(base + '/open/telegram/button');
+    assert.equal(button.status, 200);
+    const buttonHtml = await button.text();
+    assert.ok(buttonHtml.includes('id="telegram-launch" href="tg://resolve?domain=Recipeboibot&amp;start=dinner"'));
+    assert.ok(buttonHtml.includes('/telegram-open.css?v=button-1'));
+    assert.ok(!buttonHtml.includes('http-equiv="refresh"'));
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM acquisition_clicks').get().n, before);
     const head = await fetch(base + '/open/telegram?campaign=auto-open', { method: 'HEAD' });
     assert.equal(head.status, 200); assert.equal(await head.text(), '');
@@ -281,6 +288,15 @@ test('automatic Telegram route preserves attribution, skips probes and leaves ex
     assert.equal(click.campaign, 'auto-open');
     assert.deepEqual(JSON.parse(click.tags_json), { utm_source: 'qa', yclid: 'test-only' });
     assert.equal(funnelReport('auto-open').clicks, 1);
+    const trackedButton = await fetch(base + '/open/telegram/button?campaign=auto-open&utm_source=button-qa',
+      { headers: { 'user-agent': 'Mozilla/5.0' } });
+    const trackedHtml = await trackedButton.text();
+    const buttonPayload = trackedHtml.match(/start=(ad_[A-Za-z0-9_-]{24})/)[1];
+    assert.notEqual(buttonPayload, payload);
+    assert.ok(trackedHtml.includes(`id="telegram-launch" href="tg://resolve?domain=Recipeboibot&amp;start=${buttonPayload}"`));
+    const buttonClick = db.prepare('SELECT tags_json FROM acquisition_clicks WHERE token=?').get(buttonPayload.slice(3));
+    assert.equal(JSON.parse(buttonClick.tags_json).utm_source, 'button-qa');
+    assert.equal(funnelReport('auto-open').clicks, 2);
     assert.equal((await fetch(base + '/open/telegram', { method: 'POST' })).status, 405);
     assert.equal((await fetch(base + '/open/telegram?campaign=missing')).status, 404);
     const old = await fetch(base + '/go/auto-open', { method: 'HEAD', redirect: 'manual' });

@@ -1,5 +1,5 @@
 // Only server-selected Telegram destinations can reach the app-opening page.
-export function telegramOpenDocument(destination) {
+export function telegramOpenDocument(destination, { button = false } = {}) {
   const url = new URL(destination);
   const username = url.pathname.slice(1);
   const payload = url.searchParams.get('start') || '';
@@ -10,6 +10,26 @@ export function telegramOpenDocument(destination) {
   }
   const web = `https://t.me/${username}?start=${payload}`;
   const app = `tg://resolve?domain=${username}&amp;start=${payload}`;
+  if (button) return `<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>Подобрать ужин — Твои рецепты</title>
+<link rel="icon" href="/assets/recipe-bot-avatar-v3.webp" type="image/webp">
+<link rel="stylesheet" href="/telegram-open.css?v=button-1">
+<script src="/telegram-open.js?v=button-1" defer></script></head>
+<body class="telegram-entry"><div class="entry-wrap">
+<header class="entry-brand"><img src="/assets/recipe-bot-avatar-v3.webp" width="38" height="38" alt=""><span>Твои рецепты</span><small>Бот в Telegram</small></header>
+<main class="entry-card"><figure class="entry-photo"><img src="/assets/dinner/chicken-rice.jpg" width="1254" height="1254" alt="Домашний ужин: курица с рисом и овощами" fetchpriority="high"><figcaption>Из того, что есть дома.</figcaption></figure>
+<section class="entry-content" aria-labelledby="entry-title">
+<p class="entry-eyebrow">Один вопрос — и идея ужина</p>
+<h1 id="entry-title">Что приготовить <em>сегодня?</em></h1>
+<p class="entry-lead">Напишите или надиктуйте продукты — бот подберёт ужин по вашим вкусам.</p>
+<a class="entry-button" id="telegram-launch" href="${app}">Подобрать ужин в Telegram</a>
+<p class="entry-hint" id="telegram-status" role="status">В Telegram нажмите «Начать» и расскажите, что есть дома.</p>
+<a class="entry-fallback" id="telegram-fallback" href="${web}" data-app-url="${app}">Другой способ открыть Telegram</a>
+</section></main>
+<footer class="entry-footer"><a href="/privacy.html">Конфиденциальность</a><a href="/terms.html">Условия использования</a></footer>
+</div></body></html>`;
   return `<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
