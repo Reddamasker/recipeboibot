@@ -13,7 +13,7 @@ import { excludedDialogueRecipe } from './recipe-dialogue.js';
 
 const inFlight = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
-const REQUEST_CACHE_VERSION = 5;
+const REQUEST_CACHE_VERSION = 6;
 function requestSuggestionKey(userId, query, context = null) {
   const profile = getFoodProfile(userId);
   const recentTitles = listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 20).map((recipe) => recipe.title);
@@ -45,7 +45,7 @@ function recipeFailures(recipe, context, generated = false) {
   const minutes = totalMinutes(recipe);
   const failures = [];
   if (!recipe.title?.trim() || !recipe.ingredients?.length || !recipe.steps?.length) failures.push('Нужен полный рецепт с названием, ингредиентами и шагами.');
-  if (excludedDialogueRecipe(recipe, context.rejectedRecipes)) failures.push('Пользователь уже отклонил это блюдо. Предложи другое блюдо, сохранив условия запроса.');
+  if (excludedDialogueRecipe(recipe, context.rejectedRecipes, mealRequest)) failures.push('Пользователь уже отклонил этот вариант. Предложи другой рецепт, сохранив условия запроса и конкретное блюдо, если оно задано.');
   if (!matchesObjectiveMealRequest(recipe, mealRequest)) failures.push('Соблюдай числовые ограничения запроса на время, порции и КБЖУ. Пересчитай значения.');
   for (const value of excluded) if (hasExcludedIngredient(recipe, [value])) failures.push(`Исключи продукт «${value}» из ингредиентов и приготовления.`);
   if (maxMinutes !== Infinity && (![recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) || minutes > maxMinutes)) failures.push(`Общее время подготовки и приготовления должно быть не более ${maxMinutes} минут.`);
@@ -105,7 +105,7 @@ async function generateSuggestion(userId, query, generate, validate, requested, 
     const attempts = 2;
     let recipe = null, validationFeedback = [];
     for (let attempt = 0; attempt < attempts; attempt++) {
-      const candidate = await ensureNutrition(userId, await generate({ userId, query: understood, mealRequest, profile: generationProfile, recentTitles, validationFeedback }));
+      const candidate = await ensureNutrition(userId, await generate({ userId, query: understood, mealRequest, profile: generationProfile, recentTitles, rejectedRecipes: context.rejectedRecipes, validationFeedback }));
       // A profile may change while the provider is responding.
       const current = requestContext(userId, normalized, mealRequest, context.rejectedRecipes);
       validationFeedback = recipeFailures(candidate, current, true);

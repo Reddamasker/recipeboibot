@@ -35,7 +35,7 @@ const recipe = title => ({ title, description: 'Необычное блюдо и
   steps: [{ position: 1, text: 'Приготовьте фарш на сковороде до полной готовности.', confidence: 1 }], tags: ['мясо'], warnings: [], sourceName: null, discovery: 'Необычная подача',
   nutrition: { calories: 350, protein: 30, fat: 20, carbs: 5, basis: 'serving', source: 'calculated', servings: 4 } });
 
-async function withProvider(run, { generatedTitles = ['Кефтедес с мятой', 'Кебаб с овощами', 'Фарш с баклажанами'], dialogueResponse = null, acceptSeeds = true } = {}) {
+async function withProvider(run, { generatedTitles = ['Кефтедес с мятой', 'Кебаб с овощами', 'Фарш с баклажанами'], generatedRecipes = null, interpretedRequest = request, semanticResponse = null, dialogueResponse = null, acceptSeeds = true } = {}) {
   const original = globalThis.fetch, calls = [], sent = [], generations = [];
   globalThis.fetch = async (url, options = {}) => {
     const address = String(url);
@@ -50,11 +50,14 @@ async function withProvider(run, { generatedTitles = ['Кефтедес с мя�
     const input = operation === 'meal_request_interpretation' ? body.input[0].content[0].text : JSON.parse(body.input[0].content[0].text);
     calls.push({ operation, input, instructions: body.instructions });
     let output;
-    if (operation === 'meal_request_interpretation') output = request;
-    else if (operation === 'recipe_semantic_validation') output = { candidates: input.candidates.map(candidate => ({ id: candidate.id,
+    if (operation === 'meal_request_interpretation') output = interpretedRequest;
+    else if (operation === 'recipe_semantic_validation') output = semanticResponse ? semanticResponse(input) : { candidates: input.candidates.map(candidate => ({ id: candidate.id,
       criteria: input.criteria.map((_, index) => ({ index, matches: (acceptSeeds && candidate.title === 'Соборо-дон') || generatedTitles.includes(candidate.title), confidence: 'high', evidence: candidate.title })) })) };
     else if (operation === 'requested_recipe_generation') {
-      generations.push(input); output = recipe(generatedTitles[Math.min(generations.length - 1, generatedTitles.length - 1)]);
+      generations.push(input);
+      output = generatedRecipes ? generatedRecipes[Math.min(generations.length - 1, generatedRecipes.length - 1)]
+        : { ...recipe(generatedTitles[Math.min(generations.length - 1, generatedTitles.length - 1)]),
+          ingredients: [...recipe('').ingredients, { name: ['морковь', 'лук', 'баклажан'][Math.min(generations.length - 1, 2)], quantity: 100, unit: 'г' }] };
     } else if (operation === 'recipe_dialogue') output = typeof dialogueResponse === 'function' ? dialogueResponse(input) : dialogueResponse;
     else assert.fail(`Unexpected operation: ${operation}`);
     return Response.json({ status: 'completed', output_text: JSON.stringify(output), usage: { input_tokens: 1, output_tokens: 1 } });
@@ -126,6 +129,95 @@ test('rejection bypasses old generation cache and repeated rejected generation i
   assert.equal(second.suggestion.recipe.title, 'Кебаб с овощами');
   await assert.rejects(resolveRecipeRequest(u.owner.id, request.text, { mealRequest: request,
     rejectedRecipes: [...rejectedRecipes, { title: 'Кебаб с овощами' }], validate, generate: async () => recipe('Кефтедес с мятой') }), { status: 422 });
+});
+
+const cakeRequest = normalizeMealRequest({ text: 'Рецепт яблочного кекса, приготовление до 40 минут', kind: 'exact', confidence: 'high', dish: 'яблочный кекс', maxMinutes: 40 });
+const cake = (variant = false) => ({ ...recipe('Яблочный кекс'), description: 'Кекс с яблоками', servings: 8, prepMinutes: 10, cookMinutes: 30,
+  ingredients: [{ name: 'яблоки', quantity: 250, unit: 'г' }, { name: 'мука', quantity: 180, unit: 'г' },
+    { name: 'яйцо', quantity: 2, unit: 'шт' }, { name: variant ? 'кефир' : 'сливочное масло', quantity: variant ? 180 : 100, unit: 'г' },
+    ...(!variant ? [{ name: 'сахар', quantity: 100, unit: 'г' }] : [])],
+  steps: [{ text: variant ? 'Смешайте кефир, яйца и муку, добавьте яблоки. Выпекайте 30 минут при 180 °C.' : 'Взбейте масло с сахаром и яйцами, вмешайте муку и яблоки. Выпекайте 30 минут при 180 °C.' }], tags: ['выпечка'] });
+
+function cakeVerdicts(input) {
+  // Exercise the independent validator contract: a blanket dish ban would reject all cakes.
+  return { candidates: input.candidates.map(candidate => ({ id: candidate.id, criteria: input.criteria.map((criterion, index) => ({ index,
+    matches: criterion.source !== 'rejection' && candidate.title.toLowerCase().includes('яблочный кекс'), confidence: 'high', evidence: 'Подтверждено составом и способом приготовления' })) })) };
+}
+
+test('exact dish refusal snapshots the recipe and repairs a legacy failed retry without banning its title', () => {
+  const d = { query: cakeRequest.text, mealRequest: cakeRequest, recipe: cake(), rejectedRecipes: [{ id: null, title: 'Яблочный кекс' }] };
+  const rejected = dialogueStore.rejectDialogueRecipe(d);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].scope, 'recipe');
+  assert.deepEqual(rejected[0].recipe.ingredients, cake().ingredients);
+  assert.equal(dialogueStore.excludedDialogueRecipe({ ...cake(), title: 'Новый яблочный кекс' }, rejected, cakeRequest), true);
+  assert.equal(dialogueStore.excludedDialogueRecipe(cake(true), rejected, cakeRequest), false);
+  const scaled = { ...cake(), servings: 16, ingredients: cake().ingredients.map(item => ({ ...item, quantity: item.quantity * 2 })) };
+  assert.equal(dialogueStore.excludedDialogueRecipe(scaled, rejected, cakeRequest), true);
+  const open = dialogueStore.rejectDialogueRecipe({ ...d, mealRequest: request, rejectedRecipes: [] });
+  assert.equal(open[0].scope, 'dish');
+  assert.equal(dialogueStore.excludedDialogueRecipe(cake(true), open, request), true);
+  const refined = dialogueStore.rejectDialogueRecipe({ ...d, mealRequest: request, rejectedRecipes: [] }, { action: 'refine' });
+  assert.equal(refined[0].scope, 'recipe');
+  const resized = dialogueStore.rejectDialogueRecipe({ ...d, rejectedRecipes: [] }, { action: 'refine' });
+  assert.equal(dialogueStore.excludedDialogueRecipe(scaled, resized, cakeRequest), false);
+  assert.equal(dialogueStore.excludedDialogueRecipe(cake(), resized, cakeRequest), true);
+});
+
+test('apple cake replacement rejects renamed duplicates and accepts a new recipe with the original title', async () => {
+  const u = user();
+  await withProvider(async ({ generations, calls, sent }) => {
+    await telegram.handleMessage(u.message(cakeRequest.text));
+    const first = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.equal(first.recipe.title, 'Яблочный кекс');
+    await telegram.handleRecipeDialogueCallback({ id: 'cake-other', data: `dialog:other:${first.id}`, from: u.from, message: { chat: u.chat, message_id: first.messageId } });
+    const second = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.notEqual(second.id, first.id);
+    assert.equal(second.recipe.title, 'Яблочный кекс');
+    assert.equal(second.recipe.ingredients.some(item => item.name === 'кефир'), true);
+    assert.equal(second.mealRequest.dish, 'яблочный кекс');
+    assert.equal(second.mealRequest.maxMinutes, 40);
+    assert.equal(generations.length, 3);
+    assert.equal(generations[1].rejectedRecipes[0].scope, 'recipe');
+    assert.equal(generations[1].rejectedRecipes[0].recipe.ingredients.find(item => item.name === 'мука').quantity, 180);
+    const replacementCheck = calls.filter(item => item.operation === 'recipe_semantic_validation').at(-1);
+    assert.ok(replacementCheck.input.criteria.some(item => item.source === 'recipeRejection'));
+    assert.ok(!replacementCheck.input.criteria.some(item => item.source === 'rejection'));
+    assert.ok(!sent.some(item => item.text?.startsWith('Не получилось составить рецепт')));
+  }, { interpretedRequest: cakeRequest, generatedRecipes: [cake(), { ...cake(), title: 'Новый яблочный кекс' }, cake(true)], semanticResponse: cakeVerdicts, acceptSeeds: false });
+});
+
+test('legacy cake card retries and refinement keep the dish while enforcing sugar and time constraints', async () => {
+  const u = user();
+  dialogueStore.createRecipeDialogue(u.owner.id, { query: cakeRequest.text, mealRequest: cakeRequest, recipe: cake(), rejectedRecipes: [{ title: 'Яблочный кекс' }] });
+  await withProvider(async ({ generations, sent }) => {
+    await telegram.handleMessage(u.message('без сахара'));
+    const next = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.equal(next.recipe.title, 'Яблочный кекс');
+    assert.equal(next.mealRequest.dish, 'яблочный кекс');
+    assert.equal(next.mealRequest.maxMinutes, 40);
+    assert.ok(next.mealRequest.excludedIngredients.includes('сахара'));
+    assert.equal(next.recipe.ingredients.some(item => item.name === 'сахар'), false);
+    assert.equal(generations.length, 2);
+    assert.equal(generations[0].rejectedRecipes[0].scope, 'recipe');
+    assert.ok(!sent.some(item => item.text?.startsWith('Не получилось составить рецепт')));
+  }, { generatedRecipes: [{ ...cake(true), cookMinutes: 45 }, cake(true)], semanticResponse: cakeVerdicts, acceptSeeds: false });
+});
+
+test('requested portion refinement permits scaling without treating it as a replacement duplicate', async () => {
+  const u = user();
+  dialogueStore.createRecipeDialogue(u.owner.id, { query: cakeRequest.text, mealRequest: cakeRequest, recipe: { ...cake(), servings: 4 }, rejectedRecipes: [] });
+  const scaled = { ...cake(), servings: 8, ingredients: cake().ingredients.map(item => ({ ...item, quantity: item.quantity * 2 })) };
+  await withProvider(async ({ generations, calls }) => {
+    await telegram.handleMessage(u.message('на 8 человек'));
+    const next = dialogueStore.getRecipeDialogue(u.owner.id);
+    assert.equal(next.recipe.servings, 8);
+    assert.equal(next.mealRequest.servings, 8);
+    assert.equal(next.mealRequest.dish, 'яблочный кекс');
+    assert.equal(generations.length, 1);
+    assert.equal(generations[0].rejectedRecipes[0].refinement, true);
+    assert.ok(!calls.filter(item => item.operation === 'recipe_semantic_validation').at(-1).input.criteria.some(item => item.source === 'recipeRejection'));
+  }, { generatedRecipes: [scaled], semanticResponse: cakeVerdicts });
 });
 
 test('questions use current recipe and keep the task without generation', async () => {

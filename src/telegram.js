@@ -747,13 +747,13 @@ async function applyDialogueAction(chatId, user, dialogue, decision, text) {
     const mealRequest = decision.patch ? refineDialogueRequest(dialogue, decision.patch)
       : normalizeMealRequest(decision.mealRequest) || dialogue.mealRequest;
     const query = decision.action === 'refine' ? mealRequest?.text || decision.query || dialogue.query : dialogue.query;
-    const rejectedRecipes = rejectDialogueRecipe(dialogue);
+    const rejectedRecipes = rejectDialogueRecipe(dialogue, { mealRequest, action: decision.action });
     // Repeated taps on this card must not bring back its rejected recipe.
     updateRecipeDialogue(user.id, dialogue.id, { rejectedRecipes, awaitingEdit: false });
     clearPendingIntent(user.id);
     await sendSearchResults(chatId, user, query, { dialogue, mealRequest, rejectedRecipes,
       feedbackText: decision.action === 'replace'
-        ? `Исключаю «${escapeHtml(dialogue.recipe.title)}». Подбираю другой вариант с прежними условиями: <b>${escapeHtml(dialogue.query)}</b>.`
+        ? `Подбираю другой рецепт с прежними условиями: <b>${escapeHtml(dialogue.query)}</b>.`
         : `Учитываю изменения. Подбираю рецепт: <b>${escapeHtml(query)}</b>.` });
     return;
   }
