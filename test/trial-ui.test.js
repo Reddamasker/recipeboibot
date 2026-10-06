@@ -403,6 +403,8 @@ test('selected benefits show chosen title, gate CTA and allow leaving without a 
     trial: { eligible: true, used: false }, firstRecipe: { awaitingTrial: true, trialGateUsed: true },
     pendingFirstRecipe: { recipeId: 'saved-first', title: 'Паста <любимая>', imageUrl: '' } }, null, 'offer');
   assert.match(sandbox.root.innerHTML, /Твой первый рецепт готов/);
+  assert.match(sandbox.root.innerHTML, /first-recipe-gate/);
+  assert.match(sandbox.root.innerHTML, /Начни 7 дней полного доступа и открой выбранный рецепт/);
   assert.match(sandbox.root.innerHTML, /Паста/);
   assert.match(sandbox.root.innerHTML, /Начать 7 дней бесплатно и открыть рецепт/);
   assert.doesNotMatch(sandbox.root.innerHTML, /Ингредиенты|Как готовить/);
