@@ -1,3 +1,4 @@
+import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { createHash } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
@@ -82,7 +83,7 @@ export function dashboardFunnelReport(slug = 'all') {
         FROM acquisition_starts s JOIN users u ON u.id=s.user_id
         JOIN acquisition_clicks c ON c.token=s.click_token AND c.campaign=s.campaign
         WHERE s.campaign IN (${included.map(() => '?').join(',')}) AND s.is_returning=0
-        AND u.telegram_id<>? AND u.telegram_id NOT LIKE 'private-test:%'`).get(...included, config.analyticsOwnerId).count : null;
+        AND ${analyticsUserCondition}`).get(...included, ...analyticsExcludedIds).count : null;
     }
     report.conversions.clickFromImpression = report.clicks !== null && report.impressions
       ? Number((100 * report.clicks / report.impressions).toFixed(1)) : null;
