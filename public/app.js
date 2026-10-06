@@ -113,6 +113,7 @@ function bindCommon() {
   document.querySelectorAll('[data-recipe]').forEach((el) => el.addEventListener('click', () => openRecipe(el.dataset.recipe, true)));
   document.querySelectorAll('[data-remove-recipe]').forEach((el) => el.addEventListener('click', () => removeRecipeFromList(el.dataset.removeRecipe, el)));
   document.querySelectorAll('[data-open-offer]').forEach((el) => el.addEventListener('click', openOffer));
+  document.querySelectorAll('[data-open-benefits]').forEach((el) => el.addEventListener('click', openBenefits));
   bindTrialButtons();
   if (document.querySelector('[data-open-offer], [data-start-trial]')) void api('/api/billing/exposure', { method: 'POST', body: '{}' }).catch(() => {});
 }
@@ -124,6 +125,9 @@ function notificationEntry() {
 function offerBanner() {
   const payment = state.payment;
   if (payment?.firstRecipe?.available || payment?.firstRecipe?.pending) return '';
+  if (payment?.trial?.eligible && !payment.active) {
+    return '<section class="offer-banner"><h2>Учту твои предпочтения для будущих рецептов.</h2><p>А вот что я еще умею</p><button class="primary accent" type="button" data-open-benefits>Посмотреть возможности</button></section>';
+  }
   if (payment?.trial?.eligible || payment?.trial?.used) {
     if (payment.active && payment.accessSource !== 'trial') return '';
     const active = payment.active;
@@ -139,9 +143,9 @@ function offerBanner() {
       <small class="offer-trial-price">Месячный доступ · ${payment.offer.priceRub} ₽</small>
     </div>
     <div class="offer-feature-grid" aria-label="Возможности подписки">
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true">1</span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true">2</span><div><h3>Подбираем на вечер</h3><p>Три идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true">3</span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
     </div>
     <button class="primary accent" type="button" data-open-offer>${mock ? 'Попробовать бесплатно' : 'Оформить доступ'}</button>
     <small class="offer-disclaimer">${mock ? 'Тестовый сценарий · деньги не списываются' : 'Оплата на защищённой странице Robokassa'}</small>
@@ -150,14 +154,23 @@ function offerBanner() {
 
 function openOffer() { closeOverlay(); setRoute({ view: 'offer' }); void render(); }
 
+function openBenefits() { closeOverlay(); setRoute({ view: 'benefits' }); void render(); }
+
+function benefitsPage() {
+  if (!state.payment?.trial?.eligible || state.payment.active) { offerPage(); return; }
+  root.innerHTML = `${header()}<main class="offer-page benefits-page"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>А вот что я ещё умею</h1><p>Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article></div><button class="primary accent" type="button" data-start-trial>Попробовать 7 дней бесплатно</button><small class="offer-disclaimer">Без карты и автоматического списания.</small></section></main>`;
+  bindCommon();
+  document.querySelector('#benefits-back').onclick = () => { setRoute({ view: 'dinner' }); void render(); };
+}
+
 function mainMenuPage() {
   const chatUrl = globalThis.window?.RecipePlatform?.botUrl('dish') || `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=dish`;
   root.innerHTML = `${header()}<main class="main-menu-page"><section class="home-choice" aria-labelledby="main-menu-title">
     <h1 id="main-menu-title">Что приготовим?</h1><p>Выберите, с чего начать.</p>
     <div class="home-choice-actions">
-      <button id="menu-today" class="home-choice-button primary accent" type="button"><span><strong>Что на сегодня</strong><small>Подборка с учётом ваших вкусов</small></span><span aria-hidden="true">1</span></button>
-      <a id="menu-dish" class="home-choice-button secondary" href="${esc(chatUrl)}"><span><strong>Хочу конкретное блюдо</strong><small>Надиктуйте пожелание в чате</small></span><span aria-hidden="true">2</span></a>
-      <button id="menu-recipes" class="home-choice-button secondary" type="button"><span><strong>Мои рецепты</strong><small>Ваша сохранённая коллекция</small></span><span aria-hidden="true">3</span></button>
+      <button id="menu-today" class="home-choice-button primary accent" type="button"><span><strong>Что на сегодня</strong><small>Подборка с учётом ваших вкусов</small></span><span aria-hidden="true">🍽️</span></button>
+      <a id="menu-dish" class="home-choice-button secondary" href="${esc(chatUrl)}"><span><strong>Хочу конкретное блюдо</strong><small>Надиктуйте пожелание в чате</small></span><span aria-hidden="true">🎤</span></a>
+      <button id="menu-recipes" class="home-choice-button secondary" type="button"><span><strong>Мои рецепты</strong><small>Ваша сохранённая коллекция</small></span><span aria-hidden="true">📖</span></button>
     </div></section></main>`;
   bindCommon();
   document.querySelector('#menu-today').onclick = () => { setRoute({ view: 'dinner' }); void render().catch(error => toast(error.message)); };
@@ -663,18 +676,11 @@ function updateDinnerIngredients() {
   else window.location.href = url;
 }
 
-function firstDinnerRecipeDetails(recipe) {
-  const ingredients = (recipe.ingredients || []).map(item => '<li>' + esc([item.quantity, item.unit, item.name || item.raw].filter(value => value !== null && value !== undefined && value !== '').join(' ')) + '</li>').join('');
-  const steps = (recipe.steps || []).map(step => '<li>' + esc(step.text || step) + '</li>').join('');
-  return '<section class="dinner-decision"><h1>' + esc(recipe.title) + '</h1>' + (recipe.description ? '<p>' + esc(recipe.description) + '</p>' : '') + '<h2>Ингредиенты</h2><ul>' + ingredients + '</ul><h2>Приготовление</h2><ol>' + steps + '</ol><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button></section>';
-}
-
 function dinnerView() {
   if (state.onboarding) return onboardingView();
   const dinner = state.dinner, items = dinner?.recommendations || [];
   const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
   const content = !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
-    : dinner.firstFreeRecipe ? firstDinnerRecipeDetails(recipe)
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Рецепт сохранён в «Мои рецепты» и останется под рукой.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
     : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1><p class="dinner-swipe-hint" role="status">${dinner.acceptingId ? 'Выбираю рецепт…' : 'Вправо — готовим, влево — не подходит'}</p>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${notificationEntry()}${!dinner?.accepted ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}><button class="secondary" type="submit" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
@@ -717,7 +723,7 @@ function dinnerView() {
   document.querySelector('#dinner-mark-cooked')?.addEventListener('click', () => markDinnerCooked(item.id));
 }
 
-async function acceptDinnerItem(option) {
+async function acceptDinnerItem(option, { openSelectedRecipe = true } = {}) {
   const dinner = state.dinner;
   if (!option || !dinner || dinner.switching || dinner.requestSaving || dinner.accepted) return false;
   dinner.switching = true;
@@ -730,8 +736,10 @@ async function acceptDinnerItem(option) {
     if (state.dinner !== dinner) return false;
     if (result.status !== 'accepted') throw new Error('Этот вариант уже недоступен');
     if (result.savedRecipe) state.recipes = [result.savedRecipe, ...state.recipes.filter((recipe) => recipe.id !== result.savedRecipe.id)];
-    Object.assign(dinner, { recommendation: option, accepted: true, switching: false, acceptingId: null });
+    Object.assign(dinner, { recommendation: option, accepted: true, firstFreeRecipe: Boolean(result.firstFreeRecipe), switching: false, acceptingId: null });
+    if (result.firstFreeRecipe) await refresh();
     dinnerView();
+    if (result.firstFreeRecipe && openSelectedRecipe) openRecipe(result.savedRecipe?.id || option.recipe.id, true);
     if (dinner.notificationId) toast((result.messageSent ?? result.telegramSent) ? `Ссылка на рецепт отправлена в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}` : `Выбор сохранён. Ссылка скоро придёт в ${globalThis.window?.RecipePlatform?.label || 'Telegram'}.`);
     return true;
   } catch (error) {
@@ -743,8 +751,8 @@ async function acceptDinnerItem(option) {
 async function cookFromDinnerDetail(recipe) {
   const inDinner = new URLSearchParams(location.search).get('view') === 'dinner';
   const option = inDinner ? state.dinner?.recommendations.find((item) => item.recipe.id === recipe.id) : null;
-  if (option && !state.dinner.accepted && !await acceptDinnerItem(option)) return;
-  if (option) closeOverlay();
+  if (option && !state.dinner.accepted && !await acceptDinnerItem(option, { openSelectedRecipe: false })) return;
+  closeOverlay();
   cookMode(recipe, option && state.dinner?.recommendation?.id === option.id ? () => markDinnerCooked(option.id) : null);
 }
 
@@ -855,6 +863,7 @@ async function render() {
   else if (view === 'feedback') feedbackPage();
   else if (view === 'promo') promoPage();
   else if (view === 'offer' && (state.payment?.available || state.payment?.trial)) offerPage();
+  else if (view === 'benefits') benefitsPage();
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && (state.payment?.available || state.payment?.active)) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
@@ -1137,6 +1146,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     banner.innerHTML = offerBanner();
     el.querySelector('.detail-content')?.append(banner);
     banner.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
+    banner.querySelector('[data-open-benefits]')?.addEventListener('click', openBenefits);
     bindTrialButtons(banner);
   }
   el.querySelector('[data-close]')?.addEventListener('click', closeDetailRoute);
@@ -1231,6 +1241,7 @@ async function removeRecipeFromList(id, button) {
 }
 function cookMode(r, onComplete = null) {
   if (!r.steps?.length) return;
+  recipeOpenRevision++;
   state.cookStep = 0;
   const el = document.createElement('div'); el.className = 'cook';
   el.setAttribute('aria-label', `Готовим: ${r.title}`);

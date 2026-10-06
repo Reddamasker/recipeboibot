@@ -1,9 +1,7 @@
 import { listRecipes, saveDinnerRecipe, withNutrition } from './db.js';
 import { config } from './config.js';
-import { getSubscriptionAccess, requireUnexpiredTrial, requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
-import { randomUUID } from 'node:crypto';
-import { resolveRecipeRequest } from './suggestions.js';
-import { insertDinnerOption, promoteDinnerOptions, invalidateDinnerBuffer, currentDinnerOptions, replaceDinnerOption, retainDinnerBufferContext, acceptedDinnerOptionId, getDinnerRejectionReason, getDislikedDinnerTitles } from './dinner-store.js';
+import { requireRecipeEntry, requireDinnerEntry, completeFirstDinner } from './subscriptions.js';
+import { invalidateDinnerBuffer, currentDinnerOptions, replaceDinnerOption, retainDinnerBufferContext, acceptedDinnerOptionId, getDinnerRejectionReason, getDislikedDinnerTitles } from './dinner-store.js';
 import { bufferedDinner, dinnerContextKey, prefetchDinnerBuffer } from './dinner-buffer.js';
 import { findReusableDinnerSession, getDinnerOption, getDinnerOptionImage, markDinnerSessionOpened } from './dinner-store.js';
 import { DINNER_CATEGORIES, DINNER_WEIGHTS, SEED_RECIPES, isDinnerCandidate, rankCandidates, recipeCategories, totalMinutes } from './dinner.js';
@@ -193,26 +191,9 @@ function bufferResponse(userId, sessionId, buffer) {
 }
 
 export async function recommendDinner(userId, sessionId, options) {
-  if (!getSubscriptionAccess(userId).active) {
-    return withFirstRecipe(userId, `dinner:${sessionId}`, async () => {
-      const context = dinnerContext(userId, sessionId);
-      let recipe;
-      if (context.mealRequest?.text || context.requestedCategories.length) {
-        const query = context.mealRequest?.text || context.requestedCategories.map(key => DINNER_CATEGORIES.find(([id]) => id === key)?.[1]).filter(Boolean).join(', ');
-        const result = await resolveRecipeRequest(userId, query);
-        recipe = result.recipe || result.suggestion?.recipe;
-      } else recipe = rankCandidates(SEED_RECIPES, context)[0]?.recipe;
-      if (!recipe) throw Object.assign(new Error('Не нашёл подходящий рецепт. Уточни пожелание и попробуй ещё раз.'), { status: 422 });
-      const id = randomUUID();
-      recipe = { ...recipe, id: recipe.id || `dinner:${id}` };
-      invalidateDinnerBuffer(userId, sessionId, dinnerContextKey(context));
-      insertDinnerOption(userId, sessionId, { id, recipe, role: 'familiar', categories: recipeCategories(recipe), method: 'first_recipe' }, recipe.title);
-      const current = promoteDinnerOptions(userId, sessionId, [id]);
-      return { ...bufferResponse(userId, sessionId, { current, reserve: [], preparing: false }), firstFreeRecipe: true, imagesPending: false };
-    });
-  }
-  requireUnexpiredTrial(userId);
+  requireDinnerEntry(userId, false);
   const context = dinnerContext(userId, sessionId);
+  requireDinnerEntry(userId);
   if (currentDinnerOptions(userId, sessionId).some(option => option.method === 'first_recipe')) invalidateDinnerBuffer(userId, sessionId, dinnerContextKey(context));
   const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
   const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
@@ -220,23 +201,26 @@ export async function recommendDinner(userId, sessionId, options) {
 }
 
 export function prefetchDinner(userId, sessionId, options) {
-  requireUnexpiredTrial(userId);
+  requireDinnerEntry(userId, false);
+  if (!getDinnerSession(userId, sessionId)) throw notFound();
+  requireDinnerEntry(userId);
   const context = dinnerContext(userId, sessionId);
   const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
   return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions));
 }
 
 export async function nextDinner(userId, ids, options) {
-  requireUnexpiredTrial(userId);
+  requireDinnerEntry(userId);
   const result = rejectDinnerBatch(userId, ids);
   return recommendDinner(userId, result.sessionId, options);
 }
 
 export function replaceDinner(userId, recommendationId, reason, options) {
-  requireUnexpiredTrial(userId);
+  requireDinnerEntry(userId, false);
   if (!['not_today', 'dislike', 'missing_ingredients'].includes(reason)) throw badRequest('Неверная причина');
   const row = getDinnerRecommendation(userId, recommendationId);
   if (!row) throw notFound();
+  requireDinnerEntry(userId);
   const sessionId = row.session_id;
   if (acceptedDinnerOptionId(userId, sessionId)) throw Object.assign(new Error('Ужин уже выбран. Открой новую подборку.'), { status: 409 });
   const context = dinnerContext(userId, sessionId);
@@ -279,10 +263,12 @@ export function decideDinner(userId, recommendationId, decision) {
   if (!row) throw notFound();
   const recipe = recipeForDecision(userId, row.recipe_key);
   if (decision === 'accepted' && row.status === 'shown' && (!recipe || !rankCandidates([recipe], dinnerContext(userId, row.session_id)).length)) throw badRequest('Ограничения изменились. Обновите варианты ужина.');
+  if (row.status !== 'accepted') requireDinnerEntry(userId);
   const updated = decideDinnerRecommendation(userId, recommendationId, decision, recipe ? recipeCategories(recipe) : []);
+  const firstFreeRecipe = updated.status === 'accepted' ? completeFirstDinner(userId, recommendationId, recipe) : false;
   const image = updated.status === 'accepted' && updated.recipe_key.startsWith('dinner:') ? getDinnerOptionImage(recommendationId) : null;
   const savedRecipe = updated.status === 'accepted' ? saveDinnerRecipe(userId, updated.recipe_key, recipe, image) : null;
-  return { status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, savedRecipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
+  return { firstFreeRecipe, status: updated.status, sessionId: updated.session_id, recipeKey: updated.recipe_key, recipe, savedRecipe, rejectedCount: rejectedInSession(userId, updated.session_id).length };
 }
 
 export function setDinnerRejectionReason(userId, recommendationId, reason, details = {}) {

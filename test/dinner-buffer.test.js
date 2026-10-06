@@ -91,6 +91,45 @@ test('polling completes an existing pair from ready recipes once and keeps both 
   assert.equal(db.prepare("SELECT COUNT(*) n FROM dinner_events WHERE session_id=? AND event='recommendation_shown'").get(sessionId).n, 3);
 });
 
+test('duplicate third candidate is replaced before returning the visible trio', async () => {
+  const user = fixture(642), { sessionId } = startDinner(user.id);
+  const requests = [];
+  const source = batch();
+  const generate = async input => {
+    requests.push(input);
+    if (requests.length === 1) return { recipes: [source[0], source[1], { ...source[0], role: 'variety', discovery: 'Другая подача знакомого блюда' }] };
+    if (requests.length === 2) return { recipes: [source[2]] };
+    return { recipes: [] };
+  };
+  const result = await recommendDinner(user.id, sessionId, { catalogFirst: false, generate, images: false });
+  assert.equal(result.recommendations.length, 3);
+  assert.deepEqual(result.recommendations.slice(0, 2).map(item => item.recipe.title), source.slice(0, 2).map(item => item.recipe.title));
+  assert.equal(requests[0].count, 3);
+  assert.equal(requests[1].count, 1);
+  assert.ok(requests[1].rejectedTitles.includes(source[0].recipe.title));
+  const event = db.prepare("SELECT detail_json FROM dinner_events WHERE session_id=? AND event='dinner_buffer_filled' ORDER BY created_at LIMIT 1").get(sessionId);
+  const detail = JSON.parse(event.detail_json);
+  assert.equal(detail.attempts, 2);
+  assert.deepEqual(detail.filteredCandidates, [{ title: source[0].recipe.title, reason: 'duplicate' }]);
+  await tick();
+});
+
+test('generation completes an existing pair without replacing either shown card', async () => {
+  const user = fixture(643), { sessionId } = startDinner(user.id);
+  invalidateDinnerBuffer(user.id, sessionId, dinnerContextKey(dinnerContext(user.id, sessionId)));
+  const source = batch();
+  for (let i = 0; i < 2; i++) insertDinnerOption(user.id, sessionId, { ...source[i], id: `existing-${i}`, method: 'generated' }, source[i].recipe.title);
+  promoteDinnerOptions(user.id, sessionId, ['existing-0', 'existing-1']);
+  const requests = [];
+  prefetchDinner(user.id, sessionId, { catalogFirst: false, images: false, generate: async input => { requests.push(input); return { recipes: [source[2]] }; } });
+  await tick();
+  const result = await recommendDinner(user.id, sessionId, { catalogFirst: false, images: false, generate: async () => ({ recipes: [] }) });
+  assert.equal(requests[0].count, 1);
+  assert.deepEqual(result.recommendations.slice(0, 2).map(item => item.id), ['existing-0', 'existing-1']);
+  assert.equal(result.recommendations.length, 3);
+  await tick();
+});
+
 test('completion leaves the single first free recipe unchanged', () => {
   const user = fixture(641), { sessionId } = startDinner(user.id);
   const options = batch().slice(0, 3).map((item, index) => ({ ...item, id: `free-${index}`, method: index ? 'generated' : 'first_recipe', categories: recipeCategories(item.recipe) }));
