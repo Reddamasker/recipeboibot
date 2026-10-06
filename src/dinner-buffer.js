@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { log } from './log.js';
 import { generateDinnerRecipes, validateRecipeCriteria } from './openai.js';
 import { generateRecipeImage } from './recipe-images.js';
-import { SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
+import { DINNER_LIMITS, pantryCoverage, SEED_RECIPES, hasExcludedIngredient, isDinnerCandidate, rankCandidates, recipeCategories, recipeMainIngredients, selectDinnerChoices, shortlistDinnerCandidates, totalMinutes } from './dinner.js';
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 import { needsSemanticValidation } from './meal-request.js';
 import { recipeNutrition } from './nutrition.js';
@@ -173,22 +173,33 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
     try {
       const prior = listDinnerOptions(userId, sessionId);
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
-      const attemptedTitles = [];
+      const attemptedTitles = [], validationFailures = [];
       const semanticFailures = [];
       const filteredCandidates = [];
       let structurallyRejected = 0;
-      const maxAttempts = active < DINNER_BUFFER.visible ? MAX_GENERATION_ATTEMPTS : 1;
+      const maxAttempts = MAX_GENERATION_ATTEMPTS;
       let added = 0, attempts = 0;
       while (added < count && attempts < maxAttempts) {
         attempts++;
         const needed = count - added;
         const result = await generate({ userId, count: needed, roles: missingRoles(userId, sessionId, needed), profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
-          requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, recentRecipes: [...context.recentRecipes, ...(context.recentShownRecipes || []).map(r => r.recipe.title)].slice(0, 20),
+          requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, validationFailures: validationFailures.slice(-8), recentRecipes: [...context.recentRecipes, ...(context.recentShownRecipes || []).map(r => r.recipe.title)].slice(0, 20),
           rejectedTitles: [...prior.map((o) => o.recipe.title), ...attemptedTitles].slice(-40) });
         if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
         const generated = Array.isArray(result?.recipes) ? result.recipes : [];
+        if (!generated.length) break;
         attemptedTitles.push(...generated.map((item) => item?.recipe?.title).filter(Boolean));
-        const structurallyValid = generated.slice(0, needed).map((item) => validateGeneratedDinner(item, context)).filter(Boolean);
+        const structurallyValid = generated.slice(0, needed).map((item) => {
+          const valid = validateGeneratedDinner(item, context);
+          if (!valid) {
+            const coverage = item?.recipe ? pantryCoverage({ ...item.recipe, mainIngredients: recipeMainIngredients({ ingredients: item.recipe.ingredients }) }, context.pantry) : null;
+            validationFailures.push({ title: item?.recipe?.title,
+              missingMainIngredients: coverage?.missingMainIngredients || [], missingIngredients: coverage?.missing || [],
+              maxShoppingIngredients: DINNER_LIMITS.maxShoppingIngredients,
+              reason: 'Проверь доступность всех основных продуктов и число дополнительных продуктов по pantryConstraints, а также структуру рецепта, порции, КБЖУ, время и discovery.' });
+          }
+          return valid;
+        }).filter(Boolean);
         structurallyRejected += Math.max(0, Math.min(generated.length, needed) - structurallyValid.length);
         const verdicts = await validate({ userId, query: context.mealRequest?.text || '', mealRequest: context.mealRequest, requestedCategories: context.requestedCategories,
           recipes: structurallyValid.map((item) => item.recipe), profile: context.profile, recentTitles: context.recentRecipes });
@@ -216,7 +227,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       if (added < count) setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
       fallbackFill(userId, sessionId, context, active + count);
       addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added, attempts, structurallyRejected,
-        semanticallyRejected: semanticFailures.length, semanticFailures: semanticFailures.slice(0, 8), filteredCandidates: filteredCandidates.slice(0, 12) } });
+        validationFailures: validationFailures.slice(-8), semanticallyRejected: semanticFailures.length, semanticFailures: semanticFailures.slice(0, 8), filteredCandidates: filteredCandidates.slice(0, 12) } });
     } catch (error) {
       if (getDinnerSession(userId, sessionId) && dinnerContextKey(getContext()) === key) {
         setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);

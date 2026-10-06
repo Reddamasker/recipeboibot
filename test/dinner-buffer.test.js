@@ -25,6 +25,33 @@ const batch = () => ['mince-meatballs','mince-pasta','keema-potato','mince-potat
   recipe: structuredClone(SEED_RECIPES.find((r) => r.id === `seed:${id}`))
 }));
 const fixture = (id) => { const user = upsertTelegramUser({ id, first_name: 'Генерация' }); confirmDinnerIntake(user.id, { availableIngredients: ['говяжий фарш','картошка','рис','паста'], householdSize: 4, maxMinutes: 30 }); return user; };
+
+test('rice-only generation receives rejection feedback and supplies a replacement without unavailable protein', async () => {
+  const user = upsertTelegramUser({ id: 989621, first_name: 'Rice replacement' });
+  confirmDinnerIntake(user.id, { availableIngredients: ['рис'], householdSize: 2, maxMinutes: 60 });
+  let calls = 0;
+  const generate = async ({ validationFailures, roles }) => {
+    calls++;
+    if (calls === 1) return { recipes: [batch()[0]] };
+    if (calls === 2) {
+      assert.ok(validationFailures.length);
+      assert.ok(validationFailures[0].missingMainIngredients.length);
+      assert.equal(validationFailures[0].maxShoppingIngredients, 5);
+    }
+    return { recipes: roles.map((role, index) => ({ role, discovery: 'Другой способ приготовления доступного риса', recipe: {
+      ...structuredClone(SEED_RECIPES.find(recipe => recipe.id === 'seed:rice-carrot-onion')),
+      title: (calls === 2 ? ['Рисовые оладьи', 'Овощной плов', 'Рисовая запеканка'] : ['Рисовый суп', 'Рисовые котлеты', 'Рис с томатами'])[index]
+    } })) };
+  };
+  const session = startDinner(user.id);
+  const options = { generate, images: false, catalogFirst: false };
+  const initial = await recommendDinner(user.id, session.sessionId, options);
+  const target = initial.recommendations[0];
+  const result = await replaceDinner(user.id, target.id, 'not_today', options);
+  assert.equal(calls, 3);
+  assert.notEqual(result.recommendations[0].id, target.id);
+  assert.equal(result.recommendations[1].id, initial.recommendations[1].id);
+});
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} } });
 
 test('fresh client gets catalog recipes with existing images and no provider requests', async () => {
@@ -448,6 +475,14 @@ test('generation abstraction creates independent roles concurrently using strict
     assert.match(body.instructions, /рецепт должен одновременно соответствовать всем перечисленным категориям/);
     assert.match(body.instructions, /pizza означает пиццу, italian — итальянскую кухню, georgian — грузинскую/);
     if (input.pantry.length) assert.match(body.instructions, /Используй названные продукты как основу/);
+    if (input.pantry.length) {
+      assert.match(body.instructions, /все основные ингредиенты должны быть среди pantry/);
+      assert.match(body.instructions, /включая масло, соусы, лук и чеснок/);
+      assert.deepEqual(input.validationFailures, []);
+      assert.equal(input.pantryConstraints.maxShoppingIngredients, 5);
+      assert.ok(input.pantryConstraints.mainIngredientGroups.some(group => group.includes('rice')));
+      assert.ok(input.pantryConstraints.freeIngredientNames.includes('черный перец'));
+    }
     else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное блюдо из имеющихся продуктов/); }
     calls.push(input);
     const source = batch()[input.candidateIndex];

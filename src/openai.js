@@ -5,6 +5,7 @@ import { log } from './log.js';
 import { openaiFetch } from './openai-fetch.js';
 import { mealRequestSchema, semanticMealCriteria, normalizeMealRequest, normalizeVoiceTranscript } from './meal-request.js';
 import { nutritionSchema, nutritionInstructions, recipeNutrition } from './nutrition.js';
+import { DINNER_LIMITS, dinnerPantryConstraints } from './dinner.js';
 
 const recipeSchema = {
   type: 'object', additionalProperties: false,
@@ -295,7 +296,7 @@ export async function validateRecipeCriteria({ userId, query, mealRequest, reque
   return verdicts;
 }
 
-export async function generateDinnerRecipes({ userId, count, roles = [], profile, pantry, requestedCategories = [], mealRequest = null, feedback = {}, signals, recentRecipes, rejectedTitles }) {
+export async function generateDinnerRecipes({ userId, count, roles = [], profile, pantry, requestedCategories = [], mealRequest = null, feedback = {}, validationFailures = [], signals, recentRecipes, rejectedTitles }) {
   const compactRecipe = { type: 'object', additionalProperties: false, properties: {
     title: { type: 'string' }, description: { type: 'string' }, servings: { type: 'integer' }, prepMinutes: { type: 'integer' }, cookMinutes: { type: 'integer' },
     nutrition: nutritionSchema,
@@ -319,8 +320,8 @@ export async function generateDinnerRecipes({ userId, count, roles = [], profile
     return requestResponse({
       userId, operation: 'dinner_generation', model: config.dinnerTextModel, schema,
       maxOutputTokens: 2400, timeoutMs: config.dinnerGenerationTimeoutMs, reasoningEffort: 'low', verbosity: 'low',
-      instructions: `${baseInstructions} ${roleInstructions}`,
-      input: [{ role: 'user', content: [{ type: 'input_text', text: JSON.stringify({ count: 1, role, candidateIndex: index, profile, pantry, requestedCategories, mealRequest, feedback, signals, recentRecipes: recentRecipes.slice(0, 20), rejectedTitles: rejectedTitles.slice(-40) }) }] }]
+      instructions: `${baseInstructions} ${roleInstructions} ${pantry.length ? `pantryConstraints — общий контракт с проверкой рецептов. mainIngredientGroups задаёт порядок групп основы, availableKeys — доступные продукты. Проверка основы блюда обязательна: все основные ингредиенты должны быть среди pantry. При определении основы используется первая присутствующая группа в таком порядке: мясо/птица/рыба/фарш; бобовые; яйца; крупы/паста/картофель; кабачок/капуста/грибы. Не добавляй отсутствующий продукт из более ранней группы: при pantry=[рис] курица, рыба, бобовые и яйца сделают основу недоступной. Выбери полноценный ужин на основе риса с овощными добавками. Всего отсутствующих ингредиентов максимум ${DINNER_LIMITS.maxShoppingIngredients}, включая масло, соусы, лук и чеснок; Не считаются только точные названия из pantryConstraints.freeIngredientNames; отдельные приправы, например паприка, считаются дополнительными продуктами. Для variety разнообразь технику и вкус доступной основы, сохраняя эти ограничения.` : ''} validationFailures содержит причины отклонения предыдущих кандидатов; исправь их в новой попытке.`,
+      input: [{ role: 'user', content: [{ type: 'input_text', text: JSON.stringify({ count: 1, role, candidateIndex: index, profile, pantry, pantryConstraints: dinnerPantryConstraints(pantry), requestedCategories, mealRequest, feedback, validationFailures, signals, recentRecipes: recentRecipes.slice(0, 20), rejectedTitles: rejectedTitles.slice(-40) }) }] }]
     });
   });
   const settled = await Promise.allSettled(requests);

@@ -88,19 +88,25 @@ const pantryMatches = (required, available) => {
   });
 };
 
+const MAIN_INGREDIENT_GROUPS = [['chicken', 'pork', 'beef', 'mince', 'turkey', 'fish', 'tuna'], ['lentil', 'bean', 'chickpea', 'peas'], ['egg'], ['pasta', 'buckwheat', 'rice', 'barley', 'couscous', 'potato'], ['zucchini', 'cabbage', 'mushroom']];
+const PANTRY_FREE_INGREDIENTS = ['вода', 'соль', 'перец черный', 'черный перец', 'специи'];
+export function dinnerPantryConstraints(pantry = []) {
+  return { required: pantry.length > 0, available: pantry, availableKeys: [...new Set(pantry.map(pantryKey))],
+    mainIngredientGroups: MAIN_INGREDIENT_GROUPS, allMainIngredientsMustBeAvailable: true,
+    maxShoppingIngredients: DINNER_LIMITS.maxShoppingIngredients, freeIngredientNames: PANTRY_FREE_INGREDIENTS };
+}
 export function recipeMainIngredients(recipe) {
   if (recipe.mainIngredients?.length) return recipe.mainIngredients;
   const names = (recipe.ingredients || []).map((item) => item.name || item.raw || item);
   // Infer the dish's base from its composition, including generic titles such as cutlets.
-  const groups = [['chicken', 'pork', 'beef', 'mince', 'turkey', 'fish', 'tuna'], ['lentil', 'bean', 'chickpea', 'peas'], ['egg'], ['pasta', 'buckwheat', 'rice', 'barley', 'couscous', 'potato'], ['zucchini', 'cabbage', 'mushroom']];
-  for (const keys of groups) { const base = names.filter((name) => keys.includes(pantryKey(name))); if (base.length) return base; }
+  for (const keys of MAIN_INGREDIENT_GROUPS) { const base = names.filter((name) => keys.includes(pantryKey(name))); if (base.length) return base; }
   return [];
 }
 
 export function pantryCoverage(recipe, available = []) {
   if (!available.length) return null;
   const required = (recipe.ingredients || []).map((item) => item.name || item.raw || item)
-    .filter((name) => !/^(?:вода|соль|перец\s+черный|специи)$/iu.test(ingredient(name)));
+    .filter((name) => !PANTRY_FREE_INGREDIENTS.includes(ingredient(name)));
   const missing = required.filter((name) => !pantryMatches(name, available));
   const mainIngredients = recipeMainIngredients(recipe);
   const missingMainIngredients = mainIngredients.filter((name) => !pantryMatches(name, available));
