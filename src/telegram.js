@@ -168,12 +168,12 @@ function prepareDinner(userId) {
     return null;
   }
 }
-async function sendDinnerEntry(chatId, userId, { skipOnboarding = false } = {}) {
+async function sendDinnerEntry(chatId, userId, { skipOnboarding = false, firstStart = false } = {}) {
   if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return true; }
   if (userId && !skipOnboarding && !getFoodProfile(userId).onboardingCompleted) {
     const pending = getPendingIntent(userId);
     if (['dinner-intake', 'dinner-confirm'].includes(pending?.kind)) await resumeDinnerIntake(chatId, userId, pending);
-    else await sendDinnerProfilePrompt(chatId, userId);
+    else await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true, firstStart });
     return;
   }
   if (userId && canChooseFirstDinner(userId)) {
@@ -233,11 +233,15 @@ export async function revealDinnerButton(chatId, messageId, userId, sessionId) {
 export async function sendDinnerProfilePrompt(chatId, userId) {
   await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true });
 }
-async function sendDinnerIntakePrompt(chatId, userId, { profileOnly = false } = {}) {
+async function sendDinnerIntakePrompt(chatId, userId, { profileOnly = false, firstStart = false } = {}) {
   const pending = getPendingIntent(userId);
   const intake = pending?.intake || currentDinnerIntake(userId);
-  setPendingIntent(userId, { kind: 'dinner-intake', intake, profileOnly });
+  setPendingIntent(userId, { kind: 'dinner-intake', intake, profileOnly, ingredientsFirst: firstStart || Boolean(pending?.ingredientsFirst) });
   addDinnerEvent(userId, 'onboarding_started');
+  if (firstStart) {
+    await send(chatId, 'Уже ищу варианты для вашего ужина! 🍽\nНапишите или надиктуйте 2-3 главных продукта, которые у вас есть прямо сейчас, и на скольких человек готовим (например: фарш, макароны, сыр; на двоих).');
+    return;
+  }
   if (profileOnly) {
     await send(chatId, '<b>Давай подберём ужин специально для тебя.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд расскажите, на сколько человек готовим, есть ли дети, аллергия, сколько времени есть, какие блюда вы обычно любите и что хотите именно сегодня. Продукты дома можно назвать, если хотите.\n\nНапример: «На троих, с ребёнком, аллергия на орехи, до 30 минут. Любим пасту, не любим рыбу. Сегодня хотим азиатское с рисом».\n\nМожно ответить и текстом.');
     return;
@@ -251,7 +255,7 @@ const recentDinnerEntries = new Map();
 async function sendFirstDinnerEntry(chatId, userId, source) {
   const recent = recentDinnerEntries.get(userId);
   if (recent && recent.source !== source && Date.now() - recent.at < ENTRY_DEDUP_MS) return;
-  await sendDinnerEntry(chatId, userId);
+  await sendDinnerEntry(chatId, userId, { firstStart: true });
   const entry = { source, at: Date.now() };
   recentDinnerEntries.set(userId, entry);
   const pending = getPendingIntent(userId);
@@ -304,14 +308,14 @@ async function handleDinnerIntakeMessage(message, user, pending) {
   }
   if (!transcript) return true;
   let extracted = null;
-  try { if (canReceiveFirstRecipe(user.id)) extracted = await extractDinnerIntake({ userId: user.id, transcript, profileOnly: Boolean(pending.profileOnly) }); }
+  try { if (canReceiveFirstRecipe(user.id)) extracted = await extractDinnerIntake({ userId: user.id, transcript, profileOnly: Boolean(pending.profileOnly) && !pending.ingredientsFirst }); }
   catch (error) { log('warn', 'dinner_intake_fallback', { error: error.message, userId: user.id }); }
-  const fallback = parseDinnerIntakeFallback(transcript, { bareCategoriesAsLikes: Boolean(pending.profileOnly) });
+  const fallback = parseDinnerIntakeFallback(transcript, { bareCategoriesAsLikes: Boolean(pending.profileOnly) && !pending.ingredientsFirst });
   const patch = combineDinnerIntakeExtraction(extracted, fallback);
   // In the profile conversation unknown words are not a list of food at home.
-  if (pending.profileOnly && !extracted && !/(?:есть|дома|холодильник|продукт|остал)[^.!?\n]*\s/iu.test(transcript)) patch.availableIngredients = [];
+  if (pending.profileOnly && !pending.ingredientsFirst && !extracted && !/(?:есть|дома|холодильник|продукт|остал)[^.!?\n]*\s/iu.test(transcript)) patch.availableIngredients = [];
   const intake = mergeDinnerIntake(pending.intake, patch);
-  setPendingIntent(user.id, { kind: 'dinner-confirm', intake, profileOnly: Boolean(pending.profileOnly) });
+  setPendingIntent(user.id, { kind: 'dinner-confirm', intake, profileOnly: Boolean(pending.profileOnly), ingredientsFirst: false });
   await sendDinnerIntakeSummary(message.chat.id, user.id, intake, pending);
   return true;
 }
