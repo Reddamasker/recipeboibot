@@ -21,7 +21,7 @@ await call('setMyCommands', { commands: [
   { command: 'privacy', description: 'Какие данные сохраняются' },
   { command: 'terms', description: 'Условия закрытого теста' }
 ] });
-const description = 'Идеальный рецепт за 15 секунд\n\nПривет! Я твой личный ассистент по управлению рецептами. Помню твои предпочтения, сохранённые рецепты и ограничения.\n\nНажми «Старт», и мы подберём тебе рецепт за 15 секунд.';
-for (const language_code of ['', 'ru']) await call('setMyDescription', { description, language_code });
+// Bot descriptions are managed by the owner in BotFather.
+// Configuring menus and commands must not overwrite manual text or create locale overrides.
 await call('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Открыть приложение', web_app: { url: appUrl } } });
 console.log(JSON.stringify({ ok: true, username: bot.username, appUrl, menuConfigured: true }));
