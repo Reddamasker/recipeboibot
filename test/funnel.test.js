@@ -318,9 +318,40 @@ test('recipe choice is distinct from viewing, deduplicated across stored sources
   startTrial(chosen.id, at('10:04')); startTrial(shown.id, at('10:04'));
   const report = funnelReport('selection');
   assert.equal(report.totals.selectedRecipe, 1); assert.equal(report.ordered.selectedRecipe, 1);
-  assert.equal(report.totals.trial, 2); assert.equal(report.ordered.trial, 1);
+  assert.equal(report.totals.trial, 2); assert.equal(report.ordered.trial, 2);
+  assert.equal(report.selectedTrials, 1); assert.equal(report.conversions.trialAfterRecipe, 66.7);
   assert.equal(report.conversions.selectionFromRecipe, 33.3); assert.equal(report.conversions.trialAfterSelection, 100);
   assert.equal(report.attribution.reduce((sum,row) => sum + row.selectedRecipe, 0), 1);
   const internal = upsertTelegramUser({ id: '193553580' }); event(internal, 'recommendation_accepted', '10:02');
   assert.equal(funnelReport('selection').totals.selectedRecipe, 1);
+});
+
+test('direct recipe request and dinner preview trials follow the result without an accepted dinner choice', () => {
+  createCampaign('trial-paths');
+  const requested = fixture().user, opened = fixture().user, tooEarly = fixture().user, failed = fixture().user;
+  for (const user of [requested, opened, tooEarly, failed]) {
+    recordBotStart(user, '/start ' + tokenFrom(advertisingRedirect('trial-paths')), at('10:00')); allowUser(user.id);
+  }
+  const recipe = createRecipe(requested.id, { status: 'ready', title: 'Requested dish' });
+  db.prepare('UPDATE recipes SET created_at=? WHERE id=?').run(at('10:01').toISOString(), recipe.id);
+  db.prepare('INSERT INTO first_recipe_selections(user_id,recipe_id,title,source,recipe_json,selected_at) VALUES(?,?,?,?,?,?)')
+    .run(requested.id, recipe.id, 'Requested dish', 'request', '{}', at('10:01').toISOString());
+  const event = (user, name, time) => db.prepare('INSERT INTO dinner_events(id,user_id,event,created_at) VALUES(?,?,?,?)')
+    .run(randomUUID(), user.id, name, at(time).toISOString());
+  event(opened, 'recommendation_shown', '10:01'); event(opened, 'dinner_recommendation_opened', '10:02');
+  event(opened, 'dinner_recommendation_opened', '10:03');
+  event(tooEarly, 'recommendation_shown', '10:03'); event(tooEarly, 'recommendation_accepted', '10:04');
+  for (const user of [requested, opened, failed]) startTrial(user.id, at('10:03'));
+  startTrial(tooEarly.id, at('10:01'));
+  for (const user of [requested, opened]) {
+    const order = createPaymentOrder(user.id, {}, at('10:04'));
+    db.prepare("UPDATE payment_orders SET status='paid',paid_at=?,is_test=0 WHERE id=?").run(at('10:05').toISOString(), order.id);
+  }
+  const report = funnelReport('trial-paths');
+  assert.deepEqual(report.ordered, { starts: 4, firstRecipe: 3, selectedRecipe: 1, trial: 2, paid: 2 });
+  assert.equal(report.totals.trial, 4);
+  assert.equal(report.selectedTrials, 0); assert.equal(report.conversions.trialAfterSelection, 0);
+  assert.equal(report.conversions.trialAfterRecipe, 66.7); assert.equal(report.conversions.paidAfterTrial, 100);
+  assert.equal(report.attribution.reduce((sum, row) => sum + row.trial, 0), 2);
+  assert.equal(report.attribution.reduce((sum, row) => sum + row.paid, 0), 2);
 });

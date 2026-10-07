@@ -18,19 +18,20 @@ export function maxFunnelSnapshot() {
   const all = funnelReport('all');
   const campaign = exists ? funnelReport(MAX_AD_PLACEMENT) : {
     ...all, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
-    convertedClicks: 0, returningStarts: 0, testPaidUsers: 0, unclassifiedPaidUsers: 0, historicalStartsWithoutDate: 0, priceExperiment: null
+    convertedClicks: 0, selectedTrials: 0, returningStarts: 0, testPaidUsers: 0, unclassifiedPaidUsers: 0, historicalStartsWithoutDate: 0, priceExperiment: null
   };
-  const summary = report => Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'returningStarts',
+  const summary = report => Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'selectedTrials', 'returningStarts',
     'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment', 'recipeActivity'].map(k => [k, report[k]]));
-  return { version: 3, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
+  return { version: 4, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
 }
 function validateSnapshot(data) {
-  if (data?.version !== 3 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+  if (data?.version !== 4 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');
     for (const key of stages) if (!count(report.totals?.[key]) || !count(report.ordered?.[key]) || report.ordered[key] > report.totals[key]) throw new Error('Invalid MAX counts');
-    if (report.ordered.firstRecipe > report.ordered.starts || report.ordered.selectedRecipe > report.ordered.firstRecipe || report.ordered.trial > report.ordered.selectedRecipe || report.ordered.paid > report.ordered.trial) throw new Error('Invalid MAX order');
+    if (report.ordered.firstRecipe > report.ordered.starts || report.ordered.selectedRecipe > report.ordered.firstRecipe || report.ordered.trial > report.ordered.firstRecipe || report.ordered.paid > report.ordered.trial) throw new Error('Invalid MAX order');
+    if (!count(report.selectedTrials) || report.selectedTrials > report.ordered.selectedRecipe || report.selectedTrials > report.ordered.trial) throw new Error('Invalid MAX selection conversion');
     const a = report.recipeActivity;
     if (activityCounters.some(key => !count(a?.[key])) || a.returnedRecipeUsers > a.repeatRecipeUsers || a.repeatRecipeUsers > a.recipeUsers
       || a.recipeUsers > report.totals.starts || a.savedRecipeUsers > a.savedRecipes || a.notificationsEnabledUsers > a.notificationUsers
@@ -80,6 +81,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
       result.ordered[key] = specific ? remote.ordered[key] : result.ordered[key] + remote.ordered[key];
     }
     result.convertedClicks = specific ? data.campaign.convertedClicks : (result.convertedClicks ?? 0) + data.campaign.convertedClicks;
+    result.selectedTrials = specific ? remote.selectedTrials : result.selectedTrials + remote.selectedTrials;
     result.returningStarts = specific ? remote.returningStarts : result.returningStarts;
     for (const key of ['testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate']) {
       if (!count(remote[key])) throw new Error('Invalid MAX exclusions');
@@ -90,7 +92,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     result.conversions = { ...result.conversions, startFromClick: ratio(result.convertedClicks, result.clicks),
       firstRecipeFromStart: ratio(result.ordered.firstRecipe, result.ordered.starts),
       selectionFromRecipe: ratio(result.ordered.selectedRecipe, result.ordered.firstRecipe),
-      trialAfterSelection: ratio(result.ordered.trial, result.ordered.selectedRecipe),
+      trialAfterSelection: ratio(result.selectedTrials, result.ordered.selectedRecipe),
       trialAfterRecipe: ratio(result.ordered.trial, result.ordered.firstRecipe), paidAfterTrial: ratio(result.ordered.paid, result.ordered.trial) };
     result.remoteFunnel = { platform: 'max', status: 'ready', generatedAt: remote.generatedAt, error: null };
     return result;
@@ -102,7 +104,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
       error: 'Данные MAX сейчас недоступны.' + (specific ? '' : ' Общие пользовательские этапы пока учитывают только Telegram.') };
     if (specific) {
       for (const key of stages) unavailable.totals[key] = unavailable.ordered[key] = null;
-      unavailable.priceExperiment = null; unavailable.convertedClicks = null; unavailable.linkRequests = null;
+      unavailable.priceExperiment = null; unavailable.convertedClicks = null; unavailable.selectedTrials = null; unavailable.linkRequests = null;
       unavailable.recipeActivity = Object.fromEntries([...activityCounters, 'returnRate'].map(key => [key, null]));
       for (const key of ['startFromClick', 'firstRecipeFromStart', 'selectionFromRecipe', 'trialAfterSelection', 'trialAfterRecipe', 'paidAfterTrial']) unavailable.conversions[key] = null;
     } else unavailable.conversions.startFromClick = null;

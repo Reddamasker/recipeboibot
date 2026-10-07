@@ -45,7 +45,7 @@ test('aggregate endpoint requires its own token, returns no identities and is re
  } finally {await new Promise(r=>server.close(r));}
 });
 const counters={starts:4,firstRecipe:2,selectedRecipe:1,trial:1,paid:0};
-const report=(slug=MAX_AD_PLACEMENT)=>({campaign:slug?{slug}:null,totals:{...counters},ordered:{...counters},recipeActivity:{...emptyRecipeActivity(),returnRate:null},convertedClicks:4,clicks:20,impressions:100,campaigns:[],conversions:{startFromClick:20,firstRecipeFromStart:50,trialAfterRecipe:50,paidAfterTrial:0},priceExperiment:null,testPaidUsers:0,unclassifiedPaidUsers:0,historicalStartsWithoutDate:0,linkRequests:9});
+const report=(slug=MAX_AD_PLACEMENT)=>({campaign:slug?{slug}:null,totals:{...counters},ordered:{...counters},selectedTrials:1,recipeActivity:{...emptyRecipeActivity(),returnRate:null},convertedClicks:4,clicks:20,impressions:100,campaigns:[],conversions:{startFromClick:20,firstRecipeFromStart:50,trialAfterRecipe:50,paidAfterTrial:0},priceExperiment:null,testPaidUsers:0,unclassifiedPaidUsers:0,historicalStartsWithoutDate:0,linkRequests:9});
 const options={enabled:true,origin:'https://recipeboibot-max.89-223-123-75.sslip.io',token:'a'.repeat(43)};
 test('specific MAX funnel uses MAX stages and Direct clicks, all-users adds MAX accounts exactly once',async()=>{
  const snapshot=maxFunnelSnapshot();
@@ -69,8 +69,25 @@ test('bridge rejects unexpected destinations and invalid aggregate sources befor
 });
 
 test('old MAX aggregates and impossible selection order remain unknown rather than inventing zeroes',async()=>{
- for(const snapshot of [{...maxFunnelSnapshot(),version:1},(()=>{const s=maxFunnelSnapshot();s.campaign.ordered.selectedRecipe=s.campaign.ordered.firstRecipe+1;return s;})()]){
+ for(const snapshot of [{...maxFunnelSnapshot(),version:3},(()=>{const s=maxFunnelSnapshot();s.campaign.ordered.selectedRecipe=s.campaign.ordered.firstRecipe+1;return s;})()]){
   const result=await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)});
   assert.equal(result.remoteFunnel.status,'error');assert.equal(result.totals.selectedRecipe,null);assert.equal(result.clicks,20);
  }
+});
+
+test('MAX aggregation counts trial after a result even without choice and keeps optional choice conversion bounded', async () => {
+ const snapshot=maxFunnelSnapshot();
+ for(const scope of ['all','campaign']) {
+  snapshot[scope].totals={starts:3,firstRecipe:3,selectedRecipe:1,trial:3,paid:1};
+  snapshot[scope].ordered={...snapshot[scope].totals};
+  snapshot[scope].selectedTrials=1;
+ }
+ const specific=await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)});
+ assert.equal(specific.remoteFunnel.status,'ready');assert.equal(specific.ordered.trial,3);
+ assert.equal(specific.conversions.trialAfterRecipe,100);assert.equal(specific.conversions.trialAfterSelection,100);
+ const combined=await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(snapshot)});
+ assert.equal(combined.ordered.trial,4);assert.equal(combined.selectedTrials,2);
+ assert.equal(combined.conversions.trialAfterRecipe,80);assert.equal(combined.conversions.trialAfterSelection,100);
+ snapshot.campaign.selectedTrials=2;
+ assert.equal((await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)})).remoteFunnel.status,'error');
 });

@@ -165,6 +165,7 @@ export function funnelReport(slug = 'all') {
   const selectionTimes = selectedRecipeTimes();
   const totals = { starts: cohort.length, firstRecipe: 0, selectedRecipe: 0, trial: 0, paid: 0 };
   const ordered = { starts: cohort.length, firstRecipe: 0, selectedRecipe: 0, trial: 0, paid: 0 };
+  let selectedTrials = 0;
   const clickRows = db.prepare(`SELECT token,campaign,tags_json FROM acquisition_clicks ${campaign ? 'WHERE campaign=?' : ''}`).all(...(campaign ? [slug] : []));
   const groups = new Map(), clickGroups = new Map();
   for (const click of clickRows) {
@@ -187,8 +188,11 @@ export function funnelReport(slug = 'all') {
       ordered.firstRecipe++;
       if (group && recipe >= user.started_at) group.firstRecipe++;
       if (afterStart(selected) && selected >= recipe) ordered.selectedRecipe++;
-      if (afterStart(selected) && selected >= recipe && afterStart(trial) && trial >= selected) {
+      // A successful direct request or a trial from the dinner preview does not
+      // require accepting a dinner option. Choice is an optional side metric.
+      if (afterStart(trial) && trial >= recipe) {
         ordered.trial++;
+        if (afterStart(selected) && selected >= recipe && trial >= selected) selectedTrials++;
         if (group && recipe >= user.started_at) group.trial++;
         if (afterStart(paid) && paid >= trial) { ordered.paid++; if (group && recipe >= user.started_at) group.paid++; }
       }
@@ -202,14 +206,14 @@ export function funnelReport(slug = 'all') {
   return {
     generatedAt: new Date().toISOString(), trackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='tracking_since'").get().value,
     contour: config.testContour ? 'test' : 'main', preview: config.dashboardPreview, campaign: campaign || null, campaigns,
-    impressions, reach: campaign?.reach ?? null, clicks, totals, ordered,
+    impressions, reach: campaign?.reach ?? null, clicks, totals, ordered, selectedTrials,
     recipeActivity: recipeActivityReport(cohort, Boolean(campaign)),
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
     priceExperiment: !campaign || DINNER_PRICE_EXPERIMENT.campaigns.includes(campaign.slug)
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,
     convertedClicks,
     conversions: { clickFromImpression: percentage(clicks, impressions), startFromClick: campaign ? percentage(convertedClicks, clicks) : null,
-      firstRecipeFromStart: percentage(ordered.firstRecipe, ordered.starts), selectionFromRecipe: percentage(ordered.selectedRecipe, ordered.firstRecipe), trialAfterSelection: percentage(ordered.trial, ordered.selectedRecipe), trialAfterRecipe: percentage(ordered.trial, ordered.firstRecipe), paidAfterTrial: percentage(ordered.paid, ordered.trial) },
+      firstRecipeFromStart: percentage(ordered.firstRecipe, ordered.starts), selectionFromRecipe: percentage(ordered.selectedRecipe, ordered.firstRecipe), trialAfterSelection: percentage(selectedTrials, ordered.selectedRecipe), trialAfterRecipe: percentage(ordered.trial, ordered.firstRecipe), paidAfterTrial: percentage(ordered.paid, ordered.trial) },
     returningStarts: campaign ? db.prepare(`SELECT COUNT(*) AS count FROM acquisition_starts s JOIN users u ON u.id=s.user_id WHERE s.campaign=? AND s.is_returning=1 AND ${analyticsUserCondition}`).get(slug, ...analyticsExcludedIds).count : null,
     historicalStartsWithoutDate: cohort.filter(u => !u.started_at).length,
     testPaidUsers: excludedPayments.filter(p => p.is_test === 1 && ids.has(p.user_id)).length,
