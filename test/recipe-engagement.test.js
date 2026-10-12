@@ -125,6 +125,7 @@ test('visible client acknowledgement ignores hidden, covered, offscreen and deta
   const element = { isConnected: true, contains: other => other === element, getBoundingClientRect: () => ({ top: 0, bottom: 500, left: 0, right: 320 }) };
   const document = { visibilityState: 'hidden', elementFromPoint: () => element, addEventListener() {} };
   const context = vm.createContext({ document, window: { addEventListener() {} }, innerWidth: 320, innerHeight: 600,
+    getComputedStyle: () => ({ visibility: 'visible', opacity: '1' }),
     crypto: { randomUUID }, AbortSignal, api: async (...args) => calls.push(args), requestAnimationFrame: fn => frames.push(fn) });
   vm.runInContext(source.slice(source.indexOf('const pendingEngagement'), source.indexOf('const cookingTimeLabel')), context);
   context.observeEngagement(element, 'token'); frames.pop()();
