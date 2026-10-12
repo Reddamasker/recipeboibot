@@ -1,14 +1,15 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
-const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null) => {
+import cuisineCatalog from './cuisine-catalog.json' with { type: 'json' };
+const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null, hasImage = true) => {
   const [prepMinutes, cookMinutes] = Array.isArray(timing) ? timing : [5, timing - 5];
   const recipe = {
     id: `seed:${id}`, title, description, prepMinutes, cookMinutes, servings,
     tags, mainIngredients, discovery, ingredients: ingredients.map(([name, quantity, unit]) => ({ name, raw: name, quantity, unit })),
     steps: steps.map((text, index) => ({ position: index + 1, text })),
-    sourceName: 'Подборка «Твоих рецептов»', sourceUrl: null, thumbnailUrl: `/assets/dinner/${id}.jpg`,
-    imageGenerated: true, origin: 'seed', userSaved: false
+    sourceName: 'Подборка «Твоих рецептов»', sourceUrl: null, thumbnailUrl: hasImage ? `/assets/dinner/${id}.jpg` : null,
+    imageGenerated: hasImage, origin: 'seed', userSaved: false
   };
   return { ...recipe, nutrition: recipeNutrition(recipe) };
 };
@@ -190,6 +191,9 @@ export const SEED_RECIPES = Object.freeze([
     ['Очистите картофель и лук. Натрите их на мелкой тёрке и слегка отожмите лишнюю жидкость.', 'Добавьте яйцо, муку и соль. Перемешайте непосредственно перед жаркой.', 'Разогрейте часть масла в широкой сковороде. Выкладывайте массу ложкой и разравнивайте в лепёшки толщиной около 7 мм.', 'Жарьте драники партиями по 3–4 минуты с каждой стороны до золотистой корочки, добавляя масло по необходимости.', 'Переложите готовые драники на бумажное полотенце и подавайте горячими.'])
   ,...expandedCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery }) =>
     seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery))
+  // The separate regional expansion keeps placeholders until its photos exist.
+  ,...cuisineCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, cuisines, sourceUrl }) =>
+    ({ ...seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, false), cuisines, sourceUrl }))
 ]);
 
 const seedImages = new Map(SEED_RECIPES.map(recipe => [recipe.id, recipe.thumbnailUrl]));

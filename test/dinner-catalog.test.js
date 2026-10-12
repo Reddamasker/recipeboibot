@@ -4,13 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import catalog from '../src/dinner-catalog.json' with { type: 'json' };
+import cuisineCatalog from '../src/cuisine-catalog.json' with { type: 'json' };
 import { SEED_RECIPES } from '../src/dinner-seeds.js';
 import { rankCandidates, hasExcludedIngredient } from '../src/dinner.js';
 
-test('the 250-recipe catalog has unique identities, complete instructions and usable media references', () => {
-  assert.equal(SEED_RECIPES.length, 250);
-  assert.equal(new Set(SEED_RECIPES.map(r=>r.id)).size, 250);
-  assert.equal(new Set(SEED_RECIPES.map(r=>r.title.toLocaleLowerCase('ru'))).size, 250);
+test('the catalog has unique identities, complete instructions and usable media references', () => {
+  assert.equal(SEED_RECIPES.length, 332);
+  assert.equal(new Set(SEED_RECIPES.map(r=>r.id)).size, 332);
+  assert.equal(new Set(SEED_RECIPES.map(r=>r.title.toLocaleLowerCase('ru'))).size, 332);
   for (const recipe of SEED_RECIPES) {
     assert.ok(recipe.servings > 0 && Number.isInteger(recipe.servings), recipe.id);
     assert.ok(recipe.prepMinutes > 0 && recipe.cookMinutes > 0, recipe.id);
@@ -20,16 +21,22 @@ test('the 250-recipe catalog has unique identities, complete instructions and us
     }
     assert.ok(recipe.steps.length >= 4 && recipe.steps.every((s,i)=>s.position===i+1 && s.text.trim().length>0), recipe.id);
     assert.ok(recipe.nutrition && recipe.nutrition.calories > 0, recipe.id);
+    if (cuisineCatalog.some(r => `seed:${r.id}` === recipe.id)) {
+      assert.equal(recipe.thumbnailUrl, null, recipe.id);
+      assert.equal(recipe.imageGenerated, false, recipe.id);
+      continue;
+    }
     assert.equal(recipe.thumbnailUrl, `/assets/dinner/${recipe.id.slice(5)}.jpg`, recipe.id);
     assert.equal(recipe.imageGenerated, true, recipe.id);
     assert.ok(fs.existsSync(path.join('public', recipe.thumbnailUrl)), recipe.id);
   }
 });
 
-test('every catalog dish has its own valid JPEG and new card images are compact', () => {
+test('all 250 photographed catalog dishes have distinct valid compact JPEGs', () => {
   const hashes = new Set();
   const newIds = new Set(catalog.map(recipe => `seed:${recipe.id}`));
   for (const recipe of SEED_RECIPES) {
+    if (!recipe.thumbnailUrl) continue;
     const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
     assert.equal(bytes.readUInt16BE(0), 0xffd8, recipe.id);
     assert.equal(bytes.readUInt16BE(bytes.length - 2), 0xffd9, recipe.id);
@@ -38,6 +45,7 @@ test('every catalog dish has its own valid JPEG and new card images are compact'
     hashes.add(hash);
     if (newIds.has(recipe.id)) assert.ok(bytes.length < 250_000, `oversized card image: ${recipe.id}`);
   }
+  assert.equal(hashes.size, 250);
 });
 
 test('the expansion contains explicit recipes rather than duplicate ingredient lists or renamed dishes', () => {

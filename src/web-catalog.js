@@ -13,6 +13,9 @@ const cuisineOverrides = {
 };
 function catalogCategories(recipe) {
   const all = recipeCategories(recipe), override = cuisineOverrides[recipe.id.slice(5)];
+  // Authored cuisine assignments take precedence over incidental words in food
+  // names. Existing recipes retain their previous categories and overrides.
+  if (recipe.cuisines?.length) return [...all.filter(id=>!cuisines.some(([c])=>c===id)),...recipe.cuisines];
   const result = override ? [...all.filter(id=>!cuisines.some(([c])=>c===id)),...override] : all;
   if(!result.some(id=>cuisines.some(([c])=>c===id))) result.push('everyday');
   return result;

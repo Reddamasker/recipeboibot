@@ -29,7 +29,7 @@
     const priority=['everyday','italian','georgian','asian','japanese','russian'];
     const ordered=[...result.cuisines].sort((a,b)=>(priority.indexOf(a.id)<0?99:priority.indexOf(a.id))-(priority.indexOf(b.id)<0?99:priority.indexOf(b.id)));
     const visible=expandedCuisines?ordered:ordered.filter((c,i)=>i<6||c.id===p.get('cuisine'));
-    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${cuisineIllustrations.has(c.id)?c.id:'everyday'}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
+    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${cuisineIllustrations.has(c.id)?c.id:c.id==='chinese'?'asian':'everyday'}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
     $('#cuisine-tiles').dataset.expanded=String(expandedCuisines);
     $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Все кухни';
     $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));

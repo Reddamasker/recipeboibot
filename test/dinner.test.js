@@ -424,7 +424,8 @@ test('cold start, profile, recommendation, retry, reason and cooked decision wor
     const detail = await fetch(base + '/api/dinner/recipes/' + encodeURIComponent(immediate.recommendation.recipe.id), { headers });
     assert.equal(detail.status, 200);
     const fullRecipe = await detail.json();
-    assert.ok(fullRecipe.thumbnailUrl.startsWith('/assets/dinner/'));
+    if (fullRecipe.thumbnailUrl) assert.ok(fullRecipe.thumbnailUrl.startsWith('/assets/dinner/'));
+    else assert.equal(fullRecipe.imageGenerated, false);
     assert.ok(fullRecipe.steps.length >= 4);
     assert.ok(fullRecipe.ingredients.every((item) => item.quantity > 0 && item.unit));
     assert.equal((await fetch(base + '/api/dinner/recipes/seed:unknown', { headers })).status, 404);

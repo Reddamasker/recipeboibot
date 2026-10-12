@@ -70,8 +70,8 @@ test('fresh client gets catalog recipes with local images and no provider reques
   for (const option of [...result.recommendations, ...result.reserve]) {
     assert.equal(option.recipe.origin, 'seed');
     assert.equal(option.recipe.dinnerGenerated, undefined);
-    assert.ok(option.recipe.thumbnailUrl);
-    assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
+    if (option.recipe.thumbnailUrl) assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
+    else assert.equal(option.recipe.imageGenerated, false);
     assert.equal(hasExcludedIngredient(option.recipe, ['арахис']), false);
   }
   assert.equal(generationCalls, 0);
