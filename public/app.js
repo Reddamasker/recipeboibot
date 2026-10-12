@@ -32,6 +32,8 @@ function flushVisibleEngagement() {
   for (const [element, entry] of pendingEngagement) {
     if (!element.isConnected) { pendingEngagement.delete(element); continue; }
     if (document.visibilityState !== 'visible') continue;
+    const style = getComputedStyle(element);
+    if (style.visibility !== 'visible' || Number(style.opacity) === 0) continue;
     const r = element.getBoundingClientRect();
     const left = Math.max(0, r.left), right = Math.min(innerWidth, r.right);
     const top = Math.max(0, r.top), bottom = Math.min(innerHeight, r.bottom);
@@ -51,6 +53,8 @@ function observeEngagement(element, token) {
 }
 globalThis.document?.addEventListener?.('visibilitychange', flushVisibleEngagement);
 globalThis.document?.addEventListener?.('scroll', flushVisibleEngagement, true);
+globalThis.document?.addEventListener?.('transitionend', flushVisibleEngagement, true);
+globalThis.document?.addEventListener?.('animationend', flushVisibleEngagement, true);
 globalThis.window?.addEventListener?.('resize', flushVisibleEngagement);
 const cookingTimeLabel = (recipe) => {
   const prep = Number.isFinite(recipe.prepMinutes), cook = Number.isFinite(recipe.cookMinutes);
