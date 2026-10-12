@@ -9,18 +9,13 @@
   const params = () => new URLSearchParams(location.search);
   const visualMode = params().get('filters') === 'visual';
   let expandedCuisines = false, visualResult;
-  const cuisinePhotos = {
-    everyday:'chicken-thighs-potato', italian:'pizza-margherita-family', georgian:'chakhokhbili',
-    asian:'rice-vegetables', japanese:'soboro-don', russian:'fresh-cabbage-shchi',
-    ukrainian:'borscht-beef', belarusian:'potato-draniki', greek:'keftedes', indian:'keema-potato',
-    hungarian:'beef-goulash-mash', uzbek:'chicken-pilaf', eastern:'shakshuka-family',
-    european:'pasta-tomato', caucasian:'lobio'
-  };
+  const cuisineIllustrations = new Set(['everyday','italian','georgian','asian','japanese','russian',
+    'ukrainian','belarusian','greek','indian','hungarian','uzbek','eastern','european','caucasian']);
   const productButtons = [
-    ['курица','Курица','chicken-thighs-potato'],['говядина','Говядина','beef-peppers'],
-    ['свинина','Свинина','pork-peppers'],['рыба','Рыба','fish-potato'],['рис','Рис','rice-carrot-onion'],
-    ['картофель','Картофель','potato-skillet'],['грибы','Грибы','buckwheat-mushroom'],
-    ['яйца','Яйца','vegetable-omelette'],['томаты','Томаты','shakshuka-family'],['сыр','Сыр','pizza-margherita-family']
+    ['курица','Курица','chicken'],['говядина','Говядина','beef'],
+    ['свинина','Свинина','pork'],['рыба','Рыба','fish'],['рис','Рис','rice'],
+    ['картофель','Картофель','potato'],['грибы','Грибы','mushroom'],
+    ['яйца','Яйца','egg'],['томаты','Томаты','tomato'],['сыр','Сыр','cheese']
   ];
   const selectedProducts = p => (p.get('include')||'').split(',').map(s=>s.trim()).filter(Boolean);
   function visualButton(name,value,label,extra='') {
@@ -34,11 +29,11 @@
     const priority=['everyday','italian','georgian','asian','japanese','russian'];
     const ordered=[...result.cuisines].sort((a,b)=>(priority.indexOf(a.id)<0?99:priority.indexOf(a.id))-(priority.indexOf(b.id)<0?99:priority.indexOf(b.id)));
     const visible=expandedCuisines?ordered:ordered.filter((c,i)=>i<6||c.id===p.get('cuisine'));
-    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/dinner/${cuisinePhotos[c.id]||'vegetable-stew-family'}.jpg" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
+    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${cuisineIllustrations.has(c.id)?c.id:'everyday'}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
     $('#cuisine-tiles').dataset.expanded=String(expandedCuisines);
     $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Все кухни';
     $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
-    $('#ingredient-chips').innerHTML=productButtons.map(([value,label,photo])=>visualButton('include',value,`<img src="/assets/dinner/${photo}.jpg" alt="" width="36" height="36"><span>${label}</span>`,'class="ingredient-chip"')).join('');
+    $('#ingredient-chips').innerHTML=productButtons.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredient-${illustration}.webp" alt="" width="36" height="36"><span>${label}</span>`,'class="ingredient-chip"')).join('');
     $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
     $('#category-chips').innerHTML=result.categories.map(c=>visualButton('category',c.id,escape(c.label))).join('');
     $('#visual-include').value=p.get('include')||'';

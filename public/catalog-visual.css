@@ -16,7 +16,7 @@ body[data-filter-layout="visual"] .search-row button{background:transparent;colo
 .discovery-heading>span{font-size:12px;color:var(--muted)}
 .cuisine-tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 .cuisine-tile{padding:0;overflow:hidden;border:2px solid transparent;border-radius:13px;background:#ecebe2;text-align:left;position:relative;transition:border-color .15s,transform .15s;min-width:0}
-.cuisine-tile img{display:block;width:100%;height:96px;object-fit:cover}
+.cuisine-tile img{display:block;width:100%;height:96px;object-fit:contain;background:#f4f3ed;padding:3px}
 .cuisine-tile .tile-label{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:12px 10px;font-size:13px;font-weight:bold}
 .cuisine-tile small{font-size:10px;color:var(--muted);font-weight:normal}
 .cuisine-tile:hover{transform:translateY(-2px);background:#e5e6d9}
@@ -26,7 +26,7 @@ body[data-filter-layout="visual"] .search-row button{background:transparent;colo
 .ingredients-heading{margin-top:22px}
 .ingredient-chips{display:flex;gap:9px;flex-wrap:wrap}
 .ingredient-chip{display:flex;align-items:center;gap:9px;border:1px solid #dedfd5;background:#fff9;border-radius:30px;padding:5px 15px 5px 5px;min-height:48px;font-size:13px;white-space:nowrap}
-.ingredient-chip img{width:36px;height:36px;border-radius:50%;object-fit:cover}
+.ingredient-chip img{width:36px;height:36px;border-radius:50%;object-fit:contain;background:#f4f3ed}
 .ingredient-chip[aria-pressed="true"]{border-color:var(--olive);background:#e2e7d7;box-shadow:inset 0 0 0 1px var(--olive)}
 .discovery-toolbar{display:flex;align-items:center;gap:10px;margin-top:19px;flex-wrap:wrap}
 .time-chips{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
