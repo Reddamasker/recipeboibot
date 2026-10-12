@@ -8,7 +8,8 @@
   const filterNames = ['cuisine','category','time','include','exclude'];
   const params = () => new URLSearchParams(location.search);
   const visualMode = params().get('filters') === 'visual';
-  let expandedCuisines = false, visualResult;
+  const mainCuisines = ['everyday','russian','italian','georgian','asian','eastern'];
+  const mainCuisineValues = values => mainCuisines.map(id=>values.find(value=>value.id===id)).filter(Boolean);
   const cuisineIllustrations = new Set(['everyday','italian','georgian','asian','japanese','russian',
     'ukrainian','belarusian','greek','indian','hungarian','uzbek','eastern','european','caucasian']);
   const productButtons = [
@@ -24,15 +25,11 @@
   }
   function renderVisualFilters(p,result) {
     if(!visualMode)return;
-    visualResult=result;
     const focused=document.activeElement?.dataset.visualFilter ? {name:document.activeElement.dataset.visualFilter,value:document.activeElement.dataset.value}:null;
-    const priority=['everyday','italian','georgian','asian','japanese','russian'];
-    const ordered=[...result.cuisines].sort((a,b)=>(priority.indexOf(a.id)<0?99:priority.indexOf(a.id))-(priority.indexOf(b.id)<0?99:priority.indexOf(b.id)));
-    const visible=expandedCuisines?ordered:ordered.filter((c,i)=>i<6||c.id===p.get('cuisine'));
+    const visible=mainCuisineValues(result.cuisines);
     $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${cuisineIllustrations.has(c.id)?c.id:c.id==='chinese'?'asian':'everyday'}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
-    $('#cuisine-tiles').dataset.expanded=String(expandedCuisines);
-    $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Все кухни';
-    $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
+    $('#cuisine-tiles').dataset.expanded='true';
+    $('#all-cuisines').hidden=true;
     $('#ingredient-chips').innerHTML=productButtons.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredient-${illustration}.webp" alt="" width="36" height="36"><span>${label}</span>`,'class="ingredient-chip"')).join('');
     $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
     $('#category-chips').innerHTML=result.categories.map(c=>visualButton('category',c.id,escape(c.label))).join('');
@@ -48,7 +45,6 @@
     $('#search').placeholder='Например, паста с томатами';
     $('#search-form button').textContent='Найти';
     $('.header a[aria-current]').href='/recipes?filters=visual';
-    $('#all-cuisines').addEventListener('click',()=>{expandedCuisines=!expandedCuisines;if(visualResult)renderVisualFilters(params(),visualResult);});
     $('#more-filters').addEventListener('click',()=>{const panel=$('#visual-refinements');panel.hidden=!panel.hidden;$('#more-filters').setAttribute('aria-expanded',String(!panel.hidden));});
     $('#visual-reset').addEventListener('click',()=>navigate('/recipes'));
     $('#visual-products').addEventListener('submit',event=>{event.preventDefault();const p=params();for(const name of ['include','exclude']){const value=$('#visual-'+name).value.trim();if(value)p.set(name,value);else p.delete(name);}p.delete('page');navigate(searchUrl(p));});
@@ -75,8 +71,12 @@
   }
   function options(name, values, selected) {
     const select=$(`#filters [name="${name}"]`);
-    select.innerHTML=`<option value="">${name==='cuisine'?'Все кухни':'Все блюда'}</option>`+values.map(v=>`<option value="${escape(v.id)}">${escape(v.label)} (${v.count})</option>`).join('');
-    if(selected && !values.some(v=>v.id===selected)) select.add(new Option('Неизвестный фильтр',selected));
+    const visible=name==='cuisine'?mainCuisineValues(values):values;
+    select.innerHTML=`<option value="">${name==='cuisine'?'Все кухни':'Все блюда'}</option>`+visible.map(v=>`<option value="${escape(v.id)}">${escape(v.label)} (${v.count})</option>`).join('');
+    if(selected && !visible.some(v=>v.id===selected)) {
+      const known=values.find(v=>v.id===selected), option=new Option(known?.label||'Неизвестный фильтр',selected);
+      option.hidden=Boolean(known); select.add(option);
+    }
     select.value=selected||'';
   }
   function card(recipe) {
