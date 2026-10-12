@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Выбрать рецепт — Твои рецепты</title>
+  <meta name="description" content="Рецепты на каждый день: выбирайте кухню, продукты и время приготовления. Ингредиенты, порции и пошаговые инструкции прямо в браузере.">
+  <meta name="theme-color" content="#f6f5f0">
+  <link rel="icon" href="/assets/recipe-bot-avatar-v3.webp">
+  <link rel="stylesheet" href="/catalog.css?v=1"><script defer src="/catalog.js?v=1"></script>
+</head>
+<body>
+<a class="skip" href="#content">К рецептам</a>
+<header class="header wrap"><a href="/" class="brand"><img src="/assets/recipe-bot-avatar-v3.webp" width="38" height="38" alt="">Твои рецепты</a><nav aria-label="Основная навигация"><a href="/recipes" aria-current="page">Каталог</a><button id="saved-toggle" aria-pressed="false">Избранное <span id="saved-count">0</span></button><a href="/">О проекте</a></nav></header>
+<main id="content" class="wrap">
+<section id="catalog-view">
+  <div class="intro"><div><p class="eyebrow">ГОТОВИТЬ ДОМА — В УДОВОЛЬСТВИЕ</p><h1>Что приготовим <em>сегодня?</em></h1><p class="lead">Знакомые продукты. Новые сочетания. Ваш следующий любимый рецепт.</p></div><p class="catalog-note"><strong id="catalog-total">250</strong><span>идей для вашего стола</span></p></div>
+  <form id="search-form" role="search"><label class="search-label" for="search">Найти рецепт</label><div class="search-row"><input id="search" name="q" type="search" placeholder="Название блюда или продукт" maxlength="160"><button class="primary" type="submit">Найти рецепт</button></div></form>
+  <div class="quick" aria-label="Быстрый выбор"><span>Попробуйте:</span><button data-quick="time:30">До 30 минут</button><button data-quick="category:chicken">С курицей</button><button data-quick="cuisine:italian">Итальянская кухня</button><button data-quick="category:home">Домашняя еда</button></div>
+  <div class="catalog-layout"><aside class="filters"><details open id="filter-panel"><summary>Фильтры</summary><form id="filters">
+    <label>Кухня<select name="cuisine"><option value="">Все кухни</option></select></label>
+    <label>Блюдо и основа<select name="category"><option value="">Все блюда</option></select></label>
+    <label>Время приготовления<select name="time"><option value="">Любое время</option><option value="20">До 20 минут</option><option value="30">До 30 минут</option><option value="45">До 45 минут</option><option value="60">До 1 часа</option></select></label>
+    <label>Добавить продукты<input name="include" placeholder="Например: курица, рис" maxlength="250"></label><small>Через запятую. Найдём рецепты со всеми указанными продуктами.</small>
+    <label>Исключить продукты<input name="exclude" placeholder="Например: грибы, молоко" maxlength="250"></label><small>Фильтр проверяет состав рецепта. Состав готовых продуктов проверяйте на упаковке.</small>
+    <button type="submit" class="primary">Применить фильтры</button><button type="button" id="reset">Сбросить всё</button>
+  </form></details><p class="filter-note">Рецепты открываются целиком.<br>Без регистрации и установки приложения.</p></aside>
+  <section class="results" aria-label="Результаты поиска"><div class="results-head"><div><h2 id="results-title">Все рецепты</h2><p id="result-count" role="status" aria-live="polite">Загружаем каталог…</p></div><label class="sort-label">Порядок<select id="sort"><option value="recommended">Сначала с фото</option><option value="fast">Сначала быстрые</option><option value="name">По названию</option></select></label></div><div id="active-filters" class="active-filters"></div><div id="cards" class="cards" aria-busy="true"></div><nav id="pagination" class="pagination" aria-label="Страницы каталога"></nav></section></div>
+</section>
+<section id="recipe-view" hidden aria-label="Рецепт"></section>
+<noscript><p>Для поиска и просмотра рецептов включите JavaScript в браузере.</p></noscript>
+</main><footer class="wrap footer"><span>Твои рецепты · Готовим с удовольствием</span><a href="/privacy.html">Ваши данные</a></footer><p id="notice" class="notice" role="status" hidden></p>
+</body></html>

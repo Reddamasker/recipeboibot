@@ -37,6 +37,7 @@ import { openDashboardSession, closeDashboardSession, dashboardSessionValid } fr
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 import { telegramOpenDocument } from './telegram-open.js';
+import { catalogSearch, catalogRecipe } from './web-catalog.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -421,6 +422,20 @@ export function createServer() {
         return json(response, 200, maxFunnelSnapshot());
       }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
+      // Public house catalog only. Personal recipes and AI results retain their authentication gates.
+      if (url.pathname === '/api/catalog' || url.pathname.startsWith('/api/catalog/')) {
+        if (request.method !== 'GET') return json(response, 405, { error: 'Метод не поддерживается' });
+        rateLimit(`catalog:${clientIp(request)}`, 180);
+        if (url.pathname === '/api/catalog') return json(response, 200, catalogSearch(url.searchParams));
+        const recipe = catalogRecipe(url.pathname.slice('/api/catalog/'.length));
+        return json(response, recipe ? 200 : 404, recipe || { error: 'Рецепт не найден' });
+      }
+      if (url.pathname === '/recipes' || url.pathname === '/recipes/' || /^\/recipes\/[a-z0-9-]+$/.test(url.pathname)) {
+        if (!['GET', 'HEAD'].includes(request.method)) return json(response, 405, { error: 'Метод не поддерживается' });
+        const id = url.pathname.slice('/recipes/'.length);
+        if (url.pathname.length > '/recipes/'.length && !catalogRecipe(id)) return htmlResponse(response, 404, '<!doctype html><html lang="ru"><meta charset="utf-8"><title>Рецепт не найден</title><h1>Рецепт не найден</h1><a href="/recipes">Вернуться в каталог</a></html>');
+        return serveStatic(request, response, '/catalog.html');
+      }
       if (url.pathname === '/dashboard' || url.pathname === '/dashboard/') return serveStatic(request, response, '/dashboard.html');
       if (url.pathname.startsWith('/api/dashboard/')) {
         const cookie = String(request.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith('funnel_session='))?.slice(15);
