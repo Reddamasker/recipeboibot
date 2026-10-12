@@ -6,10 +6,10 @@ import catalog from '../src/dinner-catalog.json' with { type: 'json' };
 import { SEED_RECIPES } from '../src/dinner-seeds.js';
 import { rankCandidates, hasExcludedIngredient } from '../src/dinner.js';
 
-test('the 250-recipe catalog has unique identities, complete instructions and usable media references', () => {
-  assert.equal(SEED_RECIPES.length, 250);
-  assert.equal(new Set(SEED_RECIPES.map(r=>r.id)).size, 250);
-  assert.equal(new Set(SEED_RECIPES.map(r=>r.title.toLocaleLowerCase('ru'))).size, 250);
+test('the catalog has unique identities, complete instructions and usable media references', () => {
+  assert.equal(SEED_RECIPES.length, 332);
+  assert.equal(new Set(SEED_RECIPES.map(r=>r.id)).size, 332);
+  assert.equal(new Set(SEED_RECIPES.map(r=>r.title.toLocaleLowerCase('ru'))).size, 332);
   for (const recipe of SEED_RECIPES) {
     assert.ok(recipe.servings > 0 && Number.isInteger(recipe.servings), recipe.id);
     assert.ok(recipe.prepMinutes > 0 && recipe.cookMinutes > 0, recipe.id);

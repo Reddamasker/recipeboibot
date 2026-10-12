@@ -1,6 +1,7 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
+import cuisineCatalog from './cuisine-catalog.json' with { type: 'json' };
 const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null, hasImage = true) => {
   const [prepMinutes, cookMinutes] = Array.isArray(timing) ? timing : [5, timing - 5];
   const recipe = {
@@ -188,8 +189,9 @@ export const SEED_RECIPES = Object.freeze([
   ,seed('potato-draniki', 'Картофельные драники', [15,20], 4, ['без мяса','домашняя еда','семейное','быстро'], ['картофель'], 'Румяные картофельные оладьи с мягкой серединой — простой ужин из привычных продуктов.',
     [['картофель',900,'г'],['лук',1,'шт.'],['яйца',1,'шт.'],['пшеничная мука',2,'ст. л.'],['растительное масло',3,'ст. л.']],
     ['Очистите картофель и лук. Натрите их на мелкой тёрке и слегка отожмите лишнюю жидкость.', 'Добавьте яйцо, муку и соль. Перемешайте непосредственно перед жаркой.', 'Разогрейте часть масла в широкой сковороде. Выкладывайте массу ложкой и разравнивайте в лепёшки толщиной около 7 мм.', 'Жарьте драники партиями по 3–4 минуты с каждой стороны до золотистой корочки, добавляя масло по необходимости.', 'Переложите готовые драники на бумажное полотенце и подавайте горячими.'])
-  // New recipes have no dish photograph yet. The UI already supports text-only
-  // cards; do not publish nonexistent image URLs or reuse another dish's photo.
+  // Recipes without their own photo use the web catalog's uniform placeholder.
   ,...expandedCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery }) =>
     seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, false))
+  ,...cuisineCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, cuisines, sourceUrl }) =>
+    ({ ...seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, false), cuisines, sourceUrl }))
 ]);
