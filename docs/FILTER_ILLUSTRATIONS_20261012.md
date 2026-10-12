@@ -36,4 +36,8 @@ Use case: stylized-concept. Asset type: a single standalone minimalist food illu
 - `ingredient-tomato.webp`: one terracotta red tomato with green stem
 - `ingredient-cheese.webp`: one small golden cheese wedge with two holes
 
-Проверки и результат публикации будут зафиксированы после выпуска.
+Опубликовано только в тестовый контур штатным deploy-test --check → --apply. Runtime `2a934c5b6f67ba3958616d01ea9eeabce0274e43`. После первого выпуска исправлен обнаруженный общий Content-Type для WebP: теперь image/webp; добавлена проверка HTTP-ответа и сигнатуры изображения. Финально 590/590 тестов локально и в серверном контейнере.
+
+Браузер: 320/390 px без горизонтального переполнения; desktop; все 25 иллюстраций загружаются из assets/filters; курица+рис дают четыре рецепта, итальянская кухня — пять. Обычный интерфейс без параметра сохранён. Суммарный размер иллюстраций 123 972 байта.
+
+HTTPS: https://recipeboibot-test.89-223-123-75.sslip.io/recipes?filters=visual. Все 25 файлов совпадают побайтово с локальными. SHA256 src/public (188 файлов): `f6c0061530229897313d62865709b6cf6d326abba669e3badf08cdec69c4d8f9`. Перед каждым выпуском создан зашифрованный резерв БД. Все три контура ready, integrity_check ok. Код main/MAX остался без изменений; отдельные базы и настройки сохранены. Финальные количества пользователей/рецептов/заказов: recipeboibot-test 2/2/0, recipeboibot 113/53/5, recipeboibot-max 233/35/0.
