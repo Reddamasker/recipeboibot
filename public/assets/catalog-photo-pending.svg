@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="400" viewBox="0 0 520 400">
+  <defs><linearGradient id="paper" x2="1" y2="1"><stop stop-color="#e7e8dd"/><stop offset="1" stop-color="#efede5"/></linearGradient><radialGradient id="plate"><stop stop-color="#fbfaf6"/><stop offset=".78" stop-color="#f5f4ec"/><stop offset="1" stop-color="#dddfd2"/></radialGradient></defs>
+  <path fill="url(#paper)" d="M0 0h520v400H0z"/>
+  <ellipse cx="271" cy="215" rx="125" ry="117" fill="#cdd0bf" opacity=".4"/>
+  <circle cx="260" cy="200" r="121" fill="url(#plate)"/>
+  <circle cx="260" cy="200" r="91" fill="none" stroke="#d5d8c8" stroke-width="2"/>
+  <path d="M107 105v65q0 15 13 15v112m-1-192v65m13-65v65q0 15-12 15M411 104q-18 44-18 84h16v109m0-193v84" fill="none" stroke="#a4ac94" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M246 230q14-40 39-68" fill="none" stroke="#7e8a6d" stroke-width="3" stroke-linecap="round"/>
+  <path d="M265 197q-34 2-31-29 27-4 31 29m9-17q2-30 28-27 1 26-28 27m-20 39q-30 5-32-21 26-9 32 21m6-13q10-29 35-17-8 25-35 17" fill="#a3ae91"/>
+</svg>
