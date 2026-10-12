@@ -400,7 +400,7 @@ function serveStatic(request, response, pathname) {
     const document = platformLegalDocument(fs.readFileSync(file, 'utf8'), config);
     securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
   }
-  securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': requested === '/dashboard.html' ? 'no-store' : requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
+  securityHeaders(response); response.writeHead(200, { 'content-type': mimeTypes[path.extname(file)] || 'application/octet-stream', 'cache-control': ['/dashboard.html', '/catalog.html'].includes(requested) ? 'no-store' : requested === '/index.html' ? 'no-cache' : 'public, max-age=3600' }); fs.createReadStream(file).pipe(response); return true;
 }
 
 export function createServer() {
