@@ -54,7 +54,7 @@ test('rice-only generation receives rejection feedback and supplies a replacemen
 });
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} } });
 
-test('fresh client gets catalog recipes with optional local images and no provider requests', async () => {
+test('fresh client gets catalog recipes with local images and no provider requests', async () => {
   const user = upsertTelegramUser({ id: 620, first_name: 'Fresh catalog' });
   updateDinnerProfile(user.id, { excludedIngredients: ['арахис'], preferredMaxCookingTime: 30, onboardingCompleted: true });
   const before = db.prepare('SELECT count(*) n FROM ai_reservations').get().n;
@@ -70,8 +70,8 @@ test('fresh client gets catalog recipes with optional local images and no provid
   for (const option of [...result.recommendations, ...result.reserve]) {
     assert.equal(option.recipe.origin, 'seed');
     assert.equal(option.recipe.dinnerGenerated, undefined);
-    if (option.recipe.thumbnailUrl) assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
-    else assert.equal(option.recipe.imageGenerated, false);
+    assert.ok(option.recipe.thumbnailUrl);
+    assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
     assert.equal(hasExcludedIngredient(option.recipe, ['арахис']), false);
   }
   assert.equal(generationCalls, 0);
@@ -85,7 +85,7 @@ test('fresh client gets catalog recipes with optional local images and no provid
   assert.equal(listRecipes(user.id).length, 1);
 });
 
-test('all house recipes are complete and any supplied image is a reusable local JPEG', () => {
+test('all house recipes are complete and have a reusable local JPEG', () => {
   assert.ok(SEED_RECIPES.length >= 56);
   assert.equal(new Set(SEED_RECIPES.map((recipe) => recipe.id)).size, SEED_RECIPES.length);
   for (const recipe of SEED_RECIPES) {
@@ -94,11 +94,37 @@ test('all house recipes are complete and any supplied image is a reusable local 
     assert.ok(Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 5);
     assert.ok(Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 5);
     assert.ok(recipe.mainIngredients.length >= 1);
-    if (recipe.thumbnailUrl) {
-      const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
-      assert.equal(bytes.readUInt16BE(0), 0xffd8);
-    } else assert.equal(recipe.imageGenerated, false);
+    assert.ok(recipe.thumbnailUrl);
+    const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
+    assert.equal(bytes.readUInt16BE(0), 0xffd8);
   }
+});
+
+test('legacy saved recipes, shares and buffered cards receive catalog photos without changing stored content', async () => {
+  const { saveDinnerRecipe, getRecipe, createDinnerRecipeShare, getSharedRecipe } = await import('../src/db.js');
+  const { getDinnerOption } = await import('../src/dinner-store.js');
+  const { withSeedImage } = await import('../src/dinner-seeds.js');
+  const user = fixture(989625), { sessionId } = startDinner(user.id);
+  const original = SEED_RECIPES.find(recipe => recipe.id === 'seed:chicken-apple-thyme');
+  const legacy = { ...structuredClone(original), thumbnailUrl: null, imageGenerated: false, notes: 'Моя заметка', title: 'Мой вариант курицы' };
+  const saved = saveDinnerRecipe(user.id, legacy.id, legacy);
+  assert.equal(saved.thumbnailUrl, original.thumbnailUrl);
+  assert.equal(getRecipe(user.id, saved.id).title, legacy.title);
+  assert.equal(getRecipe(user.id, saved.id).notes, legacy.notes);
+  assert.equal(listRecipes(user.id)[0].thumbnailUrl, original.thumbnailUrl);
+  assert.equal(db.prepare('SELECT thumbnail_url FROM recipes WHERE id=?').get(saved.id).thumbnail_url, null);
+  insertDinnerOption(user.id, sessionId, { id: 'legacy-catalog-photo', recipe: legacy }, 'legacy-catalog-photo');
+  assert.equal(getDinnerOption(user.id, 'legacy-catalog-photo').recipe.thumbnailUrl, original.thumbnailUrl);
+  const share = createDinnerRecipeShare(user.id, legacy.id, legacy);
+  assert.equal(getSharedRecipe(share).thumbnailUrl, original.thumbnailUrl);
+  assert.equal(getSharedRecipe(share).title, legacy.title);
+  assert.equal(legacy.thumbnailUrl, null);
+  const customUrl = '/recipe-images/custom-photo';
+  db.prepare('UPDATE recipes SET thumbnail_url=? WHERE id=?').run(customUrl, saved.id);
+  assert.equal(getRecipe(user.id, saved.id).thumbnailUrl, customUrl);
+  assert.equal(withSeedImage({ ...legacy, thumbnailUrl: customUrl }).thumbnailUrl, customUrl);
+  assert.equal(withSeedImage({ id: 'seed:unknown', thumbnailUrl: null }).thumbnailUrl, null);
+  assert.equal(withSeedImage({ id: 'generated:chicken-apple-thyme', thumbnailUrl: null }).thumbnailUrl, null);
 });
 
 test('polling completes an existing pair from ready recipes once and keeps both cards in place', async () => {

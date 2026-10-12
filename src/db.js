@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { recipeNutrition, normalizeNutrition, nutritionKey } from './nutrition.js';
+import { withSeedImage } from './dinner-seeds.js';
 
 fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
 export const db = new DatabaseSync(config.databasePath);
@@ -232,7 +233,7 @@ for (const row of db.prepare('SELECT id,source_url,thumbnail_url FROM recipes WH
 }
 
 const now = () => new Date().toISOString();
-const parseRecipe = (row) => row ? withNutrition({
+const parseRecipe = (row) => row ? withNutrition(withSeedImage({
   ...row,
   servings: row.servings ?? null,
   nutrition: row.nutrition_json ? JSON.parse(row.nutrition_json) : null,
@@ -249,7 +250,7 @@ const parseRecipe = (row) => row ? withNutrition({
   thumbnailUrl: row.thumbnail_url,
   createdAt: row.created_at,
   updatedAt: row.updated_at
-}) : null;
+})) : null;
 
 export function upsertTelegramUser(telegramUser) {
   const telegramId = String(telegramUser.id);
@@ -605,7 +606,7 @@ export function getSharedRecipe(token) {
   const dinner = db.prepare(`SELECT s.recipe_json,u.display_name AS shared_by
     FROM dinner_recipe_shares s JOIN users u ON u.id=s.user_id WHERE s.token=?`).get(String(token));
   if (!dinner) return null;
-  return withNutrition({ ...JSON.parse(dinner.recipe_json), sharedBy: dinner.shared_by });
+  return withNutrition(withSeedImage({ ...JSON.parse(dinner.recipe_json), sharedBy: dinner.shared_by }));
 }
 export function getSharedRecipeImage(token) {
   return db.prepare('SELECT image_mime AS mime,image_bytes AS bytes FROM dinner_recipe_shares WHERE token=? AND image_bytes IS NOT NULL').get(String(token));
