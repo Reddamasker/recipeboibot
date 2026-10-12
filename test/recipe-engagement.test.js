@@ -122,23 +122,29 @@ test('MAX merges account unions, rates and start dates; legacy or invalid journe
 test('visible client acknowledgement ignores hidden, covered, offscreen and detached content; repeats once per opening', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const calls = [], frames = [];
+  let clientNow = Date.parse(before);
   const element = { isConnected: true, contains: other => other === element, getBoundingClientRect: () => ({ top: 0, bottom: 500, left: 0, right: 320 }) };
   const document = { visibilityState: 'hidden', elementFromPoint: () => element, addEventListener() {} };
   const context = vm.createContext({ document, window: { addEventListener() {} }, innerWidth: 320, innerHeight: 600,
     getComputedStyle: () => ({ visibility: 'visible', opacity: '1' }),
+    Date: class extends Date { static now() { return clientNow; } },
     crypto: { randomUUID }, AbortSignal, api: async (...args) => calls.push(args), requestAnimationFrame: fn => frames.push(fn) });
   vm.runInContext(source.slice(source.indexOf('const pendingEngagement'), source.indexOf('const cookingTimeLabel')), context);
-  context.observeEngagement(element, 'token'); frames.pop()();
+  context.observeEngagement(element, 'token', null, true); frames.pop()();
   assert.equal(calls.length, 0);
   document.visibilityState = 'visible'; document.elementFromPoint = () => ({});
   context.flushVisibleEngagement(); assert.equal(calls.length, 0);
   document.elementFromPoint = () => element;
   context.flushVisibleEngagement(); context.flushVisibleEngagement();
   assert.equal(calls.length, 1);
+  clientNow = Date.parse(after);
+  context.flushVisibleEngagement(); context.flushVisibleEngagement();
+  assert.equal(calls.length, 2);
+  assert.notEqual(JSON.parse(calls[0][1].body).eventId, JSON.parse(calls[1][1].body).eventId);
   const removed = { ...element, isConnected: false };
   context.observeEngagement(removed, 'token'); context.flushVisibleEngagement();
-  assert.equal(calls.length, 1);
-  assert.ok(source.includes("const trackOpen = !document.querySelector('.overlay .recipe-detail-sheet')?.engagementEntry"));
+  assert.equal(calls.length, 2);
+  assert.ok(source.includes("pendingEngagement.get(document.querySelector('.overlay .recipe-detail-sheet'))"));
 });
 test('HTTP GET and library preparation are not views; private POST acknowledges a delivered full recipe only', async () => {
   const u = user(), recipe = createRecipe(u.id, { ...dish, status: 'ready', nutrition: { calories: 1, protein: 0, fat: 0, carbs: 0, basis: 'serving', servings: 1, source: 'calculated' } });

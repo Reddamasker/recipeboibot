@@ -29,6 +29,7 @@ const totalTime = (recipe) => (recipe.prepMinutes || 0) + (recipe.cookMinutes ||
 // Server preparation and background fetches are never impressions.
 const pendingEngagement = new Map();
 function flushVisibleEngagement() {
+  const day = new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);
   for (const [element, entry] of pendingEngagement) {
     if (!element.isConnected) { pendingEngagement.delete(element); continue; }
     if (document.visibilityState !== 'visible') continue;
@@ -40,15 +41,17 @@ function flushVisibleEngagement() {
     if (right <= left || bottom <= top) continue;
     const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
     if (!hit || !element.contains(hit)) continue;
-    pendingEngagement.delete(element);
-    element.engagementEntry = entry;
-    element.engagementPromise = api('/api/engagement', { method: 'POST', body: JSON.stringify(entry), signal: AbortSignal.timeout(2000) }).catch(() => {});
+    if (entry.sentDay && (!entry.repeatByDay || entry.sentDay === day)) continue;
+    if (entry.sentDay) entry.eventId = crypto.randomUUID();
+    entry.sentDay = day;
+    element.engagementEntry = { token: entry.token, eventId: entry.eventId };
+    element.engagementPromise = api('/api/engagement', { method: 'POST', body: JSON.stringify(element.engagementEntry), signal: AbortSignal.timeout(2000) }).catch(() => {});
   }
 }
-function observeEngagement(element, token) {
+function observeEngagement(element, token, previous = null, repeatByDay = false) {
   if (!element || !token || element.engagementObserved) return;
   element.engagementObserved = true;
-  pendingEngagement.set(element, { token, eventId: crypto.randomUUID() });
+  pendingEngagement.set(element, { eventId: crypto.randomUUID(), repeatByDay, ...previous, token });
   requestAnimationFrame(flushVisibleEngagement);
 }
 globalThis.document?.addEventListener?.('visibilitychange', flushVisibleEngagement);
@@ -1228,14 +1231,14 @@ async function waitForRecipeImage(id) {
       if (new URLSearchParams(location.search).get('recipe') !== id || !document.querySelector('.recipe-detail-sheet')) return;
       if (!recipe.thumbnailUrl) continue;
       state.recipes = state.recipes.map((item) => item.id === id ? recipe : item);
-      const trackOpen = !document.querySelector('.overlay .recipe-detail-sheet')?.engagementEntry;
-      closeOverlay(); recipeDetail(recipe, { trackOpen });
+      const engagement = pendingEngagement.get(document.querySelector('.overlay .recipe-detail-sheet'));
+      closeOverlay(); recipeDetail(recipe, { engagement });
       return;
     } catch { /* Retry while this recipe remains open. */ }
   }
 }
 
-function recipeDetail(r, { shared = false, suggestion = null, trackOpen = true } = {}) {
+function recipeDetail(r, { shared = false, suggestion = null, engagement = null } = {}) {
   if (!shared && state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const catalog = r.origin === 'seed' || r.dinnerGenerated || Boolean(suggestion);
   const requestMode = !shared && new URLSearchParams(location.search).get('view') === 'request';
@@ -1277,7 +1280,7 @@ function recipeDetail(r, { shared = false, suggestion = null, trackOpen = true }
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
   const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>${nutritionNote}` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}${!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : ''}${editButton ? `<div class="detail-management">${editButton}</div>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
-  if (!shared && trackOpen) observeEngagement(el.querySelector('.recipe-detail-sheet'), r.recipeViewToken);
+  if (!shared) observeEngagement(el.querySelector('.recipe-detail-sheet'), r.recipeViewToken, engagement, true);
   if (imagePending) void waitForSuggestionImage(suggestion.id, el);
   if (shared) el.classList.add('shared-overlay');
   if (!shared && offerBanner()) {

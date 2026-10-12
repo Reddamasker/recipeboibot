@@ -421,14 +421,16 @@ test('dinner image polling recovers after a network failure', async () => {
 test('open full recipe keeps waiting for its image after a transient fetch failure', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('async function waitForRecipeImage('), source.indexOf('\nfunction recipeDetail'));
-  let requests = 0, rendered;
-  const sandbox = { state: { recipes: [] }, URLSearchParams, AbortSignal,
-    location: { search: '?recipe=dinner%3Aimage' }, document: { querySelector: () => ({}) },
+  let requests = 0, rendered, engagement;
+  const sheet = {}, previous = { eventId: 'one-opening', sentDay: '2026-10-12' };
+  const sandbox = { state: { recipes: [] }, URLSearchParams, AbortSignal, pendingEngagement: new Map([[sheet, previous]]),
+    location: { search: '?recipe=dinner%3Aimage' }, document: { querySelector: () => sheet },
     setTimeout(fn) { fn(); }, api: async () => { if (++requests === 1) throw new Error('offline'); return { id: 'dinner:image', thumbnailUrl: '/ready.jpg' }; },
-    closeOverlay() {}, recipeDetail(recipe) { rendered = recipe; } };
+    closeOverlay() {}, recipeDetail(recipe, options) { rendered = recipe; engagement = options.engagement; } };
   vm.runInNewContext(handler, sandbox);
   await sandbox.waitForRecipeImage('dinner:image');
   assert.equal(requests, 2); assert.equal(rendered.thumbnailUrl, '/ready.jpg');
+  assert.equal(engagement, previous);
 });
 
 test('recipe details never show a generated-image disclaimer', () => {
