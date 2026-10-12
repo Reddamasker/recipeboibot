@@ -16,6 +16,7 @@ const { createCampaign, setCampaignStats, recordBotStart } = await import('../sr
 const { startTrial } = await import('../src/subscriptions.js');
 const { saveNotificationSchedule } = await import('../src/notification-store.js');
 const { createDashboardPassword } = await import('../src/funnel-auth.js');
+const { recordEngagement } = await import('../src/recipe-engagement.js');
 const since = '2026-10-01T08:00:00.000Z';
 const placements = [['kitchen-oct', 'Канал «Домашняя кухня»', 12400, 9100, 380], ['telegram-oct', 'Telegram — октябрь', 8300, 6100, 220], ['friends', 'Рекомендации и друзья', 2700, null, 90]];
 for (const [slug, name, impressions, reach, clicks] of placements) {
@@ -29,6 +30,11 @@ for (let i = 0; i < 60; i++) {
   const clicks = db.prepare('SELECT token FROM acquisition_clicks WHERE campaign=? ORDER BY token').all(slug);
   if (!db.prepare('SELECT 1 FROM acquisition_starts WHERE user_id=?').get(user.id)) recordBotStart(user, `/start ad_${clicks[i].token}`, new Date(since));
   allowUser(user.id);
+  if (i < 30) recordEngagement(user.id, 'recipe_opened', { eventId: `demo-open-${i}`, key: `demo-recipe-${i}`, at: '2026-10-01T08:03:00.000Z' });
+  if (i < 9) recordEngagement(user.id, 'recipe_opened', { eventId: `demo-reread-${i}`, key: `demo-recipe-${i}`, at: '2026-10-02T08:03:00.000Z' });
+  if (i < 24) recordEngagement(user.id, 'trial_offer_viewed', { eventId: `demo-offer-${i}`, at: '2026-10-01T08:01:00.000Z' });
+  if (i < 22) recordEngagement(user.id, 'trial_clicked', { eventId: `demo-click-${i}`, at: '2026-10-01T08:01:30.000Z' });
+  if (i < 20) recordEngagement(user.id, 'trial_activated', { eventId: `demo-trial-${i}`, at: '2026-10-01T08:02:00.000Z' });
   if (i < 44) recordRecipeRequestResult(user.id, `demo:first:${i}`, 'generated', '2026-10-01T08:01:00.000Z');
   if (i < 18) recordRecipeRequestResult(user.id, `demo:repeat:${i}`, 'generated', `2026-10-0${i < 12 ? 2 : 1}T09:01:00.000Z`);
   if (i < 44 && !db.prepare('SELECT 1 FROM recipes WHERE user_id=?').get(user.id)) {

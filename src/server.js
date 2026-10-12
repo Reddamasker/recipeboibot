@@ -38,6 +38,7 @@ import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from '
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 import { telegramOpenDocument } from './telegram-open.js';
 import { catalogSearch, catalogRecipe } from './web-catalog.js';
+import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -54,6 +55,7 @@ function securityHeaders(response, scriptHashes = '') {
 }
 function json(response, status, value) {
   if(response.recipeGateUserId)value=protectFirstRecipeResponse(response.recipeGateUserId,value);
+  if(response.recipeGateUserId)value=withEngagementReceipts(response.recipeGateUserId,value);
   securityHeaders(response); response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value));
 }
 async function bodyJson(request, maxBytes = Math.ceil(config.maxUploadBytes * 4 / 3) + 100_000) {
@@ -130,6 +132,9 @@ function detectedImageMime(buffer) {
 async function api(request, response, url) {
   const user = authenticate(request);
   response.recipeGateUserId=user.id;
+  if (request.method === 'POST' && url.pathname === '/api/engagement') {
+    return json(response, 200, { recorded: acknowledgeEngagement(user.id, await bodyJson(request, 2000)) });
+  }
   if (request.method === 'POST' && url.pathname === '/api/feedback') {
     const input = await bodyJson(request, 16000);
     const result = await submitFeedback(user.id, request.telegramUser, { ...input, source: 'app' }, sendFeedbackNotification);
@@ -146,9 +151,14 @@ async function api(request, response, url) {
     return json(response, 200, { ...redemption, payment: config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id) });
   }
   if (request.method === 'POST' && url.pathname === '/api/billing/trial') {
+    const input = await bodyJson(request, 2000);
+    // Preserve ordering without delaying activation for a separate telemetry request.
+    if (input.offerView) { try { acknowledgeEngagement(user.id, input.offerView); } catch { /* Analytics cannot block access. */ } }
+    recordEngagement(user.id, 'trial_clicked');
     const used = getTrialStatus(user.id).used;
     const trial = startTrial(user.id);
     if (!used && trial.active) {
+      recordEngagement(user.id, 'trial_activated');
       addDinnerEvent(user.id, 'trial_started', { detail: { source: 'app' } });
       queueTrialWelcome(user.id, request.telegramUser.id, { ready: !getPendingFirstRecipe(user.id) });
     }

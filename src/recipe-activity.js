@@ -1,7 +1,9 @@
 import { db } from './db.js';
+import { engagementSince, moscowDay } from './recipe-engagement.js';
 
 export const activityCounters = ['preparedRecipes', 'recipeUsers', 'repeatRecipeUsers', 'returnedRecipeUsers',
-  'savedRecipes', 'savedRecipeUsers', 'notificationUsers', 'notificationsEnabledUsers'];
+  'savedRecipes', 'savedRecipeUsers', 'notificationUsers', 'notificationsEnabledUsers',
+  'fullRecipeUsers', 'fullRecipeOpens', 'rereadRecipeUsers', 'returnedAnyRecipeUsers', 'engagedRecipeUsers'];
 export const emptyRecipeActivity = () => Object.fromEntries(activityCounters.map(key => [key, 0]));
 const exists = table => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table));
 const day = at => new Date(Date.parse(at) + 3 * 3600000).toISOString().slice(0, 10);
@@ -37,10 +39,30 @@ export function recipeActivityReport(cohort, campaign = false) {
     }
   }
   result.recipeUsers = requests.size;
-  for (const values of requests.values()) {
+  const returned = new Set();
+  for (const [id, values] of requests) {
     if (values.size > 1) result.repeatRecipeUsers++;
-    if (new Set([...values.values()].map(day)).size > 1) result.returnedRecipeUsers++;
+    if (new Set([...values.values()].map(day)).size > 1) { result.returnedRecipeUsers++; returned.add(id); }
   }
+  const readers = new Set(), rereaders = new Set(), known = new Map();
+  for (const row of db.prepare("SELECT * FROM recipe_engagement WHERE event IN ('recipe_opened','recipe_delivered') ORDER BY created_at,rowid").all()) {
+    if (!afterStart(row.user_id, row.created_at)) continue;
+    const key = `${row.user_id}:${row.recipe_key}`, previous = known.get(key);
+    const saved = row.saved_at && (!campaign || row.saved_at >= users.get(row.user_id).started_at) ? row.saved_at : null;
+    if (row.event === 'recipe_opened') {
+      result.fullRecipeOpens++; readers.add(row.user_id);
+      if ((previous && moscowDay(previous) < moscowDay(row.created_at)) || (saved && moscowDay(saved) < moscowDay(row.created_at))) {
+        rereaders.add(row.user_id); returned.add(row.user_id);
+      }
+    }
+    if (!previous) known.set(key, row.created_at);
+  }
+  result.fullRecipeUsers = readers.size;
+  result.rereadRecipeUsers = rereaders.size;
+  result.returnedAnyRecipeUsers = returned.size;
+  result.engagedRecipeUsers = new Set([...requests.keys(), ...readers]).size;
+  result.anyReturnRate = result.engagedRecipeUsers ? Number((100 * returned.size / result.engagedRecipeUsers).toFixed(1)) : null;
+  result.trackingSince = engagementSince();
   const savers = new Set();
   for (const row of db.prepare("SELECT user_id,created_at FROM recipes WHERE status IN ('ready','archived')").all()) {
     if (afterStart(row.user_id, row.created_at)) { result.savedRecipes++; savers.add(row.user_id); }

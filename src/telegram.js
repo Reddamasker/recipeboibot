@@ -12,6 +12,7 @@ import { ensureRecipeImage } from './recipe-images.js';
 import { combineDinnerIntakeExtraction, mergeDinnerIntake, normalizeDinnerIntake, parseDinnerIntakeFallback } from './dinner-intake.js';
 import { confirmDinnerIntake, prefetchDinner, recommendDinner, startDinner, updateDinnerProfile } from './dinner-service.js';
 import { addDinnerEvent, clearDinnerContext, getDinnerContext, getDinnerRequestCategories, getFoodProfile, setDinnerContext } from './dinner-store.js';
+import { recordEngagement, recipeKey } from './recipe-engagement.js';
 import { DINNER_CATEGORIES } from './dinner.js';
 import { getDinnerMealRequest } from './dinner-store.js';
 import { canResetTestUser, canUseTestImport, claimMockOffer, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
@@ -140,6 +141,7 @@ function canUsePaidImport(userId) {
 export async function handleTrialCallback(callback) {
   if (callback.data !== 'trial:start' || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  recordEngagement(user.id, 'trial_clicked', { eventId: `trial-click-${callback.id}` });
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   const access = getSubscriptionAccess(user.id);
   if (access.active && access.source !== 'trial') {
@@ -152,6 +154,7 @@ export async function handleTrialCallback(callback) {
   const trial = startTrial(user.id);
   if (!trial.active || !getSubscriptionAccess(user.id).active) { await sendTestOffer(chatId, user.id, true); return true; }
   if (!used) {
+    recordEngagement(user.id, 'trial_activated');
     await queueTrialWelcome(user.id, chatId, { ready: false });
     addDinnerEvent(user.id, 'trial_started', { detail: { source: config.botPlatform } });
   }
@@ -621,6 +624,7 @@ export async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
   if (current) chunks.push(current);
   for (const part of chunks.slice(0, -1)) await send(chatId, part);
   const sent = await send(chatId, chunks.at(-1) || '', { reply_markup: options.dialogue ? dialogueButtons(options.userId, options.dialogue) : recipeButton(recipe, { userId }) });
+  if (userId && !options.groupMode && recipe.ingredients?.length && recipe.steps?.length) recordEngagement(userId, 'recipe_delivered', { key: recipeKey(recipe) });
   rememberDialogueCard(options, sent);
 }
 
@@ -681,6 +685,7 @@ export async function sendSuggestion(chatId, suggestion, { groupMode = false, us
   const detail = `${recipe.title}\nСоздано в «Рецептах»${recipe.description ? `\n${recipe.description}` : ''}\n\nИнгредиенты\n${ingredients}\n\nПриготовление\n${steps}${recipe.warnings?.length ? `\n\nОбратите внимание\n${recipe.warnings.join('\n')}` : ''}`;
   const buttons = dialogue ? dialogueButtons(userId, dialogue) : { inline_keyboard: [[{ text: 'Добавить в мои рецепты', callback_data: `suggest:save:${suggestion.id}` }], [{ text: 'Не добавлять', callback_data: `suggest:skip:${suggestion.id}` }]] };
   const sent = await send(chatId, `${escapeHtml(detail.slice(0, 3300))}\n\nДобавить этот рецепт в коллекцию?${groupMode ? ' Подтвердить может только владелец коллекции.' : ''}`, { reply_markup: buttons });
+  if (!groupMode && userId && detail.length <= 3300 && recipe.ingredients?.length && recipe.steps?.length) recordEngagement(userId, 'recipe_delivered', { key: recipeKey(recipe) });
   if (dialogue) updateRecipeDialogue(userId, dialogue.id, { messageId: sent?.message_id || null });
   if (!groupMode && userId) setPendingIntent(userId, { kind: 'recipe-suggestion', suggestionId: suggestion.id, messageId: sent?.message_id || null });
 }
