@@ -57,3 +57,14 @@ test('catalog and direct recipe URLs work without messenger SDK and unknown reci
   }
   assert.equal((await fetch(base+'/recipes/unknown')).status,404);
 });
+
+test('filter illustrations are served anonymously as WebP images',async()=>{
+  for(const name of ['cuisine-everyday','ingredient-tomato']) {
+    const response=await fetch(base+'/assets/filters/'+name+'.webp');
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('content-type'),'image/webp');
+    const bytes=Buffer.from(await response.arrayBuffer());
+    assert.equal(bytes.subarray(0,4).toString(),'RIFF');
+    assert.equal(bytes.subarray(8,12).toString(),'WEBP');
+  }
+});
