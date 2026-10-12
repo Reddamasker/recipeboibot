@@ -54,7 +54,7 @@ test('rice-only generation receives rejection feedback and supplies a replacemen
 });
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} } });
 
-test('fresh client gets catalog recipes with existing images and no provider requests', async () => {
+test('fresh client gets catalog recipes with optional local images and no provider requests', async () => {
   const user = upsertTelegramUser({ id: 620, first_name: 'Fresh catalog' });
   updateDinnerProfile(user.id, { excludedIngredients: ['арахис'], preferredMaxCookingTime: 30, onboardingCompleted: true });
   const before = db.prepare('SELECT count(*) n FROM ai_reservations').get().n;
@@ -70,7 +70,8 @@ test('fresh client gets catalog recipes with existing images and no provider req
   for (const option of [...result.recommendations, ...result.reserve]) {
     assert.equal(option.recipe.origin, 'seed');
     assert.equal(option.recipe.dinnerGenerated, undefined);
-    assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
+    if (option.recipe.thumbnailUrl) assert.ok(fs.existsSync(path.join('public', option.recipe.thumbnailUrl)));
+    else assert.equal(option.recipe.imageGenerated, false);
     assert.equal(hasExcludedIngredient(option.recipe, ['арахис']), false);
   }
   assert.equal(generationCalls, 0);
@@ -84,7 +85,7 @@ test('fresh client gets catalog recipes with existing images and no provider req
   assert.equal(listRecipes(user.id).length, 1);
 });
 
-test('all house recipes have a complete recipe and a reusable local JPEG', () => {
+test('all house recipes are complete and any supplied image is a reusable local JPEG', () => {
   assert.ok(SEED_RECIPES.length >= 56);
   assert.equal(new Set(SEED_RECIPES.map((recipe) => recipe.id)).size, SEED_RECIPES.length);
   for (const recipe of SEED_RECIPES) {
@@ -93,8 +94,10 @@ test('all house recipes have a complete recipe and a reusable local JPEG', () =>
     assert.ok(Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 5);
     assert.ok(Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 5);
     assert.ok(recipe.mainIngredients.length >= 1);
-    const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
-    assert.equal(bytes.readUInt16BE(0), 0xffd8);
+    if (recipe.thumbnailUrl) {
+      const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
+      assert.equal(bytes.readUInt16BE(0), 0xffd8);
+    } else assert.equal(recipe.imageGenerated, false);
   }
 });
 
