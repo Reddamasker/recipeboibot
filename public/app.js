@@ -26,6 +26,32 @@ async function publicApi(path) {
   return value;
 }
 const totalTime = (recipe) => (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0);
+// Server preparation and background fetches are never impressions.
+const pendingEngagement = new Map();
+function flushVisibleEngagement() {
+  for (const [element, entry] of pendingEngagement) {
+    if (!element.isConnected) { pendingEngagement.delete(element); continue; }
+    if (document.visibilityState !== 'visible') continue;
+    const r = element.getBoundingClientRect();
+    const left = Math.max(0, r.left), right = Math.min(innerWidth, r.right);
+    const top = Math.max(0, r.top), bottom = Math.min(innerHeight, r.bottom);
+    if (right <= left || bottom <= top) continue;
+    const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+    if (!hit || !element.contains(hit)) continue;
+    pendingEngagement.delete(element);
+    element.engagementEntry = entry;
+    element.engagementPromise = api('/api/engagement', { method: 'POST', body: JSON.stringify(entry), signal: AbortSignal.timeout(2000) }).catch(() => {});
+  }
+}
+function observeEngagement(element, token) {
+  if (!element || !token || element.engagementObserved) return;
+  element.engagementObserved = true;
+  pendingEngagement.set(element, { token, eventId: crypto.randomUUID() });
+  requestAnimationFrame(flushVisibleEngagement);
+}
+globalThis.document?.addEventListener?.('visibilitychange', flushVisibleEngagement);
+globalThis.document?.addEventListener?.('scroll', flushVisibleEngagement, true);
+globalThis.window?.addEventListener?.('resize', flushVisibleEngagement);
 const cookingTimeLabel = (recipe) => {
   const prep = Number.isFinite(recipe.prepMinutes), cook = Number.isFinite(recipe.cookMinutes);
   if (prep && cook) return `${totalTime(recipe)} мин`;
@@ -91,7 +117,8 @@ async function activateTrial(event) {
   button.disabled = true;
   const pendingFirstRecipe = state.payment?.pendingFirstRecipe;
   try {
-    state.payment = await api('/api/billing/trial', { method: 'POST', body: '{}' });
+    if (state.payment?.trialViewToken) flushVisibleEngagement();
+    state.payment = await api('/api/billing/trial', { method: 'POST', body: JSON.stringify(button.engagementEntry ? { offerView: button.engagementEntry } : {}) });
     if (!state.payment.active) { closeOverlay(); openOffer(); return; }
     closeOverlay();
     const unlocked = state.payment.unlockedFirstRecipe || state.payment.pendingFirstRecipe || pendingFirstRecipe;
@@ -113,7 +140,10 @@ async function activateTrial(event) {
 }
 
 function bindTrialButtons(scope = document) {
-  scope.querySelectorAll('[data-start-trial]').forEach(button => button.addEventListener('click', activateTrial));
+  scope.querySelectorAll('[data-start-trial]').forEach(button => {
+    button.addEventListener('click', activateTrial);
+    if (state.payment?.trialViewToken) observeEngagement(button, state.payment.trialViewToken);
+  });
 }
 
 function bindCommon() {
@@ -1194,13 +1224,14 @@ async function waitForRecipeImage(id) {
       if (new URLSearchParams(location.search).get('recipe') !== id || !document.querySelector('.recipe-detail-sheet')) return;
       if (!recipe.thumbnailUrl) continue;
       state.recipes = state.recipes.map((item) => item.id === id ? recipe : item);
-      closeOverlay(); recipeDetail(recipe);
+      const trackOpen = !document.querySelector('.recipe-detail-sheet')?.engagementEntry;
+      closeOverlay(); recipeDetail(recipe, { trackOpen });
       return;
     } catch { /* Retry while this recipe remains open. */ }
   }
 }
 
-function recipeDetail(r, { shared = false, suggestion = null } = {}) {
+function recipeDetail(r, { shared = false, suggestion = null, trackOpen = true } = {}) {
   if (!shared && state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const catalog = r.origin === 'seed' || r.dinnerGenerated || Boolean(suggestion);
   const requestMode = !shared && new URLSearchParams(location.search).get('view') === 'request';
@@ -1242,6 +1273,7 @@ function recipeDetail(r, { shared = false, suggestion = null } = {}) {
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
   const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>${nutritionNote}` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}${!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : ''}${editButton ? `<div class="detail-management">${editButton}</div>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
+  if (!shared && trackOpen) observeEngagement(el.querySelector('.recipe-detail-sheet'), r.recipeViewToken);
   if (imagePending) void waitForSuggestionImage(suggestion.id, el);
   if (shared) el.classList.add('shared-overlay');
   if (!shared && offerBanner()) {
@@ -1679,6 +1711,7 @@ function providerOfferPage() {
   bindCommon();
   document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
   document.querySelector('#start-trial')?.addEventListener('click', event => activateTrial(event));
+  if (state.payment?.trialViewToken) observeEngagement(document.querySelector('#start-trial'), state.payment.trialViewToken);
   document.querySelector('#cancel-auto-renew')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
     try { await api('/api/billing/auto-renew/cancel', { method: 'POST', body: '{}' }); await refresh(); providerOfferPage(); toast('Автопродление отключено. Оплаченный доступ сохранён'); }

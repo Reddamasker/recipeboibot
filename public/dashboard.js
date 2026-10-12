@@ -57,8 +57,11 @@ function render(data) {
 function renderRecipeActivity(data) {
   const a = data.recipeActivity || {};
   const metrics = [
-    ['Вернулись за рецептом', a.returnedRecipeUsers, `Доля получивших результат: ${percent(a.returnRate ?? null)}`, true],
-    ['Получили результат', a.recipeUsers, 'Уникальные пользователи'],
+    ['Вернулись за рецептом', a.returnedAnyRecipeUsers, `Без двойного счёта: ${percent(a.anyReturnRate ?? null)} от ${number(a.engagedRecipeUsers ?? null)} аккаунтов с результатом или открытием`, true],
+    ['За новым результатом', a.returnedRecipeUsers, `В другой день: ${percent(a.returnRate ?? null)} получивших результат`],
+    ['К прежнему рецепту', a.rereadRecipeUsers, 'Открыли в другой день ранее открытый, доставленный целиком или сохранённый рецепт'],
+    ['Открыли полный рецепт', a.fullRecipeUsers, `Аккаунты; открытий: ${number(a.fullRecipeOpens ?? null)}`],
+    ['Получили результат', a.recipeUsers, 'Аккаунты; отдельный запрос или открытая подборка'],
     ['Подготовлено рецептов', a.preparedRecipes, 'Варианты подбора и отдельные запросы'],
     ['Повторный подбор', a.repeatRecipeUsers, 'Два и более, включая тот же день'],
     ['Добавлено в коллекцию', a.savedRecipes, `Добавили пользователи: ${number(a.savedRecipeUsers ?? null)}`],
@@ -69,9 +72,22 @@ function renderRecipeActivity(data) {
     card.append(node('p', 'metric-label', label), node('p', `metric-number${value == null ? ' unknown' : ''}`, number(value ?? null)), node('p', 'metric-note', note));
     return card;
   }));
-  $('#activity-note').textContent = 'Главная метрика — новый результат в другой день по Москве. Все числа за всё время, с учётом выбранного размещения.'
+  const since = value => value ? new Date(value).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' МСК' : 'нет данных';
+  $('#activity-note').textContent = 'Возврат — новый результат или открытие прежнего рецепта в другой календарный день по Москве. Общий итог объединяет аккаунты внутри платформы. Все числа за всё время с выбранным источником; это не D1/D7 retention и не факт приготовления.'
     + (data.platform === 'combined' ? data.remoteFunnel?.status === 'error' ? ' Сейчас учтён только Telegram.' : ' Учтены аккаунты Telegram и MAX.' : '')
-    + ' Часть старых отдельных запросов могла быть очищена до начала постоянного учёта.';
+    + ` Начало учёта открытий: ${since(a.trackingSince)}.${a.trackingSinceMax ? ` MAX: ${since(a.trackingSinceMax)}.` : ''}`
+    + ' Старые открытия неизвестны; первый наблюдаемый просмотр сохранённого в прошлый день рецепта уже подтверждает возвращение к нему. Часть старых запросов очищена. Сумма платформ — аккаунты, без сопоставления людей.';
+  const j = data.trialJourney || {};
+  $('#trial-journey').replaceChildren(...[
+    ['Увидели предложение', j.offered], ['Затем нажали начать', j.clicked],
+    ['Затем активировали триал', j.activated], ['Затем открыли рецепт', j.opened],
+    ['Нажали начать, все пути', j.clickUsers], ['Активировали, все пути', j.activationUsers],
+    ['Оплатили без триала', j.paidWithoutTrialUsers]
+  ].map(([label, value]) => {
+    const card = node('article', 'metric');
+    card.append(node('p', 'metric-label', label), node('p', 'metric-number', number(value ?? null)), node('p', 'metric-note', 'Аккаунты'));
+    return card;
+  }));
 }
 function renderLandingStats(data) {
   const stats = data.landingStats;
