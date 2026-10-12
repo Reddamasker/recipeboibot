@@ -7,9 +7,16 @@
   try { const stored = JSON.parse(localStorage.getItem(key)||'[]'); if(Array.isArray(stored)) favorites = new Set(stored.filter(id=>typeof id==='string' && /^[a-z0-9-]+$/.test(id)).slice(0,250)); } catch {}
   const filterNames = ['cuisine','category','time','include','exclude'];
   const params = () => new URLSearchParams(location.search);
+  const previousFilters=params();
+  if(['asian','eastern','european','caucasian'].includes(previousFilters.get('cuisine'))) {
+    previousFilters.delete('cuisine');
+    history.replaceState({},'',location.pathname+(previousFilters.size?'?'+previousFilters.toString():''));
+  }
   const visualMode = params().get('filters') === 'visual';
-  const mainCuisines = ['everyday','russian','italian','georgian','asian','eastern'];
+  const mainCuisines = ['everyday','russian','italian','georgian','japanese','chinese'];
   const mainCuisineValues = values => mainCuisines.map(id=>values.find(value=>value.id===id)).filter(Boolean);
+  const dishTypes=['noodles','rice','pasta','soup','salad','baking','pizza'];
+  let expandedCuisines=false, visualResult;
   const cuisineIllustrations = new Set(['everyday','italian','georgian','asian','japanese','russian',
     'ukrainian','belarusian','greek','indian','hungarian','uzbek','eastern','european','caucasian']);
   const productButtons = [
@@ -25,14 +32,20 @@
   }
   function renderVisualFilters(p,result) {
     if(!visualMode)return;
+    visualResult=result;
     const focused=document.activeElement?.dataset.visualFilter ? {name:document.activeElement.dataset.visualFilter,value:document.activeElement.dataset.value}:null;
-    const visible=mainCuisineValues(result.cuisines);
-    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${cuisineIllustrations.has(c.id)?c.id:c.id==='chinese'?'asian':'everyday'}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
+    const choices=result.cuisineChoices||result.cuisines;
+    const primary=mainCuisineValues(choices), other=choices.filter(c=>!mainCuisines.includes(c.id));
+    const visible=[...primary,...other.filter(c=>expandedCuisines||c.id===p.get('cuisine'))];
+    const illustration=id=>cuisineIllustrations.has(id)?id:id==='chinese'?'asian':['lebanese','turkish'].includes(id)?'eastern':'everyday';
+    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${illustration(c.id)}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
     $('#cuisine-tiles').dataset.expanded='true';
-    $('#all-cuisines').hidden=true;
+    $('#all-cuisines').hidden=!other.length;
+    $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Другие кухни';
+    $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
     $('#ingredient-chips').innerHTML=productButtons.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredient-${illustration}.webp" alt="" width="36" height="36"><span>${label}</span>`,'class="ingredient-chip"')).join('');
     $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
-    $('#category-chips').innerHTML=result.categories.map(c=>visualButton('category',c.id,escape(c.label))).join('');
+    $('#category-chips').innerHTML=visualButton('category','','Все блюда')+result.categories.filter(c=>dishTypes.includes(c.id)).map(c=>visualButton('category',c.id,escape(c.label))).join('');
     $('#visual-include').value=p.get('include')||'';
     $('#visual-exclude').value=p.get('exclude')||'';
     $('#visual-reset').hidden=!['q',...filterNames,'favorites'].some(name=>p.get(name));
@@ -40,11 +53,13 @@
   }
   if(visualMode) {
     document.body.dataset.filterLayout='visual';$('#visual-discovery').hidden=false;
-    $('.intro .lead').textContent='Выберите кухню и продукты — найдём, что приготовить.';
+    $('.intro .lead').textContent='Выберите кухню, блюдо и продукты — найдём, что приготовить.';
     $('.search-label').textContent='Или найдите по названию';
     $('#search').placeholder='Например, паста с томатами';
     $('#search-form button').textContent='Найти';
     $('.header a[aria-current]').href='/recipes?filters=visual';
+    $('#all-cuisines').addEventListener('click',()=>{expandedCuisines=!expandedCuisines;if(visualResult)renderVisualFilters(params(),visualResult);});
+    $('#show-results').addEventListener('click',()=>$('.results').scrollIntoView({behavior:'smooth',block:'start'}));
     $('#more-filters').addEventListener('click',()=>{const panel=$('#visual-refinements');panel.hidden=!panel.hidden;$('#more-filters').setAttribute('aria-expanded',String(!panel.hidden));});
     $('#visual-reset').addEventListener('click',()=>navigate('/recipes'));
     $('#visual-products').addEventListener('submit',event=>{event.preventDefault();const p=params();for(const name of ['include','exclude']){const value=$('#visual-'+name).value.trim();if(value)p.set(name,value);else p.delete(name);}p.delete('page');navigate(searchUrl(p));});
@@ -71,8 +86,12 @@
   }
   function options(name, values, selected) {
     const select=$(`#filters [name="${name}"]`);
-    const visible=name==='cuisine'?mainCuisineValues(values):values;
-    select.innerHTML=`<option value="">${name==='cuisine'?'Все кухни':'Все блюда'}</option>`+visible.map(v=>`<option value="${escape(v.id)}">${escape(v.label)} (${v.count})</option>`).join('');
+    const visible=name==='category'?values.filter(v=>dishTypes.includes(v.id)):values;
+    const option=v=>`<option value="${escape(v.id)}">${escape(v.label)} (${v.count})</option>`;
+    const items=name==='cuisine'
+      ? mainCuisineValues(visible).map(option).join('')+`<optgroup label="Другие кухни">${visible.filter(v=>!mainCuisines.includes(v.id)).map(option).join('')}</optgroup>`
+      : visible.map(option).join('');
+    select.innerHTML=`<option value="">${name==='cuisine'?'Все кухни':'Все блюда'}</option>`+items;
     if(selected && !visible.some(v=>v.id===selected)) {
       const known=values.find(v=>v.id===selected), option=new Option(known?.label||'Неизвестный фильтр',selected);
       option.hidden=Boolean(known); select.add(option);
@@ -81,12 +100,12 @@
   }
   function card(recipe) {
     const media=recipe.image?`<img src="${escape(recipe.image)}" alt="${escape(recipe.title)}" loading="lazy" width="400" height="308">`:`<img src="/assets/catalog-photo-pending.svg" alt="Фотография блюда пока не добавлена" loading="lazy" width="400" height="308">`;
-    return `<article class="card"><button class="card-save" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}" aria-label="Избранное: ${escape(recipe.title)}">${favoriteText(recipe.id)}</button><a class="card-link" data-route href="/recipes/${escape(recipe.id)}${location.search}"><div class="card-media">${media}</div><h3>${escape(recipe.title)}</h3><div class="card-meta"><span>${recipe.minutes} мин</span><span>${recipe.ingredientCount} ингредиентов</span></div><p class="card-description">${escape(recipe.description)}</p></a></article>`;
+    return `<article class="card"><button class="card-save" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}" aria-label="Избранное: ${escape(recipe.title)}">${favoriteText(recipe.id)}</button><a class="card-link" data-route href="/recipes/${escape(recipe.id)}${location.search}"><div class="card-media">${media}</div><h3>${escape(recipe.title)}</h3><div class="card-meta">${recipe.cuisineLabel?`<span class="card-cuisine">${escape(recipe.cuisineLabel)}</span>`:""}<span>${recipe.minutes} мин</span><span>${recipe.ingredientCount} ингредиентов</span></div><p class="card-description">${escape(recipe.description)}</p></a></article>`;
   }
   function activeFilters(p, result) {
     const labels={q:'Поиск',cuisine:'Кухня',category:'Блюдо',time:'До, минут',include:'С продуктами',exclude:'Без продуктов',favorites:'Избранное'};
     $('#active-filters').innerHTML=Object.entries(labels).filter(([name])=>p.get(name)).map(([name,label])=>{
-      const value=name==='favorites'?'в этом браузере':name==='cuisine'?result.cuisines.find(c=>c.id===p.get(name))?.label||p.get(name):name==='category'?result.categories.find(c=>c.id===p.get(name))?.label||p.get(name):p.get(name);
+      const value=name==='favorites'?'в этом браузере':name==='cuisine'?(result.cuisineChoices||result.cuisines).find(c=>c.id===p.get(name))?.label||p.get(name):name==='category'?result.categories.find(c=>c.id===p.get(name))?.label||p.get(name):p.get(name);
       return `<button data-remove="${name}" aria-label="Убрать фильтр ${escape(label)}">${escape(label)}: ${escape(value)} ×</button>`;
     }).join('');
   }
@@ -111,9 +130,10 @@
     if(p.get('favorites')==='1') apiParams.set('saved',[...favorites].join(',')); else apiParams.delete('saved');
     try {
       const result=await request('/api/catalog?'+apiParams.toString(),signal);
-      options('cuisine',result.cuisines,p.get('cuisine')); options('category',result.categories,p.get('category'));
+      options('cuisine',result.cuisineChoices||result.cuisines,p.get('cuisine')); options('category',result.categories,p.get('category'));
       renderVisualFilters(p,result);
       $('#catalog-total').textContent=result.catalogTotal;
+      $('#show-results').textContent=`Показать рецепты (${result.total})`;
       $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':'Рецепты для вас';
       $('#result-count').textContent=`Найдено: ${result.total}${p.get('favorites')==='1'?' · Сохранено в этом браузере':''}`;
       activeFilters(p,result);
@@ -124,7 +144,7 @@
   }
   function renderRecipe(recipe,p) {
     document.title=recipe.title+' — Твои рецепты';
-    $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← К подборке рецептов</a><div class="recipe-heading"><div><p class="eyebrow">ИЗ КОЛЛЕКЦИИ «ТВОИ РЕЦЕПТЫ»</p><h1>${escape(recipe.title)}</h1><p class="lead">${escape(recipe.description)}</p><div class="recipe-meta"><span>${recipe.minutes} минут</span><span>${recipe.ingredients.length} ингредиентов</span><span>Базовый рецепт: ${recipe.servings} порц.</span></div><div class="recipe-actions"><button class="primary" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}">${favoriteText(recipe.id)}</button><button id="share-recipe">Скопировать ссылку</button><button id="print-recipe">Распечатать</button></div></div>${recipe.image?`<div><img class="recipe-photo" src="${escape(recipe.image)}" alt="${escape(recipe.title)}"><p class="photo-note">${recipe.imageGenerated?'Изображение создано с помощью ИИ. Подача готового блюда может отличаться.':''}</p></div>`:'<div><img class="recipe-photo" src="/assets/catalog-photo-pending.svg" alt="Фотография блюда пока не добавлена"><p class="photo-note">Фотография блюда пока не добавлена.</p></div>'}</div><div class="recipe-body"><section><h2>Ингредиенты</h2><label class="servings-control">Количество порций<input id="servings" type="number" min="1" max="20" step="1" value="${recipe.servings}"></label><ul id="ingredients" class="ingredients"></ul><div id="nutrition" class="nutrition"></div></section><section><h2>Как приготовить</h2><p class="step-note">Количества в шагах указаны для базовых ${recipe.servings} порций. При пересчёте ориентируйтесь на список ингредиентов; время приготовления может измениться.</p><ol class="steps">${recipe.steps.map(step=>`<li><p>${escape(step)}</p></li>`).join('')}</ol></section></div>`;
+    $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← К подборке рецептов</a><div class="recipe-heading"><div><p class="eyebrow">ИЗ КОЛЛЕКЦИИ «ТВОИ РЕЦЕПТЫ»</p><h1>${escape(recipe.title)}</h1><p class="lead">${escape(recipe.description)}</p><div class="recipe-meta">${recipe.cuisineLabel?`<span>${escape(recipe.cuisineLabel)}</span>`:""}<span>${recipe.minutes} минут</span><span>${recipe.ingredients.length} ингредиентов</span><span>Базовый рецепт: ${recipe.servings} порц.</span></div><div class="recipe-actions"><button class="primary" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}">${favoriteText(recipe.id)}</button><button id="share-recipe">Скопировать ссылку</button><button id="print-recipe">Распечатать</button></div></div>${recipe.image?`<div><img class="recipe-photo" src="${escape(recipe.image)}" alt="${escape(recipe.title)}"><p class="photo-note">${recipe.imageGenerated?'Изображение создано с помощью ИИ. Подача готового блюда может отличаться.':''}</p></div>`:'<div><img class="recipe-photo" src="/assets/catalog-photo-pending.svg" alt="Фотография блюда пока не добавлена"><p class="photo-note">Фотография блюда пока не добавлена.</p></div>'}</div><div class="recipe-body"><section><h2>Ингредиенты</h2><label class="servings-control">Количество порций<input id="servings" type="number" min="1" max="20" step="1" value="${recipe.servings}"></label><ul id="ingredients" class="ingredients"></ul><div id="nutrition" class="nutrition"></div></section><section><h2>Как приготовить</h2><p class="step-note">Количества в шагах указаны для базовых ${recipe.servings} порций. При пересчёте ориентируйтесь на список ингредиентов; время приготовления может измениться.</p><ol class="steps">${recipe.steps.map(step=>`<li><p>${escape(step)}</p></li>`).join('')}</ol></section></div>`;
     renderIngredients(recipe.servings);
     const n=recipe.nutrition;
     $('#nutrition').innerHTML=n?`<strong>Пищевая ценность на порцию</strong>${Math.round(n.calories)} ккал · Белки ${escape(n.protein)} г<br>Жиры ${escape(n.fat)} г · Углеводы ${escape(n.carbs)} г<br><span>Расчётные значения, зависят от продуктов.</span>`:'Пищевая ценность пока не рассчитана.';

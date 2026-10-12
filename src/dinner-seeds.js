@@ -1,5 +1,6 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
+import { existsSync } from 'node:fs';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
 import cuisineCatalog from './cuisine-catalog.json' with { type: 'json' };
 const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null, hasImage = true) => {
@@ -191,9 +192,10 @@ export const SEED_RECIPES = Object.freeze([
     ['Очистите картофель и лук. Натрите их на мелкой тёрке и слегка отожмите лишнюю жидкость.', 'Добавьте яйцо, муку и соль. Перемешайте непосредственно перед жаркой.', 'Разогрейте часть масла в широкой сковороде. Выкладывайте массу ложкой и разравнивайте в лепёшки толщиной около 7 мм.', 'Жарьте драники партиями по 3–4 минуты с каждой стороны до золотистой корочки, добавляя масло по необходимости.', 'Переложите готовые драники на бумажное полотенце и подавайте горячими.'])
   ,...expandedCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery }) =>
     seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery))
-  // The separate regional expansion keeps placeholders until its photos exist.
+  // Media references are available only when the matching authored asset exists.
   ,...cuisineCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, cuisines, sourceUrl }) =>
-    ({ ...seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, false), cuisines, sourceUrl }))
+    ({ ...seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery,
+      existsSync(new URL(`../public/assets/dinner/${id}.jpg`, import.meta.url))), cuisines, sourceUrl }))
 ]);
 
 const seedImages = new Map(SEED_RECIPES.map(recipe => [recipe.id, recipe.thumbnailUrl]));

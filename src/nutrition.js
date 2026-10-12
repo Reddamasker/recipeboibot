@@ -34,6 +34,7 @@ export function normalizeNutrition(value, recipe = {}) {
 // local estimate for existing recipes, not a claim about a particular brand.
 // Unsupported foods/units trigger model estimation rather than zero-filling.
 const foods = [
+  [/мисо-паста/u, [198, 12.8, 6, 25.4], 15, 15],
   // Additional pantry foods used by the regional catalog, per 100 g. Specific
   // dairy, cooked meat and vegetable entries precede broad legacy patterns.
   [/сыр.*фета|сыр.*брынз/u, [264, 14.2, 21.3, 4.1], 30, 10],

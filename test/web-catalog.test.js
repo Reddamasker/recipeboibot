@@ -11,8 +11,8 @@ test('public catalog paginates every house recipe once without returning full in
   for(let page=1;page<=search({}).pages;page++) for(const r of search({page}).recipes) {
     ids.push(r.id); assert.ok(!r.steps && !r.ingredients); assert.ok(catalogRecipe(r.id).steps.length);
   }
-  assert.equal(ids.length,332); assert.equal(new Set(ids).size,332);
-  assert.equal(search({page:-1}).page,1); assert.equal(search({page:999}).page,14);
+  assert.equal(ids.length,340); assert.equal(new Set(ids).size,340);
+  assert.equal(search({page:-1}).page,1); assert.equal(search({page:999}).page,15);
 });
 test('cuisine, category and time compose and unknown values never silently widen results',()=>{
   const result=search({cuisine:'italian',category:'pasta',time:'30'});
@@ -44,7 +44,7 @@ let server,base;
 test.before(async()=>{server=createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base='http://127.0.0.1:'+server.address().port;});
 test.after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();fs.rmSync(directory,{recursive:true,force:true});});
 test('anonymous browser gets catalog and full house recipe; private API still requires authentication',async()=>{
-  const list=await fetch(base+'/api/catalog'); assert.equal(list.status,200);assert.equal((await list.json()).total,332);
+  const list=await fetch(base+'/api/catalog'); assert.equal(list.status,200);assert.equal((await list.json()).total,340);
   const recipe=await fetch(base+'/api/catalog/pasta-tomato');assert.equal(recipe.status,200);assert.ok((await recipe.json()).steps.length);
   assert.equal((await fetch(base+'/api/catalog/private-recipe')).status,404);
   assert.equal((await fetch(base+'/api/recipes')).status,401);

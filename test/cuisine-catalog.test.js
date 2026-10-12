@@ -7,7 +7,7 @@ import { catalogSearch, catalogRecipe, cuisines } from '../src/web-catalog.js';
 import { hasExcludedIngredient } from '../src/dinner.js';
 
 test('each regional filter offers a varied collection with accurate global counters',()=>{
-  const counts = {everyday:208,italian:10,georgian:8,russian:8,ukrainian:8,belarusian:8,greek:8,indian:8,hungarian:8,japanese:8,chinese:8,uzbek:8,eastern:8,asian:54,european:38,caucasian:8};
+  const counts = {everyday:208,italian:10,georgian:8,russian:8,ukrainian:8,belarusian:8,greek:8,indian:8,hungarian:8,japanese:12,chinese:12,uzbek:8,eastern:8,asian:62,european:38,caucasian:8};
   const facets=catalogSearch().cuisines;
   for(const [id] of cuisines) {
     const result=catalogSearch(new URLSearchParams({cuisine:id}));
@@ -23,7 +23,7 @@ test('each regional filter offers a varied collection with accurate global count
 });
 
 test('new dishes are distinct, explicitly sourced and have complete measurable recipes',()=>{
-  assert.equal(catalog.length,82);
+  assert.equal(catalog.length,90);
   const known=new Set(cuisines.map(([id])=>id));
   const signatures=new Set();
   for(const recipe of SEED_RECIPES) {
@@ -42,8 +42,8 @@ test('new dishes are distinct, explicitly sourced and have complete measurable r
     assert.equal(new Set(raw.ingredients.map(([name])=>name)).size,raw.ingredients.length,raw.id);
     assert.ok(raw.ingredients.every(([name,q,u])=>name && q>0 && ['г','мл','шт.'].includes(u)),raw.id);
     assert.ok(raw.mainIngredients.every(main=>raw.ingredients.some(([name])=>name.includes(main))),raw.id);
-    assert.equal(recipe.thumbnailUrl,null,raw.id);
-    assert.equal(recipe.imageGenerated,false,raw.id);
+    assert.equal(recipe.thumbnailUrl,`/assets/dinner/${raw.id}.jpg`,raw.id);
+    assert.equal(recipe.imageGenerated,true,raw.id);
     assert.deepEqual(recipeNutrition(recipe),recipe.nutrition,raw.id);
     assert.equal(recipe.nutrition.source,'calculated',raw.id);
     assert.equal(recipe.nutrition.basis,'serving',raw.id);
@@ -77,7 +77,7 @@ test('regional filters compose with products, exclusions, time and later-page de
   const fish=catalogSearch(new URLSearchParams({cuisine:'chinese',include:'рыба',exclude:'курица'}));
   assert.ok(fish.recipes.some(r=>r.id==='cn-steamed-fish'));
   assert.equal(catalogRecipe('cn-steamed-fish').servings,3);
-  assert.equal(catalogSearch(new URLSearchParams({page:'14'})).recipes.length,20);
+  assert.equal(catalogSearch(new URLSearchParams({page:'14'})).recipes.length,24);
   assert.ok(catalogSearch(new URLSearchParams({q:'райта'})).recipes.some(r=>r.id==='in-cucumber-raita'));
   const soups=catalogSearch(new URLSearchParams({cuisine:'greek',category:'soup'}));
   assert.deepEqual(new Set(soups.recipes.map(r=>r.id)),new Set(['gr-fasolada','gr-fakes']));
