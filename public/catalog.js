@@ -7,6 +7,57 @@
   try { const stored = JSON.parse(localStorage.getItem(key)||'[]'); if(Array.isArray(stored)) favorites = new Set(stored.filter(id=>typeof id==='string' && /^[a-z0-9-]+$/.test(id)).slice(0,250)); } catch {}
   const filterNames = ['cuisine','category','time','include','exclude'];
   const params = () => new URLSearchParams(location.search);
+  const visualMode = params().get('filters') === 'visual';
+  let expandedCuisines = false, visualResult;
+  const cuisinePhotos = {
+    everyday:'chicken-thighs-potato', italian:'pizza-margherita-family', georgian:'chakhokhbili',
+    asian:'rice-vegetables', japanese:'soboro-don', russian:'fresh-cabbage-shchi',
+    ukrainian:'borscht-beef', belarusian:'potato-draniki', greek:'keftedes', indian:'keema-potato',
+    hungarian:'beef-goulash-mash', uzbek:'chicken-pilaf', eastern:'shakshuka-family',
+    european:'pasta-tomato', caucasian:'lobio'
+  };
+  const productButtons = [
+    ['курица','Курица','chicken-thighs-potato'],['говядина','Говядина','beef-peppers'],
+    ['свинина','Свинина','pork-peppers'],['рыба','Рыба','fish-potato'],['рис','Рис','rice-carrot-onion'],
+    ['картофель','Картофель','potato-skillet'],['грибы','Грибы','buckwheat-mushroom'],
+    ['яйца','Яйца','vegetable-omelette'],['томаты','Томаты','shakshuka-family'],['сыр','Сыр','pizza-margherita-family']
+  ];
+  const selectedProducts = p => (p.get('include')||'').split(',').map(s=>s.trim()).filter(Boolean);
+  function visualButton(name,value,label,extra='') {
+    const selected=name==='include'?selectedProducts(params()).includes(value):(params().get(name)||'')===value;
+    return `<button type="button" data-visual-filter="${name}" data-value="${escape(value)}" aria-pressed="${selected}" ${extra}>${label}</button>`;
+  }
+  function renderVisualFilters(p,result) {
+    if(!visualMode)return;
+    visualResult=result;
+    const focused=document.activeElement?.dataset.visualFilter ? {name:document.activeElement.dataset.visualFilter,value:document.activeElement.dataset.value}:null;
+    const priority=['everyday','italian','georgian','asian','japanese','russian'];
+    const ordered=[...result.cuisines].sort((a,b)=>(priority.indexOf(a.id)<0?99:priority.indexOf(a.id))-(priority.indexOf(b.id)<0?99:priority.indexOf(b.id)));
+    const visible=expandedCuisines?ordered:ordered.filter((c,i)=>i<6||c.id===p.get('cuisine'));
+    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/dinner/${cuisinePhotos[c.id]||'vegetable-stew-family'}.jpg" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
+    $('#cuisine-tiles').dataset.expanded=String(expandedCuisines);
+    $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Все кухни';
+    $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
+    $('#ingredient-chips').innerHTML=productButtons.map(([value,label,photo])=>visualButton('include',value,`<img src="/assets/dinner/${photo}.jpg" alt="" width="36" height="36"><span>${label}</span>`,'class="ingredient-chip"')).join('');
+    $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
+    $('#category-chips').innerHTML=result.categories.map(c=>visualButton('category',c.id,escape(c.label))).join('');
+    $('#visual-include').value=p.get('include')||'';
+    $('#visual-exclude').value=p.get('exclude')||'';
+    $('#visual-reset').hidden=!['q',...filterNames,'favorites'].some(name=>p.get(name));
+    if(focused) [...document.querySelectorAll('[data-visual-filter]')].find(b=>b.dataset.visualFilter===focused.name&&b.dataset.value===focused.value)?.focus({preventScroll:true});
+  }
+  if(visualMode) {
+    document.body.dataset.filterLayout='visual';$('#visual-discovery').hidden=false;
+    $('.intro .lead').textContent='Выберите кухню и продукты — найдём, что приготовить.';
+    $('.search-label').textContent='Или найдите по названию';
+    $('#search').placeholder='Например, паста с томатами';
+    $('#search-form button').textContent='Найти';
+    $('.header a[aria-current]').href='/recipes?filters=visual';
+    $('#all-cuisines').addEventListener('click',()=>{expandedCuisines=!expandedCuisines;if(visualResult)renderVisualFilters(params(),visualResult);});
+    $('#more-filters').addEventListener('click',()=>{const panel=$('#visual-refinements');panel.hidden=!panel.hidden;$('#more-filters').setAttribute('aria-expanded',String(!panel.hidden));});
+    $('#visual-reset').addEventListener('click',()=>navigate('/recipes'));
+    $('#visual-products').addEventListener('submit',event=>{event.preventDefault();const p=params();for(const name of ['include','exclude']){const value=$('#visual-'+name).value.trim();if(value)p.set(name,value);else p.delete(name);}p.delete('page');navigate(searchUrl(p));});
+  }
   const favoriteText = id => favorites.has(id) ? 'Сохранено' : 'В избранное';
   function notice(text) { $('#notice').textContent=text; $('#notice').hidden=false; clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>$('#notice').hidden=true,3500); }
   function saveFavorite(id) {
@@ -20,8 +71,8 @@
     $('#saved-count').textContent=favorites.size;
     document.querySelectorAll('[data-save]').forEach(button=>{button.textContent=favoriteText(button.dataset.save);button.setAttribute('aria-pressed',String(favorites.has(button.dataset.save)));});
   }
-  function navigate(url, {scroll=false}={}) { history.pushState({},'',url); load(); if(scroll) window.scrollTo({top:0}); }
-  function searchUrl(p) { return '/recipes'+(p.size?'?'+p.toString():''); }
+  function navigate(url, {scroll=false}={}) { const target=new URL(url,location.origin);if(visualMode)target.searchParams.set('filters','visual');history.pushState({},'',target.pathname+target.search); load(); if(scroll) window.scrollTo({top:0}); }
+  function searchUrl(p) { if(visualMode)p.set('filters','visual');return '/recipes'+(p.size?'?'+p.toString():''); }
   async function request(url, signal) {
     const response=await fetch(url,{signal});
     if(!response.ok) throw new Error(response.status===404?'Рецепт не найден':response.status===429?'Слишком много запросов. Попробуйте через минуту.':'Не удалось загрузить рецепты. Проверьте соединение и повторите.');
@@ -66,6 +117,7 @@
     try {
       const result=await request('/api/catalog?'+apiParams.toString(),signal);
       options('cuisine',result.cuisines,p.get('cuisine')); options('category',result.categories,p.get('category'));
+      renderVisualFilters(p,result);
       $('#catalog-total').textContent=result.catalogTotal;
       $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':'Рецепты для вас';
       $('#result-count').textContent=`Найдено: ${result.total}${p.get('favorites')==='1'?' · Сохранено в этом браузере':''}`;
@@ -107,6 +159,12 @@
     else if(target.dataset.save) saveFavorite(target.dataset.save);
     else if(target.hasAttribute('data-reset')) navigate('/recipes');
     else if(target.hasAttribute('data-retry')) load();
+    else if(target.dataset.visualFilter) {
+      const p=params(),name=target.dataset.visualFilter,value=target.dataset.value;
+      if(name==='include') {const chosen=selectedProducts(p);const next=chosen.includes(value)?chosen.filter(v=>v!==value):[...chosen,value];if(next.length)p.set(name,next.join(','));else p.delete(name);}
+      else if(p.get(name)===value||!value)p.delete(name);else p.set(name,value);
+      p.delete('page');navigate(searchUrl(p));
+    }
     else if(target.dataset.quick) {const p=params(),[name,value]=target.dataset.quick.split(':');p.set(name,value);p.delete('page');navigate(searchUrl(p));}
     else if(target.dataset.remove){const p=params();p.delete(target.dataset.remove);p.delete('page');navigate(searchUrl(p));}
     else if(target.dataset.page){const p=params();p.set('page',target.dataset.page);navigate(searchUrl(p));$('.results').scrollIntoView({block:'start'});}
