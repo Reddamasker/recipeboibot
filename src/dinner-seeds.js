@@ -1,14 +1,14 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
-const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null, hasImage = true) => {
+const seed = (id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery = null) => {
   const [prepMinutes, cookMinutes] = Array.isArray(timing) ? timing : [5, timing - 5];
   const recipe = {
     id: `seed:${id}`, title, description, prepMinutes, cookMinutes, servings,
     tags, mainIngredients, discovery, ingredients: ingredients.map(([name, quantity, unit]) => ({ name, raw: name, quantity, unit })),
     steps: steps.map((text, index) => ({ position: index + 1, text })),
-    sourceName: 'Подборка «Твоих рецептов»', sourceUrl: null, thumbnailUrl: hasImage ? `/assets/dinner/${id}.jpg` : null,
-    imageGenerated: hasImage, origin: 'seed', userSaved: false
+    sourceName: 'Подборка «Твоих рецептов»', sourceUrl: null, thumbnailUrl: `/assets/dinner/${id}.jpg`,
+    imageGenerated: true, origin: 'seed', userSaved: false
   };
   return { ...recipe, nutrition: recipeNutrition(recipe) };
 };
@@ -188,8 +188,18 @@ export const SEED_RECIPES = Object.freeze([
   ,seed('potato-draniki', 'Картофельные драники', [15,20], 4, ['без мяса','домашняя еда','семейное','быстро'], ['картофель'], 'Румяные картофельные оладьи с мягкой серединой — простой ужин из привычных продуктов.',
     [['картофель',900,'г'],['лук',1,'шт.'],['яйца',1,'шт.'],['пшеничная мука',2,'ст. л.'],['растительное масло',3,'ст. л.']],
     ['Очистите картофель и лук. Натрите их на мелкой тёрке и слегка отожмите лишнюю жидкость.', 'Добавьте яйцо, муку и соль. Перемешайте непосредственно перед жаркой.', 'Разогрейте часть масла в широкой сковороде. Выкладывайте массу ложкой и разравнивайте в лепёшки толщиной около 7 мм.', 'Жарьте драники партиями по 3–4 минуты с каждой стороны до золотистой корочки, добавляя масло по необходимости.', 'Переложите готовые драники на бумажное полотенце и подавайте горячими.'])
-  // New recipes have no dish photograph yet. The UI already supports text-only
-  // cards; do not publish nonexistent image URLs or reuse another dish's photo.
   ,...expandedCatalog.map(({ id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery }) =>
-    seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery, false))
+    seed(id, title, timing, servings, tags, mainIngredients, description, ingredients, steps, discovery))
 ]);
+
+const seedImages = new Map(SEED_RECIPES.map(recipe => [recipe.id, recipe.thumbnailUrl]));
+
+// Old saved recipes and dinner snapshots may predate the catalog photographs.
+// Fill only missing media at read time; keep user edits and custom images intact.
+export function withSeedImage(recipe) {
+  if (!recipe || recipe.thumbnailUrl) return recipe;
+  const key = recipe.sourceKey?.startsWith('dinner-choice:seed:')
+    ? recipe.sourceKey.slice('dinner-choice:'.length) : recipe.id;
+  const thumbnailUrl = seedImages.get(key);
+  return thumbnailUrl ? { ...recipe, thumbnailUrl, imageGenerated: true } : recipe;
+}

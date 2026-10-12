@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import catalog from '../src/dinner-catalog.json' with { type: 'json' };
 import { SEED_RECIPES } from '../src/dinner-seeds.js';
 import { rankCandidates, hasExcludedIngredient } from '../src/dinner.js';
@@ -19,8 +20,23 @@ test('the 250-recipe catalog has unique identities, complete instructions and us
     }
     assert.ok(recipe.steps.length >= 4 && recipe.steps.every((s,i)=>s.position===i+1 && s.text.trim().length>0), recipe.id);
     assert.ok(recipe.nutrition && recipe.nutrition.calories > 0, recipe.id);
-    if (recipe.thumbnailUrl) assert.ok(fs.existsSync(path.join('public', recipe.thumbnailUrl)), recipe.id);
-    else assert.equal(recipe.imageGenerated, false, recipe.id);
+    assert.equal(recipe.thumbnailUrl, `/assets/dinner/${recipe.id.slice(5)}.jpg`, recipe.id);
+    assert.equal(recipe.imageGenerated, true, recipe.id);
+    assert.ok(fs.existsSync(path.join('public', recipe.thumbnailUrl)), recipe.id);
+  }
+});
+
+test('every catalog dish has its own valid JPEG and new card images are compact', () => {
+  const hashes = new Set();
+  const newIds = new Set(catalog.map(recipe => `seed:${recipe.id}`));
+  for (const recipe of SEED_RECIPES) {
+    const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
+    assert.equal(bytes.readUInt16BE(0), 0xffd8, recipe.id);
+    assert.equal(bytes.readUInt16BE(bytes.length - 2), 0xffd9, recipe.id);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    assert.ok(!hashes.has(hash), `reused photo: ${recipe.id}`);
+    hashes.add(hash);
+    if (newIds.has(recipe.id)) assert.ok(bytes.length < 250_000, `oversized card image: ${recipe.id}`);
   }
 });
 
