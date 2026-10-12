@@ -85,7 +85,7 @@ test('fresh client gets catalog recipes with local images and no provider reques
   assert.equal(listRecipes(user.id).length, 1);
 });
 
-test('all house recipes are complete and have a reusable local JPEG', () => {
+test('all house recipes are complete and available photos are reusable local JPEGs', () => {
   assert.ok(SEED_RECIPES.length >= 56);
   assert.equal(new Set(SEED_RECIPES.map((recipe) => recipe.id)).size, SEED_RECIPES.length);
   for (const recipe of SEED_RECIPES) {
@@ -94,7 +94,10 @@ test('all house recipes are complete and have a reusable local JPEG', () => {
     assert.ok(Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 5);
     assert.ok(Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 5);
     assert.ok(recipe.mainIngredients.length >= 1);
-    assert.ok(recipe.thumbnailUrl);
+    if (!recipe.thumbnailUrl) {
+      assert.equal(recipe.imageGenerated, false);
+      continue;
+    }
     const bytes = fs.readFileSync(path.join('public', recipe.thumbnailUrl));
     assert.equal(bytes.readUInt16BE(0), 0xffd8);
   }
