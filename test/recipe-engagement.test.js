@@ -138,7 +138,7 @@ test('visible client acknowledgement ignores hidden, covered, offscreen and deta
   const removed = { ...element, isConnected: false };
   context.observeEngagement(removed, 'token'); context.flushVisibleEngagement();
   assert.equal(calls.length, 1);
-  assert.ok(source.includes("const trackOpen = !document.querySelector('.recipe-detail-sheet')?.engagementEntry"));
+  assert.ok(source.includes("const trackOpen = !document.querySelector('.overlay .recipe-detail-sheet')?.engagementEntry"));
 });
 test('HTTP GET and library preparation are not views; private POST acknowledges a delivered full recipe only', async () => {
   const u = user(), recipe = createRecipe(u.id, { ...dish, status: 'ready', nutrition: { calories: 1, protein: 0, fat: 0, carbs: 0, basis: 'serving', servings: 1, source: 'calculated' } });

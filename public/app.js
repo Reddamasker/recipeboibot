@@ -1228,7 +1228,7 @@ async function waitForRecipeImage(id) {
       if (new URLSearchParams(location.search).get('recipe') !== id || !document.querySelector('.recipe-detail-sheet')) return;
       if (!recipe.thumbnailUrl) continue;
       state.recipes = state.recipes.map((item) => item.id === id ? recipe : item);
-      const trackOpen = !document.querySelector('.recipe-detail-sheet')?.engagementEntry;
+      const trackOpen = !document.querySelector('.overlay .recipe-detail-sheet')?.engagementEntry;
       closeOverlay(); recipeDetail(recipe, { trackOpen });
       return;
     } catch { /* Retry while this recipe remains open. */ }
