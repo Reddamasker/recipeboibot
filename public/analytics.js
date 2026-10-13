@@ -76,6 +76,7 @@
   window.addEventListener('online',()=>schedule(0));
   document.addEventListener('visibilitychange',()=>{check();if(document.visibilityState==='visible'){health();schedule(0);}});
   document.addEventListener('scroll',check,true);window.addEventListener('resize',check);
+  document.addEventListener('transitionend',check,true);document.addEventListener('animationend',check,true);
   window.addEventListener('error',()=>enqueue('client_error',activeStep,{code:'script'}));
   window.addEventListener('unhandledrejection',()=>enqueue('client_error',activeStep,{code:'promise'}));
   setInterval(health,60000);

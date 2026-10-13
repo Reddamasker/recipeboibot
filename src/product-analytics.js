@@ -113,12 +113,15 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const eligible = row => users.has(row.user_id) && (!campaign || row.created_at >= users.get(row.user_id).started_at);
   const rows = db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
   const events = rows.filter(r => r.user_id && eligible(r));
+  const positions = new Map(events.map((r,i)=>[r,i]));
   const countUsers = (list, event) => new Set(list.filter(r => r.event === event).map(r => r.user_id || r.subject)).size;
   const stepRows = steps.filter(s => s !== 'catalog').map(step => {
     const list = events.filter(r => r.step === step), operations = list.filter(r => r.event === 'operation_finished');
     const errors = operations.filter(r => JSON.parse(r.detail_json).status >= 400);
-    const abandoned = new Set(list.filter(r => r.event==='screen_view' && Date.parse(at)-Date.parse(r.created_at)>=86400000
-      && !list.some(s=>s.user_id===r.user_id && s.event==='step_submit' && s.created_at>=r.created_at)).map(r=>r.user_id));
+    const lastViews = new Map(list.filter(r=>r.event==='screen_view').map(r=>[r.user_id,r]));
+    const abandoned = new Set([...lastViews.values()].filter(r => Date.parse(at)-Date.parse(r.created_at)>=86400000
+      && !events.some(s=>s.user_id===r.user_id && positions.get(s)>positions.get(r)
+        && (s.event==='step_submit' || s.event==='screen_view' && s.step!==step))).map(r=>r.user_id));
     return { step, viewed: countUsers(list, 'screen_view'), submitted: countUsers(list, 'step_submit'), prompts:countUsers(list,'chat_prompt_delivered'), inactive:abandoned.size, operations: operations.length,
       errors: errors.length, errorUsers: new Set(errors.map(r => r.user_id)).size,
       p50: percentile(operations.map(r => r.duration_ms), .5), p95: percentile(operations.map(r => r.duration_ms), .95) };
