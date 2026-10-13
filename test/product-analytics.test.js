@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import { randomUUID } from 'node:crypto';
 const file = `data/product-test-${randomUUID()}.sqlite`;
 Object.assign(process.env,{DATABASE_PATH:file,TELEGRAM_BOT_TOKEN:'analytics-test',TELEGRAM_POLLING:'false',TEST_CONTOUR:'false',BOT_PLATFORM:'telegram',DINNER_LLM_ENABLED:'false',DINNER_IMAGES_ENABLED:'false',OPENAI_API_KEY:'disabled'});
@@ -55,6 +56,8 @@ test('abandonment requires a day and a missing subsequent action on the same ste
  record(v.id,'step_submit',{step:'household',at:'2026-10-01T00:01:00Z'});
  assert.equal(report([u,v],false,'2026-10-01T23:59:00Z').steps.find(r=>r.step==='household').inactive,0);
  assert.equal(report([u,v],false,'2026-10-02T00:01:00Z').steps.find(r=>r.step==='household').inactive,1);
+ record(u.id,'screen_view',{step:'time',at:'2026-10-01T00:02:00Z'});
+ assert.equal(report([u,v],false,'2026-10-02T00:01:00Z').steps.find(r=>r.step==='household').inactive,0,'moving to another step is progress');
 });
 test('operation context isolates concurrent users and links delivery without exposing messages',async()=>{
  const a=user(),b=user();
@@ -110,4 +113,24 @@ test('HTTP telemetry authenticates private batches and limits public input and c
   assert.equal((await post('/api/analytics/public',pub,{'x-analytics-request':'1'})).status,200);
   assert.equal((await post('/api/analytics/public',{...pub,events:[{...pub.events[0],durationMs:-1}]},{'x-analytics-request':'1'})).status,400);
  }finally{await new Promise(r=>server.close(r));}
+});
+test('browser timing waits for animation visibility and signed receipt retries preserve their ID',async()=>{
+ let visible=false,timer,receiptAttempts=0;const listeners={},storage=new Map(),events=[],receiptIds=[];
+ const element={isConnected:true,getBoundingClientRect:()=>({left:0,top:0,right:100,bottom:100}),contains:()=>true};
+ const sandbox={location:{pathname:'/'},crypto:{randomUUID},Date,Promise,AbortSignal,navigator:{onLine:true},innerWidth:400,innerHeight:800,
+   sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
+   window:{addEventListener(){},RecipePlatform:{authHeader:()=> 'tma test'}},
+   document:{visibilityState:'visible',elementFromPoint:()=>element,addEventListener:(name,fn)=>{listeners[name]=fn;}},
+   getComputedStyle:()=>({visibility:'visible',opacity:visible?'1':'0'}),
+   requestAnimationFrame:fn=>fn(),setInterval(){},clearTimeout(){},setTimeout:fn=>{timer=fn;return 1;},
+   fetch:async(path,options)=>{const body=JSON.parse(options.body);if(path==='/api/engagement'){receiptIds.push(body.eventId);if(++receiptAttempts<3)throw Error('offline');return {ok:true};}
+     events.push(...body.events);return {ok:true,json:async()=>({accepted:body.events.map(r=>r.id)})};}
+ };
+ vm.createContext(sandbox);vm.runInContext(fs.readFileSync('public/analytics.js','utf8'),sandbox);
+ const api=sandbox.window.RecipeAnalytics;api.setUser('test-user');api.requestStarted('flow_identifier_123','request');api.requestVisible(element,'flow_identifier_123');
+ await timer();assert.equal(events.some(r=>r.event==='request_visible'),false);
+ visible=true;listeners.animationend();await timer();assert.equal(events.filter(r=>r.event==='request_visible').length,1);
+ listeners.transitionend();await timer();assert.equal(events.filter(r=>r.event==='request_visible').length,1);
+ api.receipt({eventId:randomUUID(),token:'signed-test-receipt'});await timer();await timer();await timer();await timer();
+ assert.equal(receiptIds.length,3);assert.equal(new Set(receiptIds).size,1);assert.ok(events.some(r=>r.event==='telemetry_receipt'&&r.recoveredAttempts===3));
 });
