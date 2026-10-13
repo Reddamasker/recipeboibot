@@ -58,6 +58,9 @@ test('abandonment requires a day and a missing subsequent action on the same ste
  assert.equal(report([u,v],false,'2026-10-02T00:01:00Z').steps.find(r=>r.step==='household').inactive,1);
  record(u.id,'screen_view',{step:'time',at:'2026-10-01T00:02:00Z'});
  assert.equal(report([u,v],false,'2026-10-02T00:01:00Z').steps.find(r=>r.step==='household').inactive,0,'moving to another step is progress');
+ record(u.id,'screen_view',{step:'collection',at:'2026-10-01T00:03:00Z'});
+ recordEngagement(u.id,'recipe_opened',{at:'2026-10-01T00:04:00Z'});
+ assert.equal(report([u],false,'2026-10-02T00:05:00Z').steps.find(r=>r.step==='collection').inactive,0,'reading a saved recipe is progress without posting a form');
 });
 test('operation context isolates concurrent users and links delivery without exposing messages',async()=>{
  const a=user(),b=user();
