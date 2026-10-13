@@ -71,7 +71,7 @@
   }
   const pendingRequests=new Map();
   function requestStarted(id,step){pendingRequests.clear();pendingRequests.set(id,{step,at:Date.now()});}
-  function requestVisible(element,id){const r=pendingRequests.get(id);if(r){observe(element,'request_visible',r.step,{flowId:id,_started:r.at});pendingRequests.delete(id);}}
+  function requestVisible(element,id,preview=false){const r=pendingRequests.get(id);if(r){observe(element,preview?'request_preview_visible':'request_visible',r.step,{flowId:id,_started:r.at});pendingRequests.delete(id);}}
   window.RecipeAnalytics={event:enqueue,observe,visible,setUser,receipt,requestStarted,requestVisible,step(value){activeStep=value;},health};
   window.addEventListener('online',()=>schedule(0));
   document.addEventListener('visibilitychange',()=>{check();if(document.visibilityState==='visible'){health();schedule(0);}});

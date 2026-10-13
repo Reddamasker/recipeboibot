@@ -1866,6 +1866,8 @@ if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined
     }
     const detail = document.querySelector('.overlay .recipe-detail-sheet') || root.querySelector('.dinner-menu-card');
     if (detail && latestRecipeFlow) {globalThis.window?.RecipeAnalytics.requestVisible(detail,latestRecipeFlow);latestRecipeFlow=null;}
+    const preview = root.querySelector('.first-recipe-preview');
+    if (!detail && preview && latestRecipeFlow) {globalThis.window?.RecipeAnalytics.requestVisible(preview,latestRecipeFlow,true);latestRecipeFlow=null;}
   };
   new MutationObserver(scan).observe(root,{childList:true,subtree:true});
   new MutationObserver(scan).observe(document.body,{childList:true});
