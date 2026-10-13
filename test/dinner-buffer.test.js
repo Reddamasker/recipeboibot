@@ -54,6 +54,19 @@ test('rice-only generation receives rejection feedback and supplies a replacemen
 });
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} } });
 
+test('rotation normalizes duplicate titles and observes edits on the next selection', () => {
+  const recipes = [
+    { title: 'Тушёная — курица с картофелем' },
+    { title: 'тушеная курица с картофелем' },
+    { title: 'Картофелем курица тушеная' },
+    { title: 'Рис с овощами' }
+  ];
+  const ranked = recipes.map((recipe, score) => ({ recipe, score }));
+  assert.deepEqual(rotateDinnerCandidates(ranked), [ranked[0], ranked[3]]);
+  recipes[1].title = 'Мисо рамен';
+  assert.deepEqual(rotateDinnerCandidates(ranked), [ranked[0], ranked[1], ranked[3]]);
+});
+
 test('fresh client gets catalog recipes with local images and no provider requests', async () => {
   const user = upsertTelegramUser({ id: 620, first_name: 'Fresh catalog' });
   updateDinnerProfile(user.id, { excludedIngredients: ['арахис'], preferredMaxCookingTime: 30, onboardingCompleted: true });

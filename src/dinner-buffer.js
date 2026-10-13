@@ -16,25 +16,37 @@ let activeImages = 0;
 const imageQueue = [];
 export const dinnerContextKey = ({ profile, pantry, requestedCategories = [], mealRequest = null, saved = [], feedback = { simpleOnly: false, unavailableIngredients: [], avoidTitles: [] } }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories, mealRequest, feedback, saved: saved.map(r => [r.id, r.title, r.ingredients, r.steps, r.servings, r.prepMinutes, r.cookMinutes]) })).digest('hex');
 const titleKey = (recipe) => String(recipe.title || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const titleSignature = recipe => {
+  const title = titleKey(recipe);
+  return { title, words: new Set(title.split(' ').filter(word => word.length > 3)) };
+};
+function sameDish(left, right) {
+  if (left.title === right.title) return true;
+  const overlap = [...left.words].filter(word => right.words.has(word)).length;
+  return Math.min(left.words.size, right.words.size) >= 3
+    && overlap / (left.words.size + right.words.size - overlap) >= 0.8;
+}
 export function duplicateDinner(recipe, existing) {
-  const title = titleKey(recipe), words = new Set(title.split(' ').filter((w) => w.length > 3));
-  return existing.some((r) => {
-    if (titleKey(r) === title) return true;
-    const other = new Set(titleKey(r).split(' ').filter((w) => w.length > 3));
-    const overlap = [...words].filter((w) => other.has(w)).length;
-    return Math.min(words.size, other.size) >= 3 && overlap / new Set([...words, ...other]).size >= 0.8;
-  });
+  const signature = titleSignature(recipe);
+  return existing.some(other => sameDish(signature, titleSignature(other)));
 }
 
 // Rotate across sessions and IDs, including saved copies of catalog dishes.
 export function rotateDinnerCandidates(ranked, recentShownRecipes = [], now = Date.now()) {
+  // Normalize each title once per selection, not once per pair in the catalog.
+  // Keep this cache local: recipes may be edited between calls.
+  const signatures = new Map();
+  const signature = recipe => {
+    if (!signatures.has(recipe)) signatures.set(recipe, titleSignature(recipe));
+    return signatures.get(recipe);
+  };
   const unique = [];
   for (const candidate of ranked) {
-    if (!duplicateDinner(candidate.recipe, unique.map(item => item.recipe))) unique.push(candidate);
+    if (!unique.some(item => sameDish(signature(candidate.recipe), signature(item.recipe)))) unique.push(candidate);
   }
   ranked = unique;
   const lastShown = recipe => recentShownRecipes.reduce((last, shown) =>
-    duplicateDinner(recipe, [shown.recipe]) ? Math.max(last, Date.parse(shown.createdAt) || 0) : last, 0);
+    sameDish(signature(recipe), signature(shown.recipe)) ? Math.max(last, Date.parse(shown.createdAt) || 0) : last, 0);
   const fresh = ranked.filter(item => now - lastShown(item.recipe) >= 7 * 86400000);
   if (fresh.length >= DINNER_BUFFER.visible) return fresh;
   const repeated = ranked.filter(item => !fresh.includes(item))
