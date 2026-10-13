@@ -1,3 +1,4 @@
+import { productReport, validProductReport } from './product-analytics.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 import { db } from './db.js';
@@ -18,16 +19,17 @@ export function maxFunnelSnapshot() {
   const exists = db.prepare('SELECT 1 FROM acquisition_campaigns WHERE slug=?').get(MAX_AD_PLACEMENT);
   const all = funnelReport('all');
   const campaign = exists ? funnelReport(MAX_AD_PLACEMENT) : {
-    ...all, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
+    ...all, productAnalytics: { platforms: [productReport([], true)] }, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
     trialJourney: { ...emptyTrialJourney(), trackingSince: engagementSince() },
     convertedClicks: 0, selectedTrials: 0, returningStarts: 0, testPaidUsers: 0, unclassifiedPaidUsers: 0, historicalStartsWithoutDate: 0, priceExperiment: null
   };
-  const summary = report => Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'selectedTrials', 'returningStarts',
-    'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment', 'recipeActivity', 'trialJourney'].map(k => [k, report[k]]));
-  return { version: 5, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
+  const summary = report => ({ ...Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'selectedTrials', 'returningStarts',
+    'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment', 'recipeActivity', 'trialJourney', 'productAnalytics'].map(k => [k, report[k]])),
+    productAnalytics: { platforms: report.productAnalytics.platforms.map(p => ({ ...p, platform: 'max' })) } });
+  return { version: 6, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
 }
 function validateSnapshot(data) {
-  if (data?.version !== 5 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+  if (data?.version !== 6 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');
@@ -43,6 +45,8 @@ function validateSnapshot(data) {
       || a.returnedAnyRecipeUsers > a.rereadRecipeUsers + a.returnedRecipeUsers
       || a.returnedAnyRecipeUsers > a.engagedRecipeUsers || a.engagedRecipeUsers > report.totals.starts
       || a.engagedRecipeUsers < Math.max(a.recipeUsers, a.fullRecipeUsers)) throw new Error('Invalid MAX return counts');
+    const product = report.productAnalytics?.platforms;
+    if (!Array.isArray(product) || product.length !== 1 || !validProductReport(product[0])) throw new Error('Invalid MAX product analytics');
     const j = report.trialJourney;
     if (trialCounters.some(k => !count(j?.[k]) || j[k] > report.totals.starts)
       || j.clicked > j.offered || j.activated > j.clicked || j.opened > j.activated
@@ -86,6 +90,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     const data = validateSnapshot(JSON.parse(text));
     const remote = specific ? data.campaign : data.all;
     result.platform = specific ? 'max' : 'combined';
+    result.productAnalytics = { platforms: specific ? remote.productAnalytics.platforms : [...(report.productAnalytics?.platforms || []), ...remote.productAnalytics.platforms] };
     result.recipeActivity = Object.fromEntries(activityCounters.map(key => [key, specific ? remote.recipeActivity[key] : result.recipeActivity[key] + remote.recipeActivity[key]]));
     result.recipeActivity.returnRate = ratio(result.recipeActivity.returnedRecipeUsers, result.recipeActivity.recipeUsers);
     result.recipeActivity.anyReturnRate = ratio(result.recipeActivity.returnedAnyRecipeUsers, result.recipeActivity.engagedRecipeUsers);
@@ -121,6 +126,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
       error: 'Данные MAX сейчас недоступны.' + (specific ? '' : ' Общие пользовательские этапы пока учитывают только Telegram.') };
     if (specific) {
       for (const key of stages) unavailable.totals[key] = unavailable.ordered[key] = null;
+      unavailable.productAnalytics = null;
       unavailable.priceExperiment = null; unavailable.convertedClicks = null; unavailable.selectedTrials = null; unavailable.linkRequests = null;
       unavailable.recipeActivity = Object.fromEntries([...activityCounters, 'returnRate'].map(key => [key, null]));
       unavailable.trialJourney = Object.fromEntries(trialCounters.map(key => [key, null]));

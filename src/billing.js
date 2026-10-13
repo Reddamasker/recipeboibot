@@ -1,6 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual, verify as verifySignature } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { db } from './db.js';
+import { recordProduct } from './product-analytics.js';
 import { config } from './config.js';
 import { MAX_INVOICE_FLOOR, paymentContour, invoiceBelongsToContour } from './payment-routing.js';
 import { getSubscriptionAccess, getTrialStatus, getFirstRecipeStatus, hasUsedTrialOrPromo, monthsAfter, getPendingFirstRecipe, unlockFirstRecipe } from './subscriptions.js';
@@ -317,11 +318,14 @@ export function paymentRedirectDocument(id, at = new Date()) {
   if (!order || order.status !== 'pending') throw error('Ссылка на оплату недоступна', 404);
   if (Date.parse(order.updated_at) < at.getTime() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
   const fields = paymentFields(order).map(([name, value]) => `<input type="hidden" name="${html(name)}" value="${html(value)}">`).join('');
+  if (order.is_test === 0) recordProduct(order.user_id, 'provider_handoff', {step:'checkout',detail:{orderId:order.id}});
   return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Переход к оплате</title><body><main><h1>Переходим к защищённой оплате</h1><p>Если страница не открылась автоматически, нажмите кнопку.</p><form id="pay" method="post" action="${PAYMENT_ACTION}">${fields}<button type="submit">Перейти к оплате</button></form></main><script>document.getElementById('pay').submit()</script></body></html>`;
 }
 
 export function paymentReturnDocument(kind, orderId) {
   const success = kind === 'success';
+  const observedOrder = db.prepare('SELECT id,user_id FROM payment_orders WHERE id=? AND is_test=0').get(orderId || '');
+  if (observedOrder) recordProduct(observedOrder.user_id, 'provider_return', {step:'payment_result',detail:{outcome:success?'success':'fail'}});
   const bot = config.testContour ? config.testBotUsername : 'Recipeboibot';
   const route = { view: 'payment-result', ...(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(String(orderId || '')) ? { order: String(orderId) } : {}) };
   const returnUrl = config.botPlatform === 'max'

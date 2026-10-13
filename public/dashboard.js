@@ -13,6 +13,7 @@ function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text;
 function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  renderProductAnalytics(data);
   $('#page-error').textContent = data.remoteFunnel?.error || '';
   $('#page-error').hidden = !data.remoteFunnel?.error;
   renderLandingStats(data);
@@ -169,3 +170,44 @@ for (const [selector, endpoint, method, body] of [ ['#campaign-form', 'campaigns
 }
 load(new URL(location.href).searchParams.get('campaign') || undefined);
 setInterval(() => { if (report && !document.hidden && !$('#dashboard').hidden) void load(); }, 60000);
+
+function renderProductAnalytics(data) {
+  const select = $('#product-platform'), container = $('#product-metrics');
+  const platforms = data.productAnalytics?.platforms || [];
+  const previous = select.value;
+  select.replaceChildren(...platforms.map(p => { const option=node('option','',p.platform==='max'?'MAX':'Telegram');option.value=p.platform;return option; }));
+  if(platforms.some(p=>p.platform===previous))select.value=previous;
+  const draw=()=>{
+    container.replaceChildren();const a=platforms.find(p=>p.platform===select.value);
+    if(!a){$('#product-status').textContent='Данные этой платформы недоступны.';return;}
+    $('#product-status').textContent='Новый сбор с '+new Date(a.trackingSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК. Аккаунты — по выбранному размещению. Исторические данные отмечены отдельно. '+(data.remoteFunnel?.error||'');
+    const labels={boot:'Вход в приложение',home:'Главная',request:'Запрос / подбор',onboarding:'Сохранение анкеты',household:'Для кого готовим',time:'Время приготовления',exclusions:'Исключения продуктов',taste:'Предпочтения',intake:'Пожелания в чате',confirmation:'Подтверждение в чате',notifications:'Напоминания',collection:'Коллекция',benefits:'Возможности',trial:'Пробный доступ',offer:'Тарифы',checkout:'Оформление оплаты',payment_result:'Возврат с оплаты',recipe:'Рецепт',import:'Импорт',other:'Прочее'};
+    const seconds=n=>n===null?'Нет данных':(n/1000).toLocaleString('ru-RU',{maximumFractionDigits:1})+' с';
+    function table(title, headers, rows, note, open=false) {
+      const box=node('details','methodology');box.open=open;box.append(node('summary','',title));
+      const scroll=node('div','table-scroll'),t=node('table'),head=node('thead'),tr=node('tr');headers.forEach(h=>tr.append(node('th','',h)));head.append(tr);t.append(head);
+      const body=node('tbody');for(const row of rows){const tr=node('tr');row.forEach(v=>tr.append(node('td','',v)));body.append(tr);}t.append(body);scroll.append(t);box.append(scroll,node('p','panel-note',note));container.append(box);
+    }
+    table('Шаги и ошибки',['Шаг','Видели, аккаунтов','Отправлено в чат, аккаунтов','Действовали, аккаунтов','Без действия 24 ч','Операции','Ошибки','Медиана','95% быстрее'],a.steps.map(r=>[labels[r.step],r.viewed,r.prompts,r.submitted,r.inactive,r.operations,r.errors,seconds(r.p50),seconds(r.p95)]),
+      'Показ — видимый экран Mini App; отправка в чат не означает прочтение. Действие — отправка формы, переход шага или запрос. Строки отражают разные маршруты, не одну линейную воронку. «Без действия 24 ч» — после показа не зарегистрировано действие этого шага минимум сутки; это сигнал для разбора, а не доказанный уход. Ошибки включают отказы доступа. Время операций измеряется на сервере.',true);
+    table('Ошибки по шагам и версиям',['Шаг','Код','Версия','События'],(a.errors||[]).map(r=>[labels[r.step],r.code,r.version,r.count]),'Тексты сообщений и содержимое запросов не собираются. HTTP 401/403 — вход и доступ, 402 — ограничение доступа, 5xx — сбой сервера.');
+    table('Ожидание результата',['Измерение','Замеры','Медиана','95% быстрее'],[['Запрос → видимый результат',a.timing.visible.samples,seconds(a.timing.visible.p50),seconds(a.timing.visible.p95)],['Обработка сообщения → полная доставка рецепта',a.timing.delivered.samples,seconds(a.timing.delivered.p50),seconds(a.timing.delivered.p95)]],
+      'Только завершённые наблюдаемые пути. Доставка в чат не является просмотром. Фоновая подготовка и неоткрытые результаты не дают замер видимого результата.');
+    const names={onboarding_started:'Начали знакомство',onboarding_completed:'Завершили знакомство',taste_preferences_completed:'Сохранили вкусы',taste_preferences_skipped:'Пропустили вкусы',dinner_intake_confirmed:'Подтвердили пожелания',recommendation_accepted:'Выбрали рекомендацию',recommendation_rejected:'Отклонили рекомендацию',dinner_retry:'Запросили замену',recipe_cooked:'Отметили «приготовил»'};
+    table('Полезность и отказы — доступная история',['Действие','Аккаунты'],Object.entries(a.quality).map(([k,v])=>[names[k]||k,v]),'Каждый аккаунт учитывается один раз в строке. «Приготовил» — отметка пользователя. История ограничена сохранившимися событиями.');
+    const reasons={dislike:'Не понравилось',ingredients:'Ингредиенты',time:'Время',complexity:'Сложность',other:'Другая причина'};
+    table('Причины отказа — доступная история',['Причина','События'],Object.entries(a.reasons).map(([k,v])=>[reasons[k]||k,v]),'Повторные отказы учитываются отдельно. Свободный текст в отчёт не попадает.');
+    table('Оплата после видимого предложения',['Последовательный этап','Аккаунты'],['Увидели тарифы','Нажали оплатить','Получен настоящий заказ','Сервер выдал переход к провайдеру','Подтверждена оплата'].map((label,i)=>[label,a.checkout.ordered[i]]),
+      'Этапы по времени внутри аккаунта после начала нового сбора. Выдача страницы перехода не подтверждает загрузку провайдера. Заказ может быть ранее созданным и повторно открытым. Тестовые заказы исключены. Выбор тарифа: '+a.checkout.plan_selected+' аккаунтов. Все пути за доступную историю: создали заказ '+a.checkout.orders+', оплатили '+a.checkout.paid+'. Статусы заказов: '+JSON.stringify(a.checkout.statuses)+'. Возвраты по ссылкам успеха/ошибки: '+a.checkout.returnSuccess+' / '+a.checkout.returnFail+' аккаунтов; это не подтверждение платежа или отказа банка.');
+    table('Возвращение к полному рецепту: D1 и D7',['Первое наблюдаемое открытие','Аккаунты','Созрели D1','Вернулись D1','D1','Созрели D7','Вернулись D7','D7'],a.retention.map(r=>[r.date,r.users,r.d1Eligible,r.d1,percent(r.d1Rate),r.d7Eligible,r.d7,percent(r.d7Rate)]),
+      'Возврат — открытие любого полного рецепта точно на следующий или седьмой московский календарный день после первого наблюдаемого открытия. Знаменатель включает только аккаунты, для которых целевой день полностью завершился. Это когорты первого наблюдаемого использования Mini App, не регистрации; старые чтения чата неизвестны. Последние 60 когорт.');
+    const catalogNames={catalog_list:'Видели выдачу',catalog_search:'Поиск',catalog_empty:'Пустая выдача',catalog_filter:'Выдача с фильтрами',catalog_open:'Открыли полный рецепт',catalog_favorite_add:'Добавили в избранное',catalog_favorite_remove:'Убрали из избранного',catalog_share:'Скопировали ссылку',catalog_print:'Запросили печать'};
+    table('Публичный каталог — отдельно от ботов',['Действие','События','Сессии браузера'],(a.catalog||[]).map(r=>[catalogNames[r.event],r.events,r.visits]),a.catalog?'Анонимные сессии вкладки, не люди и не аккаунты. Без поисковых фраз и содержимого рецептов. Избранное остаётся в браузере. Автоматические обращения отсекаются частично; анонимные внутренние посещения отличить нельзя.':'Для каталога нет привязки к аккаунту или рекламному запуску. Выберите «Все пользователи», чтобы увидеть отдельную статистику каталога.');
+    table('Работа сервиса — доступная история',['Показатель','Значение'],[['AI-вызовы',a.provider.calls],['Ошибки AI',a.provider.errors],['Входные токены',a.provider.input],['Выходные токены',a.provider.output],['Вызовы с полным учётом расхода',a.provider.complete],...Object.entries(a.imports).map(([k,v])=>['Импорт: '+k,v]),...Object.entries(a.notifications).map(([k,v])=>['Напоминание: '+k,v])],
+      'Расход токенов не равен стоимости в рублях. Ошибки, очереди и успешные действия показаны отдельно; отправленное напоминание не считается прочитанным.');
+    const healthRows=(h,label)=>[[label+' — ошибки клиента',h.clientErrors],[label+' — ошибки входа до определения аккаунта',h.authErrors],[label+' — приняты после повторной отправки',h.retried],[label+' — отброшено по отчётам клиентов',h.dropped],[label+' — ожидало отправки в последних отчётах',h.pending],[label+' — последнее принятое событие',h.lastEvent?new Date(h.lastEvent).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}):'Нет событий']];
+    table('Качество сбора',['Показатель','Значение'],[...healthRows(a.health,'Аккаунты'),...(a.publicHealth?healthRows(a.publicHealth,'Анонимные сессии'):[]),['Ошибки записи после запуска сервера',a.writeFailures]],
+      'Очередь ограничена 80 событиями и 24 часами, повторная отправка не удваивает события. Показатели потерь — нижняя оценка: полностью закрытая вкладка или клиент без связи может не прислать диагностику. «Ожидают» — последняя известная очередь, не её текущее состояние. Версии клиента: '+(a.health.versions.join(', ')||'пока нет')+'.');
+  };
+  select.onchange=draw;draw();
+}

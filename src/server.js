@@ -39,6 +39,7 @@ import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingRepor
 import { telegramOpenDocument } from './telegram-open.js';
 import { catalogSearch, catalogRecipe } from './web-catalog.js';
 import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
+import { acceptProductEvents, apiStep, identifyProductUser, productOperation, recordProduct } from './product-analytics.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -131,7 +132,11 @@ function detectedImageMime(buffer) {
 
 async function api(request, response, url) {
   const user = authenticate(request);
+  identifyProductUser(user.id);
   response.recipeGateUserId=user.id;
+  if (request.method === 'POST' && url.pathname === '/api/analytics') {
+    return json(response, 200, acceptProductEvents(user.id, await bodyJson(request, 16000)));
+  }
   if (request.method === 'POST' && url.pathname === '/api/engagement') {
     return json(response, 200, { recorded: acknowledgeEngagement(user.id, await bodyJson(request, 2000)) });
   }
@@ -178,7 +183,10 @@ async function api(request, response, url) {
   if (request.method === 'POST' && url.pathname === '/api/billing/orders') {
     const input = await bodyJson(request, 1000);
     if (config.testContour && !billingAvailable()) return json(response, 201, { ...createMockOrder(user.id, input.method || 'card', Boolean(input.autoRenew), input.promoCode, input.periodMonths), mode: 'mock' });
-    return json(response, 201, { ...createPaymentOrder(user.id, { autoRenew: input.autoRenew === true, consentVersion: input.consentVersion, promoCode: input.promoCode, periodMonths: input.periodMonths }), mode: 'provider' });
+    recordProduct(user.id, 'checkout_requested', {step:'checkout'});
+    const order = createPaymentOrder(user.id, { autoRenew: input.autoRenew === true, consentVersion: input.consentVersion, promoCode: input.promoCode, periodMonths: input.periodMonths });
+    recordProduct(user.id, 'order_ready', {step:'checkout',detail:{orderId:order.id}});
+    return json(response, 201, { ...order, mode: 'provider' });
   }
   const billingOrder = url.pathname.match(/^\/api\/billing\/orders\/([0-9a-f-]{36})$/i);
   if (request.method === 'GET' && billingOrder) return json(response, 200, getPaymentOrder(user.id, billingOrder[1]));
@@ -415,6 +423,18 @@ function serveStatic(request, response, pathname) {
 
 export function createServer() {
   return http.createServer(async (request, response) => {
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    const step = apiStep(pathname);
+    if (step && (request.method !== 'GET' || step === 'boot')) {
+      return productOperation(step, async context => {
+        await handleRequest(request, response);
+        context.status = response.statusCode;
+      }, { flowId: request.headers['x-recipe-flow'] });
+    }
+    return handleRequest(request, response);
+  });
+}
+async function handleRequest(request, response) {
     const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
     try {
       const robokassaResult = url.pathname === '/api/payments/robokassa/result' && ['GET', 'POST'].includes(request.method);
@@ -432,6 +452,13 @@ export function createServer() {
         return json(response, 200, maxFunnelSnapshot());
       }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
+      if (url.pathname === '/api/analytics/public') {
+        if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
+        if (request.headers['x-analytics-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
+        if (/bot\b|crawler|spider|preview/i.test(request.headers['user-agent'] || '')) return json(response, 200, { accepted: [] });
+        rateLimit(`analytics:${clientIp(request)}`, 30);
+        return json(response, 200, acceptProductEvents(null, await bodyJson(request, 16000)));
+      }
       // Public house catalog only. Personal recipes and AI results retain their authentication gates.
       if (url.pathname === '/api/catalog' || url.pathname.startsWith('/api/catalog/')) {
         if (request.method !== 'GET') return json(response, 405, { error: 'Метод не поддерживается' });
@@ -591,5 +618,4 @@ export function createServer() {
       if (!path.extname(url.pathname)) return serveStatic(request, response, '/index.html');
       json(response, 404, { error: 'Не найдено' });
     } catch (error) { log('error', 'http_error', { error, method: request.method, path: url.pathname }); json(response, error.status || 500, { error: error.status && error.status < 500 ? error.message : 'Сервис временно недоступен', ...(error.status === 402 ? { offerPath: '/?view=offer' } : {}) }); }
-  });
 }

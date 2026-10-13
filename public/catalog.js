@@ -11,7 +11,7 @@
   function notice(text) { $('#notice').textContent=text; $('#notice').hidden=false; clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>$('#notice').hidden=true,3500); }
   function saveFavorite(id) {
     if(favorites.has(id)) favorites.delete(id); else favorites.add(id);
-    try { localStorage.setItem(key,JSON.stringify([...favorites])); notice(favorites.has(id)?'Рецепт сохранён в этом браузере':'Рецепт убран из избранного'); }
+    try { localStorage.setItem(key,JSON.stringify([...favorites])); window.RecipeAnalytics?.event(favorites.has(id)?'catalog_favorite_add':'catalog_favorite_remove','catalog'); notice(favorites.has(id)?'Рецепт сохранён в этом браузере':'Рецепт убран из избранного'); }
     catch { notice('Хранилище браузера недоступно. Избранное сохранится только до закрытия страницы.'); }
     updateFavorites();
     if(!currentRecipe && params().get('favorites')==='1') load();
@@ -52,7 +52,7 @@
     $('#saved-toggle').setAttribute('aria-pressed',String(p.get('favorites')==='1'));
     if(id) {
       $('#recipe-view').innerHTML='<p role="status">Загружаем рецепт…</p>';
-      try { const recipe=await request('/api/catalog/'+id,signal); currentRecipe=recipe; renderRecipe(recipe,p); }
+      try { const recipe=await request('/api/catalog/'+id,signal); currentRecipe=recipe; renderRecipe(recipe,p); window.RecipeAnalytics?.observe($('#recipe-view'),'catalog_open','catalog'); }
       catch(error) { if(error.name!=='AbortError') $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← В каталог</a><div class="empty"><h1>${escape(error.message)}</h1><button data-retry>Повторить</button></div>`; }
       return;
     }
@@ -70,6 +70,11 @@
       $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':'Рецепты для вас';
       $('#result-count').textContent=`Найдено: ${result.total}${p.get('favorites')==='1'?' · Сохранено в этом браузере':''}`;
       activeFilters(p,result);
+      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog',{results:result.recipes.length});
+      if(p.get('q'))window.RecipeAnalytics?.event('catalog_search','catalog',{results:result.recipes.length});
+      if(!result.recipes.length)window.RecipeAnalytics?.event('catalog_empty','catalog');
+      const filters=filterNames.filter(k=>p.get(k)).length;
+      if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{filters});
       $('#cards').innerHTML=result.recipes.length?result.recipes.map(card).join(''):`<div class="empty"><h3>${p.get('favorites')==='1'&&!favorites.size?'Здесь будут любимые рецепты':'Подходящих рецептов пока нет'}</h3><p>${p.get('favorites')==='1'&&!favorites.size?'Нажмите «В избранное» на понравившейся карточке.':'Попробуйте убрать часть фильтров или увеличить время приготовления.'}</p><button data-reset>Показать все рецепты</button></div>`;
       $('#pagination').innerHTML=result.pages>1?`<button data-page="${result.page-1}" ${result.page===1?'disabled':''}>Назад</button><span>${result.page} из ${result.pages}</span><button data-page="${result.page+1}" ${result.page===result.pages?'disabled':''}>Далее</button>`:'';
     } catch(error) { if(error.name!=='AbortError') { $('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`; } }
@@ -83,8 +88,8 @@
     $('#nutrition').innerHTML=n?`<strong>Пищевая ценность на порцию</strong>${Math.round(n.calories)} ккал · Белки ${escape(n.protein)} г<br>Жиры ${escape(n.fat)} г · Углеводы ${escape(n.carbs)} г<br><span>Расчётные значения, зависят от продуктов.</span>`:'Пищевая ценность пока не рассчитана.';
     $('#servings').addEventListener('input',event=>{ const value=Number(event.target.value); if(Number.isInteger(value)&&value>=1&&value<=20) renderIngredients(value); });
     $('#servings').addEventListener('change',event=>{const value=Math.max(1,Math.min(20,Math.round(Number(event.target.value)||currentRecipe.servings)));event.target.value=value;renderIngredients(value);});
-    $('#share-recipe').addEventListener('click',async()=>{const url=location.origin+'/recipes/'+recipe.id;try{await navigator.clipboard.writeText(url);notice('Ссылка на рецепт скопирована');}catch{notice('Скопируйте адрес рецепта из строки браузера');}});
-    $('#print-recipe').addEventListener('click',()=>window.print());
+    $('#share-recipe').addEventListener('click',async()=>{const url=location.origin+'/recipes/'+recipe.id;try{await navigator.clipboard.writeText(url);notice('Ссылка на рецепт скопирована');window.RecipeAnalytics?.event('catalog_share','catalog');}catch{notice('Скопируйте адрес рецепта из строки браузера');}});
+    $('#print-recipe').addEventListener('click',()=>{window.RecipeAnalytics?.event('catalog_print','catalog');window.print();});
   }
   function renderIngredients(servings) {
     const checked=new Set([...document.querySelectorAll('#ingredients input:checked')].map(input=>input.value));

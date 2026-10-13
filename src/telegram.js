@@ -1,3 +1,4 @@
+import { productOperation, identifyProductUser, identifyProductStep, recordProduct } from './product-analytics.js';
 import { config } from './config.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
@@ -141,6 +142,7 @@ function canUsePaidImport(userId) {
 export async function handleTrialCallback(callback) {
   if (callback.data !== 'trial:start' || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  identifyProductUser(user.id);
   recordEngagement(user.id, 'trial_clicked', { eventId: `trial-click-${callback.id}` });
   await telegram('answerCallbackQuery', { callback_query_id: callback.id });
   const access = getSubscriptionAccess(user.id);
@@ -259,13 +261,16 @@ async function sendDinnerIntakePrompt(chatId, userId, { profileOnly = false, fir
   addDinnerEvent(userId, 'onboarding_started');
   if (firstStart) {
     await send(chatId, 'Уже ищу варианты для вашего ужина! 🍽\nНапишите или надиктуйте 2-3 главных продукта, которые у вас есть прямо сейчас, и на скольких человек готовим (например: фарш, макароны, сыр; на двоих).');
+    recordProduct(userId, 'chat_prompt_delivered', { step: 'intake' });
     return;
   }
   if (profileOnly) {
     await send(chatId, '<b>Давай подберём ужин специально для тебя.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд расскажите, на сколько человек готовим, есть ли дети, аллергия, сколько времени есть, какие блюда вы обычно любите и что хотите именно сегодня. Продукты дома можно назвать, если хотите.\n\nНапример: «На троих, с ребёнком, аллергия на орехи, до 30 минут. Любим пасту, не любим рыбу. Сегодня хотим азиатское с рисом».\n\nМожно ответить и текстом.');
+    recordProduct(userId, 'chat_prompt_delivered', { step: 'intake' });
     return;
   }
   await send(chatId, '<b>Подберём ужин из того, что есть дома.</b>\n\n<b>Запишите голосовое сообщение</b>\nНажмите микрофон справа от поля ввода и за 30–60 секунд назовите продукты. Добавьте, на сколько человек готовите, есть ли дети, аллергия, сколько времени есть, какие блюда обычно любите и что хотите именно сегодня.\n\nНапример: «Есть курица, рис, лук и морковь. На троих, с ребёнком, аллергия на орехи, до 30 минут. Сегодня хотим азиатское с рисом».\n\nМожно дополнять по частям — я запомню сказанное раньше.');
+    recordProduct(userId, 'chat_prompt_delivered', { step: 'intake' });
 }
 
 // Telegram may deliver both an unblock event and /start for the same tap.
@@ -290,9 +295,11 @@ async function resumeDinnerIntake(chatId, userId, pending, { unblocked = false }
 }
 
 async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = false } = {}) {
-  if (!profileOnly && !intake.availableIngredients.length && !intake.mealRequest) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.'); return; }
+  if (!profileOnly && !intake.availableIngredients.length && !intake.mealRequest) { await send(chatId, 'Остальные ответы сохранил. Какие продукты есть дома? Можно написать или сказать голосом.');
+    recordProduct(userId, 'chat_prompt_delivered', { step: 'confirmation' }); return; }
   if (!intake.householdSize) {
     await send(chatId, `${intake.availableIngredients.length ? `Записал продукты: <b>${escapeHtml(intake.availableIngredients.join(', '))}</b>.\n` : ''}На сколько человек готовим?`, { reply_markup: { inline_keyboard: [[1, 2, 3, 4, 5].map((size) => ({ text: String(size), callback_data: `dinner:size:${size}` }))] } });
+    recordProduct(userId, 'chat_prompt_delivered', { step: 'confirmation' });
     return;
   }
   const categoryNames = Object.fromEntries(DINNER_CATEGORIES.map(([key, label]) => [key, label.toLocaleLowerCase('ru')]));
@@ -312,9 +319,11 @@ async function sendDinnerIntakeSummary(chatId, userId, intake, { profileOnly = f
     `Не любим: ${disliked.length ? escapeHtml(disliked.join(', ')) : 'не указано'}`
   ];
   await send(chatId, lines.join('\n'), { reply_markup: { inline_keyboard: [[{ text: 'Верно · подобрать ужин', callback_data: 'dinner:confirm' }], [{ text: 'Дополнить или исправить', callback_data: 'dinner:redo' }]] } });
+    recordProduct(userId, 'chat_prompt_delivered', { step: 'confirmation' });
 }
 
 async function handleDinnerIntakeMessage(message, user, pending) {
+  identifyProductStep('intake');
   const text = message.text?.trim() || '';
   if (message.photo?.length || extractSharedUrl(text) || /^\/(?:save|find|search|help)(?:\s|$)/i.test(text)) { clearPendingIntent(user.id); return false; }
   if (text === '/skip') { await skipDinnerIntake(message.chat.id, user.id, pending); return true; }
@@ -350,6 +359,7 @@ export async function handleDinnerIntakeCallback(callback) {
   const data = String(callback.data || '');
   if (!/^dinner:(?:skip|redo|confirm|preparing|unavailable|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  identifyProductUser(user.id);
   if (awaitingFirstRecipe(user.id)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chatId, user.id); return true; }
   if (['dinner:preparing', 'dinner:unavailable'].includes(data)) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: data === 'dinner:preparing' ? 'Рецепты ещё готовятся' : 'Не удалось подготовить рецепты. Попробуйте ещё раз позже.' });
@@ -793,6 +803,7 @@ export async function handleRecipeDialogueCallback(callback) {
   if (!match) return false;
   if (callback.message?.chat?.type !== 'private' || String(callback.message.chat.id) !== String(callback.from?.id)) return true;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
+  identifyProductUser(user.id);
   if (awaitingFirstRecipe(user.id)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chatId, user.id); return true; }
   let dialogue = getRecipeDialogue(user.id, match[2]);
   if (!dialogue) {
@@ -1008,9 +1019,15 @@ export async function handleMessage(message) {
     return;
   }
   const user = resolvePrivateTelegramUser(message.from);
+  identifyProductUser(user.id);
   let text = message.text?.trim() || message.caption?.trim() || '';
   const menuCommands = { 'Что на сегодня': '/dinner', 'Хочу конкретное блюдо': '/find', 'Что приготовить': '/dinner', 'Мои рецепты': '/collection', 'Сохранить рецепт': '/save', 'Мои предпочтения': '/preferences' };
   text = menuCommands[text] || text;
+  const analyticsCommand = text.split(/\s/)[0];
+  if (['/start','/menu'].includes(analyticsCommand)) identifyProductStep('home');
+  else if (analyticsCommand === '/save') identifyProductStep('import');
+  else if (analyticsCommand === '/collection') identifyProductStep('collection');
+  else if (analyticsCommand === '/preferences') identifyProductStep('intake');
   recordBotStart(user, text);
   const feedbackEntry = getPendingIntent(user.id);
   const feedbackStart = text === '/feedback' || text === 'Обратная связь' || /^\/start(?:@[A-Za-z0-9_]+)?\s+feedback\s*$/i.test(text);
@@ -1193,6 +1210,7 @@ export async function handleMyChatMember(change) {
     // Opening a chat is not a Bot API event. Unblocking is, and can resume intake.
     if (change.old_chat_member?.status !== 'kicked' || change.new_chat_member?.status !== 'member' || !change.from || change.from.is_bot || String(change.from.id) !== String(chat.id)) return;
     const user = resolvePrivateTelegramUser(change.from);
+  identifyProductUser(user.id);
     if (!user.is_allowed) allowUser(user.id);
     const pending = getPendingIntent(user.id);
     if (['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {
@@ -1282,10 +1300,7 @@ export async function startTelegramPolling() {
         if ((!update.message && !update.my_chat_member && !update.callback_query) || !claimUpdate(update.update_id)) continue;
         try {
           if (update.my_chat_member) await handleMyChatMember(update.my_chat_member);
-          else if (update.callback_query) {
-            if (!await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
-          }
-          else await handleMessage(update.message);
+          else await handleChatUpdate(update);
           completeUpdate(update.update_id);
         }
         catch (error) { failUpdate(update.update_id); log('error', 'telegram_update_failed', { error, updateId: update.update_id }); }
@@ -1298,6 +1313,16 @@ export function stopTelegramPolling() { running = false; }
 // Both transports execute the same recipe workflow. MAX normalizes events only
 // after verifying the private chat binding; external IDs remain namespaced.
 export async function handleChatUpdate(update) {
+  const callback = update.callback_query;
+  const category = String(callback?.data || '');
+  const step = category.startsWith('trial:') ? 'trial' : /^dinner:(confirm|size|skip|edit)/.test(category) ? 'confirmation' : category.startsWith('profile:') ? 'onboarding' : 'request';
+  return productOperation(step, async context => {
+    const result = await handleChatWorkflow(update);
+    if (context.userId) recordProduct(context.userId, 'step_submit', { step:context.step, flowId: context.id });
+    return result;
+  });
+}
+async function handleChatWorkflow(update) {
   if (update.callback_query) {
     if (!await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
   } else if (update.message) await handleMessage(update.message);

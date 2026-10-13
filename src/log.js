@@ -1,3 +1,4 @@
+import { markProductError } from './product-context.js';
 const redact = (value) => {
   if (value instanceof Error) return { name: value.name, message: value.message, causeCode: value.cause?.code, stack: process.env.NODE_ENV === 'development' ? value.stack : undefined };
   if (!value || typeof value !== 'object') return value;
@@ -7,5 +8,6 @@ const redact = (value) => {
 };
 
 export function log(level, event, details = {}) {
+  if (level === 'error') markProductError();
   process.stdout.write(`${JSON.stringify({ ts: new Date().toISOString(), level, event, ...redact(details) })}\n`);
 }
