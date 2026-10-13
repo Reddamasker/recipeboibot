@@ -1,3 +1,4 @@
+import { productReport } from './product-analytics.js';
 import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { randomBytes } from 'node:crypto';
 import { db } from './db.js';
@@ -210,6 +211,7 @@ export function funnelReport(slug = 'all') {
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered, selectedTrials,
     recipeActivity: recipeActivityReport(cohort, Boolean(campaign)),
     trialJourney: trialJourneyReport(cohort, Boolean(campaign)),
+    productAnalytics: { platforms: [productReport(cohort, Boolean(campaign))] },
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
     priceExperiment: !campaign || DINNER_PRICE_EXPERIMENT.campaigns.includes(campaign.slug)
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,

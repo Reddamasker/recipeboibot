@@ -17,6 +17,7 @@ const { startTrial } = await import('../src/subscriptions.js');
 const { saveNotificationSchedule } = await import('../src/notification-store.js');
 const { createDashboardPassword } = await import('../src/funnel-auth.js');
 const { recordEngagement } = await import('../src/recipe-engagement.js');
+const { recordProduct } = await import('../src/product-analytics.js');
 const since = '2026-10-01T08:00:00.000Z';
 const placements = [['kitchen-oct', 'Канал «Домашняя кухня»', 12400, 9100, 380], ['telegram-oct', 'Telegram — октябрь', 8300, 6100, 220], ['friends', 'Рекомендации и друзья', 2700, null, 90]];
 for (const [slug, name, impressions, reach, clicks] of placements) {
@@ -30,6 +31,12 @@ for (let i = 0; i < 60; i++) {
   const clicks = db.prepare('SELECT token FROM acquisition_clicks WHERE campaign=? ORDER BY token').all(slug);
   if (!db.prepare('SELECT 1 FROM acquisition_starts WHERE user_id=?').get(user.id)) recordBotStart(user, `/start ad_${clicks[i].token}`, new Date(since));
   allowUser(user.id);
+  if (i < 30) recordProduct(user.id,'screen_view',{id:`demo-home-${i}`,step:'home',at:since});
+  if (i < 24) recordProduct(user.id,'screen_view',{id:`demo-request-${i}`,step:'request',at:since});
+  if (i < 20) recordProduct(user.id,'step_submit',{id:`demo-submit-${i}`,step:'request',at:since});
+  if (i < 20) recordProduct(user.id,'operation_finished',{id:`demo-operation-${i}`,step:'request',durationMs:3000+i*500,detail:{status:i<18?200:503},at:since});
+  if (i < 18) recordProduct(user.id,'request_visible',{id:`demo-visible-${i}`,step:'request',durationMs:4000+i*500,at:since});
+  if (i < 12) recordProduct(user.id,'screen_view',{id:`demo-price-${i}`,step:'offer',at:since});
   if (i < 30) recordEngagement(user.id, 'recipe_opened', { eventId: `demo-open-${i}`, key: `demo-recipe-${i}`, at: '2026-10-01T08:03:00.000Z' });
   if (i < 9) recordEngagement(user.id, 'recipe_opened', { eventId: `demo-reread-${i}`, key: `demo-recipe-${i}`, at: '2026-10-02T08:03:00.000Z' });
   if (i < 24) recordEngagement(user.id, 'trial_offer_viewed', { eventId: `demo-offer-${i}`, at: '2026-10-01T08:01:00.000Z' });

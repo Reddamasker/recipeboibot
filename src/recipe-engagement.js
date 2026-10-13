@@ -1,3 +1,4 @@
+import { productMilestone } from './product-analytics.js';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { db } from './db.js';
 
@@ -21,11 +22,12 @@ export function recipeKey(recipe) {
     recipe.steps.map(s => text(s.text || s))])).digest('hex');
 }
 export function recordEngagement(userId, event, { eventId = randomBytes(18).toString('base64url'), key = null, savedAt = null, at = new Date().toISOString() } = {}) {
+  if (event === 'recipe_delivered') productMilestone('recipe_delivered');
   return Boolean(db.prepare('INSERT OR IGNORE INTO recipe_engagement(user_id,event_id,event,recipe_key,saved_at,created_at) VALUES(?,?,?,?,?,?)')
     .run(userId, eventId, event, key, savedAt, at).changes);
 }
 function receipt(userId, event, key = null, savedAt = null) {
-  const value = Buffer.from(JSON.stringify({ userId, event, key, savedAt, expires: Date.now() + 86400000 })).toString('base64url');
+  const value = Buffer.from(JSON.stringify({ userId, event, key, savedAt, issued: Date.now(), expires: Date.now() + 86400000 })).toString('base64url');
   return value + '.' + sign(value);
 }
 // Issuing a receipt is not a view. Only a visible client acknowledgement counts.
@@ -47,7 +49,10 @@ export function acknowledgeEngagement(userId, input) {
   if (extra || !signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw Object.assign(new Error('Invalid receipt'), { status: 400 });
   const data = JSON.parse(Buffer.from(value, 'base64url').toString());
   if (data.userId !== userId || data.expires < Date.now()) throw Object.assign(new Error('Expired receipt'), { status: 400 });
-  return recordEngagement(userId, data.event, { eventId: input.eventId, key: data.key, savedAt: data.savedAt });
+  const observed = Date.parse(input.observedAt);
+  const at = Number.isFinite(observed) && observed >= data.issued && observed <= Math.min(Date.now(),data.expires)
+    ? new Date(observed).toISOString() : new Date().toISOString();
+  return recordEngagement(userId, data.event, { eventId: input.eventId, key: data.key, savedAt: data.savedAt, at });
 }
 export const trialCounters = ['offered', 'clicked', 'activated', 'opened', 'clickUsers', 'activationUsers', 'paidWithoutTrialUsers'];
 export const emptyTrialJourney = () => Object.fromEntries(trialCounters.map(k => [k, 0]));

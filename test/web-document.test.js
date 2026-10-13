@@ -16,13 +16,13 @@ test('existing page includes all startup resources and allows only their exact s
   assert.match(html, /id="landing"/);
   assert.match(html, /id="app"/);
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-  assert.equal(scripts.length, 5);
+  assert.equal(scripts.length, 6);
   for (const [, source] of scripts) {
     assert.ok(doc.scriptHashes.includes(`'sha256-${createHash('sha256').update(source).digest('base64')}'`));
     new vm.Script(source);
   }
   assert.ok(html.indexOf('id="app"') < html.indexOf(scripts[1][0]), 'SDK and app run only after the existing DOM is parsed');
-  assert.ok(scripts[2][1].includes("window.miniProbe?.('app-script')"));
+  assert.ok(scripts[3][1].includes("window.miniProbe?.('app-script')"));
   for (const name of ['styles.css', 'refinements.css', 'landing.css']) {
     assert.ok(html.includes(fs.readFileSync(`public/${name}`, 'utf8').replace(/\r\n?/g, '\n')), `${name} unchanged`);
   }

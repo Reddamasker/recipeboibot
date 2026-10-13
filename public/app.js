@@ -13,10 +13,23 @@ if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
 const toast = (message) => { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => toastEl.classList.remove('show'), 3500); };
 const resetPageScroll = () => globalThis.requestAnimationFrame?.(() => globalThis.scrollTo?.(0, 0));
+let latestRecipeFlow = null;
 async function api(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { authorization: window.RecipePlatform?.authHeader() || `tma ${tg?.initData || ''}`, 'content-type': 'application/json', ...(options.headers || {}) } });
+  let resultFlow = null;
+  const observed = options.method && options.method !== 'GET' && !/engagement|analytics|\/prefetch$|\/exposure$/.test(path);
+  const flow = observed ? crypto.randomUUID() : null;
+  if (flow) {
+    const step = /billing/.test(path) ? (/trial/.test(path) ? 'trial' : 'checkout') : /notifications/.test(path) ? 'notifications' : /import/.test(path) ? 'import' : /profile|onboarding/.test(path) ? 'onboarding' : 'request';
+    globalThis.window?.RecipeAnalytics?.event('step_submit', step, {flowId:flow});
+    if(['/api/recipe-request','/api/dinner/recommend','/api/dinner/next','/api/dinner/request','/api/suggestions'].includes(path) || /\/replace$/.test(path)) { resultFlow = flow; latestRecipeFlow = null; globalThis.window?.RecipeAnalytics?.requestStarted(flow, step); }
+    options = {...options,headers:{...options.headers,'x-recipe-flow':flow}};
+  }
+  let response;
+  try { response = await fetch(path, { ...options, headers: { authorization: window.RecipePlatform?.authHeader() || `tma ${tg?.initData || ''}`, 'content-type': 'application/json', ...(options.headers || {}) } }); }
+  catch(error) { if(!/engagement|analytics/.test(path))globalThis.window?.RecipeAnalytics?.event('client_error', undefined, {code:error.name==='TimeoutError'?'timeout':'network',...(flow?{flowId:flow}:{})});throw error; }
   const value = response.status === 204 ? null : await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(value?.error || 'Не получилось выполнить запрос'), { status: response.status });
+  if (!response.ok) { if(!/engagement|analytics/.test(path))globalThis.window?.RecipeAnalytics?.event('client_error', undefined, {code:response.status===401?'auth':'http',...(flow?{flowId:flow}:{})});throw Object.assign(new Error(value?.error || 'Не получилось выполнить запрос'), { status: response.status }); }
+  if (resultFlow) latestRecipeFlow = resultFlow;
   return value;
 }
 async function publicApi(path) {
@@ -44,8 +57,8 @@ function flushVisibleEngagement() {
     if (entry.sentDay && (!entry.repeatByDay || entry.sentDay === day)) continue;
     if (entry.sentDay) entry.eventId = crypto.randomUUID();
     entry.sentDay = day;
-    element.engagementEntry = { token: entry.token, eventId: entry.eventId };
-    element.engagementPromise = api('/api/engagement', { method: 'POST', body: JSON.stringify(element.engagementEntry), signal: AbortSignal.timeout(2000) }).catch(() => {});
+    element.engagementEntry = { token: entry.token, eventId: entry.eventId, observedAt: new Date().toISOString() };
+    element.engagementPromise = globalThis.window?.RecipeAnalytics ? globalThis.window?.RecipeAnalytics.receipt(element.engagementEntry) : api('/api/engagement', { method: 'POST', body: JSON.stringify(element.engagementEntry), signal: AbortSignal.timeout(2000) }).catch(() => {});
   }
 }
 function observeEngagement(element, token, previous = null, repeatByDay = false) {
@@ -252,6 +265,7 @@ async function startTrialGuide() {
 }
 
 function benefitsPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'benefits';
   if (!state.payment?.trial?.eligible || state.payment.active) { offerPage(); return; }
   const pending = state.payment.pendingFirstRecipe;
   const chosen = state.payment.firstRecipe?.awaitingTrial && pending?.recipeId;
@@ -266,6 +280,7 @@ function benefitsPage() {
 }
 
 function mainMenuPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'home';
   const chatUrl = globalThis.window?.RecipePlatform?.botUrl('dish') || `https://t.me/${state.me?.botUsername || 'Recipeboibot'}?start=dish`;
   root.innerHTML = `${header()}<main class="main-menu-page"><section class="home-choice" aria-labelledby="main-menu-title">
     <h1 id="main-menu-title">Что приготовим?</h1><p>Выберите, с чего начать.</p>
@@ -290,6 +305,7 @@ function mainMenuPage() {
 }
 
 function home() {
+  if (root.dataset) root.dataset.analyticsStep = 'home';
   const recent = state.recipes.slice(0, 4);
   const firstRecipe = state.payment?.firstRecipe?.available;
   root.innerHTML = `${header()}<main class="home-page">
@@ -318,6 +334,7 @@ function home() {
 }
 
 function recipeRequestView({ focus = false } = {}) {
+  if (root.dataset) root.dataset.analyticsStep = 'request';
   root.innerHTML = `${header()}<main class="recipe-request-page"><button class="back-link" id="request-back">← На главную</button><section class="home-search" aria-labelledby="home-search-title"><div class="eyebrow">РЕЦЕПТ ПО ПОЖЕЛАНИЮ</div><h1 id="home-search-title">Что хочешь приготовить?</h1><p>Напиши блюдо или условие своими словами. Можно начать коротко, а предложенный рецепт потом уточнить.</p><form class="search-wrap" id="home-search-form"><input class="search" id="home-search-input" aria-label="Что хочется приготовить" placeholder="Например, лазанья полегче или суп без сливок" value="${esc(state.query)}" required><button class="voice-request" id="voice-request" type="button" aria-label="Надиктовать пожелание" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5m-3.5 0h7"/></svg></button><button class="primary accent" type="submit">Подобрать рецепт</button></form><p class="request-voice-status" id="request-voice-status" aria-live="polite"></p><div class="request-examples" aria-label="Примеры коротких запросов"><span>Можно коротко:</span><button type="button" data-request-example="Суп">Суп</button><button type="button" data-request-example="Курица">Курица</button><button type="button" data-request-example="Что-нибудь быстрое">Что-нибудь быстрое</button></div><p class="request-note">Сначала поищу готовый рецепт. Если подходящего нет — составлю новый. После этого можно уточнить: «полегче», «без духовки» или «на двоих».</p></section></main>`;
   bindCommon();
   document.querySelector('#request-back').onclick = () => { state.query = ''; setRoute({}); home(); };
@@ -467,6 +484,7 @@ function showDinnerTastePreferences() {
 }
 
 function tastePreferencesView() {
+  if (root.dataset) root.dataset.analyticsStep = 'taste';
   const data = state.onboarding;
   const trial = state.trialOnboarding === 'taste';
   const trialAccess = !state.trialGuideActive || state.payment?.accessSource === 'trial';
@@ -499,6 +517,7 @@ function tastePreferencesView() {
 }
 
 function trialOnboardingPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'taste';
   const step = state.trialOnboarding === 'collection' ? 'collection' : 'notifications';
   resetPageScroll();
   if (step === 'notifications') {
@@ -637,8 +656,10 @@ async function replaceDinnerCard(reason, panel = null) {
 }
 
 function onboardingView() {
+  if (root.dataset) root.dataset.analyticsStep = 'onboarding';
   if (state.onboarding.tasteOnly) return tastePreferencesView();
   const data = state.onboarding, step = data.step;
+  if(root.dataset)root.dataset.analyticsStep=['household','time','exclusions','taste'][step];
   const choices = (items, selected, field) => `<div class="dinner-options">${items.map(([value, label]) => `<button type="button" class="dinner-option ${selected === value ? 'selected' : ''}" data-${field}="${value}" aria-pressed="${selected === value}">${label}</button>`).join('')}</div>`;
   const content = [
     `<h1>Для кого обычно готовишь?</h1>${choices([['self', 'Для себя'], ['couple', 'Для двоих'], ['family', 'Для семьи']], data.householdType, 'household')}<label class="dinner-help" for="dinner-household-size">Сколько человек за столом?</label><input class="field" id="dinner-household-size" type="number" min="1" max="10" inputmode="numeric" value="${data.householdSize || ''}" placeholder="Например, 3"><p class="dinner-help">Есть дети?</p>${choices([['yes','Да'],['no','Нет']], data.hasChildren === null ? null : data.hasChildren ? 'yes' : 'no', 'children')}`,
@@ -788,6 +809,7 @@ function updateDinnerIngredients() {
 }
 
 function dinnerView() {
+  if (root.dataset) root.dataset.analyticsStep = 'request';
   if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   if (state.onboarding) return onboardingView();
   const dinner = state.dinner, items = dinner?.recommendations || [];
@@ -895,6 +917,7 @@ function suggestionSection(suggestion) {
 }
 
 function collection(recipes = state.recipes, title = 'Мои рецепты', suggestion = null) {
+  if (root.dataset) root.dataset.analyticsStep = 'collection';
   const emptyState = state.query
     ? suggestion ? suggestionSection(suggestion) : '<div class="empty"><h2>Совпадений нет</h2><p>Мы не нашли в вашей коллекции рецепт по такому запросу. Хотите, чтобы мы предложили вам наш вариант рецепта?</p><div class="empty-search-actions"><button class="primary accent" id="generate-suggestion" type="button">Создать новый рецепт</button><button class="secondary" id="change-query" type="button">Изменить запрос</button><button class="secondary" id="show-all" type="button">Открыть всю коллекцию</button></div></div>'
     : '<div class="empty collection-empty"><div class="eyebrow">Ваша коллекция начинается здесь</div><h2>Добавьте первый рецепт</h2><p>Вставьте ссылку, напишите рецепт или загрузите фото. После обработки он появится здесь.</p><button class="primary accent" id="add" type="button">Добавить первый рецепт</button><p class="empty-hint">Голосовое можно отправить боту в чате.</p></div>';
@@ -920,6 +943,7 @@ function collection(recipes = state.recipes, title = 'Мои рецепты', su
 }
 
 async function notificationSettingsPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'notifications';
   const guideWasActive = state.trialGuideActive;
   const trial = state.trialOnboarding === 'notifications-settings';
   const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Moscow';
@@ -1108,6 +1132,7 @@ function overlay(content, sheetClass = '', dismissible = true) {
 }
 
 function importSheet() {
+  if (root.dataset) root.dataset.analyticsStep = 'import';
   state.tab = 'text';
   const firstRecipe = state.recipes.length === 0;
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs" role="group" aria-label="Источник рецепта"><button data-tab="text" class="active" aria-pressed="true">Текст</button><button data-tab="url" aria-pressed="false">Ссылка</button><button data-tab="image" aria-pressed="false">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
@@ -1574,6 +1599,7 @@ function promoPage(quote = null, promotion = state.payment?.campaignPromotion) {
       if (order.mode === 'mock') { setRoute({ view: 'checkout' }); checkoutPage(); }
       else {
         state.paymentResult = 'pending';
+        globalThis.window?.RecipeAnalytics?.event('provider_opened', 'checkout');
         if (tg?.openLink) tg.openLink(order.paymentUrl);
         else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
         setRoute({ view: 'payment-result', ...(globalThis.window?.RecipePlatform?.name === 'max' ? { order: order.id } : {}) }); providerPaymentResultPage();
@@ -1587,6 +1613,7 @@ function trialOfferPage() {
 }
 
 function offerPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'offer';
   if (state.payment?.trial?.eligible && !state.payment.active) { benefitsPage(); return; }
   if (state.payment?.trial && (state.payment.trial.eligible || state.payment.accessSource === 'trial' || (state.payment.trial.used && !state.payment.active))) { trialOfferPage(); return; }
   const payment = state.payment;
@@ -1604,6 +1631,7 @@ function offerPage() {
 }
 
 function checkoutPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'checkout';
   const payment = state.payment;
   if (payment?.mode === 'provider') { providerCheckoutPage(); return; }
   if (!(state.checkoutOrder?.promoCode || payment?.pendingOrder?.promoCode) && ((!payment?.hasFirstRecipe && !payment?.trial?.used) || payment.active)) { setRoute({ view: 'offer' }, { replace: true }); offerPage(); return; }
@@ -1698,6 +1726,7 @@ function legacyProviderOfferPage() {
 }
 
 function providerOfferPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'offer';
   const payment = state.payment;
   const plan = selectedPaymentPlan();
   const quote = state.paymentPromoQuote;
@@ -1748,6 +1777,7 @@ function providerOfferPage() {
       if (order.mode === 'mock') { setRoute({ view: 'checkout' }); checkoutPage(); }
       else {
         state.paymentResult = 'pending';
+        globalThis.window?.RecipeAnalytics?.event('provider_opened', 'checkout');
         if (tg?.openLink) tg.openLink(order.paymentUrl);
         else window.open(order.paymentUrl, '_blank', 'noopener,noreferrer');
         setRoute({ view: 'payment-result', ...(globalThis.window?.RecipePlatform?.name === 'max' ? { order: order.id } : {}) }); providerPaymentResultPage();
@@ -1791,6 +1821,7 @@ function pollProviderPayment() {
 }
 
 function providerPaymentResultPage() {
+  if (root.dataset) root.dataset.analyticsStep = 'payment_result';
   const order = state.checkoutOrder || state.payment?.pendingOrder;
   const status = order?.status || state.paymentResult || 'pending';
   const success = status === 'paid';
@@ -1822,6 +1853,31 @@ window.addEventListener('popstate', async (event) => {
   closeOverlay(); await render();
   requestAnimationFrame(() => { scrollTo(0, event.state?.scrollY || 0); if (returnFocus && !modalStack.length) restoreModalFocus(returnFocus); });
 });
+
+if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined') {
+  const seen = new WeakSet();
+  const scan = () => {
+    const screen = root.querySelector('main, .dinner-onboarding, .dinner-page');
+    if (screen && !seen.has(screen)) {
+      seen.add(screen);
+      const route = new URLSearchParams(location.search).get('view');
+      const step = root.dataset.analyticsStep || (root.querySelector('#offer-pay, #go-checkout') ? 'offer' : root.querySelector('#dinner-onboarding-next') ? 'onboarding' : root.querySelector('#taste-save') ? 'taste' : ({'offer':'offer','checkout':'checkout','payment-result':'payment_result','benefits':'benefits','notifications':'notifications','collection':'collection','trial-onboarding':'taste','dinner':'request','request':'request'})[route] || 'home');
+      globalThis.window?.RecipeAnalytics.step(step);globalThis.window?.RecipeAnalytics.observe(screen,'screen_view',step);
+    }
+    const detail = document.querySelector('.overlay .recipe-detail-sheet') || root.querySelector('.dinner-menu-card');
+    if (detail && latestRecipeFlow) {globalThis.window?.RecipeAnalytics.requestVisible(detail,latestRecipeFlow);latestRecipeFlow=null;}
+  };
+  new MutationObserver(scan).observe(root,{childList:true,subtree:true});
+  new MutationObserver(scan).observe(document.body,{childList:true});
+  document.addEventListener('click',event=>{
+    const target=event.target.closest('button');if(!target)return;
+    if(target.matches('#onboarding-next, #onboarding-skip'))globalThis.window?.RecipeAnalytics.event('step_submit',root.dataset.analyticsStep || 'onboarding');
+    if(target.matches('#offer-pay, #go-checkout, #checkout-pay'))globalThis.window?.RecipeAnalytics.event('checkout_clicked','checkout');
+    if(target.matches('[data-period-months]'))globalThis.window?.RecipeAnalytics.event('plan_selected','offer',{months:Number(target.dataset.periodMonths)});
+  },true);
+  scan();
+}
+
 async function boot() {
   const sharedMatch = location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
   if (!sharedMatch && !tg?.initData) {
@@ -1842,6 +1898,7 @@ async function boot() {
   try {
     state.me = await api('/api/me', { signal: AbortSignal.timeout(12000) });
     window.RecipePlatform?.setProfile(state.me);
+    globalThis.window?.RecipeAnalytics?.setUser(state.me.id || state.me.user?.id);
     // Server authentication has succeeded; start parameters affect navigation only.
     const launchRoute = window.RecipePlatform?.initialRoute();
     const launchParams = new URLSearchParams(location.search);
