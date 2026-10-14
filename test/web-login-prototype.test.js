@@ -162,6 +162,11 @@ test('MAX proof remains bound to the initiating browser, owner and exact message
   const confirmation = normalizeMaxUpdate(callback(approve, 'confirmation-message'), { botId });
   await handleWebLoginUpdate(confirmation, call);
   assert.equal(webLoginStore.state(browser).state, 'approved');
+  const edited=calls.filter(item=>item.method==='editMessageText');
+  assert.equal(edited.length,1,'wrong owned message must not be edited');
+  assert.match(edited[0].body.text,/Вход подтверждён/);
+  assert.match(edited[0].body.text,/ту же вкладку Safari или Chrome/);
+  assert.deepEqual(edited[0].body.reply_markup,{inline_keyboard:[]});
   await handleWebLoginUpdate(confirmation, call);
   assert.equal(webLoginStore.state(browser).state, 'approved');
   assert.equal((await post(api + '/finish')).status, 409);
@@ -185,8 +190,9 @@ test('MAX proof remains bound to the initiating browser, owner and exact message
 test('denying a request is terminal even when an old approve callback arrives', async () => {
   const flow = webLoginStore.begin();
   const event = sanitizeWebLoginEvent(started(flow.bot));
-  let payloads;
+  let payloads; const edits=[];
   const call = async (method, body) => {
+    if(method==='editMessageText') edits.push(body);
     if (method === 'sendMessage') {
       payloads = body.reply_markup.inline_keyboard.map(row => row[0].callback_data);
       maxStore.rememberMessage('denial-message', owner, chat);
@@ -198,5 +204,40 @@ test('denying a request is terminal even when an old approve callback arrives', 
   await handleWebLoginUpdate(normalizeMaxUpdate(callback(payloads[1], 'denial-message'), { botId }), call);
   await handleWebLoginUpdate(normalizeMaxUpdate(callback(payloads[0], 'denial-message'), { botId }), call);
   assert.equal(webLoginStore.state(flow.browser).state, 'denied');
+  assert.equal(edits.length,2);
+  assert.ok(edits.every(body=>body.text.startsWith('Вход отменён.') && body.reply_markup.inline_keyboard.length===0));
   assert.throws(() => webLoginStore.finish(flow.browser));
+});
+
+test('callback retries repair persistent feedback after edit or answer failure without reversing a consumed login', async () => {
+  const flow=webLoginStore.begin();
+  const event=sanitizeWebLoginEvent(started(flow.bot));
+  let approve;
+  await handleWebLoginUpdate(normalizeMaxUpdate(event,{botId}),async(method,body)=>{
+    assert.equal(method,'sendMessage');
+    approve=body.reply_markup.inline_keyboard[0][0].callback_data;
+    maxStore.rememberMessage('feedback-retry-message',owner,chat);
+    return {message_id:'feedback-retry-message'};
+  });
+  const update=normalizeMaxUpdate(callback(approve,'feedback-retry-message'),{botId});
+  const first=[];
+  await assert.rejects(handleWebLoginUpdate(update,async(method,body)=>{
+    first.push({method,body});
+    if(method==='editMessageText')throw Error('temporary edit failure');
+    return {};
+  }),/temporary edit failure/);
+  assert.equal(first.length,2,'answer is attempted despite edit failure');
+  assert.equal(webLoginStore.state(flow.browser).state,'approved');
+  webLoginStore.finish(flow.browser);
+  const second=[];
+  await handleWebLoginUpdate(update,async(method,body)=>{
+    second.push({method,body});
+    if(method==='answerCallbackQuery')throw Error('temporary answer failure');
+    return {};
+  });
+  assert.match(second.find(item=>item.method==='editMessageText').body.text,/Вход подтверждён/);
+  const third=[];
+  await handleWebLoginUpdate(update,async(method,body)=>{third.push({method,body});return {};});
+  assert.deepEqual(third,second,'retry repeats the same result after browser completion');
+  assert.equal(webLoginStore.report().counts.consumed,2);
 });

@@ -82,6 +82,11 @@ export function createWebLoginStore(db, { ownerId, now = Date.now, requestTtl = 
       const decision=approved?'approved':'denied';
       return Boolean(db.prepare("UPDATE web_login_prototype_requests SET state=?,decision=?,decided_at=? WHERE owner_id=? AND id=? AND state='offered' AND message_id=?").run(decision,decision,now(),ownerId,id,String(messageId)).changes);
     },
+    callbackState(id, actor, messageId) {
+      clean(); if (String(actor) !== ownerId || !messageId) return null;
+      return db.prepare('SELECT state FROM web_login_prototype_requests WHERE owner_id=? AND id=? AND message_id=?')
+        .get(ownerId,id,String(messageId))?.state || null;
+    },
     finish(browser) {
       return transaction(()=>{
         clean();const row=browserRequest(browser);

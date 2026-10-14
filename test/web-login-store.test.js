@@ -17,6 +17,19 @@ function approve(store,request) {
   assert.equal(store.decide(request.id,owner,'message-1',true),true);
 }
 
+test('callback feedback is bound to owner and original message and preserves terminal state',t=>{
+  const {store,request,advance}=fixture(t),r=request();
+  assert.equal(store.callbackState(r.id,owner,'message-1'),null);
+  approve(store,r);
+  assert.equal(store.callbackState(r.id,foreign,'message-1'),null);
+  assert.equal(store.callbackState(r.id,owner,'other-message'),null);
+  assert.equal(store.callbackState(r.id,owner,'message-1'),'approved');
+  store.finish(r.browser);
+  assert.equal(store.callbackState(r.id,owner,'message-1'),'consumed');
+  const expired=request();store.delivered(expired.id,owner,'expired-message');advance(1001);
+  assert.equal(store.callbackState(expired.id,owner,'expired-message'),'expired');
+});
+
 test('credentials are random and hashed, diagnostics expose no request, actor or browser identifiers',t=>{
   const {db,store,request}=fixture(t),r=request();
   assert.match(r.browser,/^[\w-]{43}$/);assert.match(r.bot,/^[\w-]{43}$/);assert.notEqual(r.browser,r.bot);
