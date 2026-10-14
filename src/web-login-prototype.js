@@ -10,6 +10,15 @@ export function prototypeSettings(settings) {
   return { origin:origin.origin, secure:origin.protocol==='https:', ownerId:settings.webLoginOwnerId, botUsername:settings.maxBotUsername };
 }
 const settings = prototypeSettings(config);
+export function webLoginPreviewDocument() {
+  return fs.readFileSync('public/web-login-prototype.html','utf8')
+    .replace(/<link rel="stylesheet"[^>]+>/,()=>`<style>${fs.readFileSync('public/web-login-prototype.css','utf8')}</style>`)
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g,'')
+    .replace('Технический прототип</span>','Предпросмотр</span>')
+    .replace('Проверяем текущий вход…','Предпросмотр экрана. Подтверждение через MAX ещё не подключено.')
+    .replace('Начать проверку входа</button>','Вход пока не подключён</button>')
+    .replace(/<noscript>[\s\S]*?<\/noscript>/g,'');
+}
 export const webLoginStore = settings ? createWebLoginStore(db,settings) : null;
 const prefix=settings?.secure?'__Host-':'';
 const pendingName=prefix+'recipe_login_pending', sessionName=prefix+'recipe_login_session';
