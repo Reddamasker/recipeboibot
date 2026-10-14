@@ -3,7 +3,7 @@
   const $ = selector => document.querySelector(selector);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const key = 'recipe-catalog-favorites-v1';
-  let favorites = new Set(), controller, currentRecipe, noticeTimer;
+  let favorites = new Set(), controller, currentRecipe, noticeTimer, pendingBenefitsPreview = null;
   try { const stored = JSON.parse(localStorage.getItem(key)||'[]'); if(Array.isArray(stored)) favorites = new Set(stored.filter(id=>typeof id==='string' && /^[a-z0-9-]+$/.test(id)).slice(0,250)); } catch {}
   const filterNames = ['cuisine','category','time','include','exclude'];
   const params = () => new URLSearchParams(location.search);
@@ -77,7 +77,7 @@
     $('#saved-count').textContent=favorites.size;
     document.querySelectorAll('[data-save]').forEach(button=>{button.textContent=favoriteText(button.dataset.save);button.setAttribute('aria-pressed',String(favorites.has(button.dataset.save)));});
   }
-  function navigate(url, {scroll=false}={}) { const target=new URL(url,location.origin);if(visualMode)target.searchParams.set('filters','visual');history.pushState({},'',target.pathname+target.search); load(); if(scroll) window.scrollTo({top:0}); }
+  function navigate(url, {scroll=false, benefits=false}={}) { const target=new URL(url,location.origin);if(visualMode)target.searchParams.set('filters','visual');history.pushState({},'',target.pathname+target.search); load({benefits}); if(scroll) window.scrollTo({top:0}); }
   function searchUrl(p) { if(visualMode)p.set('filters','visual');return '/recipes'+(p.size?'?'+p.toString():''); }
   async function request(url, signal) {
     const response=await fetch(url,{signal});
@@ -109,15 +109,32 @@
       return `<button data-remove="${name}" aria-label="Убрать фильтр ${escape(label)}">${escape(label)}: ${escape(value)} ×</button>`;
     }).join('');
   }
-  async function load() {
+  async function load({benefits=false}={}) {
+    window.CatalogBenefits?.close({restoreFocus:false, observeRecipe:false});
     controller?.abort(); controller=new AbortController(); const signal=controller.signal;
     const p=params(), id=location.pathname.match(/^\/recipes\/([a-z0-9-]+)$/)?.[1];
+    if (p.get('benefits') === 'preview') pendingBenefitsPreview = id || null;
+    else if (pendingBenefitsPreview !== id) pendingBenefitsPreview = null;
+    const previewBenefits = Boolean(id && pendingBenefitsPreview === id);
+    if (p.get('benefits') === 'preview') {
+      p.delete('benefits');
+      history.replaceState(history.state, '', location.pathname + (p.size ? '?' + p.toString() : '') + location.hash);
+    }
     currentRecipe=null;
     $('#catalog-view').hidden=Boolean(id); $('#recipe-view').hidden=!id;
     $('#saved-toggle').setAttribute('aria-pressed',String(p.get('favorites')==='1'));
     if(id) {
       $('#recipe-view').innerHTML='<p role="status">Загружаем рецепт…</p>';
-      try { const recipe=await request('/api/catalog/'+id,signal); currentRecipe=recipe; renderRecipe(recipe,p); window.RecipeAnalytics?.observe($('#recipe-view'),'catalog_open','catalog'); }
+      try {
+        const recipe=await request('/api/catalog/'+id,signal);
+        if(signal.aborted) return;
+        currentRecipe=recipe; renderRecipe(recipe,p);
+        let observed=false;
+        const observeRecipe=()=>{if(observed || signal.aborted || currentRecipe!==recipe)return;observed=true;try{window.RecipeAnalytics?.observe($('#recipe-view'),'catalog_open','catalog');}catch{}};
+        const opened=(benefits || previewBenefits) && window.CatalogBenefits?.open(recipe,{automatic:!previewBenefits,afterClose:observeRecipe});
+        if (previewBenefits) pendingBenefitsPreview = null;
+        if(!opened)observeRecipe();
+      }
       catch(error) { if(error.name!=='AbortError') $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← В каталог</a><div class="empty"><h1>${escape(error.message)}</h1><button data-retry>Повторить</button></div>`; }
       return;
     }
@@ -151,6 +168,11 @@
     document.title=recipe.title+' — Твои рецепты';
     $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← К подборке рецептов</a><div class="recipe-heading"><div><p class="eyebrow">ИЗ КОЛЛЕКЦИИ «ТВОИ РЕЦЕПТЫ»</p><h1>${escape(recipe.title)}</h1><p class="lead">${escape(recipe.description)}</p><div class="recipe-meta">${recipe.cuisineLabel?`<span>${escape(recipe.cuisineLabel)}</span>`:""}<span>${recipe.minutes} минут</span><span>${recipe.ingredients.length} ингредиентов</span><span>Базовый рецепт: ${recipe.servings} порц.</span></div><div class="recipe-actions"><button class="primary" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}">${favoriteText(recipe.id)}</button><button id="share-recipe">Скопировать ссылку</button><button id="print-recipe">Распечатать</button></div></div>${recipe.image?`<div><img class="recipe-photo" src="${escape(recipe.image)}" alt="${escape(recipe.title)}"><p class="photo-note">${recipe.imageGenerated?'Изображение создано с помощью ИИ. Подача готового блюда может отличаться.':''}</p></div>`:'<div><img class="recipe-photo" src="/assets/catalog-photo-pending.svg" alt="Фотография блюда пока не добавлена"><p class="photo-note">Фотография блюда пока не добавлена.</p></div>'}</div><div class="recipe-body"><section><h2>Ингредиенты</h2><label class="servings-control">Количество порций<input id="servings" type="number" min="1" max="20" step="1" value="${recipe.servings}"></label><ul id="ingredients" class="ingredients"></ul><div id="nutrition" class="nutrition"></div></section><section><h2>Как приготовить</h2><p class="step-note">Количества в шагах указаны для базовых ${recipe.servings} порций. При пересчёте ориентируйтесь на список ингредиентов; время приготовления может измениться.</p><ol class="steps">${recipe.steps.map(step=>`<li><p>${escape(step)}</p></li>`).join('')}</ol></section></div>`;
     renderIngredients(recipe.servings);
+    const invitation=document.createElement('div');
+    invitation.className='benefits-reopen';
+    invitation.innerHTML='<p>Каждый день — по вашему вкусу.</p><button type="button" id="show-benefits">Возможности бота</button>';
+    $('#recipe-view .recipe-body').before(invitation);
+    $('#show-benefits').addEventListener('click',()=>window.CatalogBenefits?.open(recipe));
     const n=recipe.nutrition;
     $('#nutrition').innerHTML=n?`<strong>Пищевая ценность на порцию</strong>${Math.round(n.calories)} ккал · Белки ${escape(n.protein)} г<br>Жиры ${escape(n.fat)} г · Углеводы ${escape(n.carbs)} г<br><span>Расчётные значения, зависят от продуктов.</span>`:'Пищевая ценность пока не рассчитана.';
     $('#servings').addEventListener('input',event=>{ const value=Number(event.target.value); if(Number.isInteger(value)&&value>=1&&value<=20) renderIngredients(value); });
@@ -175,7 +197,7 @@
   $('#saved-toggle').addEventListener('click',()=>{const p=new URLSearchParams();if(params().get('favorites')!=='1')p.set('favorites','1');navigate(searchUrl(p),{scroll:true});});
   document.addEventListener('click',event=>{
     const target=event.target.closest('button,a'); if(!target)return;
-    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigate(target.getAttribute('href'),{scroll:true});}
+    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigate(target.getAttribute('href'),{scroll:true,benefits:target.classList.contains('card-link')});}
     else if(target.dataset.save) saveFavorite(target.dataset.save);
     else if(target.hasAttribute('data-reset')) navigate('/recipes');
     else if(target.hasAttribute('data-retry')) load();

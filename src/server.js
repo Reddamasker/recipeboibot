@@ -414,6 +414,12 @@ function serveStatic(request, response, pathname) {
   }
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+  if (requested === '/catalog.html') {
+    const platform = config.botPlatform === 'max' ? 'MAX' : 'Telegram';
+    const document = fs.readFileSync(file, 'utf8').replace('<span data-benefits-platform>Telegram</span>', `<span data-benefits-platform>${platform}</span>`)
+      .replace('<svg data-benefits-telegram', `<svg data-benefits-telegram${config.botPlatform === 'max' ? ' hidden' : ''}`);
+    securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
+  }
   if (config.botPlatform === 'max' && ['/privacy.html', '/terms.html', '/offer.html'].includes(requested)) {
     const document = platformLegalDocument(fs.readFileSync(file, 'utf8'), config);
     securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
@@ -520,6 +526,15 @@ async function handleRequest(request, response) {
         if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
         const input = await bodyJson(request, 6000);
         return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
+      }
+      if (url.pathname === '/open/recipe-bot') {
+        if (!['GET', 'HEAD'].includes(request.method)) return json(response, 405, { error: 'Метод не поддерживается' });
+        const username = config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
+        const destination = `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${encodeURIComponent(username)}?start=dinner`;
+        securityHeaders(response);
+        response.setHeader('x-robots-tag', 'noindex, nofollow');
+        response.writeHead(302, { location: destination, 'cache-control': 'no-store' });
+        return response.end();
       }
       if (url.pathname === '/open/telegram' || url.pathname === '/open/telegram/button') {
         if (config.botPlatform === 'max') return json(response, 404, { error: 'Не найдено' });

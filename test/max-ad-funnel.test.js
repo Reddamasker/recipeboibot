@@ -75,6 +75,20 @@ test('old MAX aggregates and impossible selection order remain unknown rather th
  }
 });
 
+test('benefits bridge rejects legacy, missing and wrongly scoped public metrics',async()=>{
+ const legacy={...maxFunnelSnapshot(),version:6};
+ const missing=maxFunnelSnapshot();delete missing.all.productAnalytics.platforms[0].catalogBenefits;
+ const wrongScope=maxFunnelSnapshot();wrongScope.campaign.productAnalytics.platforms[0].catalogBenefits=wrongScope.all.productAnalytics.platforms[0].catalogBenefits;
+ const missingAll=maxFunnelSnapshot();missingAll.all.productAnalytics.platforms[0].catalogBenefits=null;
+ for(const snapshot of [legacy,missing,wrongScope,missingAll]){
+  const result=await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)});
+  assert.equal(result.remoteFunnel.status,'error');assert.equal(result.productAnalytics,null);assert.equal(result.totals.starts,null);
+ }
+ const snapshot=maxFunnelSnapshot();
+ const result=await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(snapshot)});
+ assert.equal(result.remoteFunnel.status,'ready');assert.deepEqual(result.productAnalytics.platforms[0].catalogBenefits,snapshot.all.productAnalytics.platforms[0].catalogBenefits);
+});
+
 test('MAX aggregation counts trial after a result even without choice and keeps optional choice conversion bounded', async () => {
  const snapshot=maxFunnelSnapshot();
  for(const scope of ['all','campaign']) {

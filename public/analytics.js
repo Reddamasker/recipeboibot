@@ -1,5 +1,11 @@
 (() => {
   const version = 'product-1', publicMode = location.pathname.startsWith('/recipes');
+  // Review links never read or flush a saved queue, even after the URL is consumed.
+  if (publicMode && location.search && new URLSearchParams(location.search).get('benefits') === 'preview') {
+    const noop = () => {};
+    window.RecipeAnalytics = {event:noop,observe:noop,visible:()=>false,setUser:noop,receipt:()=>Promise.resolve(),requestStarted:noop,requestVisible:noop,step:noop,health:noop};
+    return;
+  }
   const key = publicMode ? 'recipe-public-analytics-v1' : 'recipe-private-analytics-v1';
   let stored = {}, queue = [], user = null, busy = false, timer, dropped = 0, storageError = false;
   try { stored = JSON.parse(sessionStorage.getItem(key) || '{}'); } catch { storageError = true; }

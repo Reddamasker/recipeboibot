@@ -76,11 +76,45 @@ test('health snapshots retain retry and loss diagnostics without summing cumulat
  const result=report([u]).health;assert.equal(result.dropped,3);assert.equal(result.pending,4);assert.equal(result.retried,1);assert.equal(result.clientErrors,1);
 });
 test('MAX aggregate validates extended analytics and never exports identities',()=>{
- const snapshot=maxFunnelSnapshot();assert.equal(snapshot.version,6);
+ const snapshot=maxFunnelSnapshot();assert.equal(snapshot.version,7);
  const result=snapshot.all.productAnalytics.platforms[0];assert.equal(validProductReport(result),true);
  assert.equal(validProductReport({...result,retention:[{date:'2026-10-01',users:1,d1Eligible:0,d1:1,d7Eligible:0,d7:0,d1Rate:100,d7Rate:null}]}),false);
  assert.equal(validProductReport({...result,user_id:'private'}),false);
+ assert.equal(validProductReport({...result,catalogBenefits:undefined}),false);
+ assert.equal(validProductReport({...result,catalogBenefits:{...result.catalogBenefits,ctas:result.catalogBenefits.views+1}}),false);
+ assert.equal(validProductReport({...result,catalogBenefits:{...result.catalogBenefits,ctr:101}}),false);
  assert.ok(!JSON.stringify(snapshot).includes('detail_json'));
+});
+
+test('benefits telemetry requires a public catalog flow and bounded action duration',()=>{
+ const u=user(),input=batch('benefits_view','catalog');input.events[0].flowId=randomUUID();
+ assert.equal(accept(null,input).accepted.length,1);assert.equal(accept(null,input).accepted.length,1);
+ assert.throws(()=>accept(u.id,input));
+ for(const changes of [{flowId:null},{step:'benefits'},{event:'benefits_cta'},{event:'benefits_close',durationMs:-1},{event:'benefits_close',durationMs:86400001}]){
+  assert.throws(()=>accept(null,{...input,events:[{...input.events[0],id:randomUUID(),...changes}]}));
+ }
+ const action={...input.events[0],id:randomUUID(),event:'benefits_cta',durationMs:20,url:'https://private.example',query:'private search'};
+ accept(null,{...input,events:[action]});
+ const saved=db.prepare('SELECT * FROM product_events WHERE subject=?').all('v:'+input.visitor);
+ assert.equal(saved.length,2);assert.ok(!JSON.stringify(saved).includes('private'));
+ db.prepare('DELETE FROM product_events WHERE subject=?').run('v:'+input.visitor);
+});
+
+test('benefits CTR counts visible flows, matches subjects and excludes missing or earlier views',()=>{
+ const a=randomUUID(),b=randomUUID(),one=randomUUID(),two=randomUUID(),orphan=randomUUID();
+ const add=(visitor,event,flowId,at,durationMs=null)=>record(null,event,{visitor,flowId,step:'catalog',at:'2026-10-13T10:00:'+at+'.000Z',durationMs});
+ add(a,'benefits_view',one,'00');add(a,'benefits_view',one,'01');
+ add(a,'benefits_cta',one,'02',2000);add(a,'benefits_cta',one,'03',3000);
+ add(a,'benefits_view',two,'04');add(a,'benefits_close',two,'05',1000);
+ add(a,'benefits_cta',orphan,'06',1000);add(b,'benefits_cta',one,'06',1000);
+ const before=report([]).catalogBenefits;
+ assert.equal(before.views,2);assert.equal(before.visits,1);assert.equal(before.closes,1);assert.equal(before.ctas,1);assert.equal(before.ctr,50);
+ assert.equal(before.ctaTiming.samples,1);assert.equal(before.ctaTiming.p50,2000);assert.equal(before.unmatchedActions,2);
+ add(a,'benefits_view',orphan,'07');
+ assert.equal(report([]).catalogBenefits.ctas,1,'an earlier action is not a conversion of a later view');
+ assert.equal(report([],true).catalogBenefits,null);assert.deepEqual(report([user()]).catalogBenefits,report([]).catalogBenefits,'anonymous internal traffic cannot be filtered using account cohort');
+ db.prepare('DELETE FROM product_events WHERE subject IN (?,?)').run('v:'+a,'v:'+b);
+ assert.equal(report([]).catalogBenefits.ctr,null);
 });
 test('payment journey binds the actual reused order and excludes unrelated and test payments',()=>{
  const u=user(),id=randomUUID();
@@ -136,4 +170,25 @@ test('browser timing waits for animation visibility and signed receipt retries p
  listeners.transitionend();await timer();assert.equal(events.filter(r=>r.event==='request_visible').length,1);
  api.receipt({eventId:randomUUID(),token:'signed-test-receipt'});await timer();await timer();await timer();await timer();
  assert.equal(receiptIds.length,3);assert.equal(new Set(receiptIds).size,1);assert.ok(events.some(r=>r.event==='telemetry_receipt'&&r.recoveredAttempts===3));
+});
+
+test('public benefits queue retries original event and flow IDs without storage or network',async()=>{
+ let timer,online=false;const sent=[];
+ const sandbox={location:{pathname:'/recipes'},crypto:{randomUUID},Date,Promise,AbortSignal,navigator:{onLine:true},innerWidth:390,innerHeight:844,
+  sessionStorage:{getItem(){throw Error('disabled');},setItem(){throw Error('disabled');}},window:{addEventListener(){}},
+  document:{visibilityState:'visible',addEventListener(){}},requestAnimationFrame:fn=>fn(),setInterval(){},clearTimeout(){},setTimeout:fn=>{timer=fn;return 1;},
+  fetch:async(path,options)=>{assert.equal(path,'/api/analytics/public');const body=JSON.parse(options.body);sent.push(body);if(!online)throw Error('offline');return {ok:true,json:async()=>({accepted:body.events.map(r=>r.id)})};}
+ };
+ vm.createContext(sandbox);vm.runInContext(fs.readFileSync('public/analytics.js','utf8'),sandbox);
+ const api=sandbox.window.RecipeAnalytics,flowId=randomUUID();
+ api.event('benefits_view','catalog',{flowId});api.event('benefits_cta','catalog',{flowId,durationMs:500});
+ await timer();online=true;await timer();
+ const first=sent[0].events.filter(r=>r.event.startsWith('benefits_')),retry=sent[1].events.filter(r=>r.event.startsWith('benefits_'));
+ assert.equal(first.length,2);assert.deepEqual(first.map(r=>r.id),retry.map(r=>r.id));assert.ok(retry.every(r=>r.flowId===flowId&&r.attempts===2));
+ assert.ok(sent[0].events.some(r=>r.event==='telemetry_health'&&r.code==='storage'));
+ api.health();await timer();assert.equal(sent.at(-1).events.some(r=>r.event.startsWith('benefits_')),false,'accepted events leave the in-memory queue');
+ for(let i=0;i<85;i++)api.event('benefits_view','catalog',{flowId:randomUUID()});
+ api.health();
+ for(let i=0;i<4;i++)await timer();
+ assert.ok(sent.at(-1).events.some(r=>r.event==='telemetry_health'&&r.dropped>=5),'bounded queue exposes lost events');
 });

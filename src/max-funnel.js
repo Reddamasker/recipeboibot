@@ -26,10 +26,10 @@ export function maxFunnelSnapshot() {
   const summary = report => ({ ...Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'selectedTrials', 'returningStarts',
     'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment', 'recipeActivity', 'trialJourney', 'productAnalytics'].map(k => [k, report[k]])),
     productAnalytics: { platforms: report.productAnalytics.platforms.map(p => ({ ...p, platform: 'max' })) } });
-  return { version: 6, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
+  return { version: 7, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
 }
 function validateSnapshot(data) {
-  if (data?.version !== 6 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+  if (data?.version !== 7 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');
@@ -47,6 +47,7 @@ function validateSnapshot(data) {
       || a.engagedRecipeUsers < Math.max(a.recipeUsers, a.fullRecipeUsers)) throw new Error('Invalid MAX return counts');
     const product = report.productAnalytics?.platforms;
     if (!Array.isArray(product) || product.length !== 1 || !validProductReport(product[0])) throw new Error('Invalid MAX product analytics');
+    if (scope === 'campaign' ? product[0].catalogBenefits !== null : product[0].catalogBenefits === null) throw new Error('Invalid MAX catalog scope');
     const j = report.trialJourney;
     if (trialCounters.some(k => !count(j?.[k]) || j[k] > report.totals.starts)
       || j.clicked > j.offered || j.activated > j.clicked || j.opened > j.activated

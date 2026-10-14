@@ -5,7 +5,8 @@ import { config } from './config.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
-export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', 'client_error', 'telemetry_health'];
+const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
+export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, 'client_error', 'telemetry_health'];
 export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
 const idPattern = /^[a-zA-Z0-9_-]{16,80}$/;
 const exists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
@@ -16,6 +17,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS product_events (
  CREATE INDEX IF NOT EXISTS product_events_user_time ON product_events(user_id,created_at);
  CREATE TABLE IF NOT EXISTS product_analytics_metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL);`);
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('tracking_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_benefits_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
 let writeFailures = 0;
 export function recordProduct(userId, event, { id = randomUUID(), visitor = null, step = 'other', flowId = null, durationMs = null, detail = {}, at = new Date().toISOString() } = {}) {
@@ -32,6 +34,8 @@ export function acceptProductEvents(userId, input) {
   const rows = input.events.map(row => {
     if (!idPattern.test(row.id || '') || !(userId ? clientEvents : publicEvents).includes(row.event)
       || !steps.includes(row.step) || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
+    if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
+      || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
     const detail = {};
     for (const k of ['attempts', 'recoveredAttempts', 'dropped', 'pending', 'ageMs', 'months', 'results', 'filters']) {
       if (row[k] !== undefined) {
@@ -81,6 +85,17 @@ export function validProductReport(value) {
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (!Array.isArray(value.retention) || value.retention.length>60 || value.retention.some(r => !/^\d{4}-\d\d-\d\d$/.test(r.date) || !['users','d1Eligible','d1','d7Eligible','d7','d1Rate','d7Rate'].every(k=>numeric(r[k])) || r.d1>r.d1Eligible || r.d7>r.d7Eligible || r.d1Eligible>r.users || r.d7Eligible>r.users)) return false;
   if (!Array.isArray(value.checkout?.ordered) || value.checkout.ordered.length!==5 || value.checkout.ordered.some((n,i,a)=>!Number.isSafeInteger(n)||n<0||(i&&n>a[i-1]))) return false;
+  const b = value.catalogBenefits;
+  if (b !== null) {
+    if (!b || !Number.isFinite(Date.parse(b.trackingSince))
+      || !['views','visits','closes','ctas','unmatchedActions'].every(k => Number.isSafeInteger(b[k]) && b[k] >= 0)
+      || b.visits > b.views || b.closes > b.views || b.ctas > b.views || b.ctr !== p(b.ctas,b.views)) return false;
+    for (const key of ['closeTiming','ctaTiming']) {
+      const t = b[key], expected = key === 'closeTiming' ? b.closes : b.ctas;
+      if (!t || t.samples !== expected || !numeric(t.p50) || !numeric(t.p95)
+        || (expected === 0 ? t.p50 !== null || t.p95 !== null : t.p50 === null || t.p95 === null || t.p50 > t.p95 || t.p95 > 86400000)) return false;
+    }
+  }
   const safe = (v,k='') => {
     if (v===null) return true;
     if (typeof v==='number') return numeric(v);
@@ -176,6 +191,32 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const retention = [...cohorts.values()].sort((a,b) => b.date.localeCompare(a.date)).slice(0,60).map(r => ({...r,d1Rate:p(r.d1,r.d1Eligible),d7Rate:p(r.d7,r.d7Eligible)}));
   const publicRows = campaign ? [] : rows.filter(r => !r.user_id && r.step === 'catalog');
   const catalog = campaign ? null : publicEvents.filter(e => e.startsWith('catalog_')).map(event => ({ event, events: publicRows.filter(r => r.event===event).length, visits: countUsers(publicRows,event) }));
+  // A public visit is a browser tab, not an account. Count each visible presentation once,
+  // and match actions to its random flow within the same anonymous subject.
+  const benefitFlows = new Map();
+  for (const r of publicRows.filter(r => benefitsEvents.includes(r.event) && r.flow_id)) {
+    const key = r.subject + ':' + r.flow_id;
+    if (!benefitFlows.has(key)) benefitFlows.set(key, []);
+    benefitFlows.get(key).push(r);
+  }
+  const benefitViews = [], benefitCloses = [], benefitCtas = [];
+  let unmatchedActions = 0;
+  for (const list of benefitFlows.values()) {
+    const view = list.find(r => r.event === 'benefits_view');
+    if (view) benefitViews.push(view);
+    for (const [event, target] of [['benefits_close', benefitCloses], ['benefits_cta', benefitCtas]]) {
+      const actions = list.filter(r => r.event === event);
+      const action = view && actions.find(r => r.created_at >= view.created_at && Number.isSafeInteger(r.duration_ms));
+      if (action) target.push(action);
+      else if (actions.length) unmatchedActions++;
+    }
+  }
+  const catalogBenefits = campaign ? null : {
+    trackingSince: db.prepare("SELECT value FROM product_analytics_metadata WHERE key='catalog_benefits_since'").get().value,
+    views: benefitViews.length, visits: new Set(benefitViews.map(r => r.subject)).size,
+    closes: benefitCloses.length, ctas: benefitCtas.length, ctr: p(benefitCtas.length,benefitViews.length),
+    closeTiming: timing(benefitCloses), ctaTiming: timing(benefitCtas), unmatchedActions
+  };
   const health = list => {
     const reports = list.filter(r => r.event === 'telemetry_health');
     const last = new Map(); for (const r of reports) {const d=JSON.parse(r.detail_json);last.set(r.subject+':'+d.session,d);}
@@ -193,5 +234,5 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   return { platform: config.botPlatform, trackingSince: productTrackingSince(), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
-    imports:groupStatuses(imports),notifications:groupStatuses(notifications), checkout,retention,catalog,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
+    imports:groupStatuses(imports),notifications:groupStatuses(notifications), checkout,retention,catalog,catalogBenefits,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
 }
