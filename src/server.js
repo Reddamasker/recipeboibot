@@ -4,7 +4,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
-import { webLoginRoute, webLoginStore } from './web-login-prototype.js';
+import { webLoginRoute, webLoginStore, webLoginPreviewDocument } from './web-login-prototype.js';
 import { platformLegalDocument } from './platform-legal.js';
 import { archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSharedRecipeImage, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
@@ -452,6 +452,7 @@ async function handleRequest(request, response) {
         return json(response, 200, { ok: true });
       }
       rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
+      if (url.pathname === '/web-login/preview' && config.testContour && request.method === 'GET') return htmlResponse(response,200,webLoginPreviewDocument());
       if (await webLoginRoute(request,response,url,{bodyJson,rateLimit,ip:clientIp(request)})) return;
       if (url.pathname === '/api/internal/max-funnel') {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });

@@ -22,6 +22,13 @@ const { db } = await import('../src/db.js');
 const { maxStore } = await import('../src/max-store.js');
 const { normalizeMaxUpdate } = await import('../src/max-events.js');
 const { prototypeSettings, webLoginStore, handleWebLoginUpdate, sanitizeWebLoginEvent } = await import('../src/web-login-prototype.js');
+test('phone preview has inline styling, no scripts or live authentication actions',async()=>{
+  const {webLoginPreviewDocument}=await import('../src/web-login-prototype.js');
+  const html=webLoginPreviewDocument();
+  assert.match(html,/<style>/);assert.doesNotMatch(html,/<script|<link rel="stylesheet"/);
+  assert.match(html,/Подтверждение через MAX ещё не подключено/);
+  assert.match(html,/<button[^>]*id="login-start"[^>]*disabled>Вход пока не подключён<\/button>/);
+});
 let server, port;
 test.before(async () => {
   server = createServer();
