@@ -26,10 +26,10 @@ export function maxFunnelSnapshot() {
   const summary = report => ({ ...Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'selectedTrials', 'returningStarts',
     'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment', 'recipeActivity', 'trialJourney', 'productAnalytics'].map(k => [k, report[k]])),
     productAnalytics: { platforms: report.productAnalytics.platforms.map(p => ({ ...p, platform: 'max' })) } });
-  return { version: 7, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
+  return { version: 8, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
 }
 function validateSnapshot(data) {
-  if (data?.version !== 7 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+  if (data?.version !== 8 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');

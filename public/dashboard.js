@@ -240,6 +240,16 @@ function renderProductAnalytics(data) {
     container.lastElementChild.classList.add('benefits-report');
     table('Работа сервиса — доступная история',['Показатель','Значение'],[['AI-вызовы',a.provider.calls],['Ошибки AI',a.provider.errors],['Входные токены',a.provider.input],['Выходные токены',a.provider.output],['Вызовы с полным учётом расхода',a.provider.complete],...Object.entries(a.imports).map(([k,v])=>['Импорт: '+k,v]),...Object.entries(a.notifications).map(([k,v])=>['Напоминание: '+k,v])],
       'Расход токенов не равен стоимости в рублях. Ошибки, очереди и успешные действия показаны отдельно; отправленное напоминание не считается прочитанным.');
+    const reminders=a.trialReminders;
+    table('Триал: приглашение добавить свой рецепт',['Показатель','Значение'],reminders?[
+      ['Аккаунты в цепочке',reminders.enrolled],['Доставлено сообщений / аккаунтов',reminders.sent+' / '+reminders.sentUsers],
+      ['Сообщения с нажатием «Добавить»',reminders.clicked],['Отключили цепочку, аккаунтов',reminders.optedOut],
+      ['Ошибки / неизвестный результат / отправляется',reminders.failed+' / '+reminders.unknown+' / '+reminders.waiting],
+      ['Завершили 24 ч после первой доставки',reminders.eligible24h],['Добавили свой рецепт за эти 24 ч',reminders.added24h],
+      ['Доля добавивших среди завершивших 24 ч',percent(reminders.rate24h)],
+      ['Задержка доставки: медиана / 95% быстрее',seconds(reminders.deliveryTiming.p50)+' / '+seconds(reminders.deliveryTiming.p95)],
+      ['До нажатия: медиана / 95% быстрее',seconds(reminders.clickTiming.p50)+' / '+seconds(reminders.clickTiming.p95)]
+    ]:[],reminders?'Сбор с '+new Date(reminders.trackingSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК. Доставка не означает прочтение. Нажатие учитывается один раз на сообщение. Результат — свой рецепт, добавленный в течение 24 часов после первой подтверждённой доставки; учитываются только завершённые окна. Это последовательность действий, не доказанный эффект рассылки. Готовые рецепты каталога и сгенерированные рецепты исключены. Действуют фильтры аккаунтов и размещения.':'Данные этой версии платформы недоступны.');
     const healthRows=(h,label)=>[[label+' — ошибки клиента',h.clientErrors],[label+' — ошибки входа до определения аккаунта',h.authErrors],[label+' — приняты после повторной отправки',h.retried],[label+' — отброшено по отчётам клиентов',h.dropped],[label+' — ожидало отправки в последних отчётах',h.pending],[label+' — последнее принятое событие',h.lastEvent?new Date(h.lastEvent).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'}):'Нет событий']];
     table('Качество сбора',['Показатель','Значение'],[...healthRows(a.health,'Аккаунты'),...(a.publicHealth?healthRows(a.publicHealth,'Анонимные сессии'):[]),['Ошибки записи после запуска сервера',a.writeFailures]],
       'Очередь ограничена 80 событиями и 24 часами, повторная отправка не удваивает события. Показатели потерь — нижняя оценка: полностью закрытая вкладка или клиент без связи может не прислать диагностику. «Ожидают» — последняя известная очередь, не её текущее состояние. Версии клиента: '+(a.health.versions.join(', ')||'пока нет')+'.');

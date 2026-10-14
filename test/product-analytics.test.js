@@ -76,7 +76,7 @@ test('health snapshots retain retry and loss diagnostics without summing cumulat
  const result=report([u]).health;assert.equal(result.dropped,3);assert.equal(result.pending,4);assert.equal(result.retried,1);assert.equal(result.clientErrors,1);
 });
 test('MAX aggregate validates extended analytics and never exports identities',()=>{
- const snapshot=maxFunnelSnapshot();assert.equal(snapshot.version,7);
+ const snapshot=maxFunnelSnapshot();assert.equal(snapshot.version,8);
  const result=snapshot.all.productAnalytics.platforms[0];assert.equal(validProductReport(result),true);
  assert.equal(validProductReport({...result,retention:[{date:'2026-10-01',users:1,d1Eligible:0,d1:1,d7Eligible:0,d7:0,d1Rate:100,d7Rate:null}]}),false);
  assert.equal(validProductReport({...result,user_id:'private'}),false);
