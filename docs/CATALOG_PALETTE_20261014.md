@@ -5,3 +5,17 @@
 Меняется только представление, не геометрия и не логика сценариев. Существующие catalog_list/search/filter/empty/open, catalog_favorite_add/remove, catalog_share/print и benefits_view/cta/close продолжают покрывать входы, действия и результаты. client_error/telemetry_health и durationMs сохраняются. Новые события, агрегаты, поля и даты начала сбора не нужны; dashboard и bridge v7 не меняются. Preview экрана преимуществ исключён из аналитики, обычные интерфейсные проверки проводятся на отдельной локальной БД.
 
 Публикация только в тестовый контур, как в текущей серии итераций. Основной Telegram/MAX не переиздаются. Ссылки для телефона: https://recipeboibot-test.89-223-123-75.sslip.io/recipes и https://recipeboibot-test.89-223-123-75.sslip.io/recipes?filters=visual .
+
+## Проверки
+
+Независимое frontend-review выявило низкий контраст вторичных подписей на лавандовых поверхностях. Исправлено: --muted #62566b, минимум 4,66:1 на фоне наведения; белый текст на ягодной кнопке 6,02:1. Оливковые HEX и переменная --olive из обоих catalog CSS удалены. CSS v3 / visual brand-1, theme-color #f3f0f7; benefits и платформенные кнопки сохранены.
+
+Реальный UI проверен на 320×568, 390×844, desktop 1440×1000. Горизонтального переполнения нет. Выбор кухни дал 208 результатов, поиск — 27; избранное и отметка ингредиента переключаются, отметки после проверки возвращены в исходное состояние. В отдельной локальной БД достигнуты catalog_list, catalog_filter, catalog_search, catalog_open, без client_error; дальнейшая проверка рецепта выполнена в preview без записи новых событий. Скриншоты в outputs/catalog-palette/. Итоговое ревью обычного/визуального каталога и рецепта — без блокеров.
+
+Код main 23573f0, release 0680a5d в чистой .tmp/benefits-visual-release-20261014. Новых тестов на значения цветов не добавляли; полный набор выполняется штатным скриптом выпуска.
+
+## Выпуск
+
+Штатные deploy-test.js --check / --apply успешны; 641/641 тестов локально и на сервере. Архив 58de32152f00c3f57ac8eade19eb7abe26e59f295391ef6c4b716ec126a95687. Резерв /opt/recipeboibot-test/backups/recipes-before-parity-20261014T094742Z.sqlite.enc. Все 481 файла src/public совпадают с release Git-архивом; SHA256 98d2daf130906bbe1fced34ab7c49a29c3fb3cdaf0cc55522f7f0195903531dc.
+
+Healthy/ready, restart 0, OOM false, integrity ok, FK 0. Данные и окружение сохранены; аналитика/bridge v7 прежние. Снимки .tmp/catalog-palette-test-before.json и .tmp/catalog-palette-test-after.json. Публичный браузер подтвердил фон #f3f0f7, акцент #a4415c и окончательный вторичный текст #62566b; горизонтального переполнения на 390 px нет. Финальный снимок outputs/catalog-palette/published-mobile.png. Выпущено только в test.
