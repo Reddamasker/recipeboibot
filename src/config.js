@@ -92,6 +92,9 @@ export const config = Object.freeze({
   maxUploadBytes: integer('MAX_UPLOAD_BYTES', 6 * 1024 * 1024),
   maxRemoteBytes: integer('MAX_REMOTE_BYTES', 1536 * 1024),
   trustProxy: process.env.TRUST_PROXY === 'true',
+  webLoginPrototypeEnabled: process.env.WEB_LOGIN_PROTOTYPE_ENABLED === 'true',
+  webLoginOwnerId: process.env.WEB_LOGIN_OWNER_MAX_ID || '',
+  webLoginOrigin: process.env.WEB_LOGIN_ORIGIN || '',
   production: process.env.NODE_ENV === 'production'
 });
 

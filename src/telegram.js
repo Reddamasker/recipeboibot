@@ -1,5 +1,6 @@
 import { productOperation, identifyProductUser, identifyProductStep, recordProduct } from './product-analytics.js';
 import { config } from './config.js';
+import { handleWebLoginUpdate } from './web-login-prototype.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
 import { extractDinnerIntake, transcribeAudio, interpretRecipeDialogue } from './openai.js';
@@ -1313,6 +1314,7 @@ export function stopTelegramPolling() { running = false; }
 // Both transports execute the same recipe workflow. MAX normalizes events only
 // after verifying the private chat binding; external IDs remain namespaced.
 export async function handleChatUpdate(update) {
+  if (await handleWebLoginUpdate(update, telegram)) return;
   const callback = update.callback_query;
   const category = String(callback?.data || '');
   const step = category.startsWith('trial:') ? 'trial' : /^dinner:(confirm|size|skip|edit)/.test(category) ? 'confirmation' : category.startsWith('profile:') ? 'onboarding' : 'request';

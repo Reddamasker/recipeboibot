@@ -1,5 +1,5 @@
 const $ = selector => document.querySelector(selector);
-let report, busy = false, toastTimer;
+let report, busy = false, toastTimer, webLoginDiagnosticsRevision = 0;
 const number = value => value === null ? 'Нет данных' : Number(value).toLocaleString('ru-RU');
 const percent = value => value === null ? 'Нет данных' : `${value.toLocaleString('ru-RU')}%`;
 function node(tag, className, text) { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = text; return element; }
@@ -10,7 +10,7 @@ async function api(path, method = 'GET', body) {
   return data;
 }
 function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 3500); }
-function showLogin() { $('#dashboard').hidden = true; $('#login').hidden = false; }
+function showLogin() { webLoginDiagnosticsRevision++; $('#web-login-diagnostics').hidden = true; $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
   renderProductAnalytics(data);
@@ -149,9 +149,37 @@ async function load(slug, { sync = false } = {}) {
     let data = await api(`funnel?campaign=${encodeURIComponent(slug)}`);
     if (initial && data.defaultCampaign) data = await api(`funnel?campaign=${encodeURIComponent(data.defaultCampaign)}`);
     render(data);
+    void loadWebLoginDiagnostics();
   }
   catch (error) { if (error.status === 401) showLogin(); else if (!report) { showLogin(); $('#login-error').textContent = error.message; } else { $('#page-error').textContent = error.message; $('#page-error').hidden = false; } }
   finally { busy = false; $('#refresh').disabled = false; $('#direct-sync').disabled = !report || report.preview || report.contour !== 'main'; }
+}
+async function loadWebLoginDiagnostics() {
+  const revision=++webLoginDiagnosticsRevision,panel=$('#web-login-diagnostics'),content=$('#web-login-diagnostics-content'),status=$('#web-login-diagnostics-status');
+  try {
+    const data=await api('web-login-prototype');
+    if(revision!==webLoginDiagnosticsRevision)return;
+    if(data===null){panel.hidden=true;content.replaceChildren();status.textContent='';return;}
+    if(!data||data.internalOnly!==true||data.platform!=='max'||!data.counts||!Array.isArray(data.client)||!data.timing||!Number.isFinite(Date.parse(data.trackingSince)))throw Error('Invalid prototype report');
+    panel.hidden=false;content.replaceChildren();
+    status.textContent='Отдельная диагностика технического стенда за последние '+number(data.windowDays)+' дней. Сбор с '+new Date(data.trackingSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК. В основную воронку не входит; фильтр рекламного размещения не применяется.';
+    const known=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+    const events=event=>data.client.filter(row=>row.event===event).reduce((total,row)=>total+row.count,0);
+    const seconds=value=>value===null||!Number.isFinite(value)?'Нет данных':(value/1000).toLocaleString('ru-RU',{maximumFractionDigits:1})+' с';
+    function table(headers,rows){const wrap=node('div','table-scroll'),table=node('table'),head=node('thead'),headRow=node('tr'),body=node('tbody');headers.forEach(label=>headRow.append(node('th','',label)));head.append(headRow);table.append(head);for(const values of rows){const row=node('tr');values.forEach(value=>row.append(node('td','',value)));body.append(row);}table.append(body);wrap.append(table);content.append(wrap);}
+    table(['Наблюдение','Количество'],[
+      ['Видимые экраны',events('screen_view')],['Нажатия «Войти»',events('login_clicked')],['Созданные запросы',known(data.created)],['Приглашения отправлены в MAX',known(data.delivered)],['Подтверждения владельца',known(data.approvedTotal)],['Входы завершены браузером',known(data.counts.consumed)],['Явные отказы',known(data.counts.denied)],['Истёкшие запросы',known(data.counts.expired)],['Отменённые запросы',known(data.counts.cancelled)],['Ошибки клиента',events('client_error')],['Сообщения о потерях очереди',events('queue_loss')]
+    ].map(([label,value])=>[label,number(value)]));
+    const mature=known(data.mature),completed=known(data.completedMature),rate=mature&&completed!==null?Math.round(completed/mature*1000)/10:null;
+    content.append(node('p','panel-note','Завершено среди запросов с полностью закончившимся сроком наблюдения: '+number(completed)+' из '+number(mature)+' ('+percent(rate)+'). Знаменатель — запросы, у которых уже наступил исходный срок истечения, независимо от раннего успеха или отказа. Незавершённые запросы с действующим сроком сюда не входят.'));
+    table(['Время между этапами','Замеры','Медиана','p95'],[['Создание → отправка','delivery'],['Отправка → решение','decision'],['Решение → завершение','completion']].map(([label,key])=>[label,number(known(data.timing[key]?.samples)),seconds(data.timing[key]?.p50),seconds(data.timing[key]?.p95)]));
+    content.append(node('p','panel-note','Один запрос — одна попытка входа, не отдельный человек. Отправка в MAX не подтверждает прочтение. Подтверждения учитываются и после истечения либо отмены запроса. Время измеряется только для завершённых переходов. Ошибки клиента и сообщения о потерях — нижняя оценка; отказавший клиент может не прислать диагностику. Прототип не выдаёт доступ к рецептам, триалу или платежам.'));
+  } catch(error) {
+    if(revision!==webLoginDiagnosticsRevision)return;
+    if(error.status===401){showLogin();return;}
+    if(error.status===404){panel.hidden=true;content.replaceChildren();return;}
+    panel.hidden=false;content.replaceChildren();status.textContent='Диагностика входа сейчас недоступна. Отсутствующие данные не заменены нулями.';
+  }
 }
 async function copyLink(slug) {
   const link = report.campaigns.find(c => c.slug === slug)?.link || new URL(`/go/${slug}`, location.origin).href;

@@ -35,9 +35,8 @@ export function createMaxStore(database) {
       database.prepare('INSERT OR IGNORE INTO max_callbacks(callback_id,user_id,created_at) VALUES(?,?,?)').run(id(callbackId), id(userId), Date.now());
     },
     userForCallback(callbackId) { return database.prepare('SELECT user_id FROM max_callbacks WHERE callback_id=?').get(id(callbackId))?.user_id || null; },
-    enqueue(event) {
+    enqueue(event, { eventId = maxEventId(event) } = {}) {
       const json = JSON.stringify(event);
-      const eventId = maxEventId(event);
       const inserted = database.prepare('INSERT OR IGNORE INTO max_inbox(event_id,event_json,available_at,created_at) VALUES(?,?,?,?)').run(eventId, json, Date.now(), Date.now()).changes > 0;
       return { eventId, inserted };
     },
