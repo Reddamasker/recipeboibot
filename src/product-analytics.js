@@ -2,6 +2,7 @@ import { productContext as context, markProductError } from './product-context.j
 import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
+import { trialReminderReport } from './trial-reminders.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
@@ -78,6 +79,16 @@ export function productOperation(step, fn, { userId = null, flowId = null } = {}
 export function validProductReport(value) {
   const numeric = x => x === null || Number.isFinite(x) && x >= 0;
   if (!value || value.platform !== 'max' || !Number.isFinite(Date.parse(value.trackingSince))) return false;
+  const r = value.trialReminders;
+  if (!r || !Number.isFinite(Date.parse(r.trackingSince))
+    || !['enrolled','deliveries','sent','sentUsers','clicked','optedOut','failed','unknown','waiting','eligible24h','added24h'].every(k=>Number.isSafeInteger(r[k])&&r[k]>=0)
+    || r.sent+r.failed+r.unknown+r.waiting!==r.deliveries || r.sentUsers>r.sent || r.clicked>r.deliveries
+    || r.optedOut>r.enrolled || r.eligible24h>r.sentUsers || r.added24h>r.eligible24h || r.rate24h!==p(r.added24h,r.eligible24h)) return false;
+  for (const key of ['deliveryTiming','clickTiming']) {
+    const t=r[key];
+    if (!t || !Number.isSafeInteger(t.samples) || t.samples<0 || t.samples>r.sent || !numeric(t.p50) || !numeric(t.p95)
+      || (t.samples===0 ? t.p50!==null || t.p95!==null : t.p50===null || t.p95===null || t.p50>t.p95)) return false;
+  }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (!Array.isArray(value.retention) || value.retention.length>60 || value.retention.some(r => !/^\d{4}-\d\d-\d\d$/.test(r.date) || !['users','d1Eligible','d1','d7Eligible','d7','d1Rate','d7Rate'].every(k=>numeric(r[k])) || r.d1>r.d1Eligible || r.d7>r.d7Eligible || r.d1Eligible>r.users || r.d7Eligible>r.users)) return false;
   if (!Array.isArray(value.checkout?.ordered) || value.checkout.ordered.length!==5 || value.checkout.ordered.some((n,i,a)=>!Number.isSafeInteger(n)||n<0||(i&&n>a[i-1]))) return false;
@@ -193,5 +204,5 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   return { platform: config.botPlatform, trackingSince: productTrackingSince(), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
-    imports:groupStatuses(imports),notifications:groupStatuses(notifications), checkout,retention,catalog,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
+    imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), checkout,retention,catalog,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
 }

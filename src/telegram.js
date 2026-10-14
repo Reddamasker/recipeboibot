@@ -28,6 +28,7 @@ import { safeFetchBuffer } from './security.js';
 import { inspectMaxAudio } from './max-media.js';
 import { createHash } from 'node:crypto';
 import { queueTrialWelcome, markTrialWelcomeReady, deliverTrialWelcome } from './trial-welcome.js';
+import { trialReminderAction } from './trial-reminders.js';
 
 const chatPlatformLabel = config.botPlatform === 'max' ? 'MAX' : 'Telegram';
 
@@ -98,6 +99,27 @@ export async function sendTrialWelcomeMessage(userId, chatId, trial) {
   const url = webAppUrl({ view: 'trial-guide' });
   const text = '<b>Спасибо, что запустил пробный период!</b>\n\nПознакомься с возможностями «Рецептов» — они помогут проще решать, что приготовить.\n\n<b>Вкусы и предпочтения</b>\nУкажи любимые блюда и то, что тебе не по вкусу — подбор станет точнее.\n\n<b>Напоминания</b>\nВыбери удобное время, чтобы не вспоминать об ужине в последний момент.\n\n<b>Коллекция</b>\nСохраняй понравившиеся блюда и возвращайся к ним, когда захочется повторить.\n\nЗнакомство можно пройти сейчас или открыть позже.';
   return send(chatId, text, url ? { reply_markup: { inline_keyboard: [[{ text: 'Познакомиться с возможностями', web_app: { url } }]] } } : {});
+}
+
+export async function sendTrialRecipeReminder(delivery) {
+  return send(delivery.chatId, '<b>Сохрани свой любимый рецепт</b>\n\nПришли ссылку, фото, текст или голосовое с рецептом — соберу ингредиенты и шаги в карточку. Она останется в «Моих рецептах», чтобы не искать её снова.', {
+    reply_markup: { inline_keyboard: [
+      [{ text: 'Добавить свой рецепт', callback_data: `trial-reminder:add:${delivery.id}` }],
+      [{ text: 'Не напоминать об этом', callback_data: `trial-reminder:stop:${delivery.id}` }]
+    ] }
+  });
+}
+
+export async function handleTrialReminderCallback(callback) {
+  const match = String(callback.data || '').match(/^trial-reminder:(add|stop):([a-f0-9-]{36})$/);
+  if (!match || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
+  const user = resolvePrivateTelegramUser(callback.from);
+  const accepted = trialReminderAction(user.id,match[2],match[1]);
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id, ...(!accepted ? { text:'Это напоминание больше недоступно' } : {}) });
+  if (!accepted) return true;
+  if (match[1] === 'stop') await send(callback.message.chat.id,'Больше не буду напоминать о добавлении своего рецепта.');
+  else await handleMessage({ from:callback.from, chat:callback.message.chat, text:'/save' });
+  return true;
 }
 
 export async function handleMainMenuCallback(callback) {
@@ -1324,7 +1346,7 @@ export async function handleChatUpdate(update) {
 }
 async function handleChatWorkflow(update) {
   if (update.callback_query) {
-    if (!await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+    if (!await handleTrialReminderCallback(update.callback_query) && !await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
   } else if (update.message) await handleMessage(update.message);
 }
 

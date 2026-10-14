@@ -11,6 +11,8 @@ import { startNotificationScheduler, stopNotificationScheduler } from './notific
 import { startBillingScheduler, stopBillingScheduler } from './billing.js';
 import { startTrialWelcomeScheduler, stopTrialWelcomeScheduler } from './trial-welcome.js';
 import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
+import { startTrialReminderScheduler, stopTrialReminderScheduler } from './trial-reminders.js';
+import { sendTrialRecipeReminder } from './telegram.js';
 
 assertConfig();
 let maxBotId;
@@ -32,6 +34,7 @@ server.listen(config.port, '0.0.0.0', () => {
   })().catch((error) => log('warn', 'recipe_image_backfill_failed', { error }));
   if (config.telegramPolling || config.botPlatform === 'max') {
     startTrialWelcomeScheduler(sendTrialWelcomeMessage);
+    startTrialReminderScheduler(sendTrialRecipeReminder);
     startFeedbackScheduler(sendFeedbackNotification);
     startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
     if (config.telegramPolling) startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
@@ -41,6 +44,7 @@ let shuttingDown = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopTrialReminderScheduler();
   stopTrialWelcomeScheduler(); stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
   const deadline = setTimeout(() => process.exit(1), 80000); deadline.unref();
   await Promise.all([maxWorker?.stop(), new Promise(resolve => server.close(resolve))]);
