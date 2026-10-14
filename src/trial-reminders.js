@@ -46,7 +46,11 @@ export function trialReminderAction(userId, id, action, at = new Date()) {
   if (action === 'stop') {
     db.prepare('UPDATE trial_reminder_deliveries SET opted_out_at=COALESCE(opted_out_at,?) WHERE id=?').run(timestamp,id);
     stop(userId,'opt_out',timestamp);
-  } else db.prepare('UPDATE trial_reminder_deliveries SET clicked_at=COALESCE(clicked_at,?) WHERE id=?').run(timestamp,id);
+  } else {
+    // This timestamp is analytics only: failure must not block the /save flow.
+    try { db.prepare('UPDATE trial_reminder_deliveries SET clicked_at=COALESCE(clicked_at,?) WHERE id=?').run(timestamp,id); }
+    catch { log('warn','trial_reminder_click_tracking_failed',{}); }
+  }
   return true;
 }
 let running = false, timer;
