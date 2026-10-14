@@ -11,3 +11,11 @@ MAX: оригинальный белый SVG https://st.max.ru/brandbook/max-whi
 CSS v11. На 320×568 обе кнопки 137×50, содержимое диалога 320×568 без прокрутки; логотипы загружены. Пустой alt и aria-hidden оставляют доступные названия Telegram и MAX. Сохранены focus-visible и touch targets. 13/13 целевых тестов прошли; новых тестов на цвета не добавляли.
 
 Ссылка для телефона: https://recipeboibot-test.89-223-123-75.sslip.io/recipes/pork-cabbage?benefits=preview . Скриншоты: outputs/catalog-benefits-v6/.
+
+## Проверка и выпуск
+
+Независимое frontend-review без блокеров. Белый текст Telegram имеет контраст 4,66:1, MAX — не ниже 5,64:1. На 390×844 кнопки 168×50, прокрутки нет; desktop 1440×1000, диалог 1038×728 без переполнения. После публикации браузер подтвердил CSS v11 и загрузку обоих SVG. Финальный снимок: outputs/catalog-benefits-v6/published-mobile.png.
+
+Штатные deploy-test.js --check / --apply успешны; 642/642 теста локально и в контейнере. Main f184fad, runtime 8018faa. Архив dd38710d7434b3487fad1a8f03d3535d7251ad229879f9d5e185046c8de5b4c8. Резерв: /opt/recipeboibot-test/backups/recipes-before-parity-20261014T084236Z.sqlite.enc. Только тестовый контур; основной Telegram/MAX не переиздавались.
+
+Все 481 файла src/public совпадают с release Git-архивом; source SHA256 9a0a2b290e855536a8b9293f8a664ddee6a0656988bd8bb4ec76dd538b8a6f83. Healthy/ready, restart 0, OOM false, integrity ok, FK 0. Данные и окружение сохранены. Аналитика и начало сбора прежние: 1 view / 1 CTA / 1 close, unmatched 0, campaign null, bridge v7. Проверки до/после: .tmp/benefits-v6-test-before.json и .tmp/benefits-v6-test-after.json. В этой итерации новый реальный показ/CTA не создавался: изменён только внешний вид, поведение уже проверено в V5, клиентский код не менялся.
