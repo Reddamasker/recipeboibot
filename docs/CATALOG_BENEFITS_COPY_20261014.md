@@ -14,3 +14,18 @@
 Аналитика прежняя: benefits_view → benefits_cta / benefits_close с durationMs, catalog_open после закрытия, client_error / telemetry_health. Новые события и персональные данные не добавляются; идемпотентность, скрытые состояния, очередь, начало сбора, dashboard и bridge v7 не меняются. Действие кнопки не подтверждает запуск/активацию триала. Предпросмотр исключён из аналитики.
 
 Ссылка для телефона: https://recipeboibot-test.89-223-123-75.sslip.io/recipes/pork-cabbage?benefits=preview . Основной Telegram/MAX не переиздаются в этой серии тестового ревью.
+
+## Проверки интерфейса
+
+- 320×568 и 390×844: весь экран, крестик, три иллюстрации, тексты и обе кнопки помещаются без прокрутки. Размеры scrollWidth/scrollHeight совпадают с clientWidth/clientHeight.
+- 844×390 (горизонтально) и 1440×1000: нет пересечений и обрезки; диалог desktop 1038×728 без переполнения.
+- Независимый frontend-review просмотрел все четыре снимка и исходные изменения: блокирующих замечаний нет.
+- Иллюстрации и маршруты Telegram/MAX не менялись. Более длинные заголовки получили адаптивные размеры; предложение пробного доступа визуально крупнее текста преимуществ.
+
+## Выпуск
+
+Код main cd45290, чистая сборка cbfe192. Штатные deploy-test --check и --apply завершены успешно: 641/641 тестов локально и 641/641 в контейнере. Архив 48eece58fabebb1ce7932722d12c10a935959ebc52a25adcc607049117a5652d; резерв /opt/recipeboibot-test/backups/recipes-before-parity-20261014T102531Z.sqlite.enc.
+
+Все 481 файла src/public совпадают с Git-архивом, SHA256 46b6287fb4eb69ddfeac25d11f79ec1387c769f1a5020b20f1b97249ee7a3c8b. Healthy/ready, restart 0, OOM false, integrity ok, FK 0. Данные, окружение и агрегаты сохранены; bridge v7. До/после: benefits views 2, visits 2, CTA 1, close 1, unmatched 0. Снимки .tmp/benefits-copy-test-before.json и .tmp/benefits-copy-test-after.json.
+
+Публичный экран проверен на 390×844: точная редакция видна, scrollWidth/Height 390×844, обе кнопки доступны. Снимок outputs/benefits-copy/published-mobile.png. Основной Telegram/MAX не переиздавались.
