@@ -53,7 +53,6 @@
   }
   if(visualMode) {
     document.body.dataset.filterLayout='visual';$('#visual-discovery').hidden=false;
-    $('.intro .lead').textContent='Выберите кухню, блюдо и продукты — найдём, что приготовить.';
     $('.search-label').textContent='Или найдите по названию';
     $('#search').placeholder='Например, паста с томатами';
     $('#search-form button').textContent='Найти';

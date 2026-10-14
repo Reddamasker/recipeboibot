@@ -4,8 +4,8 @@
 .card-meta{flex-wrap:wrap}
 @media(max-width:760px){body[data-filter-layout="visual"]{padding-bottom:80px}.show-results{position:fixed;bottom:14px;left:16px;right:16px;z-index:10;width:calc(100% - 32px);margin:0;box-shadow:0 4px 18px var(--shadow)}.cuisine-tiles[data-expanded="true"] .cuisine-tile img{height:52px}.cuisine-tiles[data-expanded="true"] .cuisine-tile .tile-label{padding:8px}.dish-heading{margin-top:14px}}
 body[data-filter-layout="visual"] .intro{padding:32px 0 26px}
-body[data-filter-layout="visual"] .intro h1{font-size:clamp(36px,4vw,54px);margin-bottom:12px}
-body[data-filter-layout="visual"] .intro .eyebrow{margin-bottom:13px}
+body[data-filter-layout="visual"] .intro h1{font-size:clamp(36px,4vw,54px);margin-bottom:0}
+
 body[data-filter-layout="visual"] :is(.quick,.filters){display:none}
 body[data-filter-layout="visual"] .catalog-layout{display:block;margin-top:22px;padding-top:24px}
 body[data-filter-layout="visual"] .cards{grid-template-columns:repeat(4,minmax(0,1fr))}
