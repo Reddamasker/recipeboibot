@@ -72,6 +72,19 @@ test('network uncertainty and blocked recipient stop the chain without retry or 
   assert.equal(deliveries(a.user)[0].error_code,'delivery_uncertain');
   await runTrialReminderCycle(async()=>assert.fail('no replay'),hour(72));
 });
+test('failure to record a click does not block the authorized save action',async()=>{
+  const a=account();await runTrialReminderCycle(async()=>{},hour(24));
+  const d=deliveries(a.user)[0],prepare=db.prepare;
+  db.prepare=function(sql,...args) {
+    if(sql.startsWith('UPDATE trial_reminder_deliveries SET clicked_at')) throw new Error('Telemetry unavailable');
+    return prepare.call(this,sql,...args);
+  };
+  try {assert.equal(trialReminderAction(a.user.id,d.id,'add',hour(25)),true);}
+  finally {db.prepare=prepare;}
+  assert.equal(deliveries(a.user)[0].clicked_at,null);
+  assert.equal(trialReminderAction(a.user.id,d.id,'add',hour(26)),true);
+  assert.equal(deliveries(a.user)[0].clicked_at,hour(26).toISOString());
+});
 test('overlapping cycles claim a single message',async()=>{
   const a=account();let release;const gate=new Promise(resolve=>release=resolve);let sends=0;
   const pending=runTrialReminderCycle(async()=>{sends++;await gate;},hour(24));
