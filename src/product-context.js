@@ -3,5 +3,5 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export const productContext = new AsyncLocalStorage();
 export function markProductError(code = 500) {
   const current = productContext.getStore();
-  if (current) current.error = code;
+  if (current) current.error = Number.isInteger(code) && code >= 400 && code <= 599 ? code : 500;
 }

@@ -30,10 +30,9 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging:
-      driver: json-file
+      driver: journald
       options:
-        max-size: "10m"
-        max-file: "3"
+        tag: "{{.Name}}"
 
 volumes:
   recipeboibot-test-data:

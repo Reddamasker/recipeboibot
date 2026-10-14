@@ -315,6 +315,8 @@ PY
   install -m 600 deploy/compose.max.yaml compose.max.yaml
   rm -f -- "$payment_candidate" "$payment_docker_env"
 fi
+if [[ "$existing" = true ]]; then docker compose -f compose.max.yaml stop app; fi
+python3 deploy/enable-persistent-logs.py recipeboibot-max compose.max.yaml
 docker compose -f compose.max.yaml up -d --no-build app
 healthy=false
 for attempt in $(seq 1 30); do

@@ -21,7 +21,7 @@ sudo -n sh deploy/backup.sh /opt/recipeboibot/backups
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="backups/source-before-git-$stamp.tgz"
 previous="recipeboibot-recipeboibot:before-git-$stamp"
-sudo -n tar -czf "$backup" src public deploy Dockerfile package.json
+sudo -n tar -czf "$backup" src public deploy Dockerfile package.json compose.yaml
 sudo -n docker tag recipeboibot-recipeboibot "$previous"
 rollback() {
   echo 'Deployment failed; restoring previous source and image' >&2
@@ -58,9 +58,11 @@ cleanup_retention() {
   prune_image_tags recipeboibot-recipeboibot 'before-git-' 3
   sudo -n docker builder prune --all --force --keep-storage 1GB
 }
-# Compose, nginx, env и том данных не входят в обновление приложения.
+# Only the logging block of Compose is migrated; env, network and volumes stay intact.
 sudo -n tar -xzf "$archive" -C /opt/recipeboibot || rollback
 sudo -n docker compose build recipeboibot || rollback
+sudo -n docker compose stop recipeboibot || rollback
+sudo -n python3 deploy/enable-persistent-logs.py recipeboibot compose.yaml || rollback
 sudo -n docker compose up -d --no-deps --no-build recipeboibot || rollback
 i=0
 while [ "$i" -lt 30 ]; do
