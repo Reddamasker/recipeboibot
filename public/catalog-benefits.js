@@ -45,7 +45,6 @@
     return true;
   }
   document.getElementById('benefits-close').addEventListener('click', () => close());
-  document.getElementById('benefits-continue').addEventListener('click', () => close());
   for (const id of ['benefits-cta','benefits-cta-max']) document.getElementById(id)?.addEventListener('click', () => {
     if (!dialog.open || document.visibilityState !== 'visible') return;
     checkVisible(); if (!ctaRecorded && visibleAt) { record('benefits_cta'); ctaRecorded = true; }

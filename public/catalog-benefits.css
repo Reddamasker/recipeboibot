@@ -6,7 +6,7 @@
 .benefits-brand{display:flex;align-items:center;gap:8px;font:22px Georgia,serif;letter-spacing:-.5px}
 .benefits-brand img{mix-blend-mode:multiply;border-radius:50%}
 .benefits-close{position:relative;width:44px;height:44px;min-height:44px;padding:0;border:0;border-radius:50%;flex-shrink:0;color:var(--benefits-ink)}
-.benefits-close:hover,.benefits #benefits-continue:hover{background:#e7def0}
+.benefits-close:hover{background:#e7def0}
 .benefits-close span:before,.benefits-close span:after{position:absolute;content:"";width:19px;height:1.5px;background:var(--benefits-ink);left:13px;top:21px;transform:rotate(45deg)}
 .benefits-close span:after{transform:rotate(-45deg)}
 .benefits-close:focus-visible{outline-offset:-5px}
@@ -22,7 +22,7 @@
 .benefits-scene{display:block;width:100%;height:100%;max-height:156px;min-height:0;object-fit:contain}
 .benefits-outcomes h3{font:normal 25px/1.15 Georgia,serif;letter-spacing:-.5px;margin:0 0 8px}
 .benefits-outcomes p{font-size:13px;line-height:1.45;color:var(--benefits-muted);margin:0}
-.benefits-footer{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-shrink:0;border-top:1px solid var(--benefits-line);padding:18px 32px 8px}
+.benefits-footer{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-shrink:0;border-top:1px solid var(--benefits-line);padding:18px 32px}
 .benefits-trial strong{display:block;font:22px/1.3 Georgia,serif;margin-bottom:5px}
 .benefits-trial>span{font-size:11px;line-height:1.5;color:var(--benefits-muted);display:block}
 .benefits-decisions{width:350px;flex-shrink:0;display:flex;flex-direction:column}
@@ -32,7 +32,7 @@
 .benefits-cta-max{background:linear-gradient(110deg,#471aff,#6e1aff 58%,#9500ff);color:#fff}
 .benefits-cta-max:hover{background:linear-gradient(110deg,#3d16dc,#5e16dc 58%,#8000dc);color:#fff}
 .benefits-cta img{display:block;width:24px;height:24px;flex-shrink:0;object-fit:contain}
-.benefits #benefits-continue{min-height:44px;font-size:13px;color:var(--benefits-muted);border:0;padding:8px}
+
 .benefits-reopen{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line);margin-top:26px}
 .benefits-reopen p{font:20px/1.25 Georgia,serif;margin:0}
 .benefits-reopen button{font-size:12px;flex-shrink:0}
@@ -48,7 +48,7 @@ body.benefits-open{position:fixed;width:100%;overflow:hidden}
  .benefits-outcomes h3{font-size:22px;letter-spacing:-.45px;margin-bottom:7px}
  .benefits-outcomes p{font-size:12px;line-height:1.4}
  .benefits-scene{max-height:140px}
- .benefits-footer{flex-direction:column;gap:9px;padding:10px max(22px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(22px,env(safe-area-inset-left))}
+ .benefits-footer{flex-direction:column;gap:9px;padding:10px max(22px,env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(22px,env(safe-area-inset-left))}
  .benefits-trial{text-align:center;width:100%}
  .benefits-trial strong{font:18px/1.2 Georgia,serif;margin:0 0 3px}
  .benefits-trial>span{font-size:11px;line-height:1.4}
@@ -66,8 +66,8 @@ body.benefits-open{position:fixed;width:100%;overflow:hidden}
  .benefits h2{font-size:32px}
  .benefits-outcomes li{grid-template-columns:92px minmax(0,1fr);gap:10px;padding:0}
  .benefits-outcomes h3{font-size:20px;margin-bottom:2px}.benefits-outcomes p{font-size:11px}
- .benefits-footer{flex-direction:row;align-items:center;padding:5px max(24px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(24px,env(safe-area-inset-left));gap:16px}
+ .benefits-footer{flex-direction:row;align-items:center;padding:5px max(24px,env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));gap:16px}
  .benefits-trial{text-align:left;width:auto}.benefits-trial strong{font-size:17px}.benefits-trial>span{font-size:11px}
- .benefits-decisions{width:300px}.benefits-cta{min-height:44px;font-size:14px}.benefits #benefits-continue{min-height:44px;font-size:12px}
+ .benefits-decisions{width:300px}.benefits-cta{min-height:44px;font-size:14px}
 }
 @media print{.benefits,.benefits-reopen{display:none!important}body.benefits-open{position:static!important;overflow:visible!important}}

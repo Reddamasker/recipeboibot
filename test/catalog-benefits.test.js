@@ -30,10 +30,10 @@ function browser({storage = new Map(), storageDisabled = false, hidden = false, 
       getClientRects() { return [{}]; }
     };
   }
-  const ids = new Map(['catalog-benefits','benefits-close','benefits-continue','benefits-cta','benefits-cta-max','benefits-image','benefits-recipe-title'].map(id=>[id,element()]));
+  const ids = new Map(['catalog-benefits','benefits-close','benefits-cta','benefits-cta-max','benefits-image','benefits-recipe-title'].map(id=>[id,element()]));
   const dialog = ids.get('catalog-benefits'), heading = element('H1'), body = element('BODY'), scroll = element();
   const trigger = element('BUTTON');
-  const controls = ['benefits-close','benefits-cta','benefits-cta-max','benefits-continue'].map(id=>ids.get(id));
+  const controls = ['benefits-close','benefits-cta','benefits-cta-max'].map(id=>ids.get(id));
   const state = {cssVisible:true, covered:false};
   dialog.open = false;
   dialog.showModal = () => { dialog.open=true; document.activeElement=ids.get('benefits-close'); };
@@ -157,15 +157,15 @@ test('keyboard focus wraps around all controls while either platform button stay
   const page=browser();page.api.open(recipe);page.frame();
   page.ids.get('benefits-close').focus();
   assert.equal(page.dialog.fire('keydown',{key:'Tab',shiftKey:true}).defaultPrevented,true);
-  assert.equal(page.document.activeElement,page.ids.get('benefits-continue'));
+  assert.equal(page.document.activeElement,page.ids.get('benefits-cta-max'));
   assert.equal(page.dialog.fire('keydown',{key:'Tab',shiftKey:false}).defaultPrevented,true);
   assert.equal(page.document.activeElement,page.ids.get('benefits-close'));
-  for(const id of ['benefits-cta','benefits-cta-max']){
+  for(const id of ['benefits-cta']){
     page.ids.get(id).focus();assert.equal(page.dialog.fire('keydown',{key:'Tab',shiftKey:false}).defaultPrevented,false);
   }
 });
 
-for(const action of ['escape','benefits-close','benefits-continue']) {
+for(const action of ['escape','benefits-close']) {
   test(`${action} restores scroll and recipe focus and calls afterClose exactly once`, () => {
     const page=browser(); let callbacks=0;
     page.api.open(recipe,{afterClose:()=>callbacks++}); page.frame();
