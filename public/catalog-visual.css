@@ -2,7 +2,7 @@
 .show-results{margin:0 0 18px}
 .dish-heading{margin-top:20px}
 .card-meta{flex-wrap:wrap}
-@media(max-width:760px){body[data-filter-layout="visual"]{padding-bottom:80px}.show-results{position:fixed;bottom:14px;left:16px;right:16px;z-index:10;width:calc(100% - 32px);margin:0;box-shadow:0 4px 18px #0002}.cuisine-tiles[data-expanded="true"] .cuisine-tile img{height:52px}.cuisine-tiles[data-expanded="true"] .cuisine-tile .tile-label{padding:8px}.dish-heading{margin-top:14px}}
+@media(max-width:760px){body[data-filter-layout="visual"]{padding-bottom:80px}.show-results{position:fixed;bottom:14px;left:16px;right:16px;z-index:10;width:calc(100% - 32px);margin:0;box-shadow:0 4px 18px var(--shadow)}.cuisine-tiles[data-expanded="true"] .cuisine-tile img{height:52px}.cuisine-tiles[data-expanded="true"] .cuisine-tile .tile-label{padding:8px}.dish-heading{margin-top:14px}}
 body[data-filter-layout="visual"] .intro{padding:32px 0 26px}
 body[data-filter-layout="visual"] .intro h1{font-size:clamp(36px,4vw,54px);margin-bottom:12px}
 body[data-filter-layout="visual"] .intro .eyebrow{margin-bottom:13px}
@@ -12,40 +12,45 @@ body[data-filter-layout="visual"] .cards{grid-template-columns:repeat(4,minmax(0
 body[data-filter-layout="visual"] #search-form{display:flex;gap:18px;align-items:center;margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
 body[data-filter-layout="visual"] .search-label{font-size:13px;color:var(--muted);margin:0;flex-shrink:0}
 body[data-filter-layout="visual"] .search-row{flex:1;max-width:610px}
-body[data-filter-layout="visual"] .search-row input{min-height:44px;font-size:14px;padding:10px 14px;border-color:var(--line);background:#fff9}
+body[data-filter-layout="visual"] .search-row input{min-height:44px;font-size:14px;padding:10px 14px;border-color:var(--field-border);background:var(--surface)}
 body[data-filter-layout="visual"] .search-row button{background:transparent;color:var(--ink);border-color:var(--line);padding:10px 18px;font-size:13px}
 .discovery-heading{display:flex;justify-content:space-between;gap:15px;align-items:center;margin-bottom:12px}
 .discovery-heading h2{font:24px Georgia,serif;margin:0;letter-spacing:-.4px}
-.discovery-heading>button{border:0;padding:8px 0;color:var(--olive);font-size:13px;min-height:36px;text-decoration:underline;text-underline-offset:4px;white-space:nowrap}
+.discovery-heading>button{border:0;padding:8px 0;color:var(--accent);font-size:13px;min-height:36px;text-decoration:underline;text-underline-offset:4px;white-space:nowrap}
 .discovery-heading>span{font-size:12px;color:var(--muted)}
 .cuisine-tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
-.cuisine-tile{padding:0;overflow:hidden;border:2px solid transparent;border-radius:13px;background:#ecebe2;text-align:left;position:relative;transition:border-color .15s,transform .15s;min-width:0}
-.cuisine-tile img{display:block;width:100%;height:96px;object-fit:contain;background:#f4f3ed;padding:3px}
+.cuisine-tile{padding:0;overflow:hidden;border:2px solid transparent;border-radius:13px;background:var(--surface-muted);text-align:left;position:relative;transition:border-color .15s,transform .15s;min-width:0}
+.cuisine-tile img{display:block;width:100%;height:96px;object-fit:contain;background:var(--paper);padding:3px}
 .cuisine-tile .tile-label{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:12px 10px;font-size:13px;font-weight:bold}
 .cuisine-tile small{font-size:10px;color:var(--muted);font-weight:normal}
-.cuisine-tile:hover{transform:translateY(-2px);background:#e5e6d9}
-.cuisine-tile[aria-pressed="true"]{border-color:var(--olive);background:var(--olive);color:#fff}
-.cuisine-tile[aria-pressed="true"] small{color:#e3e8dc}
-.cuisine-tile[aria-pressed="true"]:after{content:'✓';position:absolute;right:9px;top:9px;border-radius:50%;width:25px;height:25px;display:grid;place-items:center;background:var(--olive);color:white;font-size:15px}
+.cuisine-tile:hover{transform:translateY(-2px);background:var(--surface-hover)}
+.cuisine-tile[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
+.cuisine-tile[aria-pressed="true"] small{color:var(--on-accent)}
+.cuisine-tile[aria-pressed="true"]:after{content:'✓';position:absolute;right:9px;top:9px;border-radius:50%;width:25px;height:25px;display:grid;place-items:center;background:var(--accent);color:var(--on-accent);font-size:15px}
+.cuisine-tile[aria-pressed="true"]:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
 .ingredients-heading{margin-top:22px}
 .ingredient-chips{display:flex;gap:9px;flex-wrap:wrap}
-.ingredient-chip{display:flex;align-items:center;gap:9px;border:1px solid #dedfd5;background:#fff9;border-radius:30px;padding:5px 15px 5px 5px;min-height:48px;font-size:13px;white-space:nowrap}
-.ingredient-chip img{width:36px;height:36px;border-radius:50%;object-fit:contain;background:#f4f3ed}
-.ingredient-chip[aria-pressed="true"]{border-color:var(--olive);background:#e2e7d7;box-shadow:inset 0 0 0 1px var(--olive)}
+.ingredient-chip{display:flex;align-items:center;gap:9px;border:1px solid var(--field-border);background:var(--surface);border-radius:30px;padding:5px 15px 5px 5px;min-height:48px;font-size:13px;white-space:nowrap}
+.ingredient-chip img{width:36px;height:36px;border-radius:50%;object-fit:contain;background:var(--paper)}
+.ingredient-chip[aria-pressed="true"]{border-color:var(--accent);background:var(--surface-muted);box-shadow:inset 0 0 0 1px var(--accent)}
+.ingredient-chip:hover{background:var(--surface-muted)}
+.ingredient-chip[aria-pressed="true"]:hover{background:var(--surface-hover)}
+body[data-filter-layout="visual"] .search-row button:hover{background:var(--surface-hover)}
 .discovery-toolbar{display:flex;align-items:center;gap:10px;margin-top:19px;flex-wrap:wrap}
 .time-chips{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .time-chips>span{font-size:12px;color:var(--muted);margin-right:5px}
 .time-chips button,.category-chips button{border-radius:24px;font-size:12px;min-height:38px;padding:8px 14px}
-.time-chips button[aria-pressed="true"],.category-chips button[aria-pressed="true"]{background:var(--olive);color:#fff;border-color:var(--olive)}
+.time-chips button[aria-pressed="true"],.category-chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.time-chips button[aria-pressed="true"]:hover,.category-chips button[aria-pressed="true"]:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
 #more-filters{margin-left:auto;font-size:12px;border-radius:24px;min-height:38px}
-#more-filters[aria-expanded="true"]{background:#e6e7dc}
+#more-filters[aria-expanded="true"]{background:var(--surface-muted)}
 #visual-reset{font-size:12px;border:0;padding:8px;min-height:38px;color:var(--muted);text-decoration:underline}
-#visual-refinements{margin-top:16px;background:#eeeee5;padding:20px;border-radius:12px}
+#visual-refinements{margin-top:16px;background:var(--surface-muted);padding:20px;border-radius:12px}
 #visual-refinements h3{font:20px Georgia,serif;margin:0 0 15px}
 .category-chips{display:flex;gap:8px;flex-wrap:wrap}
 #visual-products{display:grid;grid-template-columns:1fr 1fr auto;gap:15px;align-items:end;margin-top:20px}
 #visual-products label{display:flex;flex-direction:column;gap:8px;font-size:12px}
-#visual-products input{background:white;border:1px solid var(--line);border-radius:7px;font-size:14px;padding:12px;min-width:0;min-height:44px}
+#visual-products input{background:var(--surface);border:1px solid var(--field-border);border-radius:7px;font-size:14px;padding:12px;min-width:0;min-height:44px}
 #visual-products button{font-size:13px}
 #visual-products p{grid-column:1/-1;font-size:11px;line-height:1.6;color:var(--muted);margin:0}
 @media(max-width:1050px){body[data-filter-layout="visual"] .cards{grid-template-columns:repeat(3,minmax(0,1fr))}.cuisine-tile img{height:83px}.cuisine-tile .tile-label{font-size:11px;padding:10px 7px}.cuisine-tile small{display:none}.ingredient-chips{flex-wrap:nowrap;overflow-x:auto;padding:2px 2px 8px;scrollbar-width:thin}}
