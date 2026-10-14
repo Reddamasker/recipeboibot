@@ -5,11 +5,12 @@
 .benefits-header{display:flex;align-items:center;justify-content:space-between;padding:12px 22px 4px 30px;flex-shrink:0}
 .benefits-brand{display:flex;align-items:center;gap:8px;font:22px Georgia,serif;letter-spacing:-.5px}
 .benefits-brand img{mix-blend-mode:multiply;border-radius:50%}
-.benefits-close{position:relative;width:44px;height:44px;min-height:44px;padding:0;border:0;border-radius:50%;flex-shrink:0;color:var(--benefits-ink)}
-.benefits-close:hover{background:#e7def0}
+.benefits-close{position:relative;width:44px;height:44px;min-height:44px;padding:0;border:0;border-radius:0;background:transparent;flex-shrink:0;color:var(--benefits-ink)}
+.benefits-close:hover{background:transparent}
 .benefits-close span:before,.benefits-close span:after{position:absolute;content:"";width:19px;height:1.5px;background:var(--benefits-ink);left:13px;top:21px;transform:rotate(45deg)}
 .benefits-close span:after{transform:rotate(-45deg)}
-.benefits-close:focus-visible{outline-offset:-5px}
+.benefits-close:focus-visible{outline:none}
+.benefits-close:focus-visible span:before,.benefits-close:focus-visible span:after{background:var(--benefits-berry);height:3px}
 .benefits-scroll{flex:1;min-height:0;overflow:visible}
 .benefits-layout{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px;height:100%;min-height:0;padding:12px 32px 20px}
 .benefits-story{min-width:0;align-self:center}
