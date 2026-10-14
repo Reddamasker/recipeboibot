@@ -1,4 +1,4 @@
-.benefits{--benefits-bg:#f3f0f7;--benefits-ink:#302537;--benefits-berry:#a4415c;--benefits-muted:#716778;--benefits-line:#ddd4e5;width:min(1000px,calc(100% - 64px));height:min(730px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:1px solid var(--benefits-line);border-radius:22px;background:var(--benefits-bg);color:var(--benefits-ink);overflow:visible;box-shadow:0 24px 100px #30253730}
+.benefits{--benefits-bg:#f3f0f7;--benefits-ink:#302537;--benefits-berry:#a4415c;--benefits-muted:#716778;--benefits-line:#ddd4e5;width:min(1040px,calc(100% - 64px));height:min(730px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:1px solid var(--benefits-line);border-radius:22px;background:var(--benefits-bg);color:var(--benefits-ink);overflow:visible;box-shadow:0 24px 100px #30253730}
 .benefits::backdrop{background:#30253770;backdrop-filter:blur(4px)}
 .benefits[open]{display:flex;flex-direction:column}
 .benefits :focus-visible{outline:3px solid var(--benefits-berry);outline-offset:3px}
@@ -11,26 +11,26 @@
 .benefits-close span:after{transform:rotate(-45deg)}
 .benefits-close:focus-visible{outline-offset:-5px}
 .benefits-scroll{flex:1;min-height:0;overflow:visible}
-.benefits-layout{display:grid;grid-template-columns:1fr 1.1fr;grid-template-rows:1fr auto;column-gap:20px;height:100%;min-height:0;padding:12px 32px 20px}
+.benefits-layout{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px;height:100%;min-height:0;padding:12px 32px 20px}
 .benefits-story{min-width:0;align-self:center}
-.benefits h2{font:normal 48px/1.07 Georgia,serif;letter-spacing:-1.9px;margin:0}
+.benefits h2{font:normal 44px/1.09 Georgia,serif;letter-spacing:-1.8px;margin:0}
 .benefits h2 em{font-weight:normal;color:var(--benefits-berry)}
-.benefits-example{grid-column:2;grid-row:1/3;display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0;margin:0;text-align:center;gap:8px}
-.benefits-example-photo{min-height:0;position:relative}
-.benefits-example-photo:before{content:"";position:absolute;inset:18% 4% 4%;border-radius:50%;background:#e7def0}
-.benefits-example-photo img{position:relative;display:block;width:100%;height:100%;object-fit:contain}
-.benefits-example figcaption{font-size:11px;line-height:1.4;color:var(--benefits-muted)}
-.benefits-details{min-width:0;padding:20px 0 12px}
-.benefits-outcomes{display:grid;grid-template-columns:1fr;list-style:none;padding:0;margin:0}
-.benefits-outcomes li{display:flex;flex-direction:row;align-items:center;gap:12px;font-size:14px;line-height:1.4;padding:6px 0}
-
-.benefits-outcomes svg{color:var(--benefits-berry);flex-shrink:0}
+.benefits-details{min-width:0;min-height:0}
+.benefits-outcomes{display:grid;grid-template-rows:repeat(3,minmax(0,1fr));height:100%;list-style:none;padding:0;margin:0}
+.benefits-outcomes li{display:grid;grid-template-columns:44% minmax(0,1fr);gap:15px;align-items:center;min-height:0;padding:8px 0}
+.benefits-outcomes li+li{border-top:1px solid var(--benefits-line)}
+.benefits-scene{display:block;width:100%;height:100%;max-height:156px;min-height:0;object-fit:contain}
+.benefits-outcomes h3{font:normal 25px/1.15 Georgia,serif;letter-spacing:-.5px;margin:0 0 8px}
+.benefits-outcomes p{font-size:13px;line-height:1.45;color:var(--benefits-muted);margin:0}
 .benefits-footer{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-shrink:0;border-top:1px solid var(--benefits-line);padding:18px 32px 8px}
 .benefits-trial strong{display:block;font:22px/1.3 Georgia,serif;margin-bottom:5px}
 .benefits-trial>span{font-size:11px;line-height:1.5;color:var(--benefits-muted);display:block}
 .benefits-decisions{width:350px;flex-shrink:0;display:flex;flex-direction:column}
-.benefits-cta{display:flex;align-items:center;justify-content:center;gap:10px;min-height:52px;background:var(--benefits-berry);color:#fff;text-decoration:none;border-radius:10px;font-size:14px;font-weight:bold;padding:12px 14px}
-.benefits-cta:hover{background:#8e354d;color:#fff}
+.benefits-platforms{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.benefits-cta{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;background:var(--benefits-berry);color:#fff;text-decoration:none;border:1px solid var(--benefits-berry);border-radius:10px;font-size:15px;font-weight:bold;padding:12px 10px}
+.benefits-cta:hover{background:#8e354d;border-color:#8e354d;color:#fff}
+.benefits-cta-max{background:#e7def0;border-color:#c6b3d4;color:#50345e}
+.benefits-cta-max:hover{background:#dbcae7;border-color:#bba2cc;color:#50345e}
 .benefits-cta svg{flex-shrink:0}
 .benefits #benefits-continue{min-height:44px;font-size:13px;color:var(--benefits-muted);border:0;padding:8px}
 .benefits-reopen{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line);margin-top:26px}
@@ -41,38 +41,33 @@ body.benefits-open{position:fixed;width:100%;overflow:hidden}
  .benefits{width:100%;height:100dvh;max-height:100dvh;margin:0;border:0;border-radius:0}
  .benefits-header{padding:calc(5px + env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) 2px max(18px,env(safe-area-inset-left))}
  .benefits-brand{font-size:20px}.benefits-brand img{width:26px;height:26px}
- .benefits-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:12px;padding:8px max(22px,env(safe-area-inset-right)) 14px max(22px,env(safe-area-inset-left))}
+ .benefits-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:16px;padding:12px max(22px,env(safe-area-inset-right)) 10px max(22px,env(safe-area-inset-left))}
  .benefits-story{text-align:center;align-self:start}
- .benefits h2{font-size:clamp(31px,9.5vw,40px);line-height:1.06;letter-spacing:-1.3px}
- .benefits-example{grid-column:1;grid-row:2;gap:5px}
- .benefits-example-photo:before{inset:19% 9% 3%}
- .benefits-example figcaption{font-size:10px;line-height:1.3}
- .benefits-details{padding:0}
- .benefits-outcomes li{align-items:center;text-align:left;font-size:13px;line-height:1.35;gap:10px;padding:5px 0}
-
- .benefits-outcomes svg{width:27px;height:27px}
+ .benefits h2{font-size:clamp(29px,8.8vw,37px);line-height:1.07;letter-spacing:-1.2px}
+ .benefits-outcomes li{grid-template-columns:38% minmax(0,1fr);gap:13px;padding:9px 0}
+ .benefits-outcomes h3{font-size:22px;letter-spacing:-.45px;margin-bottom:7px}
+ .benefits-outcomes p{font-size:12px;line-height:1.4}
+ .benefits-scene{max-height:140px}
  .benefits-footer{flex-direction:column;gap:9px;padding:10px max(22px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(22px,env(safe-area-inset-left))}
  .benefits-trial{text-align:center;width:100%}
  .benefits-trial strong{font:18px/1.2 Georgia,serif;margin:0 0 3px}
  .benefits-trial>span{font-size:11px;line-height:1.4}
  .benefits-decisions{width:100%}
- .benefits-cta{font-size:14px;min-height:50px}
+ .benefits-cta{font-size:15px;min-height:50px}
  .benefits-reopen{gap:12px}.benefits-reopen p{font-size:18px}
 }
-@media(max-width:350px){.benefits-layout{padding-inline:18px;gap:8px}.benefits-footer{padding-inline:18px}.benefits-cta{font-size:13px;gap:8px}.benefits-reopen{flex-direction:column;align-items:flex-start}}
-@media(max-width:760px) and (max-height:650px){.benefits-layout{padding-top:4px;padding-bottom:10px;gap:7px}.benefits h2{font-size:32px}.benefits-outcomes li{font-size:12px;gap:9px;padding:3px 0}.benefits-outcomes svg{width:24px;height:24px}.benefits-footer{padding-top:8px;gap:7px}.benefits-trial strong{font-size:17px}.benefits-cta{min-height:48px}}
+@media(max-width:350px){.benefits-layout{padding-inline:18px}.benefits-footer{padding-inline:18px}.benefits-outcomes li{grid-template-columns:35% minmax(0,1fr);gap:10px}.benefits-outcomes h3{font-size:20px}.benefits-outcomes p{font-size:11px}.benefits-reopen{flex-direction:column;align-items:flex-start}}
+@media(max-width:760px) and (max-height:650px){.benefits-layout{padding-top:3px;padding-bottom:5px;gap:7px}.benefits h2{font-size:29px}.benefits-outcomes li{padding:3px 0}.benefits-outcomes h3{font-size:20px;margin-bottom:4px}.benefits-outcomes p{font-size:11px}.benefits-footer{padding-top:8px;gap:7px}.benefits-trial strong{font-size:17px}.benefits-cta{min-height:48px}}
 @media(orientation:landscape) and (max-height:500px){
  .benefits{width:100%;height:100dvh;margin:0;border:0;border-radius:0}
  .benefits-header{padding:calc(2px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left))}
- .benefits-layout{grid-template-columns:1fr 1fr;grid-template-rows:minmax(0,1fr) auto;padding:0 max(24px,env(safe-area-inset-right)) 8px max(24px,env(safe-area-inset-left));gap:8px 20px}
+ .benefits-layout{grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);grid-template-rows:minmax(0,1fr);padding:0 max(24px,env(safe-area-inset-right)) 6px max(24px,env(safe-area-inset-left));gap:20px}
  .benefits-story{text-align:left;align-self:center}
- .benefits h2{font-size:30px}
- .benefits-example{grid-column:2;grid-row:1/3}
- .benefits-details{padding:0}
- .benefits-outcomes li{font-size:11px;flex-direction:row;align-items:center;text-align:left;gap:7px;padding:2px 0}
- .benefits-outcomes svg{width:24px;height:24px}
+ .benefits h2{font-size:32px}
+ .benefits-outcomes li{grid-template-columns:92px minmax(0,1fr);gap:10px;padding:0}
+ .benefits-outcomes h3{font-size:20px;margin-bottom:2px}.benefits-outcomes p{font-size:11px}
  .benefits-footer{flex-direction:row;align-items:center;padding:5px max(24px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(24px,env(safe-area-inset-left));gap:16px}
- .benefits-trial{text-align:left;width:auto}.benefits-trial strong{font-size:16px}.benefits-trial>span{font-size:11px}
- .benefits-decisions{width:260px}.benefits-cta{min-height:44px;font-size:12px}.benefits #benefits-continue{min-height:44px;font-size:12px}
+ .benefits-trial{text-align:left;width:auto}.benefits-trial strong{font-size:17px}.benefits-trial>span{font-size:11px}
+ .benefits-decisions{width:300px}.benefits-cta{min-height:44px;font-size:14px}.benefits #benefits-continue{min-height:44px;font-size:12px}
 }
 @media print{.benefits,.benefits-reopen{display:none!important}body.benefits-open{position:static!important;overflow:visible!important}}

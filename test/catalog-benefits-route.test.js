@@ -12,21 +12,23 @@ test('catalog invitation resolves the correct bot in all contours without accept
   const serverModule = new URL('../src/server.js', import.meta.url).href;
   const dbModule = new URL('../src/db.js', import.meta.url).href;
   try {
-    for (const [platform, testContour, expected] of [
-      ['telegram', 'false', 'https://t.me/Recipeboibot?start=dinner'],
-      ['telegram', 'true', 'https://t.me/recipeboi_test_bot?start=dinner'],
-      ['max', 'false', 'https://max.ru/id500912857935_bot?start=dinner'],
+    for (const [platform, testContour, maxUsername, expectedMax] of [
+      ['telegram', 'false', '', 'id500912857935_bot'],
+      ['telegram', 'true', '', 'id500912857935_bot'],
+      ['max', 'false', 'id500912857935_bot', 'id500912857935_bot'],
+      ['telegram', 'false', 'configured_recipe_bot', 'configured_recipe_bot'],
+      ['telegram', 'false', 'https://attacker.example/bot?token=bad', 'id500912857935_bot'],
     ]) {
       const code = `
         const { createServer } = await import(${JSON.stringify(serverModule)});
         const { db } = await import(${JSON.stringify(dbModule)});
         const server = createServer();
         await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-        const url = 'http://127.0.0.1:' + server.address().port + '/open/recipe-bot?url=https://example.org&start=other';
+        const origin = 'http://127.0.0.1:' + server.address().port;
         const results = [];
-        for (const method of ['GET', 'HEAD', 'POST']) {
-          const response = await fetch(url, { method, redirect: 'manual' });
-          results.push({status:response.status, location:response.headers.get('location'), cache:response.headers.get('cache-control')});
+        for (const route of ['', '/telegram', '/max', '/other', '/https://attacker.example']) for (const method of ['GET', 'HEAD', 'POST']) {
+          const response = await fetch(origin + '/open/recipe-bot' + route + '?url=https://example.org&start=other&platform=other', { method, redirect: 'manual' });
+          results.push({route, method, status:response.status, location:response.headers.get('location'), cache:response.headers.get('cache-control')});
           await response.text();
         }
         const catalog = await fetch('http://127.0.0.1:' + server.address().port + '/recipes?benefits=preview');
@@ -40,21 +42,26 @@ test('catalog invitation resolves the correct bot in all contours without accept
         cwd: directory, encoding: 'utf8', timeout: 15000,
         env: { ...process.env, DATABASE_PATH: path.join(directory, `${platform}-${testContour}.sqlite`),
           BOT_PLATFORM: platform, TEST_CONTOUR: testContour, TEST_BOT_USERNAME: 'recipeboi_test_bot',
-          MAX_BOT_USERNAME: 'id500912857935_bot', TELEGRAM_BOT_TOKEN: 'local-test-only',
+          MAX_BOT_USERNAME: maxUsername, TELEGRAM_BOT_TOKEN: 'local-test-only',
           TELEGRAM_POLLING: 'false', DINNER_LLM_ENABLED: 'false', DINNER_IMAGES_ENABLED: 'false', OPENAI_API_KEY: 'unused' },
       });
       assert.equal(run.status, 0, run.stderr);
       const {results,html,catalogStatus,cache,headStatus,headBody} = JSON.parse(run.stdout.trim());
       assert.equal(catalogStatus,200);assert.equal(cache,'no-store');assert.equal(headStatus,200);assert.equal(headBody,'');
-      assert.ok(html.includes(`<span data-benefits-platform>${platform === 'max' ? 'MAX' : 'Telegram'}</span>`));
-      assert.equal(html.includes('<svg data-benefits-telegram hidden'),platform === 'max');
-      assert.ok(html.includes('href="/open/recipe-bot"'));
-      for (const result of results.slice(0, 2)) {
+      assert.ok(html.includes('id="benefits-cta"'));assert.ok(html.includes('id="benefits-cta-max"'));
+      assert.ok(html.includes('href="/open/recipe-bot/telegram"'));assert.ok(html.includes('href="/open/recipe-bot/max"'));
+      assert.equal(html.includes('<svg data-benefits-telegram hidden'),false);
+      for (const result of results) {
+        if (!['','/telegram','/max'].includes(result.route)) {
+          assert.equal(result.status,404);assert.equal(result.location,null);continue;
+        }
+        if (result.method === 'POST') {assert.equal(result.status,405);assert.equal(result.location,null);continue;}
+        const useMax=result.route==='/max'||result.route===''&&platform==='max';
+        const expected=useMax?`https://max.ru/${expectedMax}?start=dinner`:`https://t.me/${testContour==='true'?'recipeboi_test_bot':'Recipeboibot'}?start=dinner`;
         assert.equal(result.status, 302);
         assert.equal(result.location, expected);
         assert.equal(result.cache, 'no-store');
       }
-      assert.equal(results[2].status, 405);
     }
   } finally { fs.rmSync(directory, {recursive:true, force:true}); }
 });

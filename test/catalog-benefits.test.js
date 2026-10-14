@@ -30,10 +30,10 @@ function browser({storage = new Map(), storageDisabled = false, hidden = false, 
       getClientRects() { return [{}]; }
     };
   }
-  const ids = new Map(['catalog-benefits','benefits-close','benefits-continue','benefits-cta','benefits-image','benefits-recipe-title'].map(id=>[id,element()]));
+  const ids = new Map(['catalog-benefits','benefits-close','benefits-continue','benefits-cta','benefits-cta-max','benefits-image','benefits-recipe-title'].map(id=>[id,element()]));
   const dialog = ids.get('catalog-benefits'), heading = element('H1'), body = element('BODY'), scroll = element();
   const trigger = element('BUTTON');
-  const controls = ['benefits-close','benefits-cta','benefits-continue'].map(id=>ids.get(id));
+  const controls = ['benefits-close','benefits-cta','benefits-cta-max','benefits-continue'].map(id=>ids.get(id));
   const state = {cssVisible:true, covered:false};
   dialog.open = false;
   dialog.showModal = () => { dialog.open=true; document.activeElement=ids.get('benefits-close'); };
@@ -129,7 +129,7 @@ test('closed, CSS-hidden or covered dialogs do not report a view', () => {
 test('duplicate CTA clicks have one shared flow and reopening creates a new flow', () => {
   const page=browser();
   page.api.open(recipe); page.frame(); page.advance(1200);
-  page.click('benefits-cta'); page.click('benefits-cta');
+  page.click('benefits-cta'); page.click('benefits-cta-max'); page.click('benefits-cta');
   assert.equal(page.dialog.open,true,'CTA must preserve the current recipe and dialog');
   assert.deepEqual(page.events.map(event=>event.event),['benefits_view','benefits_cta']);
   assert.equal(page.events[1].durationMs,1200);
@@ -138,9 +138,31 @@ test('duplicate CTA clicks have one shared flow and reopening creates a new flow
   assert.equal(new Set(page.events.map(event=>event.flowId)).size,1);
   assert.ok(page.events.every(event=>event.step==='catalog'));
   assert.match(page.events[0].flowId,/^[a-f\d-]{36}$/i);
-  page.api.open(recipe); page.frame(); page.click('benefits-cta');
+  page.api.open(recipe); page.frame(); page.click('benefits-cta-max'); page.click('benefits-cta');
   assert.notEqual(page.events[3].flowId,page.events[0].flowId);
   assert.equal(page.events.filter(event=>event.event==='benefits_cta').length,2);
+});
+
+test('both CTA buttons ignore a hidden or closed dialog and share one visible conversion', () => {
+  const page=browser({hidden:true});page.api.open(recipe);page.frame();
+  page.click('benefits-cta');page.click('benefits-cta-max');assert.equal(page.events.length,0);
+  page.reveal();page.click('benefits-cta-max');page.click('benefits-cta');
+  assert.deepEqual(page.events.map(e=>e.event),['benefits_view','benefits_cta']);
+  assert.ok(page.events.every(e=>!('destination' in e)&&!('url' in e)));
+  page.api.close();page.click('benefits-cta');page.click('benefits-cta-max');
+  assert.equal(page.events.filter(e=>e.event==='benefits_cta').length,1);
+});
+
+test('keyboard focus wraps around all controls while either platform button stays in the tab sequence', () => {
+  const page=browser();page.api.open(recipe);page.frame();
+  page.ids.get('benefits-close').focus();
+  assert.equal(page.dialog.fire('keydown',{key:'Tab',shiftKey:true}).defaultPrevented,true);
+  assert.equal(page.document.activeElement,page.ids.get('benefits-continue'));
+  assert.equal(page.dialog.fire('keydown',{key:'Tab',shiftKey:false}).defaultPrevented,true);
+  assert.equal(page.document.activeElement,page.ids.get('benefits-close'));
+  for(const id of ['benefits-cta','benefits-cta-max']){
+    page.ids.get(id).focus();assert.equal(page.dialog.fire('keydown',{key:'Tab',shiftKey:false}).defaultPrevented,false);
+  }
 });
 
 for(const action of ['escape','benefits-close','benefits-continue']) {

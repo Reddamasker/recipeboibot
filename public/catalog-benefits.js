@@ -46,7 +46,10 @@
   }
   document.getElementById('benefits-close').addEventListener('click', () => close());
   document.getElementById('benefits-continue').addEventListener('click', () => close());
-  document.getElementById('benefits-cta').addEventListener('click', () => { checkVisible(); if (!ctaRecorded && visibleAt) { record('benefits_cta'); ctaRecorded = true; } });
+  for (const id of ['benefits-cta','benefits-cta-max']) document.getElementById(id)?.addEventListener('click', () => {
+    if (!dialog.open || document.visibilityState !== 'visible') return;
+    checkVisible(); if (!ctaRecorded && visibleAt) { record('benefits_cta'); ctaRecorded = true; }
+  });
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
   dialog.addEventListener('keydown', event => {
     if (event.key !== 'Tab') return;

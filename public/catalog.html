@@ -6,7 +6,7 @@
   <meta name="description" content="Рецепты на каждый день: выбирайте кухню, продукты и время приготовления. Ингредиенты, порции и пошаговые инструкции прямо в браузере.">
   <meta name="theme-color" content="#f6f5f0">
   <link rel="icon" href="/assets/recipe-bot-avatar-v3.webp">
-  <link rel="stylesheet" href="/catalog.css?v=2"><link rel="stylesheet" href="/catalog-visual.css?v=clear-cuisines-1"><link rel="stylesheet" href="/catalog-benefits.css?v=8"><script defer src="/analytics.js?v=benefits-2"></script><script defer src="/catalog-benefits.js?v=4"></script><script defer src="/catalog.js?v=benefits-2"></script>
+  <link rel="stylesheet" href="/catalog.css?v=2"><link rel="stylesheet" href="/catalog-visual.css?v=clear-cuisines-1"><link rel="stylesheet" href="/catalog-benefits.css?v=10"><script defer src="/analytics.js?v=benefits-2"></script><script defer src="/catalog-benefits.js?v=5"></script><script defer src="/catalog.js?v=benefits-2"></script>
 </head>
 <body>
 <a class="skip" href="#content">К рецептам</a>
@@ -45,21 +45,55 @@
   <div class="benefits-scroll">
     <div class="benefits-layout">
       <section class="benefits-story">
-        <h2 id="benefits-title">Не тратьте время<br><em>на поиск рецептов.</em></h2>
+        <h2 id="benefits-title">А если выбирать ужин<br><em>без долгих поисков?</em></h2>
       </section>
-      <figure class="benefits-example" aria-label="Пример подбора блюда">
-        <div class="benefits-example-photo"><img src="/assets/benefits-dinner-v3.png" alt="Курица с лимоном и укропом, рядом продукты для приготовления" width="1254" height="1265"></div>
-        <figcaption>Курица с лимоном и укропом · пример ИИ</figcaption>
-      </figure>
       <section class="benefits-details" aria-label="Возможности помощника">
         <ul class="benefits-outcomes" role="list">
-          <li><svg aria-hidden="true" width="30" height="30" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="17" cy="16" r="9"/><circle cx="17" cy="16" r="5"/><path d="M3 5v7m3-7v7M3 9h3m-1.5 3v15M30 5v22m0-22c-3 3-3 8 0 10"/></svg><span>Бот помнит ваши предпочтения</span></li>
-          <li><svg aria-hidden="true" width="30" height="30" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6h19v23H7a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h16M7 6v23M4 25c0-2 1-3 3-3h19M15 6v9l3-2 3 2V6"/></svg><span>Добавляйте любимые рецепты в подборку</span></li>
-          <li><svg aria-hidden="true" width="30" height="30" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 23h18l-3-5v-6a6 6 0 0 0-12 0v6l-3 5Z M13 27a3 3 0 0 0 6 0 M16 3v3"/></svg><span>Напомнит выбрать ужин заранее</span></li>
+          <li>
+            <svg class="benefits-scene" aria-hidden="true" width="144" height="108" viewBox="0 0 144 108" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="72" cy="95" rx="56" ry="8" fill="#e7def0"/>
+              <rect x="25" y="11" width="103" height="77" rx="10" transform="rotate(7 25 11)" fill="#ddd0e8"/>
+              <rect x="15" y="17" width="110" height="76" rx="11" fill="#fffdfd" stroke="#b9a8c7" stroke-width="1.5"/>
+              <rect x="24" y="26" width="27" height="25" rx="5" fill="#eee5f3"/><ellipse cx="37" cy="39" rx="10" ry="8" fill="#fffdfd" stroke="#b9a8c7" stroke-width="1.2"/><path d="M32 39c1-5 8-5 10 0-2 5-8 5-10 0Z" fill="#cfb1be"/><path d="M38 33c-1-4 5-4 5-4-1 4-3 5-5 4Z" fill="#9b829f"/>
+              <path d="M57 34h32M57 42h23" stroke="#77617f" stroke-width="3"/>
+              <path d="M27 57h86" stroke="#e7def0" stroke-width="1.5"/>
+              <rect x="26" y="66" width="39" height="16" rx="8" fill="#a4415c"/><path d="m32 74 3 3 5-6" stroke="#fff" stroke-width="1.7"/><path d="M46 74h11" stroke="#fff" stroke-opacity=".8" stroke-width="2"/>
+              <rect x="71" y="66" width="43" height="16" rx="8" fill="#e7def0"/><path d="m77 74 3 3 5-6" stroke="#775f80" stroke-width="1.7"/><path d="M92 74h14" stroke="#9b829f" stroke-width="2"/>
+              <circle cx="118" cy="24" r="18" fill="#a4415c" stroke="#f3f0f7" stroke-width="4"/><path d="M118 31s-9-5-9-10c0-5 7-6 9-2 2-4 9-3 9 2 0 5-9 10-9 10Z" fill="#fff5f7"/>
+            </svg>
+            <div><h3>Ваш вкус учтён</h3><p>Бот помнит предпочтения</p></div>
+          </li>
+          <li>
+            <svg class="benefits-scene" aria-hidden="true" width="144" height="108" viewBox="0 0 144 108" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="72" cy="96" rx="58" ry="7" fill="#e7def0"/>
+              <rect x="37" y="9" width="80" height="78" rx="7" transform="rotate(9 37 9)" fill="#d5c4e2"/>
+              <rect x="23" y="17" width="90" height="75" rx="7" transform="rotate(-6 23 17)" fill="#eee4f3" stroke="#b9a8c7" stroke-width="1.5"/>
+              <path d="M16 31c18-7 36-6 55 0 19-6 37-7 56 0v59c-19-6-37-6-56 0-19-6-37-6-55 0V31Z" fill="#fffdfd" stroke="#b9a8c7" stroke-width="1.5"/>
+              <path d="M71 32v57" stroke="#d7c8e2" stroke-width="1.5"/><path d="M16 86c18-6 36-5 55 1 19-6 37-7 56-1" stroke="#d7c8e2" stroke-width="1.5"/>
+              <rect x="28" y="39" width="31" height="13" rx="3" fill="#e7def0"/><path d="M29 61h29M29 68h22M29 75h26M83 42h29M83 49h22M83 62h29M83 69h24M83 76h28" stroke="#a995b6" stroke-width="2"/>
+              <path d="M101 26h14v29l-7-5-7 5V26Z" fill="#a4415c"/><path d="M104 26h8" stroke="#ce8498" stroke-width="2"/>
+              <circle cx="25" cy="84" r="11" fill="#a4415c" stroke="#f3f0f7" stroke-width="3"/><path d="M25 80v8m-4-4h8" stroke="#fff" stroke-width="1.8"/>
+            </svg>
+            <div><h3>Готовьте любимое</h3><p>Свои рецепты — в подборке</p></div>
+          </li>
+          <li>
+            <svg class="benefits-scene" aria-hidden="true" width="144" height="108" viewBox="0 0 144 108" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="72" cy="95" rx="57" ry="8" fill="#e7def0"/>
+              <rect x="14" y="25" width="116" height="66" rx="11" fill="#fffdfd" stroke="#b9a8c7" stroke-width="1.5"/>
+              <rect x="21" y="32" width="19" height="19" rx="6" fill="#a4415c"/><path d="M25 45h11l-2-3v-3a3.5 3.5 0 0 0-7 0v3l-2 3Zm4 2h3" stroke="#fff" stroke-width="1.3"/>
+              <text x="47" y="45" fill="#5f466a" font-family="Arial,sans-serif" font-size="14" font-weight="700">17:00</text>
+              <path d="M47 51h34" stroke="#d4c4df" stroke-width="2"/>
+              <rect x="23" y="59" width="44" height="23" rx="5" fill="#eee5f4"/><path d="M30 66h23M30 73h16" stroke="#a995b6" stroke-width="2"/>
+              <rect x="74" y="59" width="46" height="23" rx="5" fill="#f7e4ea" stroke="#c67c92" stroke-width="1.3"/><path d="M81 66h16M81 73h21" stroke="#b76b82" stroke-width="2"/><path d="m107 66 3 3 5-6" stroke="#a4415c" stroke-width="1.7"/>
+              <circle cx="112" cy="26" r="19" fill="#e7def0" stroke="#f3f0f7" stroke-width="4"/><circle cx="112" cy="26" r="13" fill="#fffdfd" stroke="#9b829f" stroke-width="1.5"/><path d="M112 17v9l7 4" stroke="#a4415c" stroke-width="2"/><circle cx="112" cy="26" r="2" fill="#a4415c"/>
+              <path d="m114 77 2 21 5-6 7 1-14-16Z" fill="#a4415c" stroke="#fff5f7" stroke-width="1.5"/>
+            </svg>
+            <div><h3>Выбирайте заранее</h3><p>Напомним об ужине</p></div>
+          </li>
         </ul>
       </section>
     </div>
   </div>
-  <footer class="benefits-footer"><div class="benefits-trial"><strong>7 дней бесплатно · без карты</strong><span>Для новых пользователей. Запуск в боте.</span></div><div class="benefits-decisions"><a id="benefits-cta" class="benefits-cta" href="/open/recipe-bot" target="_blank" rel="noopener"><svg data-benefits-telegram aria-hidden="true" width="21" height="21" viewBox="0 0 24 24"><path fill="currentColor" d="m20.4 4-3.1 15c-.2 1.1-.9 1.4-1.8.8l-4.7-3.5-2.3 2.2c-.2.3-.5.5-.9.5l.3-4.8 8.8-8c.4-.3-.1-.5-.5-.2L5.4 12.9.8 11.4c-1-.3-1-1 .2-1.4L19 3.1c.9-.3 1.7.2 1.4.9Z"/></svg><span>Подобрать ужин в <span data-benefits-platform>Telegram</span></span></a><button id="benefits-continue" type="button">К рецепту</button></div></footer>
+  <footer class="benefits-footer"><div class="benefits-trial"><strong>7 дней бесплатно · без карты</strong><span>Для новых пользователей. Запуск в боте.</span></div><div class="benefits-decisions"><div class="benefits-platforms" role="group" aria-label="Выберите, где попробовать"><a id="benefits-cta" class="benefits-cta" href="/open/recipe-bot/telegram" target="_blank" rel="noopener"><svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24"><path fill="currentColor" d="m20.4 4-3.1 15c-.2 1.1-.9 1.4-1.8.8l-4.7-3.5-2.3 2.2c-.2.3-.5.5-.9.5l.3-4.8 8.8-8c.4-.3-.1-.5-.5-.2L5.4 12.9.8 11.4c-1-.3-1-1 .2-1.4L19 3.1c.9-.3 1.7.2 1.4.9Z"/></svg><span>Telegram</span></a><a id="benefits-cta-max" class="benefits-cta benefits-cta-max" href="/open/recipe-bot/max" target="_blank" rel="noopener">MAX</a></div><button id="benefits-continue" type="button">К рецепту</button></div></footer>
 </dialog>
 </body></html>
