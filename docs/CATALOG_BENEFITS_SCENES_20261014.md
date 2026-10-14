@@ -29,4 +29,12 @@
 
 Независимый frontend-review по четырём размерам без блокеров. Исправлен перенос заголовка на desktop. Браузер: 320×568, 390×844, 844×390, 1440×1000; scrollWidth/Height совпадают с clientWidth/Height. На 320 обе кнопки 137×48, крестик 44×44, всё помещается без прокрутки. Safe-area сохранены. Финальный CSS v10, JS v5. Снимки: `outputs/catalog-benefits-v5/`. Физический телефон владельца и системное увеличение шрифтов не эмулировались.
 
-Release-копия: `.tmp/benefits-visual-release-20261014`, commit `b748e1f`. Результат полного выпуска будет добавлен после проверки.
+## Выпуск только в test
+
+Полный набор: 642/642 локально и на сервере. Штатные `deploy-test.js --check` и `--apply` завершились успешно. Основной Telegram и MAX не переиздавались; кнопка MAX ведёт в существующего официального бота.
+
+Код main `91ee45f`; release-копия `.tmp/benefits-visual-release-20261014`, commit `b748e1f`. Архив SHA256: `eaa578d6691fa82d61b343c0cd415d7ae91f9951200f1ad98add9df6886d8a50`. Зашифрованный резерв: `/opt/recipeboibot-test/backups/recipes-before-parity-20261014T074109Z.sqlite.enc`.
+
+После выпуска все 479 файлов src/public совпадают с Git-архивом release. Source SHA256: `4b36230ae1133cf5e6daf5a0fd9c80c674c5064c072a42d20eaa2ab1f027b41a`. Контейнер healthy/ready, restart 0, OOM false; integrity ok, foreign-key violations 0. Окружение, пользователи, рецепты, триалы, платежи, AI-запросы и резервации сохранены. Аналитика benefits 1 view / 1 CTA / 1 close, unmatched 0, bridge v7 без изменений. Снимки проверки: `.tmp/benefits-v5-test-before.json`, `.tmp/benefits-v5-test-after.json`.
+
+Публичная проверка с телефона: https://recipeboibot-test.89-223-123-75.sslip.io/recipes/pork-cabbage?benefits=preview . Параметр открывает экран для ревью и исключает эти показы из аналитики. Опубликованный экран проверен в браузере при 390×844: размеры содержимого и окна совпадают, обе кнопки видимы. Финальный снимок: `outputs/catalog-benefits-v5/published-mobile-390.png`.
