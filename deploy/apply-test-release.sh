@@ -83,6 +83,7 @@ subprocess.run(['openssl','enc','-aes-256-cbc','-salt','-pbkdf2','-iter','200000
 temporary.unlink()
 print('Encrypted database backup:',encrypted)
 PY
+python3 deploy/enable-persistent-logs.py recipeboibot-test compose.test.yaml
 docker compose -f compose.test.yaml up -d --no-build app
 for attempt in $(seq 1 30); do
   health=$(docker inspect --format '{{.State.Health.Status}}' recipeboibot-test)
