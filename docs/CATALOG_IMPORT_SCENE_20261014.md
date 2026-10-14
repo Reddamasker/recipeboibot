@@ -7,3 +7,11 @@
 Аналитика: исключительно замена иллюстрации. Существующие benefits_view → benefits_cta / benefits_close и durationMs покрывают показ, действие и отказ; client_error и telemetry_health — ошибки/потери. Переход не означает успешный запуск бота. Идемпотентность, скрытые состояния, очередь, реестр, дашборд, начало сбора и bridge v7 остаются прежними; новых событий и данных нет. Поведение реального UI проверено в V5, в этой итерации проверяется визуальное отображение в preview, исключённом из аналитики.
 
 Предпросмотр для телефона: https://recipeboibot-test.89-223-123-75.sslip.io/recipes/pork-cabbage?benefits=preview . Только тестовый контур; основной Telegram/MAX не переиздаются.
+
+Проверены 320×568, 390×844 и desktop 1440×1000: scrollWidth/scrollHeight совпадают с clientWidth/clientHeight. На мобильных оба CTA и закрытие остаются видимыми, схема преобразования читается. Отдельный frontend-review кода и снимка 320 px — без блокеров; номера шагов на таком размере вторичны, смысл поддерживается общей композицией и aria-label. Скриншоты: outputs/catalog-benefits-v7/.
+
+Код main 0ccdcc6, release 96f35f7 в чистой .tmp/benefits-visual-release-20261014. Других изменений интерфейса в выпуске нет.
+
+Штатные deploy-test.js --check и --apply завершены успешно, 642/642 теста локально и на сервере. Архив: ffe425f36cfe7b2682e3af1a45f3f13b3548f29fdedad4be2ff77ae304334e2c. Резерв: /opt/recipeboibot-test/backups/recipes-before-parity-20261014T090526Z.sqlite.enc. Все 481 файла src/public совпадают с Git-архивом release; source SHA256 72f3893717eedb176f026953333bb3141f8a6584790583037038bcef1cfc8a08.
+
+Healthy/ready, restart 0, OOM false, integrity ok, FK 0. Окружение и данные сохранены, аналитика прежняя: 1 view / 1 CTA / 1 close, unmatched 0, campaign null, bridge v7. Снимки до/после: .tmp/benefits-v7-test-before.json и .tmp/benefits-v7-test-after.json. Опубликованная схема подтверждена в браузере; итоговый мобильный снимок outputs/catalog-benefits-v7/published-mobile.png.
