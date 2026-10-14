@@ -33,3 +33,16 @@ Use case: ads-marketing. Create a premium editorial food collage asset for a Rus
 Крестик закрывает диалог, возвращает фокус к H1, снимает фиксацию body и оставляет выбранный рецепт. Ошибок JS не обнаружено. Финальная версия CSS v7. Скриншоты сохранены в `outputs/catalog-benefits-v3/`.
 
 Полный локальный набор: 640/640. Финальные изменения после ревью — только CSS и версия его ресурса; полный набор повторяется штатным deploy перед загрузкой и в контейнере. Выпуск выполняется из чистой копии `.tmp/benefits-visual-release-20261014`, release-коммит `6b70530`. В архив не попадают посторонние незавершённые файлы, окружение и данные.
+
+## Выпущено только в test
+
+Штатные `deploy-test.js --check` и `--apply` завершены. Повторный полный набор перед отправкой и в контейнере: 640/640 в каждом запуске. Код в main: `c6bf058`, отправка в origin/main подтверждена. Основной Telegram/MAX в этой итерации не переиздавались.
+
+- Архив выпуска: `1eac3270ffc19623be968630a2c8f6ea44afb09373ceab5750674c236548b26f`.
+- Резерв БД: `/opt/recipeboibot-test/backups/recipes-before-parity-20261014T070153Z.sqlite.enc`.
+- Паритет всех 479 файлов src/public с Git-архивом подтверждён. Source SHA256 `b67a58b0704771701442df571cce6b70f8dc19f9f46e6d96ebe04689883f9bea`.
+- Healthy/readyz, integrity ok, FK errors 0, restartCount 0. Хеш окружения не изменился. Users 2, recipes 2, trials 1, provider_requests 404, ai_reservations 406, orders/subscriptions 0 сохранены; содержимое персональных данных не извлекалось.
+- Внешняя страница открыта браузером на 390×844: CSS v7, изображение загружено, clientHeight=scrollHeight=844. Реальное нажатие CTA открывает `https://t.me/recipeboi_test_bot?start=dinner`; Start не отправлялся. Снимок опубликованной страницы: `outputs/catalog-benefits-v3/published-mobile-390.png`.
+- Агрегат после preview-проверки неизменен: 1 view, 1 CTA, 1 close, unmatchedActions 0; это прежние контрольные события, а не новая оценка конверсии. Рекламный срез null, bridge v7. Новых счётчиков и сбросов нет.
+
+Ссылка для телефона: https://recipeboibot-test.89-223-123-75.sslip.io/recipes/pork-cabbage?benefits=preview . Открывать исходную ссылку повторно: preview-параметр удаляется после показа, сохранение обычного URL не гарантирует повторное открытие экрана.
