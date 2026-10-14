@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { config } from './config.js';
 import { db } from './db.js';
 import { createWebLoginStore } from './web-login-store.js';
+import { log } from './log.js';
 
 export function prototypeSettings(settings) {
   if (!settings.webLoginPrototypeEnabled) return null;
@@ -82,8 +83,23 @@ export async function handleWebLoginUpdate(update,call) {
   if(!settings || actor!==settings.ownerId)return true;
   if(callback) {
     const match=/^wl:(a|d):([a-f0-9-]{36})$/.exec(callback.data);
-    const ok=match && callback.message?.chat?.type==='private' && callback.message.chat.id===callback.from.id && webLoginStore.decide(match[2],actor,callback.message.message_id,match[1]==='a');
-    await call('answerCallbackQuery',{callback_query_id:callback.id,text:ok?(match[1]==='a'?'Вход подтверждён. Вернись в исходный браузер.':'Вход отменён.'):'Запрос уже завершён или истёк.'});
+    const privateCallback=match && callback.message?.chat?.type==='private' && callback.message.chat.id===callback.from.id;
+    if(privateCallback) webLoginStore.decide(match[2],actor,callback.message.message_id,match[1]==='a');
+    // Replays repair a failed message edit using the stored outcome, even if the
+    // browser has already consumed the request. Never infer success from the button.
+    const state=privateCallback?webLoginStore.callbackState(match[2],actor,callback.message.message_id):null;
+    const approved=state==='approved'||state==='consumed';
+    const notice=approved?'Вход подтверждён. Вернись в исходный браузер.':state==='denied'?'Вход отменён.':'Запрос уже завершён или истёк.';
+    const text=approved?'Вход подтверждён.\n\nВернись в ту же вкладку Safari или Chrome — сайт завершит вход автоматически.':state==='denied'?'Вход отменён.\n\nЕсли передумаешь, начни новый вход на сайте.':'Этот запрос входа больше не действует.\n\nНачни новый вход на сайте.';
+    // A persistent message is visible in the chat; MAX notifications can vanish
+    // unnoticed. Only a failed persistent edit needs inbox retry; a stale callback
+    // notification must not turn an already delivered result into a failed update.
+    const [edited,answered]=await Promise.allSettled([
+      state?call('editMessageText',{chat_id:callback.message.chat.id,message_id:callback.message.message_id,text,reply_markup:{inline_keyboard:[]}}):Promise.resolve(),
+      call('answerCallbackQuery',{callback_query_id:callback.id,text:notice}),
+    ]);
+    if(answered.status==='rejected')log('warn','web_login_callback_notice_failed');
+    if(edited.status==='rejected')throw edited.reason;
     return true;
   }
   if(message.chat?.type!=='private'||message.chat.id!==message.from.id)return true;
