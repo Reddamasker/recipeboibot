@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#f3f0f7">
+  <title>Проверка входа через MAX — Твои рецепты</title>
+  <link rel="stylesheet" href="/web-login-prototype.css?v=1">
+  <script defer src="/web-login-prototype.js?v=1"></script>
+</head>
+<body>
+  <main class="login-shell">
+    <header class="login-header"><span class="login-brand">Твои рецепты</span><span class="login-label">Технический прототип</span></header>
+    <section class="login-card" aria-labelledby="login-title">
+      <p class="login-eyebrow">Доступ для проверки владельцем</p>
+      <h1 id="login-title">Вход через <em>MAX</em></h1>
+      <p class="login-intro">Здесь проверяем подтверждение входа в браузере. Это ещё не личный кабинет и не доступ к твоей коллекции.</p>
+      <p id="login-status" class="login-status" role="status" aria-live="polite">Проверяем текущий вход…</p>
+      <section id="login-challenge" class="login-challenge" hidden aria-label="Подтверждение входа">
+        <h2 id="login-code-title" tabindex="-1">Сравни код с сообщением в боте</h2>
+        <p id="login-code" class="login-code" aria-label="Код проверки"></p>
+        <p>Подтверждай вход в MAX, только если код совпадает и это твоя проверка.</p>
+        <p id="login-deadline" class="login-meta"></p>
+        <button id="login-open-max" class="button-primary" type="button">Открыть MAX</button>
+        <p id="login-resume-note" class="login-meta" hidden>Подтверди вход в уже открытом боте. Если бот уже закрыт, получи новый код.</p>
+      </section>
+      <section id="login-success" class="login-success" hidden aria-labelledby="login-success-title">
+        <span class="login-check" aria-hidden="true"></span>
+        <h2 id="login-success-title" tabindex="-1">Вход подтверждён</h2>
+        <p>Браузер получил отдельную сессию только для этого прототипа.</p>
+        <p id="login-session-deadline" class="login-meta"></p>
+      </section>
+      <p id="login-error" class="login-error" role="alert" hidden></p>
+      <div class="login-actions">
+        <button id="login-start" class="button-primary" type="button" disabled>Начать проверку входа</button>
+        <button id="login-check-status" class="button-secondary" type="button" hidden>Проверить ещё раз</button>
+        <button id="login-logout" class="button-secondary" type="button" hidden>Выйти из прототипа</button>
+      </div>
+      <p id="login-poll-note" class="login-meta" hidden>Статус обновляется, пока эта вкладка открыта на экране.</p>
+      <noscript><p class="login-error">Для проверки входа включи JavaScript в браузере.</p></noscript>
+    </section>
+    <footer class="login-footer">Код не открывает коллекцию и не меняет доступ к рецептам.</footer>
+  </main>
+</body>
+</html>

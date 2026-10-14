@@ -1,4 +1,5 @@
 import { maxEventId, maxStore } from './max-store.js';
+import { sanitizeWebLoginEvent } from './web-login-prototype.js';
 
 const validId = (value) => typeof value === 'number' ? Number.isSafeInteger(value) && value > 0 : /^[1-9]\d*$/.test(String(value ?? ''));
 const user = (from) => ({ id: `max:${from.user_id}`, first_name: from.first_name || from.name || 'Пользователь', ...(from.last_name ? { last_name: from.last_name } : {}), ...(from.username ? { username: from.username } : {}), is_bot: false });
@@ -8,7 +9,7 @@ export function normalizeMaxUpdate(event, { store = maxStore, botId, eventId } =
   if (!event || typeof event !== 'object') return null;
   if (event.update_type === 'bot_started') {
     if (!validId(event.user?.user_id) || event.user.is_bot || event.chat_id == null || !store.bind(event.chat_id, event.user.user_id)) return null;
-    return { message: { ...privateMessage(event.user, `start:${event.timestamp}`), text: `/start${event.payload ? ` ${String(event.payload).replace(/[\r\n]/g, '')}` : ''}` } };
+    return { message: { ...privateMessage(event.user, `start:${event.timestamp}`), ...(event._webLoginRequest ? { webLoginRequest:event._webLoginRequest } : {}), text: `/start${event.payload ? ` ${String(event.payload).replace(/[\r\n]/g, '')}` : ''}` } };
   }
   if (event.update_type === 'message_created') {
     const source = event.message;
@@ -51,7 +52,9 @@ export function normalizeMaxUpdate(event, { store = maxStore, botId, eventId } =
 
 export function enqueueMaxUpdate(event, { store = maxStore } = {}) {
   if (!event || typeof event !== 'object' || Array.isArray(event) || typeof event.update_type !== 'string') throw new Error('Invalid MAX webhook event');
-  return store.enqueue(event);
+  // Hash the original delivery for stable deduplication even after its login
+  // request changes state; only the sanitized event is persisted.
+  return store.enqueue(sanitizeWebLoginEvent(event), { eventId:maxEventId(event) });
 }
 
 export function startMaxWorker(handleUpdate, { store = maxStore, botId, pollMs = 500, retryDelayMs, onError = () => {} } = {}) {
