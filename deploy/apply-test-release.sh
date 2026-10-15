@@ -21,7 +21,8 @@ backup_paths=(src public Dockerfile package.json compose.test.yaml)
 [[ -d scripts ]] && backup_paths+=(scripts)
 [[ -d test ]] && backup_paths+=(test)
 tar -czf "$backup" "${backup_paths[@]}"
-docker tag recipeboibot-test-app "$previous"
+running_image="$(docker inspect --format '{{.Image}}' recipeboibot-test)"
+docker tag "$running_image" "$previous"
 replace_source_directories() {
   # Fixed source paths only: never remove env, compose, backups or data volumes.
   rm -rf -- /opt/recipeboibot-test/src /opt/recipeboibot-test/public /opt/recipeboibot-test/deploy /opt/recipeboibot-test/scripts /opt/recipeboibot-test/test

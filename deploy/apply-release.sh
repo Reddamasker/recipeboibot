@@ -22,7 +22,8 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="backups/source-before-git-$stamp.tgz"
 previous="recipeboibot-recipeboibot:before-git-$stamp"
 sudo -n tar -czf "$backup" src public deploy Dockerfile package.json compose.yaml
-sudo -n docker tag recipeboibot-recipeboibot "$previous"
+running_image="$(sudo -n docker inspect --format '{{.Image}}' recipeboibot)"
+sudo -n docker tag "$running_image" "$previous"
 rollback() {
   echo 'Deployment failed; restoring previous source and image' >&2
   sudo -n tar -xzf "$backup" -C /opt/recipeboibot

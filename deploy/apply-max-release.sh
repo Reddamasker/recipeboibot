@@ -166,7 +166,8 @@ else
   assert_runtime
   existing=true
   tar -czf "$source_backup" src public deploy scripts test Dockerfile package.json compose.max.yaml DEPLOYED_REVISION DEPLOYED_ARCHIVE_SHA256 DEPLOYED_SOURCE_SHA256
-  docker tag "$image:latest" "$previous"
+  running_image="$(docker inspect --format '{{.Image}}' "$container")"
+  docker tag "$running_image" "$previous"
 fi
 cd "$root"
 
