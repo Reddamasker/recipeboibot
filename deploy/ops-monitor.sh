@@ -28,9 +28,14 @@ send_alert() {
     printf '%s\n' "Monitoring alert was not delivered: OPS_ALERT_CHAT_ID or TELEGRAM_BOT_TOKEN is missing" >&2
     return 1
   fi
-  curl -fsS --max-time 20 -X POST "${telegram_origin}/bot${telegram_token}/sendMessage" \
+  alert_response="$(curl -fsS --max-time 20 -X POST "${telegram_origin}/bot${telegram_token}/sendMessage" \
     --data-urlencode "chat_id=${alert_chat_id}" \
-    --data-urlencode "text=${text}" >/dev/null
+    --data-urlencode "text=${text}")" || return 1
+  if ! printf '%s' "$alert_response" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]'; then
+    printf '%s\n' 'Monitoring alert was not confirmed by Telegram' >&2
+    return 1
+  fi
+  printf '%s\n' 'Monitoring alert delivery confirmed by Telegram'
 }
 
 failures=""
@@ -96,6 +101,22 @@ else
   add_failure "Проверка готовности платёжного контура недоступна"
 fi
 
+# Probe the same validation and merge used by the dashboard. HTTP 200 and healthy
+# containers do not guarantee a compatible MAX aggregate. Bound the entire probe.
+if ! timeout 20 docker exec "$container" node --input-type=module -e '
+  try {
+    const {config} = await import("./src/config.js");
+    if (config.botPlatform === "telegram" && !config.testContour && config.yandexDirectMaxCampaignId) {
+      const {mergeMaxFunnelReport} = await import("./src/max-funnel.js");
+      const {funnelReport} = await import("./src/funnel.js");
+      const report = await mergeMaxFunnelReport(funnelReport("all"));
+      if (report.remoteFunnel?.status !== "ready") process.exit(1);
+    }
+  } catch { process.exit(1); }
+'; then
+  add_failure "Данные MAX недоступны в дашборде: ошибка обмена или несовместимая версия"
+fi
+
 mkdir -p "$state_dir"
 previous=""
 [ ! -f "$state_file" ] || previous="$(cat "$state_file")"
@@ -106,8 +127,22 @@ fi
 
 if [ "$failures" != "$previous" ]; then
   if [ -n "$failures" ]; then
+    resolved=""
+    while IFS= read -r issue; do
+      [ -n "$issue" ] || continue
+      if ! printf '%s\n' "$failures" | grep -Fxq -- "$issue"; then
+        resolved="${resolved}${issue}
+"
+      fi
+    done <<EOF
+$previous
+EOF
+    recovery=""
+    if [ -n "$resolved" ]; then recovery="
+Устранено:
+${resolved}"; fi
     send_alert "Твои рецепты: требуется внимание.
-$failures"
+$failures${recovery}"
   elif [ -n "$previous" ]; then
     send_alert "Твои рецепты: все контролируемые показатели снова в норме."
   fi

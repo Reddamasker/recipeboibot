@@ -23,13 +23,16 @@ const [command, ...args] = process.argv.slice(2);
 if (command === 'curl') {
   if (args.some(arg => arg.endsWith('/sendMessage'))) {
     if (scenario.alertFailure) process.exit(1);
+    if (scenario.alertRejected) { console.log('{"ok":false}'); process.exit(0); }
     fs.appendFileSync(process.env.MONITOR_ALERTS, JSON.stringify(args.find(arg => arg.startsWith('text='))) + '\\n');
+    console.log('{"ok":true,"result":{"message_id":1}}');
   } else if (args.some(arg => arg.endsWith('/readyz'))) {
     if (scenario.readinessFailure) process.exit(22);
     process.stdout.write(scenario.body);
   } else if (scenario.healthFailure) process.exit(7);
 } else if (command === 'docker') {
   if (args[0] === 'inspect') console.log(scenario.container);
+  else if (args.some(arg => arg.includes('mergeMaxFunnelReport'))) process.exit(scenario.bridgeFailure ? 1 : 0);
   else {
     const result = spawnSync(process.execPath, args.slice(args.indexOf('node') + 1), {input: fs.readFileSync(0), encoding:'utf8'});
     process.stdout.write(result.stdout || '');
@@ -148,7 +151,8 @@ test('obsolete sales warning is replaced once without a false all-clear for back
   const result = runOnce({ missingOffsite: true, previous: 'Ещё не подтверждена внешняя резервная копия\nПродажи выключены: BILLING_REQUIRED не равен true' });
   assert.equal(result.alerts.length, 1);
   assert.match(result.alerts[0], /внешняя резервная копия/);
-  assert.doesNotMatch(result.alerts[0], /Продажи выключены|снова в норме/);
+  assert.match(result.alerts[0], /Устранено:\nПродажи выключены/);
+  assert.doesNotMatch(result.alerts[0], /снова в норме/);
 });
 
 test('failed alert delivery preserves state for retry, recovery sends once', () => {
@@ -165,5 +169,34 @@ test('failed alert delivery preserves state for retry, recovery sends once', () 
     assert.equal(recovered.alerts.length, 2);
     assert.match(recovered.alerts[1], /снова в норме/);
     assert.equal(context.run().alerts.length, 2);
+  } finally { context.cleanup(); }
+});
+
+test('MAX aggregate failure alerts once and its recovery is visible with a persistent backup warning', () => {
+  const context = fixture({ missingOffsite: true, previous: 'Ещё не подтверждена внешняя резервная копия', bridgeFailure: true });
+  try {
+    const failed = context.run();
+    assert.equal(failed.status, 0, failed.stderr);
+    assert.match(failed.statusText, /Данные MAX недоступны/);
+    assert.equal(failed.alerts.length, 1);
+    assert.equal(context.run().alerts.length, 1);
+    const recovered = context.run({ bridgeFailure: false });
+    assert.equal(recovered.statusText, 'Ещё не подтверждена внешняя резервная копия');
+    assert.equal(recovered.alerts.length, 2);
+    assert.match(recovered.alerts[1], /Устранено:\nДанные MAX недоступны/);
+    assert.doesNotMatch(recovered.alerts[1], /снова в норме/);
+    assert.equal(context.run().alerts.length, 2);
+  } finally { context.cleanup(); }
+});
+
+test('Telegram application rejection preserves the incident for another delivery attempt', () => {
+  const context = fixture({ bridgeFailure: true, alertRejected: true });
+  try {
+    assert.notEqual(context.run().status, 0);
+    assert.equal(context.run().statusText, '');
+    const retried = context.run({ alertRejected: false });
+    assert.equal(retried.status, 0, retried.stderr);
+    assert.match(retried.statusText, /Данные MAX недоступны/);
+    assert.equal(retried.alerts.length, 1);
   } finally { context.cleanup(); }
 });
