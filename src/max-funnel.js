@@ -29,7 +29,7 @@ export function maxFunnelSnapshot() {
   return { version: 8, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
 }
 function validateSnapshot(data) {
-  if (data?.version !== 8 || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+  if (![6, 8].includes(data?.version) || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');
@@ -46,8 +46,8 @@ function validateSnapshot(data) {
       || a.returnedAnyRecipeUsers > a.engagedRecipeUsers || a.engagedRecipeUsers > report.totals.starts
       || a.engagedRecipeUsers < Math.max(a.recipeUsers, a.fullRecipeUsers)) throw new Error('Invalid MAX return counts');
     const product = report.productAnalytics?.platforms;
-    if (!Array.isArray(product) || product.length !== 1 || !validProductReport(product[0])) throw new Error('Invalid MAX product analytics');
-    if (scope === 'campaign' ? product[0].catalogBenefits !== null : product[0].catalogBenefits === null) throw new Error('Invalid MAX catalog scope');
+    if (!Array.isArray(product) || product.length !== 1 || !validProductReport(product[0], { legacy: data.version === 6 })) throw new Error('Invalid MAX product analytics');
+    if (data.version !== 6 && (scope === 'campaign' ? product[0].catalogBenefits !== null : product[0].catalogBenefits === null)) throw new Error('Invalid MAX catalog scope');
     const j = report.trialJourney;
     if (trialCounters.some(k => !count(j?.[k]) || j[k] > report.totals.starts)
       || j.clicked > j.offered || j.activated > j.clicked || j.opened > j.activated
@@ -90,6 +90,12 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     if (text.length > 64000) throw new Error('MAX aggregate too large');
     const data = validateSnapshot(JSON.parse(text));
     const remote = specific ? data.campaign : data.all;
+    // The existing account metrics in v6 retain their validation. New sections
+    // remain unavailable instead of becoming zero or hiding the entire funnel.
+    if (data.version === 6) for (const product of remote.productAnalytics.platforms) {
+      product.catalogBenefits = null;
+      product.trialReminders = null;
+    }
     result.platform = specific ? 'max' : 'combined';
     result.productAnalytics = { platforms: specific ? remote.productAnalytics.platforms : [...(report.productAnalytics?.platforms || []), ...remote.productAnalytics.platforms] };
     result.recipeActivity = Object.fromEntries(activityCounters.map(key => [key, specific ? remote.recipeActivity[key] : result.recipeActivity[key] + remote.recipeActivity[key]]));

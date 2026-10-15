@@ -75,18 +75,35 @@ test('old MAX aggregates and impossible selection order remain unknown rather th
  }
 });
 
-test('benefits bridge rejects legacy, missing and wrongly scoped public metrics',async()=>{
- const legacy={...maxFunnelSnapshot(),version:6};
+test('benefits bridge rejects missing and wrongly scoped public metrics in the current schema',async()=>{
  const missing=maxFunnelSnapshot();delete missing.all.productAnalytics.platforms[0].catalogBenefits;
  const wrongScope=maxFunnelSnapshot();wrongScope.campaign.productAnalytics.platforms[0].catalogBenefits=wrongScope.all.productAnalytics.platforms[0].catalogBenefits;
  const missingAll=maxFunnelSnapshot();missingAll.all.productAnalytics.platforms[0].catalogBenefits=null;
- for(const snapshot of [legacy,missing,wrongScope,missingAll]){
+ for(const snapshot of [missing,wrongScope,missingAll]){
   const result=await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)});
   assert.equal(result.remoteFunnel.status,'error');assert.equal(result.productAnalytics,null);assert.equal(result.totals.starts,null);
  }
  const snapshot=maxFunnelSnapshot();
  const result=await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(snapshot)});
  assert.equal(result.remoteFunnel.status,'ready');assert.deepEqual(result.productAnalytics.platforms[0].catalogBenefits,snapshot.all.productAnalytics.platforms[0].catalogBenefits);
+});
+
+test('deployed v6 preserves validated MAX metrics while newer sections remain unavailable',async()=>{
+ const snapshot=maxFunnelSnapshot();snapshot.version=6;
+ for(const scope of ['all','campaign']) for(const p of snapshot[scope].productAnalytics.platforms) {
+  delete p.catalogBenefits;delete p.trialReminders;
+ }
+ for(const slug of [MAX_AD_PLACEMENT,null]) {
+  const result=await mergeMaxFunnelReport(report(slug),{...options,transport:async()=>Response.json(snapshot)});
+  assert.equal(result.remoteFunnel.status,'ready');
+  const max=result.productAnalytics.platforms.find(p=>p.platform==='max');
+  assert.equal(max.catalogBenefits,null);assert.equal(max.trialReminders,null);
+  assert.equal(result.totals.starts,slug?1:7);
+ }
+ const invalid=structuredClone(snapshot);invalid.all.productAnalytics.platforms[0].steps[0].errors=999;
+ assert.equal((await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(invalid)})).remoteFunnel.status,'error');
+ const disguised=maxFunnelSnapshot();disguised.version=6;
+ assert.equal((await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(disguised)})).remoteFunnel.status,'error');
 });
 
 test('MAX aggregation counts trial after a result even without choice and keeps optional choice conversion bounded', async () => {
