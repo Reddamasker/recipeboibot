@@ -76,9 +76,11 @@ export function productOperation(step, fn, { userId = null, flowId = null } = {}
       else if ((c.error || c.status || 200)>=400) recordProduct(null,'auth_error',{visitor:c.id,step,detail:{status:c.error||c.status}}); }
   });
 }
-export function validProductReport(value) {
+export function validProductReport(value, { legacy = false } = {}) {
   const numeric = x => x === null || Number.isFinite(x) && x >= 0;
   if (!value || value.platform !== 'max' || !Number.isFinite(Date.parse(value.trackingSince))) return false;
+  if (legacy && (value.trialReminders != null || value.catalogBenefits != null)) return false;
+  if (!legacy) {
   const r = value.trialReminders;
   if (!r || !Number.isFinite(Date.parse(r.trackingSince))
     || !['enrolled','deliveries','sent','sentUsers','clicked','optedOut','failed','unknown','waiting','eligible24h','added24h'].every(k=>Number.isSafeInteger(r[k])&&r[k]>=0)
@@ -88,6 +90,7 @@ export function validProductReport(value) {
     const t=r[key];
     if (!t || !Number.isSafeInteger(t.samples) || t.samples<0 || t.samples>r.sent || !numeric(t.p50) || !numeric(t.p95)
       || (t.samples===0 ? t.p50!==null || t.p95!==null : t.p50===null || t.p95===null || t.p50>t.p95)) return false;
+  }
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (!Array.isArray(value.retention) || value.retention.length>60 || value.retention.some(r => !/^\d{4}-\d\d-\d\d$/.test(r.date) || !['users','d1Eligible','d1','d7Eligible','d7','d1Rate','d7Rate'].every(k=>numeric(r[k])) || r.d1>r.d1Eligible || r.d7>r.d7Eligible || r.d1Eligible>r.users || r.d7Eligible>r.users)) return false;
