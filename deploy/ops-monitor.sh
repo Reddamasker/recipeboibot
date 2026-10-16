@@ -75,7 +75,13 @@ if [ ! -f "$base_dir/deploy/retention.sh" ]; then
 else
   flock -n -E 75 /tmp/recipeboibot-docker-deploy.lock bash "$base_dir/deploy/retention.sh" --check-all >/dev/null 2>&1 || retention_status=$?
   case "$retention_status" in
-    0|75) ;;
+    0) ;;
+    75)
+      # Skipping a busy deployment does not prove a previous failure recovered.
+      if [ -f "$state_file" ] && grep -Fxq 'Нарушена ротация резервов или Docker в Telegram/MAX' "$state_file"; then
+        add_failure "Нарушена ротация резервов или Docker в Telegram/MAX"
+      fi
+      ;;
     *) add_failure "Нарушена ротация резервов или Docker в Telegram/MAX";;
   esac
 fi
