@@ -42,11 +42,11 @@ test('food exclusions distinguish absence in prose from actual ingredients and p
     steps: [{ text: 'Соевый соус не добавляйте. Обжарьте крылья с солью.' }] };
   assert.equal(hasExcludedIngredient(recipe, ['соевый соус']), false);
   assert.equal(rankCandidates([recipe], { profile: { excludedIngredients: ['соевый соус'] } }).length, 1);
-  for (const text of ['Не добавляйте соевый соус.', 'Готовьте без соевого соуса.', 'Не используйте соевый соус.']) {
+  for (const text of ['Не добавляйте соевый соус.', 'Готовьте без соевого соуса.', 'Не используйте соевый соус.', 'Соевый соус\tне\nдобавляйте.', 'Соевый соус\u00a0не\u00a0добавляйте.', 'Не\tдобавляйте\nсоевый соус.']) {
     assert.equal(hasExcludedIngredient({ ...recipe, steps: [{ text }] }, ['соевый соус']), false, text);
   }
   assert.equal(hasExcludedIngredient({ ...recipe, ingredients: [...recipe.ingredients, { name: 'соевый соус' }] }, ['соевый соус']), true, 'absence in title cannot override actual ingredients');
-  for (const text of ['Добавьте соевый соус.', 'Не добавляйте соевый соус. Затем добавьте соевый соус.', 'Без соли добавьте соевый соус.', 'Готовьте без соевого соуса, затем влейте соевый соус.']) {
+  for (const text of ['Добавьте соевый соус.', 'Не добавляйте соевый соус. Затем добавьте соевый соус.', 'Без соли добавьте соевый соус.', 'Готовьте без соевого соуса, затем влейте соевый соус.', 'Соевый соус\tне\nдобавляйте. Затем добавьте соевый соус.']) {
     assert.equal(hasExcludedIngredient({ ...recipe, steps: [{ text }] }, ['соевый соус']), true, text);
   }
   assert.equal(hasExcludedIngredient({ ...recipe, ingredients: [{ name: 'куриные крылья', comment: 'смажьте соевым соусом' }] }, ['соевый соус']), true);
