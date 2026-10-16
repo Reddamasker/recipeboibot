@@ -149,7 +149,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const reasons = {};
   for (const r of dinner.filter(r => r.event === 'dinner_rejection_reason')) {
     const reason = JSON.parse(r.detail_json).reason;
-    const safe = ['dislike','ingredients','time','complexity','other'].includes(reason) ? reason : 'other';
+    const safe = ['dislike','recently_ate','ingredients','time','complexity','other'].includes(reason) ? reason : 'other';
     reasons[safe] = (reasons[safe] || 0) + 1;
   }
   const provider = exists('provider_requests') ? db.prepare('SELECT user_id,created_at,status,input_units,output_units,usage_complete FROM provider_requests').all().filter(eligible) : [];

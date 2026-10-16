@@ -206,8 +206,8 @@ test('dinner cards open recipes and offer a separate dislike action', () => {
   assert.doesNotMatch(familiar, /dinner-card-rejection|data-dinner-reason|<span>Не подходит<\/span>/);
   vm.runInNewContext(source.slice(source.indexOf('function dinnerDislikeSheetContent('), source.indexOf('\nfunction openDinnerDislikeSheet')), sandbox);
   const rejected = sandbox.dinnerDislikeSheetContent({ id: 'a', recipe });
-  assert.deepEqual([...rejected.matchAll(/data-dinner-reason="([^"]+)"/g)].map(match => match[1]), ['not_today','dislike','missing_ingredients']);
-  for (const label of ['Не хочу сегодня', 'Такое не люблю', 'Нет ингредиентов']) assert.ok(rejected.includes(label));
+  assert.deepEqual([...rejected.matchAll(/data-dinner-reason="([^"]+)"/g)].map(match => match[1]), ['not_today','recently_ate','dislike','missing_ingredients']);
+  for (const label of ['Не хочу сегодня', 'Было недавно', 'Такое не люблю', 'Нет ингредиентов']) assert.ok(rejected.includes(label));
   assert.match(rejected, /data-close aria-label="Закрыть"/);
   assert.doesNotMatch(source.slice(source.indexOf('function dinnerView()'), source.indexOf('async function acceptDinnerItem')), /dinner-reject-batch|dinner-reason-open|missing-ingredients-form/);
 });
@@ -239,7 +239,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.80/);
+  assert.match(document, /app\.js\?v=dinner-10\.81/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -545,7 +545,7 @@ test('dislike sheet cancels without replacing and remains retryable after a fail
   const handler = source.slice(source.indexOf('function dinnerDislikeSheetContent('), source.indexOf('\nfunction onboardingView()'));
   const dinner = { recommendations: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], dislikeId: 'b' };
   const close = {}, selected = { classList: { remove() {} } };
-  const reasons = ['not_today', 'dislike', 'missing_ingredients'].map(dinnerReason => ({ dataset: { dinnerReason }, classList: { add() {} } }));
+  const reasons = ['not_today', 'recently_ate', 'dislike', 'missing_ingredients'].map(dinnerReason => ({ dataset: { dinnerReason }, classList: { add() {} } }));
   const controls = [close, ...reasons], attrs = {}, status = { setAttribute(key, value) { this[key] = value; } };
   const panel = {
     classList: { add() {} },
@@ -564,7 +564,7 @@ test('dislike sheet cancels without replacing and remains retryable after a fail
   assert.equal(requests, 0); assert.equal(dismissals, 1); assert.equal(dinner.dislikeId, null); assert.equal(expanded, 'false');
   dinner.dislikeId = 'b';
   sandbox.openDinnerDislikeSheet({ id: 'b', recipe: { title: 'Рецепт' } });
-  const failed = sandbox.replaceDinnerCard('not_today', panel);
+  const failed = sandbox.replaceDinnerCard('recently_ate', panel);
   assert.equal(attrs['aria-busy'], 'true'); assert.equal(controls.every(button => button.disabled), true);
   close.onclick();
   assert.equal(dismissals, 1);
@@ -573,7 +573,7 @@ test('dislike sheet cancels without replacing and remains retryable after a fail
   assert.equal(status.role, 'alert'); assert.equal(status.hidden, false); assert.match(status.textContent, /Попробуйте ещё раз/);
   assert.equal(dismissals, 1); assert.equal(dinner.recommendations[1].id, 'b');
   sandbox.api = async () => { requests++; return { recommendations: [dinner.recommendations[0], { id: 'd' }, dinner.recommendations[2]] }; };
-  await sandbox.replaceDinnerCard('not_today', panel);
+  await sandbox.replaceDinnerCard('recently_ate', panel);
   assert.equal(requests, 2); assert.equal(dismissals, 2); assert.equal(dinner.recommendations[1].id, 'd');
 });
 
