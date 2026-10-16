@@ -36,30 +36,7 @@ rollback() {
   docker compose -f compose.test.yaml up -d --no-build app
   exit 1
 }
-prune_files() {
-  local directory=$1 pattern=$2 keep=$3
-  find "$directory" -maxdepth 1 -type f -name "$pattern" -printf '%T@ %p\n' |
-    sort -nr |
-    awk -v keep="$keep" 'NR > keep { sub(/^[^ ]+ /, ""); print }' |
-    while IFS= read -r file; do rm -f -- "$file"; done
-}
-prune_image_tags() {
-  local repository=$1 prefix=$2 keep=$3
-  docker image ls --format '{{.Repository}} {{.Tag}}' |
-    awk -v repository="$repository" -v prefix="$prefix" '$1 == repository && index($2, prefix) == 1 { print $1 ":" $2 }' |
-    sort -r |
-    tail -n "+$((keep + 1))" |
-    while IFS= read -r image; do docker image rm "$image"; done
-}
-cleanup_retention() {
-  find /root -maxdepth 1 -type f \
-    \( -name 'recipeboibot-test-release-*.tgz' -o -name 'recipeboibot-test-release-*.sh' \) -delete
-  prune_files backups 'source-before-parity-*.tgz' 5
-  prune_files backups 'recipes-before-parity-*.sqlite.enc' 30
-  prune_files backups 'tests-*.log' 10
-  prune_image_tags recipeboibot-test-app 'before-parity-' 3
-  docker builder prune --all --force --keep-storage 1GB
-}
+
 trap rollback ERR
 replace_source_directories
 tar -xzf "$archive"
@@ -93,7 +70,7 @@ for attempt in $(seq 1 30); do
     curl -fsS --max-time 15 http://127.0.0.1:3088/readyz | grep -F '"ok":true' >/dev/null
     printf '%s\n' "$release" > DEPLOYED_ARCHIVE_SHA256
     trap - ERR
-    cleanup_retention || echo 'Warning: retention cleanup did not finish' >&2
+    bash deploy/retention.sh test --apply || { echo 'Runtime published, but retention failed; see backups/retention-error' >&2; exit 1; }
     printf '\nTest release published: %s\n' "$release"
     exit 0
   fi
