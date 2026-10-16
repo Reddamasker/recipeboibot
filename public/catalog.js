@@ -17,12 +17,12 @@
   const mainCuisineValues = values => mainCuisines.map(id=>values.find(value=>value.id===id)).filter(Boolean);
   const dishTypes=['noodles','rice','pasta','soup','salad','baking','pizza'];
   let expandedCuisines=false, visualResult;
-  const productButtons = [
-    ['курица','Курица','chicken'],['говядина','Говядина','beef'],
-    ['свинина','Свинина','pork'],['рыба','Рыба','fish'],['рис','Рис','rice'],
-    ['картофель','Картофель','potato'],['грибы','Грибы','mushroom'],
-    ['яйца','Яйца','egg'],['томаты','Томаты','tomato'],['сыр','Сыр','cheese']
+  const productGroups = [
+    ['Основа', [['лапша','Лапша','noodles'],['картофель','Картофель','potato'],['рис','Рис','rice'],['макароны','Макароны','pasta']]],
+    ['Мясо и рыба', [['курица','Курица','chicken'],['говядина','Говядина','beef'],['свинина','Свинина','pork'],['рыба','Рыба','fish']]],
+    ['Другие продукты', [['овощи','Овощи','vegetables'],['грибы','Грибы','mushroom'],['яйца','Яйца','egg'],['сыр','Сыр','cheese']]]
   ];
+  const newProductImages = new Set(['noodles','pasta','vegetables']);
   const selectedProducts = p => (p.get('include')||'').split(',').map(s=>s.trim()).filter(Boolean);
   function visualButton(name,value,label,extra='') {
     const selected=name==='include'?selectedProducts(params()).includes(value):(params().get(name)||'')===value;
@@ -40,7 +40,7 @@
     $('#all-cuisines').hidden=!other.length;
     $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Другие кухни';
     $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
-    $('#ingredient-chips').innerHTML=productButtons.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredients-v2/${illustration}.webp" alt="" width="160" height="128"><span>${label}</span>`,'class="ingredient-chip"')).join('');
+    $('#ingredient-chips').innerHTML=productGroups.map(([heading,products])=>`<section class="ingredient-group" aria-label="${escape(heading)}"><h3>${escape(heading)}</h3><div class="ingredient-grid">${products.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredients-${newProductImages.has(illustration)?'v3':'v2'}/${illustration}.webp" alt="" width="160" height="128"><span>${label}</span>`,'class="ingredient-chip"')).join('')}</div></section>`).join('');
     $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
     $('#category-chips').innerHTML=visualButton('category','','Все блюда')+result.categories.filter(c=>dishTypes.includes(c.id)).map(c=>visualButton('category',c.id,escape(c.label))).join('');
     $('#visual-include').value=p.get('include')||'';

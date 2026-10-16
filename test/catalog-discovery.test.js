@@ -2,6 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {catalogSearch,catalogRecipe} from '../src/web-catalog.js';
 const search=params=>catalogSearch(new URLSearchParams(params));
+
+test('ingredient bases distinguish noodles and pasta without matching flour, sauces or pastry',()=>{
+ const all=params=>Array.from({length:search(params).pages},(_,i)=>search({...params,page:String(i+1)}).recipes).flat();
+ const noodles=all({include:'лапша'}),pasta=all({include:'макароны'});
+ assert.equal(noodles.length,11);
+ assert.ok(noodles.some(r=>r.id==='jp-yaki-udon-chicken'));
+ assert.ok(noodles.some(r=>r.id==='hu-cabbage-noodles'));
+ assert.ok(pasta.some(r=>r.id==='pasta-tomato'));
+ assert.ok(pasta.length>1);
+ assert.ok(!pasta.some(r=>noodles.some(n=>n.id===r.id)));
+ for(const id of ['uz-samsa-beef','ea-hummus','jp-miso-ramen'])assert.ok(!pasta.some(r=>r.id===id));
+ assert.equal(search({include:'лапша,макароны'}).total,0);
+ assert.equal(search({include:'лапша',cuisine:'japanese'}).total,4);
+ assert.ok(search({include:'картофель'}).recipes.every(r=>catalogRecipe(r.id).ingredients.some(i=>/картоф/iu.test(i.name))));
+ const vegetables=all({include:'овощи'});
+ assert.ok(vegetables.some(r=>r.id==='chicken-rice'));
+ assert.ok(vegetables.every(r=>catalogRecipe(r.id).ingredients.some(i=>!/(?:паст|сок|порош|крахмал)/iu.test(i.name)&&/овощ|картоф|морков|помидор|томат|огур|кабач|баклаж|капуст|брокколи|тыкв|свекл|лук|сельдере|редис|болгарск|сладк/iu.test(i.name))));
+});
 test('browse offers specific cuisines and country counters match actual filtered results',()=>{
  const all=search({});
  assert.ok(!all.cuisineChoices.some(c=>['asian','eastern','european','caucasian'].includes(c.id)));

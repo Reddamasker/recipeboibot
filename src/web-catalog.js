@@ -7,7 +7,14 @@ export const categories = [['noodles','Лапша'],['rice','Рис'],['pasta','
 export const cuisineChoices = cuisines.filter(([id])=>!['asian','eastern','european','caucasian'].includes(id)).concat([['lebanese','Ливанская'],['turkish','Турецкая']]);
 const sourceCuisine = {'ea-mujaddara':'lebanese','ea-hummus':'lebanese','ea-fattoush':'lebanese','ea-lentil-bulgur':'turkish'};
 const normalize = value => String(value || '').toLocaleLowerCase('ru').replaceAll('ё','е').trim();
+const noodleIngredient = name => /лапш|удон|соба|сомен|рамен|фунчоз|макароны широкие/iu.test(name);
 function hasCookingProduct(recipe,product) {
+  const selected=normalize(product);
+  if(selected==='лапша')return recipe.ingredients.some(i=>noodleIngredient(i.name));
+  if(selected==='макароны')return recipe.ingredients.some(i=>!noodleIngredient(i.name)&&(/макарон|спагетт|пенне|фузилли|феттуч|тальятелл|фарфалл|лингвин|вермишел|каннеллон|лазан|паста (?:сух|пшенич)/iu.test(i.name)||normalize(i.name)==='паста'));
+  // An inclusive ingredient family: any vegetable, rather than all vegetables pictured.
+  // Match whole ingredient words, not black pepper, dried spices or tomato paste.
+  if(selected==='овощи')return recipe.ingredients.some(i=>!/(?:паст|сок|порош|крахмал)/iu.test(i.name)&&/(?:^|[^\p{L}])(?:овощ\p{L}*|картоф\p{L}*|морков\p{L}*|помидор\p{L}*|томат\p{L}*|огур\p{L}*|кабач\p{L}*|баклаж\p{L}*|капуст\p{L}*|брокколи|тыкв\p{L}*|свекл\p{L}*|лук|луковиц\p{L}*|сельдере\p{L}*|редис\p{L}*|болгарск\p{L}* пер\p{L}*|сладк\p{L}* пер\p{L}*)(?:$|[^\p{L}])/iu.test(i.name));
   const rice = normalize(product)==='рис';
   const ingredients=recipe.ingredients.filter(i=>!rice||!/рисов\p{L}*\s+(?:уксус|бумаг|лапш|мук)/iu.test(i.name));
   return hasExcludedIngredient({ingredients,title:'',steps:[]},[product]);
@@ -32,7 +39,7 @@ function catalogCategories(recipe) {
 const entries = SEED_RECIPES.map(recipe => {
   const assigned = catalogCategories(recipe);
   const cuisineId = sourceCuisine[recipe.id.slice(5)] || cuisineChoices.find(([id])=>assigned.includes(id))?.[0] || null;
-  if (recipe.ingredients.some(i=>/лапш|удон|соба|сомен|рамен|фунчоз|макароны широкие/iu.test(i.name))) {
+  if (recipe.ingredients.some(i=>noodleIngredient(i.name))) {
     const pastaIndex=assigned.indexOf('pasta'); if(pastaIndex!==-1)assigned.splice(pastaIndex,1);
     assigned.push('noodles');
   }

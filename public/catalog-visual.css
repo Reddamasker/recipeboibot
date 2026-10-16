@@ -76,3 +76,11 @@ body[data-filter-layout="visual"] .search-row button:hover{background:var(--surf
 .cuisine-tile:hover{transform:none}
 @media(max-width:760px){.ingredient-chips{grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.ingredient-chip{padding-bottom:9px;font-size:11px;border-radius:12px}.ingredient-chip img{height:74px}.ingredient-chip span{margin-top:5px}.ingredient-help{font-size:12px;margin-bottom:12px}.ingredient-chip[aria-pressed="true"]:after{width:18px;height:18px;top:3px;right:3px;font-size:12px}.cuisine-tile small{display:none}}
 @media(max-width:350px){.ingredient-chips{grid-template-columns:repeat(3,minmax(0,1fr))}.ingredient-chip img{height:76px}.cuisine-tile{flex-basis:auto}}
+
+/* Keep the agreed product groups in the same order on every screen. */
+.ingredient-chips{display:block;padding:0;overflow:visible}
+.ingredient-group{margin:0 0 18px}
+.ingredient-group h3{font-family:inherit;font-weight:600;font-size:13px;line-height:1.4;margin:0 0 8px;color:var(--muted)}
+.ingredient-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media(max-width:760px){.ingredient-chips{display:block}.ingredient-grid{gap:8px}.ingredient-group{margin-bottom:14px}.ingredient-group h3{font-size:12px}.ingredient-chip img{height:82px}}
+@media(max-width:350px){.ingredient-chips{display:block}.ingredient-grid{gap:6px}.ingredient-chip{font-size:10px}.ingredient-chip img{height:66px}}
