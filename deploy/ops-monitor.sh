@@ -72,6 +72,19 @@ elif [ "$disk_used" -ge 90 ]; then add_failure "Критически запол�
 elif [ "$disk_used" -ge 80 ]; then add_failure "Диск заполнен на ${disk_used}%"
 fi
 
+# The same policy audits every contour, including MAX. A deployment holds this
+# lock until its cleanup finishes, so an in-progress release is not a false alarm.
+retention_status=0
+if [ ! -f "$base_dir/deploy/retention.sh" ]; then
+  add_failure "Отсутствует общий механизм ротации резервов и Docker"
+else
+  flock -n -E 75 /tmp/recipeboibot-docker-deploy.lock bash "$base_dir/deploy/retention.sh" --check-all >/dev/null 2>&1 || retention_status=$?
+  case "$retention_status" in
+    0|75) ;;
+    *) add_failure "Нарушена ротация резервов или Docker в Telegram/MAX";;
+  esac
+fi
+
 latest_backup="$(find "$base_dir/backups" -maxdepth 1 -type f -name 'recipes-*.sqlite.enc' -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1 | cut -d. -f1)"
 now="$(date +%s)"
 if [ -z "$latest_backup" ]; then add_failure "Нет зашифрованной резервной копии БД"

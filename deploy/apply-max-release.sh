@@ -335,5 +335,6 @@ printf '%s\n' "$revision" > DEPLOYED_REVISION
 printf '%s\n' "$release" > DEPLOYED_ARCHIVE_SHA256
 printf '%s\n' "$expected_tree" > DEPLOYED_SOURCE_SHA256
 trap - ERR
-rm -f -- "$archive" "/root/recipeboibot-max-release-$release.sh" "$secret_file"
+rm -f -- "$secret_file"
+bash deploy/retention.sh max --apply || { echo 'Runtime published, but retention failed; see backups/retention-error' >&2; exit 1; }
 printf 'MAX release published: %s\nShared source SHA-256: %s\nHTTPS: https://%s\n' "$revision" "$expected_tree" "$host"
