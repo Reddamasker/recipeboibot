@@ -154,7 +154,9 @@ export function hasExcludedIngredient(recipe, excluded = []) {
         while (count < words.length && foodWord(words[count])) count++;
         return count ? ` ${words.slice(count).join(' ')}` : whole;
       });
-      text = text.replace(/([\p{L}]+(?:\s+[\p{L}]+){0,5})\s+не\s+(?:добавля(?:йте|й|ть)|использу(?:йте|й)|использовать|кладите)(?!\p{L})/gu, (whole, phrase) => {
+      // A postfix prohibition requires whitespace on both sides of «не».
+      // Avoid the expensive word-window scan in ordinary positive instructions.
+      if (/\sне\s/u.test(text)) text = text.replace(/([\p{L}]+(?:\s+[\p{L}]+){0,5})\s+не\s+(?:добавля(?:йте|й|ть)|использу(?:йте|й)|использовать|кладите)(?!\p{L})/gu, (whole, phrase) => {
         const words = phrase.split(' ');
         let count = words.length;
         while (count > 0 && foodWord(words[count - 1])) count--;
