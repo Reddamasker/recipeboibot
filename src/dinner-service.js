@@ -217,7 +217,7 @@ export async function nextDinner(userId, ids, options) {
 
 export async function replaceDinner(userId, recommendationId, reason, options) {
   requireDinnerEntry(userId, false);
-  if (!['not_today', 'dislike', 'missing_ingredients'].includes(reason)) throw badRequest('Неверная причина');
+  if (!['not_today', 'recently_ate', 'dislike', 'missing_ingredients'].includes(reason)) throw badRequest('Неверная причина');
   const row = getDinnerRecommendation(userId, recommendationId);
   if (!row) throw notFound();
   requireDinnerEntry(userId);

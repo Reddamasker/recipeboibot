@@ -11,6 +11,7 @@ const {recordProduct:record,acceptProductEvents:accept,productReport:report,prod
 const {recordEngagement}=await import('../src/recipe-engagement.js');
 const {makeTelegramInitData}=await import('../src/security.js');
 const {maxFunnelSnapshot}=await import('../src/max-funnel.js');
+const {addDinnerEvent}=await import('../src/dinner-store.js');
 let next=810000;
 const user=()=>{const u=upsertTelegramUser({id:++next});allowUser(u.id);return u;};
 const batch=(event='screen_view',step='home')=>({visitor:randomUUID(),events:[{id:randomUUID(),event,step,version:'product-1',session:randomUUID()}]});
@@ -41,6 +42,23 @@ test('source cohort and first acquisition date apply to new and legacy metrics',
  record(u.id,'screen_view',{step:'offer',at:late});
  const result=report([{id:u.id,started_at:'2026-10-02T00:00:00.000Z'}],true);
  assert.equal(result.steps.find(r=>r.step==='home').viewed,0);assert.equal(result.steps.find(r=>r.step==='offer').viewed,1);
+});
+
+test('recently eaten remains a distinct private reason through cohort filters and the MAX bridge',()=>{
+ const u=user(),outside=user(),early='2026-10-01T10:00:00.000Z',late='2026-10-03T10:00:00.000Z';
+ for(const [account,at,reason] of [[u,early,'recently_ate'],[u,late,'recently_ate'],[outside,late,'recently_ate'],[u,late,'private-unregistered-reason']]){
+  addDinnerEvent(account.id,'dinner_rejection_reason',{detail:{reason,title:'private dish title'}});
+  db.prepare('UPDATE dinner_events SET created_at=? WHERE rowid=(SELECT MAX(rowid) FROM dinner_events WHERE user_id=?)').run(at,account.id);
+ }
+ const all=report([u]);
+ assert.equal(all.reasons.recently_ate,2);assert.equal(all.reasons.other,1);
+ assert.equal(report([{...u,started_at:'2026-10-02T00:00:00.000Z'}],true).reasons.recently_ate,1);
+ assert.deepEqual(report([]).reasons,{});
+ assert.ok(!JSON.stringify(all).includes('private dish title'));
+ assert.ok(!JSON.stringify(all).includes('private-unregistered-reason'));
+ const snapshot=maxFunnelSnapshot(),platform=snapshot.all.productAnalytics.platforms[0];
+ assert.ok(platform.reasons.recently_ate>=2);
+ assert.equal(validProductReport(platform,{legacy:snapshot.version===6}),true);
 });
 test('D1 and D7 use completed Moscow target days and count each account once',()=>{
  const u=user(),fresh=user();

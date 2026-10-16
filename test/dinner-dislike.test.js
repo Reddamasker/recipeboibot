@@ -12,7 +12,8 @@ const { db, upsertTelegramUser, allowUser } = await import('../src/db.js');
 const { startTrial } = await import('../src/subscriptions.js');
 const { startDinner, recommendDinner, replaceDinner, dinnerContext, decideDinner, updateDinnerProfile, prefetchDinner } = await import('../src/dinner-service.js');
 const { getFoodProfile, getDinnerRecommendation, getDinnerRejectionReason, openDinnerSession, insertDinnerOption } = await import('../src/dinner-store.js');
-const { SEED_RECIPES } = await import('../src/dinner.js');
+const { SEED_RECIPES, rankCandidates } = await import('../src/dinner.js');
+const { productReport } = await import('../src/product-analytics.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
 let userId = 950001;
@@ -26,17 +27,17 @@ function fixture(active = true) {
 test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(process.env.DATABASE_PATH + suffix); } catch {} } });
 
 test('each dislike reason replaces only its card in place, survives reopening and is idempotent', async () => {
-  for (const [index, reason] of ['not_today', 'dislike', 'missing_ingredients'].entries()) {
+  for (const [index, reason] of ['not_today', 'recently_ate', 'dislike', 'missing_ingredients'].entries()) {
     const user = fixture(), session = startDinner(user.id);
     const initial = await recommendDinner(user.id, session.sessionId);
-    const beforeProfile = getFoodProfile(user.id), target = initial.recommendations[index];
+    const beforeProfile = getFoodProfile(user.id), target = initial.recommendations[index % 3];
     // This also covers sessions created before display positions existed.
     db.prepare('UPDATE dinner_options SET display_position=NULL WHERE session_id=?').run(session.sessionId);
     const after = await replaceDinner(user.id, target.id, reason);
     assert.equal(after.recommendations.length, 3);
     assert.equal(new Set(after.recommendations.map(option => option.recipe.id)).size, 3);
     for (let slot = 0; slot < 3; slot++) {
-      if (slot === index) {
+      if (slot === index % 3) {
         assert.notEqual(after.recommendations[slot].id, target.id);
         assert.ok(initial.reserve.some(option => option.id === after.recommendations[slot].id));
       } else assert.deepEqual(after.recommendations[slot].recipe, initial.recommendations[slot].recipe);
@@ -56,7 +57,7 @@ test('each dislike reason replaces only its card in place, survives reopening an
     assert.deepEqual(reopened.recommendations.map(option => option.id), after.recommendations.map(option => option.id));
     assert.deepEqual(prefetchDinner(user.id, session.sessionId).recommendations.map(option => option.id), after.recommendations.map(option => option.id));
     const nextContext = dinnerContext(user.id, openDinnerSession(user.id));
-    assert.equal(nextContext.feedback.avoidTitles.includes(target.recipe.title), reason === 'dislike');
+    assert.equal(nextContext.feedback.avoidTitles.includes(target.recipe.title), ['dislike', 'recently_ate'].includes(reason));
     if (reason === 'dislike') {
       db.prepare("UPDATE dinner_events SET created_at='2020-01-01T00:00:00.000Z' WHERE user_id=? AND event='dinner_rejection_reason'").run(user.id);
       assert.ok(dinnerContext(user.id, openDinnerSession(user.id)).feedback.avoidTitles.includes(target.recipe.title));
@@ -83,6 +84,36 @@ test('exhausted reserve, foreign cards, expired access and stale cards leave the
   await assert.rejects(() => replaceDinner(user.id, target.id, 'dislike'), { status: 409 });
 });
 
+test('recently eaten hides matching titles for exactly seven days without changing tastes or renewing on retry', async t => {
+  const at = Date.now();
+  t.mock.timers.enable({ apis: ['Date'], now: at });
+  const user = fixture(), session = startDinner(user.id);
+  const initial = await recommendDinner(user.id, session.sessionId);
+  const target = initial.recommendations[1], profile = getFoodProfile(user.id);
+  const signals = dinnerContext(user.id, session.sessionId).categorySignals;
+  await replaceDinner(user.id, target.id, 'recently_ate');
+  const timestamp = () => db.prepare("SELECT created_at FROM dinner_events WHERE user_id=? AND recommendation_id=? AND event='dinner_rejection_reason'").get(user.id, target.id).created_at;
+  const firstTimestamp = timestamp();
+  t.mock.timers.setTime(at + 3600000);
+  await replaceDinner(user.id, target.id, 'recently_ate');
+  assert.equal(timestamp(), firstTimestamp);
+  assert.equal(productReport([user]).reasons.recently_ate, 1);
+  const matchingCopy = { ...target.recipe, id: 'another-id-for-the-same-dish' };
+  const context = () => dinnerContext(user.id, openDinnerSession(user.id));
+  for (const elapsed of [3600000, 7 * 86400000 - 1]) {
+    t.mock.timers.setTime(at + elapsed);
+    const current = context();
+    assert.ok(current.feedback.avoidTitles.includes(target.recipe.title));
+    assert.equal(rankCandidates([matchingCopy], current).length, 0);
+    assert.deepEqual(current.categorySignals, signals);
+  }
+  t.mock.timers.setTime(at + 7 * 86400000);
+  const expired = context();
+  assert.ok(!expired.feedback.avoidTitles.includes(target.recipe.title));
+  assert.equal(rankCandidates([matchingCopy], expired).length, 1);
+  assert.deepEqual(getFoodProfile(user.id), profile);
+});
+
 test('replacement HTTP route requires a reason and changes one authenticated card', async () => {
   const user = fixture(), session = startDinner(user.id);
   const initial = await recommendDinner(user.id, session.sessionId);
@@ -91,13 +122,18 @@ test('replacement HTTP route requires a reason and changes one authenticated car
   const headers = { 'Content-Type': 'application/json', authorization: `tma ${makeTelegramInitData(user.telegram, process.env.TELEGRAM_BOT_TOKEN)}` };
   try {
     assert.equal((await fetch(url, { method: 'POST', headers, body: '{}' })).status, 400);
-    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ reason: 'missing_ingredients' }) });
+    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ reason: 'recently_ate' }) });
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.equal(result.recommendations.length, 3);
     assert.equal(result.recommendations[0].id, initial.recommendations[0].id);
     assert.notEqual(result.recommendations[1].id, initial.recommendations[1].id);
     assert.equal(result.recommendations[2].id, initial.recommendations[2].id);
+    const repeated = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ reason: 'recently_ate' }) });
+    assert.equal(repeated.status, 200);
+    assert.deepEqual((await repeated.json()).recommendations.map(option => option.id), result.recommendations.map(option => option.id));
+    assert.equal(productReport([user]).reasons.recently_ate, 1);
+    assert.equal(db.prepare("SELECT count(*) n FROM dinner_events WHERE user_id=? AND event='dinner_rejection_reason'").get(user.id).n, 1);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
