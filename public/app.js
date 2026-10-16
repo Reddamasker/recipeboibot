@@ -599,7 +599,7 @@ function scheduleDinnerPrefetch(dinner) {
 }
 
 function dinnerDislikeSheetContent(option) {
-  return `<div class="dislike-sheet-head"><h2>Почему не подходит?</h2><button type="button" class="dislike-sheet-close" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div><p class="dislike-sheet-recipe">${esc(option.recipe.title)}</p><div class="dislike-sheet-reasons">${[['not_today','Не хочу сегодня'],['dislike','Такое не люблю'],['missing_ingredients','Нет ингредиентов']].map(([key, label]) => `<button type="button" class="dislike-sheet-reason" data-dinner-reason="${key}"><span>${label}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>`).join('')}</div><p class="dislike-sheet-status" role="status" aria-live="polite" hidden></p>`;
+  return `<div class="dislike-sheet-head"><h2>Почему не подходит?</h2><button type="button" class="dislike-sheet-close" data-close aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div><p class="dislike-sheet-recipe">${esc(option.recipe.title)}</p><div class="dislike-sheet-reasons">${[['not_today','Не хочу сегодня'],['recently_ate','Было недавно'],['dislike','Такое не люблю'],['missing_ingredients','Нет ингредиентов']].map(([key, label]) => `<button type="button" class="dislike-sheet-reason" data-dinner-reason="${key}"><span>${label}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>`).join('')}</div><p class="dislike-sheet-status" role="status" aria-live="polite" hidden></p>`;
 }
 
 function openDinnerDislikeSheet(option) {
