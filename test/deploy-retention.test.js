@@ -138,7 +138,10 @@ test('every deployment uses the shared policy only after confirmed readiness and
     assert.match(source, /Runtime published, but retention failed/);
     assert.doesNotMatch(source, /cleanup_retention \|\| echo/);
     assert.match(source, /recipeboibot-docker-deploy\.lock/);
-    if (!file.includes('max')) assert.ok(fs.readFileSync(file.includes('test') ? 'scripts/deploy-test.js' : 'scripts/deploy.js', 'utf8').includes("'deploy/retention.sh'"));
+    if (!file.includes('max')) {
+      const wrapper = fs.readFileSync(file.includes('test') ? 'scripts/deploy-test.js' : 'scripts/deploy.js', 'utf8');
+      for (const dependency of ['deploy/retention.sh', 'deploy/backup.sh']) assert.ok(wrapper.includes(`'${dependency}'`), `${file} must ship ${dependency}`);
+    }
   }
 });
 
