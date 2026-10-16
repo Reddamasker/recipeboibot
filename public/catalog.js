@@ -12,13 +12,11 @@
     previousFilters.delete('cuisine');
     history.replaceState({},'',location.pathname+(previousFilters.size?'?'+previousFilters.toString():''));
   }
-  const visualMode = params().get('filters') === 'visual';
+  const visualMode = params().get('filters') !== 'classic';
   const mainCuisines = ['everyday','russian','italian','georgian','japanese','chinese'];
   const mainCuisineValues = values => mainCuisines.map(id=>values.find(value=>value.id===id)).filter(Boolean);
   const dishTypes=['noodles','rice','pasta','soup','salad','baking','pizza'];
   let expandedCuisines=false, visualResult;
-  const cuisineIllustrations = new Set(['everyday','italian','georgian','asian','japanese','russian',
-    'ukrainian','belarusian','greek','indian','hungarian','uzbek','eastern','european','caucasian']);
   const productButtons = [
     ['курица','Курица','chicken'],['говядина','Говядина','beef'],
     ['свинина','Свинина','pork'],['рыба','Рыба','fish'],['рис','Рис','rice'],
@@ -37,13 +35,12 @@
     const choices=result.cuisineChoices||result.cuisines;
     const primary=mainCuisineValues(choices), other=choices.filter(c=>!mainCuisines.includes(c.id));
     const visible=[...primary,...other.filter(c=>expandedCuisines||c.id===p.get('cuisine'))];
-    const illustration=id=>cuisineIllustrations.has(id)?id:id==='chinese'?'asian':['lebanese','turkish'].includes(id)?'eastern':'everyday';
-    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<img src="/assets/filters/cuisine-${illustration(c.id)}.webp" alt="" width="190" height="96"><span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
+    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
     $('#cuisine-tiles').dataset.expanded='true';
     $('#all-cuisines').hidden=!other.length;
     $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Другие кухни';
     $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
-    $('#ingredient-chips').innerHTML=productButtons.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredient-${illustration}.webp" alt="" width="36" height="36"><span>${label}</span>`,'class="ingredient-chip"')).join('');
+    $('#ingredient-chips').innerHTML=productButtons.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredients-v2/${illustration}.webp" alt="" width="160" height="128"><span>${label}</span>`,'class="ingredient-chip"')).join('');
     $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
     $('#category-chips').innerHTML=visualButton('category','','Все блюда')+result.categories.filter(c=>dishTypes.includes(c.id)).map(c=>visualButton('category',c.id,escape(c.label))).join('');
     $('#visual-include').value=p.get('include')||'';
