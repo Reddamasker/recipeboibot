@@ -165,7 +165,7 @@ test('a recipe opened from the request flow offers refinement', () => {
   assert.match(detail, /recipeRequestView\(\{ focus: true \}\)/);
 });
 
-test('top reminder entries stay hidden until access is active', () => {
+test('home reminder entry stays hidden until access is active', () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('function notificationEntry()'), source.indexOf('\nfunction offerBanner'));
   const sandbox = { state: { payment: { active: false } } };
@@ -173,7 +173,7 @@ test('top reminder entries stay hidden until access is active', () => {
   assert.equal(sandbox.notificationEntry(), '');
   sandbox.state.payment.active = true;
   assert.match(sandbox.notificationEntry(), /Напоминания об ужине/);
-  assert.equal((source.match(/\$\{notificationEntry\(\)\}/g) || []).length, 2);
+  assert.equal((source.match(/\$\{notificationEntry\(\)\}/g) || []).length, 1);
 });
 
 test('dinner cards open recipes and offer a separate dislike action', () => {
@@ -239,7 +239,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.79/);
+  assert.match(document, /app\.js\?v=dinner-10\.80/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
