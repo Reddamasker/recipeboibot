@@ -42,19 +42,22 @@ if (command === 'curl') {
   console.log(Date.now() / 1000);
 } else if (command === 'stat') {
   console.log(Math.floor(Date.now() / 1000) - (scenario.offsiteAge || 0));
+} else if (command === 'flock') {
+  process.exit(scenario.retentionBusy ? 75 : scenario.retentionFailure ? 1 : 0);
 } else process.exit(2);
 `;
 
 function fixture(options = {}) {
   const directory = mkdtempSync(path.join(tmpdir(), 'recipeboibot-monitor-'));
   const base = path.join(directory, 'base'), state = path.join(directory, 'state'), bin = path.join(directory, 'bin');
-  for (const folder of [base, state, bin, path.join(base, 'backups')]) mkdirSync(folder, { recursive: true });
+  for (const folder of [base, state, bin, path.join(base, 'backups'), path.join(base, 'deploy')]) mkdirSync(folder, { recursive: true });
+  if (!options.missingRetention) writeFileSync(path.join(base, 'deploy/retention.sh'), '# fixture policy\n');
   writeFileSync(path.join(base, '.env.local'), `OPS_ALERT_CHAT_ID=123\nTELEGRAM_BOT_TOKEN=fake\nBILLING_REQUIRED=${options.required ?? false}\n`);
   if (!options.missingOffsite) writeFileSync(path.join(base, 'backups/offsite-last-success'), 'fixture');
   if (options.previous) writeFileSync(path.join(state, 'current-status'), options.previous);
   const helper = path.join(directory, 'mock.cjs');
   writeFileSync(helper, mockSource);
-  for (const command of ['curl', 'docker', 'df', 'find', 'stat']) {
+  for (const command of ['curl', 'docker', 'df', 'find', 'stat', 'flock']) {
     writeFileSync(path.join(bin, command), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(helper)} ${command} "$@"\n`, { mode: 0o755 });
   }
   const scenarioFile = path.join(directory, 'scenario.json'), alertsFile = path.join(directory, 'alerts.jsonl');
@@ -99,6 +102,22 @@ test('configured billing is healthy with either value of BILLING_REQUIRED', () =
     assert.equal(result.statusText, '');
     assert.deepEqual(result.alerts, []);
   }
+});
+
+test('retention failure alerts once and recovery is reported; an active deployment is tolerated', () => {
+  const context = fixture({retentionFailure: true});
+  try {
+    const first = context.run();
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.statusText, /Нарушена ротация резервов или Docker в Telegram\/MAX/);
+    assert.equal(first.alerts.length, 1);
+    assert.equal(context.run().alerts.length, 1);
+    const recovery = context.run({retentionFailure: false});
+    assert.equal(recovery.statusText, '');
+    assert.equal(recovery.alerts.length, 2);
+    assert.equal(context.run({retentionBusy: true}).alerts.length, 2);
+  } finally {context.cleanup();}
+  assert.match(runOnce({missingRetention: true}).statusText, /Отсутствует общий механизм ротации/);
 });
 
 test('monitor parses live JSON independent of whitespace and field order', () => {
