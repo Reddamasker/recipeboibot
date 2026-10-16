@@ -115,7 +115,10 @@ test('retention failure alerts once and recovery is reported; an active deployme
     assert.match(first.statusText, /Нарушена ротация резервов или Docker в Telegram\/MAX/);
     assert.equal(first.alerts.length, 1);
     assert.equal(context.run().alerts.length, 1);
-    const recovery = context.run({retentionFailure: false});
+    const busy = context.run({retentionBusy: true});
+    assert.equal(busy.statusText, first.statusText);
+    assert.equal(busy.alerts.length, 1, 'A skipped check must not send a false recovery');
+    const recovery = context.run({retentionFailure: false, retentionBusy: false});
     assert.equal(recovery.statusText, '');
     assert.equal(recovery.alerts.length, 2);
     assert.equal(context.run({retentionBusy: true}).alerts.length, 2);
