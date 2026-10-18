@@ -182,6 +182,7 @@ ensureColumn('provider_requests', 'incomplete_reason', 'TEXT');
 ensureColumn('provider_requests', 'retry_after', 'TEXT');
 ensureColumn('recipe_suggestions', 'request_json', 'TEXT');
 ensureColumn('recipes', 'nutrition_json', 'TEXT');
+ensureColumn('recipes', 'total_minutes', 'INTEGER');
 // Suggestions expire after seven days; analytics must survive their cache cleanup.
 db.exec(`INSERT OR IGNORE INTO recipe_request_results(result_key,user_id,source,created_at)
   SELECT 'suggestion:'||id,user_id,'generated',created_at FROM recipe_suggestions;`);
@@ -239,6 +240,7 @@ const parseRecipe = (row) => row ? withNutrition(withSeedImage({
   nutrition: row.nutrition_json ? JSON.parse(row.nutrition_json) : null,
   prepMinutes: row.prep_minutes ?? null,
   cookMinutes: row.cook_minutes ?? null,
+  totalMinutes: row.total_minutes ?? null,
   ingredients: JSON.parse(row.ingredients_json),
   steps: JSON.parse(row.steps_json),
   tags: JSON.parse(row.tags_json),
@@ -518,12 +520,12 @@ export function saveDinnerRecipe(userId, recipeKey, recipe, image = null, { rest
 
 export function createRecipe(userId, input) {
   const id = randomUUID(), at = now();
-  db.prepare(`INSERT INTO recipes(id,user_id,status,origin,title,description,servings,prep_minutes,cook_minutes,ingredients_json,steps_json,tags_json,warnings_json,source_url,source_key,source_type,source_name,thumbnail_url,notes,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+  db.prepare(`INSERT INTO recipes(id,user_id,status,origin,title,description,servings,prep_minutes,cook_minutes,ingredients_json,steps_json,tags_json,warnings_json,source_url,source_key,source_type,source_name,thumbnail_url,notes,created_at,updated_at,total_minutes)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       id, userId, input.status || 'draft', input.origin || 'imported', input.title, input.description || '', input.servings ?? null,
       input.prepMinutes ?? null, input.cookMinutes ?? null, JSON.stringify(input.ingredients || []), JSON.stringify(input.steps || []),
       JSON.stringify(input.tags || []), JSON.stringify(input.warnings || []), input.sourceUrl || null, input.sourceKey || null, input.sourceType || 'text', input.sourceName || null,
-      input.thumbnailUrl || null, input.notes || '', at, at
+      input.thumbnailUrl || null, input.notes || '', at, at, input.totalMinutes ?? null
     );
   const nutrition = recipeNutrition(input);
   if (nutrition) db.prepare('UPDATE recipes SET nutrition_json=? WHERE id=?').run(JSON.stringify(nutrition), id);
@@ -569,6 +571,7 @@ const publicRecipe = (recipe, sharedBy, thumbnailUrl = recipe.thumbnailUrl) => (
   nutrition: withNutrition(recipe).nutrition,
   prepMinutes: recipe.prepMinutes,
   cookMinutes: recipe.cookMinutes,
+  totalMinutes: recipe.totalMinutes ?? null,
   ingredients: recipe.ingredients,
   steps: recipe.steps,
   tags: recipe.tags,
@@ -615,12 +618,13 @@ export function updateRecipe(userId, id, input) {
   const current = getRecipe(userId, id);
   if (!current) return null;
   const next = { ...current, ...input };
+  if (!Object.hasOwn(input, 'totalMinutes') && (next.prepMinutes !== current.prepMinutes || next.cookMinutes !== current.cookMinutes)) next.totalMinutes = null;
   const changed = next.servings !== current.servings || JSON.stringify(next.ingredients) !== JSON.stringify(current.ingredients) || JSON.stringify(next.steps) !== JSON.stringify(current.steps);
   const nutrition = recipeNutrition(changed ? { ...next, nutrition: input.nutrition || null } : next);
-  db.prepare(`UPDATE recipes SET status=?,title=?,description=?,servings=?,prep_minutes=?,cook_minutes=?,ingredients_json=?,steps_json=?,tags_json=?,warnings_json=?,source_url=?,source_name=?,notes=?,updated_at=? WHERE id=? AND user_id=?`).run(
+  db.prepare(`UPDATE recipes SET status=?,title=?,description=?,servings=?,prep_minutes=?,cook_minutes=?,ingredients_json=?,steps_json=?,tags_json=?,warnings_json=?,source_url=?,source_name=?,notes=?,updated_at=?,total_minutes=? WHERE id=? AND user_id=?`).run(
     next.status, next.title, next.description || '', next.servings ?? null, next.prepMinutes ?? null, next.cookMinutes ?? null,
     JSON.stringify(next.ingredients || []), JSON.stringify(next.steps || []), JSON.stringify(next.tags || []), JSON.stringify(next.warnings || []),
-    next.sourceUrl || null, next.sourceName || null, next.notes || '', now(), id, userId
+    next.sourceUrl || null, next.sourceName || null, next.notes || '', now(), next.totalMinutes ?? null, id, userId
   );
   db.prepare('UPDATE recipes SET nutrition_json=? WHERE id=? AND user_id=?').run(nutrition ? JSON.stringify(nutrition) : null, id, userId);
   return getRecipe(userId, id);
@@ -653,7 +657,7 @@ export function matchRecipes(recipes, query, { allowAll = true } = {}) {
     let score = matches.reduce((sum, field) => sum + ([5, 2, 1, 3][field] ?? 2), 0);
     const titleWords = searchTokens(recipe.title).filter((word) => !searchStopWords.has(word));
     if (words.length && titleWords.join(' ') === words.join(' ')) score += 20;
-    const totalMinutes = recipe.prepMinutes != null || recipe.cookMinutes != null ? (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0) : null;
+    const totalMinutes = recipe.totalMinutes ?? (recipe.prepMinutes != null || recipe.cookMinutes != null ? (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0) : null);
     if (quick && totalMinutes !== null && totalMinutes <= 30) score += 2;
     if (maxMinutes && totalMinutes !== null && totalMinutes <= maxMinutes) score += 3;
     if (light && recipe.tags.some((t) => /(л[её]гк|низкокалор)/iu.test(t))) score += 3;

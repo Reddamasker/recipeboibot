@@ -128,7 +128,7 @@ span.recipe-tag { cursor: default; }
 .ingredient-row strong { display: block; font-size: 14px; line-height: 1.35; }
 .ingredient-row small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .ingredient-row > span { padding-top: 1px; color: var(--berry-dark); font-size: 12px; font-weight: 850; white-space: nowrap; }
-.ingredient-row > .amount-empty { color: var(--muted); font-weight: 650; }
+.ingredient-row > .amount-empty { color: var(--muted); font-weight: 650; white-space: normal; max-width: 112px; text-align: right; }
 .step-list { display: grid; }
 .step-card { position: relative; padding: 17px 0 17px 52px; display: block; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .step-card:last-child { padding-bottom: 0; border-bottom: 0; }

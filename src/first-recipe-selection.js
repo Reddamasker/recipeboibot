@@ -27,7 +27,7 @@ export function unlockSelection(userId,at=new Date()){
 }
 export function previewRecipe(recipe){
  if(!recipe||typeof recipe!=='object')return recipe;
- const preview={};for(const key of ['id','title','imageUrl','thumbnailUrl','servings','prepMinutes','cookMinutes','status'])if(recipe[key]!==undefined)preview[key]=recipe[key];
+ const preview={};for(const key of ['id','title','imageUrl','thumbnailUrl','servings','prepMinutes','cookMinutes','totalMinutes','status'])if(recipe[key]!==undefined)preview[key]=recipe[key];
  return {...preview,previewOnly:true};
 }
 export function redactRecipeData(value){

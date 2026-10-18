@@ -810,7 +810,7 @@ async function handleRecipeDialogueText(chatId, user, text, dialogue) {
       decision = await interpretRecipeDialogue({ userId: user.id, text, dialogue, profile: getFoodProfile(user.id), history: getDinnerHistory(user.id) });
     }
     if (decision.action === 'replace' && /долго готовить|быстрее/iu.test(text)) {
-      const minutes = (dialogue.recipe.prepMinutes || 0) + (dialogue.recipe.cookMinutes || 0);
+      const minutes = dialogue.recipe.totalMinutes ?? ((dialogue.recipe.prepMinutes || 0) + (dialogue.recipe.cookMinutes || 0));
       decision = { action: 'refine', patch: normalizeMealRequest({ text: `до ${Math.max(5, Math.min(30, minutes - 5))} минут`, kind: 'open', maxMinutes: Math.max(5, Math.min(30, minutes - 5)) }) };
     }
     await applyDialogueAction(chatId, user, dialogue, decision, text);
@@ -935,6 +935,7 @@ async function finishImport(chatId, outcome, options = {}) {
 }
 
 async function saveContent(message, user, content, options = {}) {
+  identifyProductStep('import');
   const chatId = message.chat.id;
   const playlist = content.url ? youtubePlaylist(content.url) : null;
   if (playlist && !canUsePlaylistImport(user.id)) {

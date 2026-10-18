@@ -32,6 +32,34 @@ function authorization(id, token = process.env.MAX_BOT_TOKEN, scheme = 'mxa') {
   params.set('hash', createHmac('sha256', secret).update(check).digest('hex'));
   return { authorization: `${scheme} ${params}` };
 }
+
+test('MAX photo import rejects incomplete extraction, then retries one job and preserves total time', async () => {
+  const owner = resolvePrivateTelegramUser({ id: 'max:98127', first_name: 'Фото' }); allowUser(owner.id); startTrial(owner.id);
+  const original = global.fetch; let complete = false, calls = 0;
+  global.fetch = async (url, options) => {
+    if (!String(url).startsWith('https://api.openai.com/')) return original(url, options);
+    calls++;
+    assert.equal(JSON.parse(options.body).input[0].content[1].detail, 'high');
+    return Response.json({ status: 'completed', output_text: JSON.stringify({ title: 'Овощи', description: '', servings: 6, totalMinutes: 50, prepMinutes: null, cookMinutes: null,
+      ingredients: [{ name: 'Кабачок', raw: 'Кабачок — 1 шт.', quantity: 1, unit: 'шт.', confidence: 0.99 }], steps: complete ? [{ position: 1, text: 'Нарезать и запечь.', confidence: 0.99 }] : [], warnings: [], tags: [],
+      nutrition: { calories: 100, protein: 2, fat: 5, carbs: 10, basis: 'serving', source: 'calculated', servings: 6, assumptions: [] } }), usage: { input_tokens: 10, output_tokens: 20 } });
+  };
+  const post = () => fetch(base + '/api/import', { method: 'POST', headers: { ...authorization(98127), 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image', mime: 'image/jpeg', value: Buffer.from([255, 216, 255, 224, 0, 16]).toString('base64') }) });
+  try {
+    const failure = await post(); assert.equal(failure.status, 422); assert.equal(calls, 2);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM recipes WHERE user_id=?').get(owner.id).n, 0);
+    const { productReport, validProductReport } = await import('../src/product-analytics.js');
+    const { maxFunnelSnapshot } = await import('../src/max-funnel.js');
+    assert.deepEqual(productReport([owner]).imports, { failed: 1 });
+    assert.equal(productReport([owner]).steps.find(s => s.step === 'import').errors, 1);
+    complete = true;
+    const saved = await (await post()).json(); assert.equal(saved.recipe.totalMinutes, 50); assert.equal(saved.recipe.prepMinutes, null);
+    assert.equal((await (await post()).json()).state, 'existing'); assert.equal(calls, 3);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM import_jobs WHERE user_id=?').get(owner.id).n, 1);
+    const snapshot = maxFunnelSnapshot();
+    assert.equal(validProductReport(snapshot.all.productAnalytics.platforms[0], { legacy: snapshot.version === 6 }), true);
+  } finally { global.fetch = original; }
+});
 test('MAX config excludes Telegram polling and credentials', async () => {
   assertConfig();
   assert.equal(config.telegramPolling, false);

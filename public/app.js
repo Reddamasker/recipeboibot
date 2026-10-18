@@ -21,7 +21,7 @@ async function api(path, options = {}) {
   if (flow) {
     const step = /billing/.test(path) ? (/trial/.test(path) ? 'trial' : 'checkout') : /notifications/.test(path) ? 'notifications' : /import/.test(path) ? 'import' : /profile|onboarding/.test(path) ? 'onboarding' : 'request';
     globalThis.window?.RecipeAnalytics?.event('step_submit', step, {flowId:flow});
-    if(['/api/recipe-request','/api/dinner/recommend','/api/dinner/next','/api/dinner/request','/api/suggestions'].includes(path) || /\/replace$/.test(path)) { resultFlow = flow; latestRecipeFlow = null; globalThis.window?.RecipeAnalytics?.requestStarted(flow, step); }
+    if(['/api/import','/api/recipe-request','/api/dinner/recommend','/api/dinner/next','/api/dinner/request','/api/suggestions'].includes(path) || /\/replace$/.test(path)) { resultFlow = flow; latestRecipeFlow = null; globalThis.window?.RecipeAnalytics?.requestStarted(flow, step); }
     options = {...options,headers:{...options.headers,'x-recipe-flow':flow}};
   }
   let response;
@@ -38,7 +38,7 @@ async function publicApi(path) {
   if (!response.ok) throw new Error(value?.error || 'Не получилось открыть рецепт');
   return value;
 }
-const totalTime = (recipe) => (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0);
+const totalTime = (recipe) => Number.isFinite(recipe.totalMinutes) ? recipe.totalMinutes : (recipe.prepMinutes || 0) + (recipe.cookMinutes || 0);
 // Server preparation and background fetches are never impressions.
 const pendingEngagement = new Map();
 function flushVisibleEngagement() {
@@ -73,6 +73,7 @@ globalThis.document?.addEventListener?.('transitionend', flushVisibleEngagement,
 globalThis.document?.addEventListener?.('animationend', flushVisibleEngagement, true);
 globalThis.window?.addEventListener?.('resize', flushVisibleEngagement);
 const cookingTimeLabel = (recipe) => {
+  if (Number.isFinite(recipe.totalMinutes)) return `${recipe.totalMinutes} мин`;
   const prep = Number.isFinite(recipe.prepMinutes), cook = Number.isFinite(recipe.cookMinutes);
   if (prep && cook) return `${totalTime(recipe)} мин`;
   if (cook) return `${recipe.cookMinutes} мин готовки · подготовка не указана`;
@@ -1138,6 +1139,7 @@ function importSheet() {
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs" role="group" aria-label="Источник рецепта"><button data-tab="text" class="active" aria-pressed="true">Текст</button><button data-tab="url" aria-pressed="false">Ссылка</button><button data-tab="image" aria-pressed="false">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
   const form = el.querySelector('#import-form');
+  globalThis.window?.RecipeAnalytics?.observe(form, 'screen_view', 'import');
   el.querySelector('#import-field').insertAdjacentHTML('afterend', '<p class="form-error" id="import-error" role="alert" tabindex="-1" hidden></p>');
   form.addEventListener('input', () => {
     // A field correction clears validation, but a server error stays until retry.
@@ -1281,7 +1283,7 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
   const nutritionNumber = value => Number.isFinite(value) ? new Intl.NumberFormat('ru', { maximumFractionDigits: 1 }).format(value) : '—';
   const nutritionStat = n ? `<div class="detail-stat detail-nutrition" aria-label="КБЖУ на порцию"><strong>${nutritionNumber(n.calories)} <small>ккал</small></strong><div class="detail-macros"><span>Б ${nutritionNumber(n.protein)}</span><span>Ж ${nutritionNumber(n.fat)}</span><span>У ${nutritionNumber(n.carbs)} <small>г</small></span></div></div>` : '<div class="detail-stat detail-nutrition"><span>Расчёт КБЖУ</span></div>';
   const stats = [nutritionStat,
-    `<div class="detail-stat"><strong>${[r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? totalTime(r) : '—'}</strong><span>${[r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? 'минут' : 'полное время не указано'}</span></div>`,
+    `<div class="detail-stat"><strong>${Number.isFinite(r.totalMinutes) || [r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? totalTime(r) : '—'}</strong><span>${Number.isFinite(r.totalMinutes) || [r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? 'минут' : 'полное время не указано'}</span></div>`,
     `<div class="detail-stat"><strong>${r.ingredients?.length || 0}</strong><span>ингредиентов</span></div>`
   ].join('');
   const nutritionNote = n ? `<details class="nutrition-note"><summary>${n.source === 'recipe' ? 'Из исходного рецепта' : 'Примерный расчёт'}</summary><p>Значения на одну порцию.${n.source === 'calculated' ? ' Рассчитано по ингредиентам, включая масло и соусы.' : ''}${n.assumptions?.length ? ' ' + n.assumptions.map(esc).join(' ') : ''}${n.servings && !r.servings ? ' Число порций для расчёта: ' + esc(n.servings) + '.' : ''}</p></details>` : '';
@@ -1289,8 +1291,9 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
   const warnings = (r.warnings || []).map((item) => `<li>${esc(item)}</li>`).join('');
   const warningCount = (r.warnings || []).length;
   const ingredients = (r.ingredients || []).map((item) => {
-    const amount = [item.quantity, item.unit].filter((value) => value !== null && value !== '').join(' ');
-    return `<div class="ingredient-row"><div><strong>${esc(item.name || item.raw)}</strong>${item.comment ? `<small>${esc(item.comment)}</small>` : ''}</div>${amount ? `<span>${esc(amount)}</span>` : '<span class="amount-empty">по вкусу</span>'}</div>`;
+    const amount = [item.quantity, item.unit].filter((value) => value != null && value !== '').join(' ');
+    const unspecified = /(?:^|\s)по\s+вкусу(?:\s|[.,;:]|$)/iu.test([item.raw, item.comment].filter(Boolean).join(' ')) ? 'по вкусу' : 'количество не указано';
+    return `<div class="ingredient-row"><div><strong>${esc(item.name || item.raw)}</strong>${item.comment ? `<small>${esc(item.comment)}</small>` : ''}</div>${amount ? `<span>${esc(amount)}</span>` : `<span class="amount-empty">${unspecified}</span>`}</div>`;
   }).join('') || '<p class="detail-empty">Ингредиенты не извлечены</p>';
   const steps = (r.steps || []).map((item, index) => `<div class="step-card"><span class="step-number">${index + 1}</span><p>${esc(item.text)}</p></div>`).join('') || '<p class="detail-empty">Шаги не извлечены</p>';
   const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
@@ -1392,7 +1395,7 @@ async function openSharedRecipe(token) {
 }
 
 function editRecipe(r) {
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">РЕДАКТОР</div><h2>Проверьте рецепт</h2></div><button class="icon-btn" data-close>✕</button></div>${r.warnings.map((x) => `<div class="warning"><strong>Важно:</strong> ${esc(x)}</div>`).join('')}<form id="edit-form" class="form-stack"><label><span class="label">Название</span><input class="field" name="title" value="${esc(r.title)}" required></label><label><span class="label">Описание</span><textarea class="field" name="description">${esc(r.description)}</textarea></label><div class="form-row"><label><span class="label">Порций</span><input class="field" name="servings" type="number" value="${r.servings ?? ''}"></label><label><span class="label">Подготовка</span><input class="field" name="prepMinutes" type="number" value="${r.prepMinutes ?? ''}"></label><label><span class="label">Готовка</span><input class="field" name="cookMinutes" type="number" value="${r.cookMinutes ?? ''}"></label></div><label><span class="label">Ингредиенты — по одному на строке</span><textarea class="field" name="ingredients">${esc(r.ingredients.map(ingredientText).join('\n'))}</textarea></label><label><span class="label">Шаги — по одному на строке</span><textarea class="field" name="steps">${esc(r.steps.map((x) => x.text).join('\n'))}</textarea></label><label><span class="label">Теги через запятую</span><input class="field" name="tags" value="${esc(r.tags.join(', '))}"></label><label><span class="label">Мои заметки</span><textarea class="field" name="notes">${esc(r.notes)}</textarea></label><div class="actions"><button class="primary accent" type="submit">Сохранить</button></div></form>`, '', false);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">РЕДАКТОР</div><h2>Проверьте рецепт</h2></div><button class="icon-btn" data-close>✕</button></div>${r.warnings.map((x) => `<div class="warning"><strong>Важно:</strong> ${esc(x)}</div>`).join('')}<form id="edit-form" class="form-stack"><label><span class="label">Название</span><input class="field" name="title" value="${esc(r.title)}" required></label><label><span class="label">Описание</span><textarea class="field" name="description">${esc(r.description)}</textarea></label><label><span class="label">Общее время, минут</span><input class="field" name="totalMinutes" type="number" min="0" value="${r.totalMinutes ?? ''}"></label><div class="form-row"><label><span class="label">Порций</span><input class="field" name="servings" type="number" value="${r.servings ?? ''}"></label><label><span class="label">Подготовка</span><input class="field" name="prepMinutes" type="number" value="${r.prepMinutes ?? ''}"></label><label><span class="label">Готовка</span><input class="field" name="cookMinutes" type="number" value="${r.cookMinutes ?? ''}"></label></div><label><span class="label">Ингредиенты — по одному на строке</span><textarea class="field" name="ingredients">${esc(r.ingredients.map(ingredientText).join('\n'))}</textarea></label><label><span class="label">Шаги — по одному на строке</span><textarea class="field" name="steps">${esc(r.steps.map((x) => x.text).join('\n'))}</textarea></label><label><span class="label">Теги через запятую</span><input class="field" name="tags" value="${esc(r.tags.join(', '))}"></label><label><span class="label">Мои заметки</span><textarea class="field" name="notes">${esc(r.notes)}</textarea></label><div class="actions"><button class="primary accent" type="submit">Сохранить</button></div></form>`, '', false);
   el.querySelector('[data-close]').onclick = () => { closeOverlay(); recipeDetail(r); }; el.querySelector('#edit-form').onsubmit = (e) => saveRecipe(e, r.id);
 }
 

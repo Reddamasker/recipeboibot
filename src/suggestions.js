@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes, withNutrition, recordRecipeRequestResult } from './db.js';
 import { getFoodProfile, getDinnerHistory, getDinnerOption } from './dinner-store.js';
-import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, recipeCategories } from './dinner.js';
+import { hasExcludedIngredient, SEED_RECIPES, totalMinutes, hasCompleteCookingTime, recipeCategories } from './dinner.js';
 import { generateRecipe, generateRequestedRecipe, interpretMealRequest, validateRecipeCriteria } from './openai.js';
 import { ensureSuggestionImage } from './recipe-images.js';
 import { requireRecipeEntry, withFirstRecipe } from './subscriptions.js';
@@ -48,7 +48,7 @@ function recipeFailures(recipe, context, generated = false) {
   if (excludedDialogueRecipe(recipe, context.rejectedRecipes, mealRequest)) failures.push('Пользователь уже отклонил этот вариант. Предложи другой рецепт, сохранив условия запроса и конкретное блюдо, если оно задано.');
   if (!matchesObjectiveMealRequest(recipe, mealRequest)) failures.push('Соблюдай числовые ограничения запроса на время, порции и КБЖУ. Пересчитай значения.');
   for (const value of excluded) if (hasExcludedIngredient(recipe, [value])) failures.push(`Исключи продукт «${value}» из ингредиентов и приготовления.`);
-  if (maxMinutes !== Infinity && (![recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite) || minutes > maxMinutes)) failures.push(`Общее время подготовки и приготовления должно быть не более ${maxMinutes} минут.`);
+  if (maxMinutes !== Infinity && (!hasCompleteCookingTime(recipe) || minutes > maxMinutes)) failures.push(`Общее время подготовки и приготовления должно быть не более ${maxMinutes} минут.`);
   if (profile.householdSize && (!Number.isInteger(recipe.servings) || recipe.servings < profile.householdSize)) failures.push(`Нужно не меньше ${profile.householdSize} порций.`);
   if (profile.hasChildren && isSpicy(recipe)) failures.push('Для семьи с детьми исключи острый перец и острые соусы.');
   if (generated && !(Number.isInteger(recipe.prepMinutes) && recipe.prepMinutes >= 0 && Number.isInteger(recipe.cookMinutes) && recipe.cookMinutes >= 0 && minutes >= 5 && Number.isInteger(recipe.servings) && recipe.servings >= 1)) failures.push('Укажи корректное целое число порций и реалистичное время подготовки и приготовления.');

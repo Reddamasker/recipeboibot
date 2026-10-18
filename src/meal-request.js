@@ -1,5 +1,6 @@
 // A request survives extraction, storage, generation and cache reuse unchanged.
 import { matchesNutritionLimits, normalizeNutritionLimits, nutritionLimitsSchema, parseNutritionLimits } from './nutrition.js';
+import { totalMinutes, hasCompleteCookingTime } from './recipe-time.js';
 // Categories help ranking; they are not a substitute for the name of a dish.
 const clean = (value, limit = 500) => String(value || '').normalize('NFKC').toLocaleLowerCase('ru').replaceAll('ё', 'е').trim().slice(0, limit);
 const GLUED_NEGATED_DISH = /(?<![\p{L}\p{N}])не(?=(?:суп|борщ|похлеб|щи|салат|десерт|пицц|паст|макарон)\p{L}*)/giu;
@@ -150,7 +151,7 @@ export function matchesMealRequest(recipe, raw) {
   const steps = (recipe.steps || []).map((s) => s.text || s).join(' ');
   const methods = { гриль: /грил/iu, духовка: /духов|запек/iu, пар: /на пару|паровар/iu, сковорода: /сковород/iu };
   if (request.methods.some((method) => !methods[method]?.test(steps))) return false;
-  if (request.maxMinutes && (!Number.isFinite(recipe.prepMinutes) || !Number.isFinite(recipe.cookMinutes) || recipe.prepMinutes + recipe.cookMinutes > request.maxMinutes)) return false;
+  if (request.maxMinutes && (!hasCompleteCookingTime(recipe) || totalMinutes(recipe) > request.maxMinutes)) return false;
   return true;
 }
 
@@ -162,7 +163,7 @@ export function matchesObjectiveMealRequest(recipe, raw) {
   if (!request) return true;
   if (!matchesNutritionLimits(recipe, request.nutritionLimits)) return false;
   if (request.servings && (!Number.isInteger(recipe.servings) || recipe.servings < request.servings)) return false;
-  if (request.maxMinutes && (!Number.isFinite(recipe.prepMinutes) || !Number.isFinite(recipe.cookMinutes) || recipe.prepMinutes + recipe.cookMinutes > request.maxMinutes)) return false;
+  if (request.maxMinutes && (!hasCompleteCookingTime(recipe) || totalMinutes(recipe) > request.maxMinutes)) return false;
   return true;
 }
 

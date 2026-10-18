@@ -167,11 +167,8 @@ export function hasExcludedIngredient(recipe, excluded = []) {
   });
 }
 
-export const totalMinutes = (recipe) => {
-  const values = [recipe.prepMinutes, recipe.cookMinutes].filter((value) => Number.isFinite(value));
-  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
-};
-export const hasCompleteCookingTime = (recipe) => [recipe.prepMinutes, recipe.cookMinutes].every(Number.isFinite);
+import { totalMinutes, hasCompleteCookingTime } from './recipe-time.js';
+export { totalMinutes, hasCompleteCookingTime };
 
 export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
   if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;

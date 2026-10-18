@@ -14,7 +14,7 @@ const fills = new Map(), imageTasks = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
 let activeImages = 0;
 const imageQueue = [];
-export const dinnerContextKey = ({ profile, pantry, requestedCategories = [], mealRequest = null, saved = [], feedback = { simpleOnly: false, unavailableIngredients: [], avoidTitles: [] } }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories, mealRequest, feedback, saved: saved.map(r => [r.id, r.title, r.ingredients, r.steps, r.servings, r.prepMinutes, r.cookMinutes]) })).digest('hex');
+export const dinnerContextKey = ({ profile, pantry, requestedCategories = [], mealRequest = null, saved = [], feedback = { simpleOnly: false, unavailableIngredients: [], avoidTitles: [] } }) => createHash('sha256').update(JSON.stringify({ version: DINNER_BUFFER.version, profile, pantry, requestedCategories, mealRequest, feedback, saved: saved.map(r => [r.id, r.title, r.ingredients, r.steps, r.servings, r.prepMinutes, r.cookMinutes, r.totalMinutes]) })).digest('hex');
 const titleKey = (recipe) => String(recipe.title || '').toLocaleLowerCase('ru').replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const titleSignature = recipe => {
   const title = titleKey(recipe);
