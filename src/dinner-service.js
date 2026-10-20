@@ -11,6 +11,7 @@ import { getDinnerMealRequest } from './dinner-store.js';
 import { normalizeMealRequest, parseMealRequest } from './meal-request.js';
 import { interpretMealRequest } from './openai.js';
 import { log } from './log.js';
+import { setProductResult } from './product-context.js';
 
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 const notFound = () => Object.assign(new Error('Сценарий ужина не найден'), { status: 404 });
@@ -195,8 +196,9 @@ export async function recommendDinner(userId, sessionId, options) {
   const context = dinnerContext(userId, sessionId);
   requireDinnerEntry(userId);
   if (currentDinnerOptions(userId, sessionId).some(option => option.method === 'first_recipe')) invalidateDinnerBuffer(userId, sessionId, dinnerContextKey(context));
-  const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
-  const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions);
+  const buffer = await bufferedDinner(userId, sessionId, () => dinnerContext(userId, sessionId), options);
+  const methods = new Set(buffer.current.map(option => option.method === 'generated' ? 'generated' : 'catalog'));
+  setProductResult(methods.size > 1 ? 'mixed' : [...methods][0] || 'empty');
   return bufferResponse(userId, sessionId, buffer);
 }
 
@@ -205,8 +207,7 @@ export function prefetchDinner(userId, sessionId, options) {
   if (!getDinnerSession(userId, sessionId)) throw notFound();
   requireDinnerEntry(userId);
   const context = dinnerContext(userId, sessionId);
-  const effectiveOptions = context.requestedCategories.length || context.mealRequest ? { ...options, catalogFirst: false } : options;
-  return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), effectiveOptions));
+  return bufferResponse(userId, sessionId, prefetchDinnerBuffer(userId, sessionId, () => dinnerContext(userId, sessionId), options));
 }
 
 export async function nextDinner(userId, ids, options) {

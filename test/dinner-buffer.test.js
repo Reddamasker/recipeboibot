@@ -26,6 +26,65 @@ const batch = () => ['mince-meatballs','mince-pasta','keema-potato','mince-potat
 }));
 const fixture = (id) => { const user = upsertTelegramUser({ id, first_name: 'Генерация' }); confirmDinnerIntake(user.id, { availableIngredients: ['говяжий фарш','картошка','рис','паста'], householdSize: 4, maxMinutes: 30 }); return user; };
 
+test('semantic catalog returns a checked complete recipe while remaining generation is pending', async () => {
+  const user = fixture(989661);
+  setDinnerContext(user.id, ['говяжий фарш','картошка','рис','паста'], [], {text:'мясное на ужин',kind:'open',semanticCriteria:[{description:'мясное блюдо',importance:'required'}]});
+  const { sessionId } = startDinner(user.id);
+  let release, checks = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const options = { progressive:true, images:false, generate:async () => { await pending; return {recipes:[]}; },
+    validate:async ({recipes}) => { checks++; return recipes.map((recipe,i) => ({recipe,accepted:i===0})); } };
+  const result = await recommendDinner(user.id, sessionId, options);
+  assert.equal(checks,1);
+  assert.equal(result.recommendations.length,1);
+  assert.equal(result.recommendation.method,'catalog');
+  assert.ok(result.recommendation.recipe.ingredients.length >= 2);
+  assert.ok(result.recommendation.recipe.steps.length >= 4);
+  assert.equal(result.preparing,true);
+  const first = result.recommendation.id;
+  release();
+  const {waitDinnerReserve} = await import('../src/dinner-buffer.js');
+  await waitDinnerReserve(user.id,sessionId,()=>dinnerContext(user.id,sessionId),options);
+  assert.equal(prefetchDinner(user.id,sessionId,options).recommendation.id,first);
+  await tick();
+});
+
+test('progressive generation publishes one validated recipe before the rest and preserves it', async () => {
+  const user = fixture(989662), {sessionId} = startDinner(user.id);
+  let release, calls=0;
+  const pending = new Promise(resolve => { release=resolve; });
+  const options={catalogFirst:false,progressive:true,images:false,generate:async ({count})=>{
+    calls++;
+    if(calls===1){assert.equal(count,1);return {recipes:[batch()[0]]};}
+    await pending;return {recipes:batch().slice(1,1+count)};
+  }};
+  const first=await recommendDinner(user.id,sessionId,options);
+  assert.equal(first.recommendations.length,1);assert.equal(first.preparing,true);
+  release();
+  const {waitDinnerReserve}=await import('../src/dinner-buffer.js');
+  await waitDinnerReserve(user.id,sessionId,()=>dinnerContext(user.id,sessionId),options);
+  const completed=prefetchDinner(user.id,sessionId,{...options,generate:async()=>({recipes:[]})});
+  assert.equal(completed.recommendations.length,3);
+  assert.equal(completed.recommendation.id,first.recommendation.id);
+  await tick();
+});
+
+test('a stale catalog verdict cannot publish recipes after the request changes', async () => {
+  const user=fixture(989663);
+  setDinnerContext(user.id,[],[],{text:'необычный ужин',kind:'open',semanticCriteria:[{description:'необычный',importance:'required'}]});
+  const {sessionId}=startDinner(user.id);
+  let release;
+  const pending=new Promise(resolve=>{release=resolve;});
+  const result=recommendDinner(user.id,sessionId,{progressive:true,images:false,
+    generate:async()=>assert.fail('stale request must not generate'),
+    validate:async({recipes})=>{await pending;return recipes.map(recipe=>({recipe,accepted:true}));}});
+  await tick();
+  setDinnerContext(user.id,[],[],{text:'другой ужин',kind:'open',semanticCriteria:[{description:'другой',importance:'required'}]});
+  release();
+  await assert.rejects(result,error=>error.status===409);
+  assert.equal(listDinnerOptions(user.id,sessionId).length,0);
+});
+
 test('rice-only generation receives rejection feedback and supplies a replacement without unavailable protein', async () => {
   const user = upsertTelegramUser({ id: 989621, first_name: 'Rice replacement' });
   confirmDinnerIntake(user.id, { availableIngredients: ['рис'], householdSize: 2, maxMinutes: 60 });
@@ -459,7 +518,7 @@ test('a request for today is mandatory for every visible dinner option', async (
   const structuralContext = { profile: { householdSize: 2, excludedIngredients: [] }, pantry: [], requestedCategories: ['asian', 'rice'], mealRequest: null, feedback: {}, rejected: [], history: [], recentRecipes: [], library: [], categorySignals: {} };
   assert.ok(validateGeneratedDinner(batch()[1], structuralContext), 'category meaning must not be rejected before semantic validation');
   const dinner = await recommendDinner(user.id, session.sessionId, { generate, validate });
-  assert.ok(generationCounts.length >= 1 && generationCounts.every((count) => count === 3));
+  assert.ok(generationCounts.every((count) => count >= 1 && count <= 3), 'generate only the slots not covered by checked catalog recipes');
   assert.ok(generatedFor.every((categories) => JSON.stringify(categories) === JSON.stringify(['asian', 'rice'])));
   assert.ok(validations >= 1);
   assert.equal(dinner.recommendations.length, 3);

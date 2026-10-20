@@ -10,6 +10,23 @@ test('dinner request locks while it is being saved to prevent duplicate generati
 });
 import vm from 'node:vm';
 
+test('an explicit dinner request opens the complete recipe with active access but never accepts it', async () => {
+  const source=fs.readFileSync('public/app.js','utf8');
+  const handler=source.slice(source.indexOf('async function loadDinnerRecommendation('),source.indexOf('\nlet dinnerPollTimer;'));
+  for(const active of [true,false]){
+    const dinner={sessionId:'session',pantry:[]},calls=[];
+    const sandbox={state:{dinner,payment:{active}},URLSearchParams,location:{search:'?view=dinner'},
+      document:{querySelector:()=>({})},dinnerView(){},scheduleDinnerPrefetch(){},refresh:async()=>{},openOffer:assert.fail,toast:assert.fail,
+      openRecipe:async(id,push)=>{calls.push([id,push]);assert.equal(dinner.openingFirstResult,true);},
+      api:async(_path,options)=>{assert.equal(options.recipeFlow,'shared-flow');return {recommendations:[{id:'option',recipe:{id:'seed:one'}}],recommendation:{id:'option',recipe:{id:'seed:one'}},mealRequest:{text:'synthetic'},preparing:true};}};
+    vm.runInNewContext(handler,sandbox);
+    await sandbox.loadDinnerRecommendation('shared-flow');
+    assert.equal(calls.length,active?1:0);
+    assert.equal(dinner.accepted,false);
+    assert.equal(dinner.openingFirstResult,false);
+  }
+});
+
 test('dinner polling adds the third card when the reserve is already full', async () => {
   const source = fs.readFileSync('public/app.js', 'utf8');
   const handler = source.slice(source.indexOf('let dinnerPollTimer;'), source.indexOf('\nfunction dinnerDislikeSheetContent'));

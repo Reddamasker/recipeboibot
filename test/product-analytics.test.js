@@ -17,6 +17,47 @@ const user=()=>{const u=upsertTelegramUser({id:++next});allowUser(u.id);return u
 const batch=(event='screen_view',step='home')=>({visitor:randomUUID(),events:[{id:randomUUID(),event,step,version:'product-1',session:randomUUID()}]});
 test.after(()=>{db.close();for(const suffix of ['','-wal','-shm'])fs.rmSync(file+suffix,{force:true});});
 
+test('latency separates full views, selections, slow generation and failures without dropping missing views',()=>{
+ const u=user(),other=user(),at=new Date(Date.now()+1000).toISOString();
+ const add=(who,mode,ms,presentation,status=200)=>{
+   const flowId=randomUUID();
+   record(who.id,'request_started',{flowId,step:'request',at});
+   record(who.id,'operation_finished',{flowId,step:'request',at,durationMs:ms,detail:{resultMode:mode,status}});
+   if(presentation)record(who.id,presentation==='preview'?'request_preview_visible':'request_visible',{flowId,step:'request',at,durationMs:ms+100,detail:{presentation}});
+   return flowId;
+ };
+ add(u,'catalog',300,'selection');add(u,'generated',12000,'full');add(u,'catalog',200,'preview');
+ const failed=add(u,'empty',100,null,422);
+ add(other,'cache',10,'full');
+ // A same-flow different event ID retry must not inflate request denominators.
+ record(u.id,'request_started',{flowId:failed,step:'request',at});
+ const r=report([u]).latency;
+ assert.equal(r.started,4);assert.equal(r.completed,4);assert.equal(r.failed,1);assert.equal(r.unobserved,1);
+ assert.equal(r.visible.full.samples,1);assert.equal(r.visible.full.within4s,0);
+ assert.equal(r.visible.selection.within4s,1);assert.equal(r.visible.preview.within4s,1);
+ assert.equal(r.server.catalog.samples,2);assert.equal(r.server.generated.within4s,0);
+ assert.equal(report([{...u,started_at:new Date(Date.parse(at)+1).toISOString()}],true).latency.started,0);
+ const base=maxFunnelSnapshot().all.productAnalytics.platforms[0];
+ assert.equal(validProductReport({...base,latency:r}),true);
+ assert.equal(validProductReport({...base,latency:{...r,unobserved:10}}),false);
+ assert.equal(validProductReport({...base,latency:{...r,visible:{full:{samples:1,within4s:2,p50:0,p95:0}}}}),false);
+ assert.equal(validProductReport({...base,latency:{...r,query:'private'}}),false);
+});
+
+test('bounded stage timings stop at response completion and never retain input text',async()=>{
+ const {measureProductStage,setProductResult}=await import('../src/product-context.js');
+ const u=user();let release;
+ const background=new Promise(resolve=>{release=resolve;});let task;
+ await productOperation('request',async()=>{
+   setProductResult('catalog');
+   await measureProductStage('validation',async()=>{});
+   task=measureProductStage('generation',()=>background);
+ },{userId:u.id});
+ release();await task;
+ const r=report([u]).latency;
+ assert.equal(r.stages.validation.samples,1);assert.equal(r.stages.generation.samples,0);
+});
+
 test('bounded batches are atomic, idempotent, private and have no payload text',()=>{
  const u=user(),input=batch(); input.events[0].query='private dinner query';input.events[0].token='secret';
  assert.equal(accept(u.id,input).accepted.length,1);assert.equal(accept(u.id,input).accepted.length,1);
@@ -185,6 +226,8 @@ test('browser timing waits for animation visibility and signed receipt retries p
  const api=sandbox.window.RecipeAnalytics;api.setUser('test-user');api.requestStarted('flow_identifier_123','request');api.requestVisible(element,'flow_identifier_123');
  await timer();assert.equal(events.some(r=>r.event==='request_visible'),false);
  visible=true;listeners.animationend();await timer();assert.equal(events.filter(r=>r.event==='request_visible').length,1);
+ assert.equal(events.filter(r=>r.event==='request_started').length,1);
+ assert.equal(events.find(r=>r.event==='request_visible').presentation,'full');
  listeners.transitionend();await timer();assert.equal(events.filter(r=>r.event==='request_visible').length,1);
  api.receipt({eventId:randomUUID(),token:'signed-test-receipt'});await timer();await timer();await timer();await timer();
  assert.equal(receiptIds.length,3);assert.equal(new Set(receiptIds).size,1);assert.ok(events.some(r=>r.event==='telemetry_receipt'&&r.recoveredAttempts===3));

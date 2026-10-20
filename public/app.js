@@ -13,15 +13,18 @@ if (tg) { tg.setHeaderColor?.('#f3f0f7'); tg.setBackgroundColor?.('#f3f0f7'); }
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x]);
 const toast = (message) => { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => toastEl.classList.remove('show'), 3500); };
 const resetPageScroll = () => globalThis.requestAnimationFrame?.(() => globalThis.scrollTo?.(0, 0));
-let latestRecipeFlow = null;
+let latestRecipeFlow = null, activeRecipeFlow = null;
 async function api(path, options = {}) {
   let resultFlow = null;
   const observed = options.method && options.method !== 'GET' && !/engagement|analytics|\/prefetch$|\/exposure$/.test(path);
-  const flow = observed ? crypto.randomUUID() : null;
+  const flow = observed ? options.recipeFlow || crypto.randomUUID() : null;
   if (flow) {
     const step = /billing/.test(path) ? (/trial/.test(path) ? 'trial' : 'checkout') : /notifications/.test(path) ? 'notifications' : /import/.test(path) ? 'import' : /profile|onboarding/.test(path) ? 'onboarding' : 'request';
     globalThis.window?.RecipeAnalytics?.event('step_submit', step, {flowId:flow});
-    if(['/api/import','/api/recipe-request','/api/dinner/recommend','/api/dinner/next','/api/dinner/request','/api/suggestions'].includes(path) || /\/replace$/.test(path)) { resultFlow = flow; latestRecipeFlow = null; globalThis.window?.RecipeAnalytics?.requestStarted(flow, step); }
+    if(['/api/import','/api/recipe-request','/api/dinner/request','/api/dinner/recommend','/api/dinner/next','/api/suggestions'].includes(path) || /\/replace$/.test(path)) {
+      resultFlow = flow; latestRecipeFlow = null;
+      if (flow !== activeRecipeFlow) { activeRecipeFlow = flow; globalThis.window?.RecipeAnalytics?.requestStarted(flow, step); }
+    }
     options = {...options,headers:{...options.headers,'x-recipe-flow':flow}};
   }
   let response;
@@ -29,7 +32,7 @@ async function api(path, options = {}) {
   catch(error) { if(!/engagement|analytics/.test(path))globalThis.window?.RecipeAnalytics?.event('client_error', undefined, {code:error.name==='TimeoutError'?'timeout':'network',...(flow?{flowId:flow}:{})});throw error; }
   const value = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (!response.ok) { if(!/engagement|analytics/.test(path))globalThis.window?.RecipeAnalytics?.event('client_error', undefined, {code:response.status===401?'auth':'http',...(flow?{flowId:flow}:{})});throw Object.assign(new Error(value?.error || 'Не получилось выполнить запрос'), { status: response.status }); }
-  if (resultFlow) latestRecipeFlow = resultFlow;
+  if (resultFlow && resultFlow === activeRecipeFlow && path !== '/api/dinner/request') latestRecipeFlow = resultFlow;
   return value;
 }
 async function publicApi(path) {
@@ -412,11 +415,11 @@ async function toggleRequestRecording(event) {
   } catch (error) { stream?.getTracks().forEach((track) => track.stop()); requestRecorder = null; button.disabled = false; status.textContent = ''; toast(error.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону или напишите запрос.' : 'Не удалось включить микрофон. Можно написать запрос.'); }
 }
 
-async function beginDinner(forceOnboarding = false, startTrialTastePreferences = false) {
+async function beginDinner(forceOnboarding = false, startTrialTastePreferences = false, prepared = null) {
   clearTimeout(dinnerPollTimer);
   try {
     const notificationId = !forceOnboarding ? new URLSearchParams(location.search).get('notification') : null;
-    const session = await api(notificationId ? `/api/notifications/${encodeURIComponent(notificationId)}/open` : '/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
+    const session = prepared?.session || await api(notificationId ? `/api/notifications/${encodeURIComponent(notificationId)}/open` : '/api/dinner/open', { method: 'POST', body: '{}', signal: AbortSignal.timeout(12000) });
     state.dinner = { sessionId: session.sessionId, notificationId, profile: session.profile, pantry: session.pantry || [], mealRequest: session.mealRequest || null, needsOnboarding: session.needsOnboarding, recommendations: session.acceptedOption ? [session.acceptedOption] : [], reserve: [], recommendation: session.acceptedOption || null, accepted: Boolean(session.acceptedOption), retryCount: 0, dislikeId: null, loading: false };
     if (session.acceptedOption) { dinnerView(); return; }
     if (forceOnboarding) await showDinnerOnboarding();
@@ -425,7 +428,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
       setTrialOnboardingStep('notifications');
       setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'trial-onboarding' });
       trialOnboardingPage();
-    } else await loadDinnerRecommendation();
+    } else await loadDinnerRecommendation(prepared?.flow);
   } catch (error) { toast(error.message); setRoute({}, { replace: true }); home(); }
 }
 
@@ -540,18 +543,18 @@ function trialOnboardingPage() {
   document.querySelector('#trial-finish').onclick = () => finish(false);
 }
 
-async function loadDinnerRecommendation() {
+async function loadDinnerRecommendation(recipeFlow = null) {
   if (!state.dinner) return;
   const dinner = state.dinner;
   state.dinner.loading = true;
   state.dinner.recommendations = [];
   state.dinner.recommendation = null;
   state.dinner.message = dinner.pantry?.length
-    ? 'Составляю рецепты под твои продукты — сразу с запасом для следующего выбора…'
+    ? 'Подбираю рецепт под твои продукты…'
     : 'Подбираю подходящие варианты ужина…';
   dinnerView();
   try {
-    const result = await api('/api/dinner/recommend', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }) });
+    const result = await api('/api/dinner/recommend', { method: 'POST', body: JSON.stringify({ sessionId: dinner.sessionId }), recipeFlow });
     if (state.dinner !== dinner) return;
     state.dinner.loading = false;
     state.dinner.recommendations = result.recommendations || (result.recommendation ? [result.recommendation] : []);
@@ -569,8 +572,17 @@ async function loadDinnerRecommendation() {
     state.dinner.notice = result.notice;
     state.dinner.firstFreeRecipe = Boolean(result.firstFreeRecipe);
     if (result.firstFreeRecipe) await refresh();
+    // With active access, an explicit request opens its first complete recipe.
+    // Merely returning a selection card must not count as the full result.
+    dinner.openingFirstResult = Boolean(state.payment?.active && dinner.mealRequest && dinner.recommendation
+      && new URLSearchParams(location.search).get('view') === 'dinner');
     dinnerView();
     scheduleDinnerPrefetch(dinner);
+    if (dinner.openingFirstResult) {
+      await openRecipe(dinner.recommendation.recipe.id, true);
+      dinner.openingFirstResult = false;
+      if (state.dinner === dinner && !document.querySelector('.overlay .recipe-detail-sheet')) dinnerView();
+    }
   } catch (error) { if (state.dinner !== dinner) return; dinner.loading = false; if (error.status === 402) { await refresh(); openOffer(); return; } dinner.message = error.message; dinnerView(); toast(error.message); }
 }
 
@@ -596,7 +608,7 @@ function scheduleDinnerPrefetch(dinner) {
       // A transient network failure must not permanently stop image updates.
       if (dinner === state.dinner) scheduleDinnerPrefetch(dinner);
     }
-  }, 3000);
+  }, dinner.recommendations.length < 3 && dinner.preparing ? 750 : 3000);
 }
 
 function dinnerDislikeSheetContent(option) {
@@ -817,7 +829,7 @@ function dinnerView() {
   const item = dinner?.accepted ? dinner.recommendation : items[0], recipe = item?.recipe;
   const content = !recipe ? `<section class="dinner-decision"><h1>Сегодня на ужин</h1><p>${esc(dinner?.message || 'Подбираю подходящий вариант…')}</p>${dinner.loading ? '' : '<div class="dinner-actions"><button class="secondary" id="dinner-retry">Попробовать снова</button><button class="manual-save" id="dinner-pantry-update">Назвать другие продукты</button><button class="manual-save" id="dinner-settings">Изменить предпочтения</button></div>'}</section>`
     : dinner.accepted ? `<section class="dinner-decision"><div class="eyebrow">РЕШЕНО · СЕГОДНЯ НА УЖИН</div><h1>${esc(recipe.title)}</h1><p>Рецепт сохранён в «Мои рецепты» и останется под рукой.</p><div class="dinner-actions"><button class="primary accent" id="dinner-start-cooking">Начать готовить</button><button class="secondary" id="dinner-full-recipe">Открыть рецепт</button><button class="manual-save" id="dinner-mark-cooked" ${dinner.cooked ? 'disabled' : ''}>${dinner.cooked ? 'Приготовлено ✓' : 'Уже приготовил ✓'}</button></div></section>`
-    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1><p class="dinner-swipe-hint" role="status">${dinner.acceptingId ? 'Выбираю рецепт…' : 'Вправо — готовим, влево — не подходит'}</p>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
+    : `<section class="dinner-decision dinner-picks"><h1>Что на ужин?</h1><p class="dinner-swipe-hint" role="status">${dinner.acceptingId ? 'Выбираю рецепт…' : dinner.preparing && items.length < 3 ? 'Первый рецепт готов. Остальные варианты подбираются…' : 'Вправо — готовим, влево — не подходит'}</p>${dinner.notice ? `<p class="dinner-help">${esc(dinner.notice)}</p>` : ''}<ol class="dinner-menu">${items.map(dinnerChoiceCard).join('')}</ol><div class="dinner-actions">${dinner.pantry?.length ? '<button class="manual-save" id="dinner-pantry-update">Продукты изменились</button>' : ''}<button class="manual-save" id="dinner-tastes">Мои вкусы</button>${dinner.needsOnboarding ? '<button class="manual-save" id="dinner-onboarding">Уточнить вкусы и ограничения</button>' : ''}</div></section>`;
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button>${!dinner?.accepted ? `<section class="dinner-request">${dinner?.mealRequest ? '' : '<p class="dinner-help">Конкретного пожелания на сегодня нет</p>'}<form id="dinner-request-form"><label for="dinner-request-text">Сегодня хочется</label><input class="field" id="dinner-request-text" maxlength="500" value="${esc(dinner?.requestDraft ?? dinner?.mealRequest?.text ?? '')}" placeholder="Например: стейк с картофелем" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}><button class="secondary" type="submit" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>${dinner?.requestSaving ? 'Подбираю…' : 'Подобрать по запросу'}</button>${dinner?.mealRequest ? `<button class="manual-save" id="dinner-request-clear" type="button" ${(dinner?.requestSaving || dinner?.switching) ? 'disabled' : ''}>Убрать пожелание</button>` : ''}</form></section>` : ''}${content}${(dinner?.cooked || dinner?.firstFreeRecipe) ? offerBanner() : ''}</main>`;
   bindCommon();
   document.querySelector('#dinner-home').onclick = () => { setRoute({}); render(); };
@@ -847,7 +859,12 @@ function dinnerView() {
   const changeRequest = async (query) => {
     if (dinner.requestSaving || dinner.switching) return;
     dinner.requestSaving = true; dinnerView();
-    try { await api('/api/dinner/request', { method: 'PUT', body: JSON.stringify({ query }) }); await beginDinner(); }
+    try {
+      const flow = crypto.randomUUID();
+      const session = await api('/api/dinner/request', { method: 'PUT', body: JSON.stringify({ query }), recipeFlow: flow });
+      if (state.dinner !== dinner || new URLSearchParams(location.search).get('view') !== 'dinner') return;
+      await beginDinner(false, false, { session, flow });
+    }
     catch (error) { dinner.requestSaving = false; dinnerView(); toast(error.message); }
   };
   document.querySelector('#dinner-request-form')?.addEventListener('submit', (event) => { event.preventDefault(); void changeRequest(document.querySelector('#dinner-request-text').value); });
@@ -1867,8 +1884,8 @@ if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined
       const step = root.dataset.analyticsStep || (root.querySelector('#offer-pay, #go-checkout') ? 'offer' : root.querySelector('#dinner-onboarding-next') ? 'onboarding' : root.querySelector('#taste-save') ? 'taste' : ({'offer':'offer','checkout':'checkout','payment-result':'payment_result','benefits':'benefits','notifications':'notifications','collection':'collection','trial-onboarding':'taste','dinner':'request','request':'request'})[route] || 'home');
       globalThis.window?.RecipeAnalytics.step(step);globalThis.window?.RecipeAnalytics.observe(screen,'screen_view',step);
     }
-    const detail = document.querySelector('.overlay .recipe-detail-sheet') || root.querySelector('.dinner-menu-card');
-    if (detail && latestRecipeFlow) {globalThis.window?.RecipeAnalytics.requestVisible(detail,latestRecipeFlow);latestRecipeFlow=null;}
+    const detail = document.querySelector('.overlay .recipe-detail-sheet') || (!state.dinner?.openingFirstResult && root.querySelector('.dinner-menu-card'));
+    if (detail && latestRecipeFlow) {globalThis.window?.RecipeAnalytics.requestVisible(detail,latestRecipeFlow,false,detail.matches('.dinner-menu-card')?'selection':'full');latestRecipeFlow=null;}
     const preview = root.querySelector('.first-recipe-preview');
     if (!detail && preview && latestRecipeFlow) {globalThis.window?.RecipeAnalytics.requestVisible(preview,latestRecipeFlow,true);latestRecipeFlow=null;}
   };

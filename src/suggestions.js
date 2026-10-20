@@ -9,6 +9,7 @@ import { normalizeMealRequest, parseMealRequest, matchesMealRequest, matchesObje
 import { parseDinnerIntakeFallback } from './dinner-intake.js';
 import { log } from './log.js';
 import { ensureNutrition } from './nutrition-service.js';
+import { setProductResult } from './product-context.js';
 import { excludedDialogueRecipe } from './recipe-dialogue.js';
 
 const inFlight = new Map();
@@ -163,13 +164,16 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
   if (cached && validRecipe(cached.recipe, requestContext(userId, normalized, override || cached.mealRequest, rejectedRecipes), true)) {
     cached.recipe = await ensureNutrition(userId, cached.recipe);
     if (!cached.recipe.thumbnailUrl) void ensureSuggestionImage(userId, cached);
+    setProductResult('cache');
     return { kind: 'generated', query: cached.mealRequest?.text || normalized, mealRequest: override || cached.mealRequest, suggestion: cached };
   }
   const context = dialogueContext || await interpretedContext(userId, query, interpret);
   const ranked = (await requestedRecipes(userId, query, context)).slice(0, 8);
   if (ranked.length) {
     const recentTitles = [...rejectedRecipes.map(item => item.title), ...listRecipes(userId).filter((recipe) => recipe.status === 'ready').slice(0, 20).map((recipe) => recipe.title)];
-    const verdicts = await validate({ userId, query: context.understood, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recipes: ranked.map((item) => item.recipe), profile: context.profile, recentTitles, rejectedRecipes, cookingHistory: context.cookingHistory });
+    // Check a small leading batch first; only inspect the rest when none fits.
+    for (const offset of [0, 3].filter(offset => offset < ranked.length)) {
+    const verdicts = await validate({ userId, query: context.understood, mealRequest: context.mealRequest, requestedCategories: context.requestedCategories, recipes: ranked.slice(offset, offset === 0 ? 3 : 8).map((item) => item.recipe), profile: context.profile, recentTitles, rejectedRecipes, cookingHistory: context.cookingHistory });
     const accepted = verdicts.map((verdict, index) => ({ ...verdict, order: index })).filter((verdict) => verdict.accepted)
       .sort((a, b) => b.preferredScore - a.preferredScore || a.order - b.order)[0];
     if (accepted) {
@@ -177,9 +181,13 @@ export async function resolveRecipeRequest(userId, query, { generate = generateR
       // The same cached recipe on the same day is a reopen, not another result.
       const day = new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);
       recordRecipeRequestResult(userId, `existing:${userId}:${recipe.id}:${day}`, 'existing');
+      setProductResult('catalog');
       return { kind: 'existing', query: context.understood, mealRequest: context.mealRequest, recipe };
     }
+    }
   }
-  return { kind: 'generated', query: context.understood, mealRequest: context.mealRequest, suggestion: await generateSuggestion(userId, query, generate, validate, true, context) };
+  const suggestion = await generateSuggestion(userId, query, generate, validate, true, context);
+  setProductResult('generated');
+  return { kind: 'generated', query: context.understood, mealRequest: context.mealRequest, suggestion };
   });
 }

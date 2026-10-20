@@ -7,10 +7,12 @@ import { DINNER_LIMITS, pantryCoverage, SEED_RECIPES, hasExcludedIngredient, isD
 import { acceptedDinnerOptionId, addDinnerEvent, currentDinnerOptions, getDinnerOption, getDinnerRecommendation, getDinnerSession, insertDinnerOption, invalidateDinnerBuffer, listDinnerOptions, promoteDinnerOptions, retireDinnerOptions, setDinnerBufferRetry, setDinnerOptionImage } from './dinner-store.js';
 import { needsSemanticValidation } from './meal-request.js';
 import { recipeNutrition } from './nutrition.js';
+import { measureProductStage } from './product-context.js';
 
 export const DINNER_BUFFER = Object.freeze({ version: 11, visible: 3, total: 6, retryMs: 60000, imageConcurrency: 3 });
 const MAX_GENERATION_ATTEMPTS = 3;
 const fills = new Map(), imageTasks = new Map();
+const firstReady = new Map();
 const acceptRecipeCriteria = async ({ recipes }) => recipes.map((recipe) => ({ recipe, accepted: true, preferredScore: 100, failedCriteria: [], evidence: [] }));
 let activeImages = 0;
 const imageQueue = [];
@@ -139,6 +141,29 @@ function fallbackFill(userId, sessionId, context, target = DINNER_BUFFER.total) 
   }
 }
 
+async function validatedCatalogFill(userId, sessionId, context, key, getContext, validate) {
+  if (!needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
+  const previous = listDinnerOptions(userId, sessionId);
+  // Use the same objective exclusions, pantry limits and recent-dish rules as generation.
+  const ranked = rotateDinnerCandidates(rankCandidates([...context.saved, ...SEED_RECIPES]
+    .filter(recipe => !duplicateDinner(recipe, previous.map(o => o.recipe))), {
+      ...context, rejected: [...context.rejected, ...previous.map(o => o.recipe.id)]
+    }), context.recentShownRecipes);
+  const choices = selectDinnerChoices(shortlistDinnerCandidates(ranked, context.history, 6, context.profile.preferredCategories), context.history,
+    { preferTop: context.pantry.length > 0, preferredCategories: context.profile.preferredCategories });
+  if (!choices.length) return;
+  const verdicts = await measureProductStage('catalog', () => validate({ userId,
+    query: context.mealRequest?.text || '', mealRequest: context.mealRequest, requestedCategories: context.requestedCategories,
+    recipes: choices.map(c => c.candidate.recipe), profile: context.profile, recentTitles: context.recentRecipes }));
+  if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
+  for (const [index, choice] of choices.entries()) {
+    if (!verdicts[index]?.accepted || activeCount(userId, sessionId) >= DINNER_BUFFER.total) continue;
+    if ([...currentDinnerOptions(userId, sessionId), ...ready(userId, sessionId)].filter(o => o.role === choice.role).length >= 2) continue;
+    insertDinnerOption(userId, sessionId, { id: randomUUID(), recipe: choice.candidate.recipe,
+      categories: choice.candidate.categories, role: choice.role, method: 'catalog' }, titleKey(choice.candidate.recipe));
+  }
+}
+
 function warmImages(userId, sessionId) {
   if (!config.dinnerLlmEnabled || !config.dinnerImagesEnabled || !config.openaiKey || !config.imageModel) return;
   const acceptedId = acceptedDinnerOptionId(userId, sessionId);
@@ -164,7 +189,7 @@ function drainImages() {
   }
 }
 
-function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes, validate = generate === generateDinnerRecipes ? validateRecipeCriteria : acceptRecipeCriteria, images = true, catalogFirst = true } = {}) {
+function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes, validate = generate === generateDinnerRecipes ? validateRecipeCriteria : acceptRecipeCriteria, images = true, catalogFirst = true, progressive = generate === generateDinnerRecipes } = {}) {
   if (acceptedDinnerOptionId(userId, sessionId)) return Promise.resolve();
   if (fills.has(sessionId)) return fills.get(sessionId);
   const context = getContext(), key = synchronize(userId, sessionId, context);
@@ -174,15 +199,26 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
   if (catalogFirst) fallbackFill(userId, sessionId, context);
   const active = activeCount(userId, sessionId);
   // Return the visible trio first; the reserve is generated in the background.
-  const count = active < DINNER_BUFFER.visible ? DINNER_BUFFER.visible - active : DINNER_BUFFER.total - active;
+  let count = active < DINNER_BUFFER.visible ? DINNER_BUFFER.visible - active : DINNER_BUFFER.total - active;
   if (count <= 0) { if (images) warmImages(userId, sessionId); return Promise.resolve(); }
   const session = getDinnerSession(userId, sessionId);
   if (!config.dinnerLlmEnabled || session.buffer_retry_at > Date.now()) {
     fallbackFill(userId, sessionId, context);
     return Promise.resolve();
   }
+  let release;
+  firstReady.set(sessionId, new Promise(resolve => { release = resolve; }));
+  const publish = () => { if (activeCount(userId, sessionId)) release(); };
   const task = (async () => {
     try {
+      if (catalogFirst && needsSemanticValidation(context.mealRequest, context.requestedCategories)) {
+        await validatedCatalogFill(userId, sessionId, context, key, getContext, validate);
+        if (!getDinnerSession(userId, sessionId) || acceptedDinnerOptionId(userId, sessionId) || dinnerContextKey(getContext()) !== key) return;
+        publish();
+        // A usable catalog result is returned before filling the remaining slots.
+        const available = activeCount(userId, sessionId);
+        count = available < DINNER_BUFFER.visible ? DINNER_BUFFER.visible - available : DINNER_BUFFER.total - available;
+      }
       const prior = listDinnerOptions(userId, sessionId);
       const existing = listDinnerOptions(userId, sessionId).map((o) => o.recipe);
       const attemptedTitles = [], validationFailures = [];
@@ -193,7 +229,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       let added = 0, attempts = 0;
       while (added < count && attempts < maxAttempts) {
         attempts++;
-        const needed = count - added;
+        const needed = progressive && activeCount(userId, sessionId) === 0 ? 1 : count - added;
         const result = await generate({ userId, count: needed, roles: missingRoles(userId, sessionId, needed), profile: context.profile, pantry: context.pantry, signals: context.categorySignals,
           requestedCategories: context.requestedCategories, mealRequest: context.mealRequest, feedback: context.feedback, validationFailures: validationFailures.slice(-8), recentRecipes: [...context.recentRecipes, ...(context.recentShownRecipes || []).map(r => r.recipe.title)].slice(0, 20),
           rejectedTitles: [...prior.map((o) => o.recipe.title), ...attemptedTitles].slice(-40) });
@@ -235,13 +271,16 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
           if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }
           else filteredCandidates.push({ title: valid.recipe.title, reason: 'signature_conflict' });
         }
+        publish();
       }
       if (added < count) setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
       fallbackFill(userId, sessionId, context, active + count);
       addDinnerEvent(userId, 'dinner_buffer_filled', { sessionId, detail: { requested: count, generated: added, attempts, structurallyRejected,
         validationFailures: validationFailures.slice(-8), semanticallyRejected: semanticFailures.length, semanticFailures: semanticFailures.slice(0, 8), filteredCandidates: filteredCandidates.slice(0, 12) } });
     } catch (error) {
-      if (getDinnerSession(userId, sessionId) && dinnerContextKey(getContext()) === key) {
+      let current = false;
+      try { current = Boolean(getDinnerSession(userId, sessionId)) && dinnerContextKey(getContext()) === key; } catch { /* Changed or removed session. */ }
+      if (current) {
         setDinnerBufferRetry(userId, sessionId, Date.now() + DINNER_BUFFER.retryMs);
         fallbackFill(userId, sessionId, context);
         addDinnerEvent(userId, 'dinner_generation_fallback', { sessionId });
@@ -249,7 +288,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
       log('warn', 'dinner_generation_fallback', { error: error.message, userId });
     }
     if (images && getDinnerSession(userId, sessionId)) warmImages(userId, sessionId);
-  })().finally(() => fills.delete(sessionId));
+  })().finally(() => { release(); fills.delete(sessionId); firstReady.delete(sessionId); });
   fills.set(sessionId, task);
   return task;
 }
@@ -275,8 +314,9 @@ export async function bufferedDinner(userId, sessionId, getContext, options = {}
   const prior = listDinnerOptions(userId, sessionId);
   if (!currentDinnerOptions(userId, sessionId).length) {
     if (!prior.length) {
-      if (options.catalogFirst === false) await fill(userId, sessionId, getContext, options);
-      else prefetchDinnerBuffer(userId, sessionId, getContext, options);
+      const task = fill(userId, sessionId, getContext, options);
+      const progressive = options.progressive ?? (!options.generate || options.generate === generateDinnerRecipes);
+      if (!activeCount(userId, sessionId)) await (progressive ? firstReady.get(sessionId) || task : task);
     }
     else if (!ready(userId, sessionId).length) fallbackFill(userId, sessionId, getContext(), DINNER_BUFFER.visible);
     // Constraints may have changed while the provider was running.

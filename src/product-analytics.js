@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { trialReminderReport } from './trial-reminders.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
-export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
+export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
 const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
 export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, 'client_error', 'telemetry_health'];
 export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
@@ -19,6 +19,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS product_events (
  CREATE TABLE IF NOT EXISTS product_analytics_metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL);`);
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('tracking_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_benefits_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_latency_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
 let writeFailures = 0;
 export function recordProduct(userId, event, { id = randomUUID(), visitor = null, step = 'other', flowId = null, durationMs = null, detail = {}, at = new Date().toISOString() } = {}) {
@@ -38,6 +39,11 @@ export function acceptProductEvents(userId, input) {
     if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
     const detail = {};
+    if (row.presentation !== undefined) {
+      if (!['request_visible','request_preview_visible'].includes(row.event) || !['selection','full','preview'].includes(row.presentation)) return invalid();
+      detail.presentation = row.presentation;
+    }
+    if (row.event === 'request_started' && (!userId || !idPattern.test(row.flowId || ''))) return invalid();
     for (const k of ['attempts', 'recoveredAttempts', 'dropped', 'pending', 'ageMs', 'months', 'results', 'filters']) {
       if (row[k] !== undefined) {
         if (!Number.isSafeInteger(row[k]) || row[k] < 0 || row[k] > 86400000) return invalid();
@@ -76,7 +82,11 @@ export function productOperation(step, fn, { userId = null, flowId = null } = {}
   return context.run(c, async () => {
     try { const result = await fn(c); return result; }
     catch (error) { c.error = Number(error.status) || 500; throw error; }
-    finally { if (c.userId) recordProduct(c.userId, 'operation_finished', { step:c.step, flowId: c.id, durationMs: Date.now() - c.started, detail: { status: c.status >= 400 ? c.status : c.error || c.status || 200 } });
+    finally { c.finished = true;
+      if (c.userId) {
+        recordProduct(c.userId, 'operation_finished', { step:c.step, flowId: c.id, durationMs: Date.now() - c.started, detail: { status: c.status >= 400 ? c.status : c.error || c.status || 200, ...(c.resultMode ? { resultMode: c.resultMode } : {}) } });
+        for (const stage of c.stages || []) recordProduct(c.userId, 'request_stage', {step:c.step,flowId:c.id,durationMs:stage.durationMs,detail:{stage:stage.stage}});
+      }
       else if ((c.error || c.status || 200)>=400) recordProduct(null,'auth_error',{visitor:c.id,step,detail:{status:c.error||c.status}}); }
   });
 }
@@ -97,6 +107,7 @@ export function validProductReport(value, { legacy = false } = {}) {
   }
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
+  if (value.latency != null && !validLatencyReport(value.latency)) return false;
   if (!Array.isArray(value.retention) || value.retention.length>60 || value.retention.some(r => !/^\d{4}-\d\d-\d\d$/.test(r.date) || !['users','d1Eligible','d1','d7Eligible','d7','d1Rate','d7Rate'].every(k=>numeric(r[k])) || r.d1>r.d1Eligible || r.d7>r.d7Eligible || r.d1Eligible>r.users || r.d7Eligible>r.users)) return false;
   if (!Array.isArray(value.checkout?.ordered) || value.checkout.ordered.length!==5 || value.checkout.ordered.some((n,i,a)=>!Number.isSafeInteger(n)||n<0||(i&&n>a[i-1]))) return false;
   const b = value.catalogBenefits;
@@ -137,6 +148,43 @@ export function apiStep(path) {
 const day = at => Math.floor((Date.parse(at) + 10800000) / 86400000);
 const p = (n, d) => d ? Math.round(n / d * 1000) / 10 : null;
 const percentile = (values, fraction) => values.length ? values.sort((a,b) => a-b)[Math.max(0, Math.ceil(values.length * fraction) - 1)] : null;
+const latencyTiming = rows => ({ samples: rows.length, within4s: rows.filter(r => r.duration_ms <= 4000).length,
+  p50: percentile(rows.map(r => r.duration_ms), .5), p95: percentile(rows.map(r => r.duration_ms), .95) });
+function validLatencyReport(r) {
+  const count = n => Number.isSafeInteger(n) && n >= 0;
+  if (!Number.isFinite(Date.parse(r.trackingSince)) || !['started','completed','failed','unobserved','shown'].every(k => count(r[k]))
+    || r.completed > r.started || r.failed > r.completed || r.shown > r.started || r.unobserved !== r.started - r.shown) return false;
+  return ['server','visible','stages'].every(group => r[group] && Object.entries(r[group]).every(([key,t]) =>
+    (group === 'server' ? ['catalog','generated','cache','mixed','empty','unknown'] : group === 'visible' ? ['selection','full','preview'] : ['interpretation','generation','validation','nutrition','catalog']).includes(key)
+    && count(t.samples) && count(t.within4s) && t.within4s <= t.samples
+    && (t.samples === 0 ? t.p50 === null && t.p95 === null : Number.isFinite(t.p50) && t.p50 >= 0 && Number.isFinite(t.p95) && t.p95 >= t.p50)));
+}
+function requestLatencyReport(events) {
+  const trackingSince = db.prepare("SELECT value FROM product_analytics_metadata WHERE key='request_latency_since'").get().value;
+  const key = r => r.user_id + ':' + r.flow_id;
+  const starts = new Map(events.filter(r => r.event === 'request_started' && r.created_at >= trackingSince).map(r => [key(r),r]));
+  // Client timestamps are reconstructed from queue age on receipt. Transport
+  // skew can put a fast server completion just before the reconstructed start.
+  const matched = events.filter(r => starts.has(key(r)));
+  const operationGroups = new Map();
+  for (const row of matched.filter(r => r.event === 'operation_finished')) {
+    const previous = operationGroups.get(key(row)), detail = JSON.parse(row.detail_json);
+    if (previous) {
+      const before = JSON.parse(previous.detail_json);
+      detail.resultMode ||= before.resultMode;
+      if (before.status >= 400) detail.status = before.status;
+    }
+    operationGroups.set(key(row), {...row,duration_ms:(previous?.duration_ms || 0) + row.duration_ms,detail_json:JSON.stringify(detail)});
+  }
+  const operations = [...operationGroups.values()];
+  const shown = [...new Map(matched.filter(r => ['request_visible','request_preview_visible'].includes(r.event)).map(r => [key(r),r])).values()];
+  const completed = operations.length, failed = operations.filter(r => JSON.parse(r.detail_json).status >= 400).length;
+  const group = (keys, rows, field) => Object.fromEntries(keys.map(k => [k,latencyTiming(rows.filter(r => field(r) === k))]));
+  return {trackingSince,started:starts.size,completed,failed,shown:shown.length,unobserved:starts.size-shown.length,
+    server:group(['catalog','generated','cache','mixed','empty','unknown'],operations.filter(r => JSON.parse(r.detail_json).status < 400),r => JSON.parse(r.detail_json).resultMode || 'unknown'),
+    visible:group(['selection','full','preview'],shown,r => JSON.parse(r.detail_json).presentation),
+    stages:group(['interpretation','generation','validation','nutrition','catalog'],events.filter(r => r.event === 'request_stage' && r.created_at >= trackingSince),r => JSON.parse(r.detail_json).stage)};
+}
 export function productReport(cohort, campaign = false, at = new Date().toISOString()) {
   const users = new Map(cohort.map(u => [u.id, u]));
   const eligible = row => users.has(row.user_id) && (!campaign || row.created_at >= users.get(row.user_id).started_at);
@@ -246,7 +294,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
   }
-  return { platform: config.botPlatform, trackingSince: productTrackingSince(), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
+  return { platform: config.botPlatform, trackingSince: productTrackingSince(), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
     imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), checkout,retention,catalog,catalogBenefits,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
 }
