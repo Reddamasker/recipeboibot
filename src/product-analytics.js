@@ -40,7 +40,8 @@ export function acceptProductEvents(userId, input) {
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
     const detail = {};
     if (row.presentation !== undefined) {
-      if (!['request_visible','request_preview_visible'].includes(row.event) || !['selection','full','preview'].includes(row.presentation)) return invalid();
+      if (!(row.event === 'request_visible' ? ['selection','full'] : row.event === 'request_preview_visible' ? ['preview'] : []).includes(row.presentation)
+        || !Number.isSafeInteger(row.durationMs) || row.durationMs < 0 || row.durationMs > 86400000) return invalid();
       detail.presentation = row.presentation;
     }
     if (row.event === 'request_started' && (!userId || !idPattern.test(row.flowId || ''))) return invalid();
@@ -154,15 +155,19 @@ function validLatencyReport(r) {
   const count = n => Number.isSafeInteger(n) && n >= 0;
   if (!Number.isFinite(Date.parse(r.trackingSince)) || !['started','completed','failed','unobserved','shown'].every(k => count(r[k]))
     || r.completed > r.started || r.failed > r.completed || r.shown > r.started || r.unobserved !== r.started - r.shown) return false;
-  return ['server','visible','stages'].every(group => r[group] && Object.entries(r[group]).every(([key,t]) =>
-    (group === 'server' ? ['catalog','generated','cache','mixed','empty','unknown'] : group === 'visible' ? ['selection','full','preview'] : ['interpretation','generation','validation','nutrition','catalog']).includes(key)
+  const keys={server:['catalog','generated','cache','mixed','empty','unknown'],visible:['selection','full','preview'],stages:['interpretation','generation','validation','nutrition','catalog']};
+  return Object.entries(keys).every(([group,names]) => r[group] && Object.keys(r[group]).length === names.length && names.every(key => Object.hasOwn(r[group],key))
+    && Object.entries(r[group]).every(([key,t]) => names.includes(key) && t && typeof t === 'object'
     && count(t.samples) && count(t.within4s) && t.within4s <= t.samples
-    && (t.samples === 0 ? t.p50 === null && t.p95 === null : Number.isFinite(t.p50) && t.p50 >= 0 && Number.isFinite(t.p95) && t.p95 >= t.p50)));
+    && (t.samples === 0 ? t.p50 === null && t.p95 === null : Number.isFinite(t.p50) && t.p50 >= 0 && Number.isFinite(t.p95) && t.p95 >= t.p50)))
+    && Object.values(r.server).reduce((n,t)=>n+t.samples,0) === r.completed-r.failed
+    && Object.values(r.visible).reduce((n,t)=>n+t.samples,0) === r.shown;
 }
 function requestLatencyReport(events) {
   const trackingSince = db.prepare("SELECT value FROM product_analytics_metadata WHERE key='request_latency_since'").get().value;
   const key = r => r.user_id + ':' + r.flow_id;
-  const starts = new Map(events.filter(r => r.event === 'request_started' && r.created_at >= trackingSince).map(r => [key(r),r]));
+  const firstByFlow = rows => {const result=new Map();for(const row of rows)if(!result.has(key(row)))result.set(key(row),row);return result;};
+  const starts = firstByFlow(events.filter(r => r.event === 'request_started' && r.created_at >= trackingSince));
   // Client timestamps are reconstructed from queue age on receipt. Transport
   // skew can put a fast server completion just before the reconstructed start.
   const matched = events.filter(r => starts.has(key(r)));
@@ -177,7 +182,8 @@ function requestLatencyReport(events) {
     operationGroups.set(key(row), {...row,duration_ms:(previous?.duration_ms || 0) + row.duration_ms,detail_json:JSON.stringify(detail)});
   }
   const operations = [...operationGroups.values()];
-  const shown = [...new Map(matched.filter(r => ['request_visible','request_preview_visible'].includes(r.event)).map(r => [key(r),r])).values()];
+  const shown = [...firstByFlow(matched.filter(r => ['request_visible','request_preview_visible'].includes(r.event)
+    && Number.isSafeInteger(r.duration_ms) && ['selection','full','preview'].includes(JSON.parse(r.detail_json).presentation))).values()];
   const completed = operations.length, failed = operations.filter(r => JSON.parse(r.detail_json).status >= 400).length;
   const group = (keys, rows, field) => Object.fromEntries(keys.map(k => [k,latencyTiming(rows.filter(r => field(r) === k))]));
   return {trackingSince,started:starts.size,completed,failed,shown:shown.length,unobserved:starts.size-shown.length,

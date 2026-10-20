@@ -40,6 +40,7 @@ test('latency separates full views, selections, slow generation and failures wit
  const base=maxFunnelSnapshot().all.productAnalytics.platforms[0];
  assert.equal(validProductReport({...base,latency:r}),true);
  assert.equal(validProductReport({...base,latency:{...r,unobserved:10}}),false);
+ assert.equal(validProductReport({...base,latency:{...r,server:{}}}),false);
  assert.equal(validProductReport({...base,latency:{...r,visible:{full:{samples:1,within4s:2,p50:0,p95:0}}}}),false);
  assert.equal(validProductReport({...base,latency:{...r,query:'private'}}),false);
 });
