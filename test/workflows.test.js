@@ -181,7 +181,7 @@ test('private Telegram request generates only after no ready recipe and waits fo
   const telegramUser = { id: 6165, first_name: 'Поиск' };
   const owner = activeUser(telegramUser); database.allowUser(owner.id);
   dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), preferredCategories: { soup: 1, fish: -1 }, tastePreferencesStatus: 'completed' });
-  const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0, semanticCalls = 0;
+  const originalFetch = globalThis.fetch; const sent = []; let aiCalls = 0, generated = false;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('api.openai.com')) {
       aiCalls += 1;
@@ -190,10 +190,10 @@ test('private Telegram request generates only after no ready recipe and waits fo
         return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ text: 'Найди суп с тыквой', kind: 'exact', confidence: 'high', dish: 'суп с тыквой', requiredIngredients: ['тыква'], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }), usage: { input_tokens: 5, output_tokens: 8 } }), { status: 200 });
       }
       if (body.text.format.name === 'recipe_semantic_validation') {
-        semanticCalls += 1;
-        return semanticResponse(body, () => semanticCalls > 1);
+        return semanticResponse(body, () => generated);
       }
       assert.equal(body.text.format.name, 'requested_recipe_generation');
+      generated = true;
       assert.match(body.instructions, /preferredCategories/);
       assert.deepEqual(JSON.parse(body.input[0].content[0].text).profile.preferredCategories, { soup: 1, fish: -1 });
       return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20, ingredients: [{ name: 'тыква', raw: 'тыква' }], discovery: null }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
@@ -203,7 +203,7 @@ test('private Telegram request generates only after no ready recipe and waits fo
   };
   try {
     await telegramModule.handleMessage({ chat: { id: 6165, type: 'private' }, from: telegramUser, text: 'Найди суп с тыквой' });
-    assert.equal(aiCalls, 4);
+    assert.equal(aiCalls, 5);
     assert.equal(database.listRecipes(owner.id).length, 0);
     assert.match(sent[0].text, /Подбираю рецепт/);
     const callback = { id: 'callback-private', message: { message_id: 12, chat: { id: 6165, type: 'private' } }, from: telegramUser };
@@ -226,7 +226,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
       const tg = { id, first_name: 'Проверка формулировки' };
       const owner = activeUser(tg); database.allowUser(owner.id);
       dinnerStore.saveFoodProfile(owner.id, { ...dinnerStore.getFoodProfile(owner.id), onboardingCompleted: true, tastePreferencesStatus: 'completed' });
-      const sent = []; let calls = 0, semanticCalls = 0;
+      const sent = []; let calls = 0, generated = false;
       globalThis.fetch = async (url, options) => {
         if (String(url).includes('api.openai.com')) {
           calls++;
@@ -235,11 +235,11 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
             return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ text: 'Дай рецепт стейка', kind: 'exact', confidence: 'high', dish: 'стейка', requiredIngredients: [], semanticCriteria: [], excludedIngredients: [], methods: [], maxMinutes: null, servings: null }) }), { status: 200 });
           }
           if (body.text.format.name === 'recipe_semantic_validation') {
-            semanticCalls += 1;
-            return semanticResponse(body, () => semanticCalls > 1 && accepted);
+            return semanticResponse(body, () => generated && accepted);
           }
           const input = JSON.parse(body.input[0].content[0].text);
           assert.equal(body.text.format.name, 'requested_recipe_generation');
+          generated = true;
           assert.equal(input.query, 'дай рецепт стейка');
           assert.equal(input.mealRequest.dish, 'стейка');
           return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ ...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'], discovery: null }) }), { status: 200 });
@@ -248,7 +248,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
         return { json: async () => ({ ok: true, result: { message_id: 71 } }) };
       };
       await telegramModule.handleMessage({ chat: { id, type: 'private' }, from: tg, text: 'Дай рецепт стейка' });
-      assert.equal(calls, accepted ? 4 : 6);
+      assert.equal(calls, accepted ? 5 : 7);
       assert.equal(database.listRecipes(owner.id).length, 0);
       if (accepted) {
         assert.ok(sent.some((m) => m.text?.includes('Стейк из говядины') && m.reply_markup?.inline_keyboard[0][0].callback_data.startsWith('suggest:save:')));

@@ -24,7 +24,7 @@ function fixture({ active = true, step = null, cached = false } = {}) {
   vm.createContext(sandbox);
   vm.runInContext(source.slice(source.indexOf('const trialGuideKey ='), source.indexOf('function header()')), sandbox);
   vm.runInContext(source.slice(source.indexOf('function openTrialGuide()'), source.indexOf('function benefitsPage()')), sandbox);
-  vm.runInContext(source.slice(source.indexOf('function tasteChoices('), source.indexOf('async function loadDinnerRecommendation()')), sandbox);
+  vm.runInContext(source.slice(source.indexOf('function tasteChoices('), source.indexOf('async function loadDinnerRecommendation(')), sandbox);
   return { sandbox, state, store, nodes, requests, routes, pages, guideKey, legacyKey };
 }
 
