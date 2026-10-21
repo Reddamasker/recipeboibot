@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { maxStore } from './max-store.js';
+import { MaxApiError, rememberMaxError, assertMaxDeliveryAvailable } from './max-api-error.js';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const htmlEntity = (match, entity) => {
@@ -66,6 +67,7 @@ export function createMaxClient(settings, { fetchImpl = fetch, store = maxStore,
     return result;
   }
   async function api(path, { method = 'GET', query = {}, body } = {}) {
+    assertMaxDeliveryAvailable();
     if (!settings.maxToken) throw new Error('MAX bot token is not configured');
     if (!/^\/[a-zA-Z0-9/_-]+$/.test(path)) throw new Error('Invalid MAX API path');
     const url = new URL(path, origin);
@@ -73,13 +75,14 @@ export function createMaxClient(settings, { fetchImpl = fetch, store = maxStore,
     let response;
     try {
       response = await fetchImpl(url, { method, redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Authorization: settings.maxToken, 'content-type': 'application/json' }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-    } catch { throw new Error('MAX API network request failed'); }
+    } catch { throw new MaxApiError(null, { method, path, kind: 'network' }); }
     let result;
-    try { result = await response.json(); } catch { throw new Error(`MAX API invalid response (${response.status})`); }
-    if (!response.ok || result.success === false || result.error || result.code) throw new Error(`MAX API request failed (${response.status})`);
+    try { result = await response.json(); } catch { throw rememberMaxError(new MaxApiError(response.status, { method, path, kind: 'invalid_response' })); }
+    if (!response.ok || !result || result.success === false || result.error || result.code) throw rememberMaxError(new MaxApiError(response.status, { method, path, code: result?.code }));
     return result;
   }
   async function chatCall(method, body = {}) {
+    assertMaxDeliveryAvailable();
     if (method === 'answerCallbackQuery') {
       const userId = store.userForCallback(body.callback_query_id);
       if (!userId) throw new Error('Unknown MAX callback');

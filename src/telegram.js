@@ -1,4 +1,5 @@
 import { productOperation, identifyProductUser, identifyProductStep, recordProduct } from './product-analytics.js';
+import { assertMaxDeliveryAvailable } from './max-api-error.js';
 import { config } from './config.js';
 import { handleWebLoginUpdate } from './web-login-prototype.js';
 import { activateTelegramGroup, aiUsageSummary, allowUser, archiveRecipe, claimUpdate, clearPendingIntent, completeUpdate, createSearchOffer, deactivateTelegramGroup, deleteUserData, failUpdate, getActiveTelegramGroup, getPendingIntent, getRecipeSuggestion, getSearchOffer, getUserById, GROUP_LIMIT, listRecipes, saveRecipeSuggestion, searchRecipes, setPendingIntent, resolvePrivateTelegramUser, upsertTelegramUser } from './db.js';
@@ -1343,6 +1344,7 @@ export async function handleChatUpdate(update) {
   const step = category.startsWith('trial:') ? 'trial' : /^dinner:(confirm|size|skip|edit)/.test(category) ? 'confirmation' : category.startsWith('profile:') ? 'onboarding' : 'request';
   return productOperation(step, async context => {
     const result = await handleChatWorkflow(update);
+    assertMaxDeliveryAvailable();
     if (context.userId) recordProduct(context.userId, 'step_submit', { step:context.step, flowId: context.id });
     return result;
   });

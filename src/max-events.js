@@ -1,5 +1,6 @@
 import { maxEventId, maxStore } from './max-store.js';
 import { sanitizeWebLoginEvent } from './web-login-prototype.js';
+import { MaxApiError, isPermanentMaxError, withMaxDelivery } from './max-api-error.js';
 
 const validId = (value) => typeof value === 'number' ? Number.isSafeInteger(value) && value > 0 : /^[1-9]\d*$/.test(String(value ?? ''));
 const user = (from) => ({ id: `max:${from.user_id}`, first_name: from.first_name || from.name || 'Пользователь', ...(from.last_name ? { last_name: from.last_name } : {}), ...(from.username ? { username: from.username } : {}), is_bot: false });
@@ -67,11 +68,14 @@ export function startMaxWorker(handleUpdate, { store = maxStore, botId, pollMs =
       if (!item) break;
       try {
         const update = normalizeMaxUpdate(item.event, { store, botId, eventId: item.eventId });
-        if (update) await handleUpdate({ ...update, update_id: `max:${item.eventId}` });
+        if (update) await withMaxDelivery(() => handleUpdate({ ...update, update_id: `max:${item.eventId}` }));
         store.complete(item.eventId);
-      } catch {
-        store.retry(item.eventId, item.attempts, retryDelayMs === undefined ? {} : { delayMs: retryDelayMs });
-        try { onError({ eventId: item.eventId, attempts: item.attempts }); } catch {}
+      } catch (error) {
+        const terminal = isPermanentMaxError(error);
+        if (terminal) store.fail(item.eventId);
+        else store.retry(item.eventId, item.attempts, retryDelayMs === undefined ? {} : { delayMs: retryDelayMs });
+        const diagnostic = error instanceof MaxApiError ? { status: error.status, reason: error.reason, providerCode: error.providerCode, apiMethod: error.apiMethod, apiResource: error.apiResource } : {};
+        try { onError({ eventId: item.eventId, attempts: item.attempts, terminal, ...diagnostic }); } catch {}
       }
     }
   }

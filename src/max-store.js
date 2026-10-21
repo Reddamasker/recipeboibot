@@ -48,6 +48,7 @@ export function createMaxStore(database) {
       return { eventId: row.event_id, event: JSON.parse(row.event_json), attempts: row.attempts + 1 };
     },
     complete(eventId) { database.prepare("UPDATE max_inbox SET status='done',event_json='{}' WHERE event_id=?").run(eventId); },
+    fail(eventId) { database.prepare("UPDATE max_inbox SET status='failed' WHERE event_id=? AND status='processing'").run(eventId); },
     retry(eventId, attempts, { maxAttempts = 8, delayMs = Math.min(300000, 1000 * 2 ** attempts) } = {}) {
       database.prepare('UPDATE max_inbox SET status=?,available_at=? WHERE event_id=?').run(attempts >= maxAttempts ? 'failed' : 'pending', Date.now() + delayMs, eventId);
     },
