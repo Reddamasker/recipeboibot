@@ -172,7 +172,7 @@ fi
 cd "$root"
 
 rollback() {
-  trap - ERR
+  trap - ERR HUP INT TERM
   echo 'MAX release failed; preserving MAX database and restoring its previous source/image' >&2
   if [[ "$existing" = true ]]; then
     # Fixed MAX source directories only; the database is deliberately preserved.
@@ -185,6 +185,11 @@ rollback() {
     docker tag "$previous" "$image:latest"
     export RELEASE_REVISION=$(cat DEPLOYED_REVISION)
     docker compose -f compose.max.yaml up -d --no-build app
+    if [[ $(docker inspect --format '{{.State.Health.Status}}' "$container") = healthy ]]; then
+      bash deploy/retention.sh max --apply || echo 'Rollback restored runtime; retention needs retry' >&2
+    else
+      echo 'Retention deferred until restored runtime is healthy' >&2
+    fi
   else
     docker stop "$container" >/dev/null 2>&1 || true
     if [[ "$nginx_created" = true ]]; then
@@ -196,7 +201,7 @@ rollback() {
   rm -f -- "$secret_file"
   exit 1
 }
-trap rollback ERR
+trap rollback ERR HUP INT TERM
 if [[ "$existing" = true ]]; then
   # Replace complete committed sources so removed files cannot survive an update.
   rm -rf -- /opt/recipeboibot-max/src /opt/recipeboibot-max/public /opt/recipeboibot-max/deploy /opt/recipeboibot-max/scripts /opt/recipeboibot-max/test
@@ -334,7 +339,7 @@ docker exec "$container" node --input-type=module -e 'import {DatabaseSync} from
 printf '%s\n' "$revision" > DEPLOYED_REVISION
 printf '%s\n' "$release" > DEPLOYED_ARCHIVE_SHA256
 printf '%s\n' "$expected_tree" > DEPLOYED_SOURCE_SHA256
-trap - ERR
+trap - ERR HUP INT TERM
 rm -f -- "$secret_file"
 bash deploy/retention.sh max --apply || { echo 'Runtime published, but retention failed; see backups/retention-error' >&2; exit 1; }
 printf 'MAX release published: %s\nShared source SHA-256: %s\nHTTPS: https://%s\n' "$revision" "$expected_tree" "$host"

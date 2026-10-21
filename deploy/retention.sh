@@ -7,6 +7,7 @@ retention_config() {
     production)
       retention_root=/opt/recipeboibot
       retention_repository=recipeboibot-recipeboibot
+      retention_project=recipeboibot
       retention_image_prefix=before-git-
       retention_source_pattern='source-before-git-*.tgz'
       retention_database_pattern='recipes-*.sqlite.enc'
@@ -15,6 +16,7 @@ retention_config() {
     test)
       retention_root=/opt/recipeboibot-test
       retention_repository=recipeboibot-test-app
+      retention_project=recipeboibot-test
       retention_image_prefix=before-parity-
       retention_source_pattern='source-before-parity-*.tgz'
       retention_database_pattern='recipes-before-parity-*.sqlite.enc'
@@ -23,6 +25,7 @@ retention_config() {
     max)
       retention_root=/opt/recipeboibot-max
       retention_repository=recipeboibot-max-app
+      retention_project=recipeboibot-max
       retention_image_prefix=before-max-
       retention_source_pattern='source-before-max-*.tgz'
       retention_database_pattern='recipes-before-max-*.sqlite.enc'
@@ -35,15 +38,17 @@ retention_config() {
 }
 
 retention_files() {
-  local directory=$1 pattern=$2
+  local directory=$1 pattern=$2 minimum_age=${3:-0}
   [[ -d "$directory" && ! -L "$directory" ]] || return 1
-  find "$directory" -maxdepth 1 -type f -name "$pattern" -printf '%T@ %f\n' |
+  local age_filter=()
+  (( minimum_age == 0 )) || age_filter=(-mmin "+$minimum_age")
+  find "$directory" -maxdepth 1 -type f -name "$pattern" "${age_filter[@]}" -printf '%T@ %f\n' |
     sort -nr | cut -d ' ' -f 2-
 }
 
 retention_trim_files() {
-  local directory=$1 pattern=$2 keep=$3 mode=$4 listing name count=0
-  listing=$(retention_files "$directory" "$pattern") || return 1
+  local directory=$1 pattern=$2 keep=$3 mode=$4 minimum_age=${5:-0} listing name count=0
+  listing=$(retention_files "$directory" "$pattern" "$minimum_age") || return 1
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
     count=$((count + 1))
@@ -79,16 +84,43 @@ retention_trim_images() {
   done <<< "$listing"
 }
 
+retention_dangling_images() {
+  local mode=$1 listing id metadata containers
+  # Compose labels also identify legacy images whose last rollback tag was removed.
+  # Never prune globally: unrelated projects, tagged/digest-pinned images and all
+  # container references (including stopped containers) remain protected.
+  listing=$(docker image ls --no-trunc --filter dangling=true \
+    --filter "label=com.docker.compose.project=$retention_project" --format '{{.ID}}') || return 1
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+    metadata=$(docker image inspect --format '{{len .RepoTags}} {{len .RepoDigests}} {{index .Config.Labels "com.docker.compose.project"}}' "$id") || return 1
+    [[ "$metadata" = "0 0 $retention_project" ]] || continue
+    containers=$(docker ps --all --quiet --filter "ancestor=$id") || return 1
+    [[ -z "$containers" ]] || continue
+    if [[ "$mode" = --check ]]; then
+      printf 'Unused untagged project image remains: %s %s\n' "$retention_project" "$id" >&2
+      return 1
+    fi
+    # Revalidate immediately before deletion; Docker adds its own reference checks.
+    metadata=$(docker image inspect --format '{{len .RepoTags}} {{len .RepoDigests}} {{index .Config.Labels "com.docker.compose.project"}}' "$id") || return 1
+    [[ "$metadata" = "0 0 $retention_project" ]] || continue
+    docker image rm "$id" || return 1
+  done <<< "$listing"
+}
+
 retention_policy() {
   local mode=$1 directory
   retention_trim_files "$retention_root/backups" "$retention_source_pattern" 5 "$mode" || return 1
   retention_trim_files "$retention_root/backups" "$retention_database_pattern" 30 "$mode" || return 1
   retention_trim_files "$retention_root/backups" 'tests-*.log' 10 "$mode" || return 1
   retention_trim_images "$mode" || return 1
+  retention_dangling_images "$mode" || return 1
   for directory in "${retention_upload_directories[@]}"; do
     [[ -d "$directory" ]] || continue
-    retention_trim_files "$directory" "$retention_upload_prefix*.tgz" 0 "$mode" || return 1
-    retention_trim_files "$directory" "$retention_upload_prefix*.sh" 0 "$mode" || return 1
+    # Uploads happen before the deploy lock is acquired. Do not race a pending SCP.
+    retention_trim_files "$directory" "$retention_upload_prefix*.tgz" 0 "$mode" 60 || return 1
+    retention_trim_files "$directory" "$retention_upload_prefix*.sh" 0 "$mode" 60 || return 1
   done
 }
 
@@ -118,15 +150,17 @@ retention_execute() {
 
 retention_main() {
   local contour mode failed=0
-  if [[ "$#" = 1 && "$1" = --check-all ]]; then
+  if [[ "$#" = 1 && ( "$1" = --check-all || "$1" = --apply-all ) ]]; then
+    mode=--check
+    [[ "$1" != --apply-all ]] || mode=--apply
     for contour in production test max; do
       retention_config "$contour" || return 1
       [[ -d "$retention_root" ]] || continue
-      retention_execute --check || failed=1
+      retention_execute "$mode" || failed=1
     done
     return "$failed"
   fi
-  [[ "$#" = 2 ]] || { echo 'Usage: retention.sh production|test|max --check|--apply|--database-only; or --check-all' >&2; return 2; }
+  [[ "$#" = 2 ]] || { echo 'Usage: retention.sh production|test|max --check|--apply|--database-only; or --check-all|--apply-all' >&2; return 2; }
   contour=$1 mode=$2
   [[ "$mode" = --check || "$mode" = --apply || "$mode" = --database-only ]] || return 2
   retention_config "$contour" || return 2

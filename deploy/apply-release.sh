@@ -25,12 +25,19 @@ sudo -n tar -czf "$backup" src public deploy Dockerfile package.json compose.yam
 running_image="$(sudo -n docker inspect --format '{{.Image}}' recipeboibot)"
 sudo -n docker tag "$running_image" "$previous"
 rollback() {
+  trap - HUP INT TERM
   echo 'Deployment failed; restoring previous source and image' >&2
   sudo -n tar -xzf "$backup" -C /opt/recipeboibot
   sudo -n docker tag "$previous" recipeboibot-recipeboibot:latest
   sudo -n docker compose up -d --no-deps --no-build recipeboibot
+  if [ "$(sudo -n docker inspect --format '{{.State.Health.Status}}' recipeboibot)" = healthy ]; then
+    sudo -n bash deploy/retention.sh production --apply || echo 'Rollback restored runtime; retention needs retry' >&2
+  else
+    echo 'Retention deferred until restored runtime is healthy' >&2
+  fi
   exit 1
 }
+trap rollback HUP INT TERM
 
 # Only the logging block of Compose is migrated; env, network and volumes stay intact.
 sudo -n tar -xzf "$archive" -C /opt/recipeboibot || rollback
@@ -46,6 +53,7 @@ while [ "$i" -lt 30 ]; do
     curl -fsS "$health_url/readyz" | grep -F '"ok":true' >/dev/null || rollback
     sudo -n sh deploy/enable-monitor.sh || rollback
     printf '%s\n' "$revision" | sudo -n tee /opt/recipeboibot/DEPLOYED_REVISION >/dev/null
+    trap - HUP INT TERM
     sudo -n bash deploy/retention.sh production --apply || { echo 'Runtime published, but retention failed; see backups/retention-error' >&2; exit 1; }
     printf '\nPublished %s\n' "$revision"
     exit 0

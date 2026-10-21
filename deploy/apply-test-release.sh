@@ -28,16 +28,21 @@ replace_source_directories() {
   rm -rf -- /opt/recipeboibot-test/src /opt/recipeboibot-test/public /opt/recipeboibot-test/deploy /opt/recipeboibot-test/scripts /opt/recipeboibot-test/test
 }
 rollback() {
-  trap - ERR
+  trap - ERR HUP INT TERM
   echo 'Test release failed; restoring source and image' >&2
   replace_source_directories
   tar -xzf "$backup"
   docker tag "$previous" recipeboibot-test-app:latest
   docker compose -f compose.test.yaml up -d --no-build app
+  if [[ $(docker inspect --format '{{.State.Health.Status}}' recipeboibot-test) = healthy ]]; then
+    bash deploy/retention.sh test --apply || echo 'Rollback restored runtime; retention needs retry' >&2
+  else
+    echo 'Retention deferred until restored runtime is healthy' >&2
+  fi
   exit 1
 }
 
-trap rollback ERR
+trap rollback ERR HUP INT TERM
 replace_source_directories
 tar -xzf "$archive"
 docker compose -f compose.test.yaml build app
@@ -69,7 +74,7 @@ for attempt in $(seq 1 30); do
     curl -fsS --max-time 15 https://recipeboibot-test.89-223-123-75.sslip.io/healthz
     curl -fsS --max-time 15 http://127.0.0.1:3088/readyz | grep -F '"ok":true' >/dev/null
     printf '%s\n' "$release" > DEPLOYED_ARCHIVE_SHA256
-    trap - ERR
+    trap - ERR HUP INT TERM
     bash deploy/retention.sh test --apply || { echo 'Runtime published, but retention failed; see backups/retention-error' >&2; exit 1; }
     printf '\nTest release published: %s\n' "$release"
     exit 0

@@ -22,11 +22,24 @@ const args=process.argv.slice(2);
 state.calls.push(args);fs.writeFileSync(file,JSON.stringify(state));
 if(args[0]==='image'&&args[1]==='ls') {
   if(state.failList)process.exit(1);
-  console.log(state.images.map(i=>i.replace(':',' ')).join('\\n'));
+  if(args.includes('dangling=true')) {
+    const project=args.find(a=>a.startsWith('label=')).split('=').at(-1);
+    console.log((state.dangling||[]).filter(i=>i.project===project).map(i=>i.id).join('\\n'));
+  } else console.log(state.images.map(i=>i.replace(':',' ')).join('\\n'));
+} else if(args[0]==='image'&&args[1]==='inspect') {
+  if(state.failInspect)process.exit(1);
+  const i=state.dangling.find(i=>i.id===args.at(-1));
+  if(!i)process.exit(1);
+  console.log([i.tags||0,i.digests||0,i.project].join(' '));
+} else if(args[0]==='ps') {
+  if(state.failContainers)process.exit(1);
+  const i=state.dangling.find(i=>args.includes('ancestor='+i.id));
+  if(i?.container)console.log(i.container);
 } else if(args[0]==='image'&&args[1]==='rm') {
   if(state.failDelete)process.exit(1);
   if(args.length!==3||args[2].endsWith(':latest'))process.exit(2);
   state.images=state.images.filter(i=>i!==args[2]);fs.writeFileSync(file,JSON.stringify(state));
+  state.dangling=(state.dangling||[]).filter(i=>i.id!==args[2]);fs.writeFileSync(file,JSON.stringify(state));
 } else if(args[0]==='builder'&&args[1]==='prune') {
   if(state.failCache)process.exit(1);
 } else process.exit(2);
@@ -53,9 +66,9 @@ function fixture(policy = policies[2], overrides = {}) {
   fs.writeFileSync(stateFile, JSON.stringify({calls: [], images: [
     ...Array.from({length: 8}, (_, i) => `${repository}:${imagePrefix}${String(i + 1).padStart(4, '0')}`),
     `${repository}:latest`, `${repository}:manual-preserve`, 'other-project:before-max-0001'
-  ], ...overrides}));
+  ], dangling: [], ...overrides}));
   return {
-    base, backups, uploads, protectedFiles,
+    base, backups, uploads, protectedFiles, stateFile,
     state: () => JSON.parse(fs.readFileSync(stateFile)),
     run(mode = '--apply') {
       return spawnSync(shell, ['-c', `
@@ -133,7 +146,7 @@ test('every deployment uses the shared policy only after confirmed readiness and
   assert.deepEqual(files.sort(), ['apply-max-release.sh', 'apply-release.sh', 'apply-test-release.sh']);
   for (const file of files) {
     const source = fs.readFileSync(path.join('deploy', file), 'utf8');
-    const call = source.indexOf('bash deploy/retention.sh ');
+    const call = source.lastIndexOf('bash deploy/retention.sh ');
     assert.ok(call > source.indexOf(file.includes('max') ? '\nassert_endpoints\n' : "grep -F '\"ok\":true'"), file);
     assert.match(source, /Runtime published, but retention failed/);
     assert.doesNotMatch(source, /cleanup_retention \|\| echo/);
@@ -144,6 +157,109 @@ test('every deployment uses the shared policy only after confirmed readiness and
     }
   }
 });
+
+test('untagged owned images are audited and removed, preserving tagged, pinned, used and foreign images', () => {
+  const id = n => `sha256:${String(n).padStart(64, '0')}`;
+  const context = fixture(policies[2], {dangling: [
+    {id:id(1), project:'recipeboibot-max'},
+    {id:id(2), project:'recipeboibot-max', container:'stopped-container'},
+    {id:id(3), project:'recipeboibot-max', tags:1},
+    {id:id(4), project:'recipeboibot-max', digests:1},
+    {id:id(5), project:'unrelated-project'}
+  ]});
+  try {
+    // Remove only the ordinary excess files/tags first, leaving the image audit reachable.
+    assert.equal(context.run().status, 0);
+    assert.deepEqual(context.state().dangling.map(i=>i.id), [2,3,4,5].map(id));
+    assert.equal(context.run('--check').status, 0);
+    assert.equal(context.state().calls.filter(c=>c[0]==='image'&&c[1]==='rm'&&c[2]===id(1)).length, 1);
+    assert.equal(context.run().status, 0);
+    const state=context.state(); state.dangling.push({id:id(6),project:'recipeboibot-max'});
+    fs.writeFileSync(context.stateFile,JSON.stringify(state));
+    const result=context.run('--check');
+    assert.notEqual(result.status,0);
+    assert.match(result.stderr,/Unused untagged project image remains/);
+    assert.ok(context.state().dangling.some(i=>i.id===id(6)), 'Read-only audit does not delete');
+  } finally {context.cleanup();}
+});
+
+for (const failure of ['failInspect', 'failContainers']) test(`dangling image ${failure} fails closed and leaves retry marker`, () => {
+  const context=fixture(policies[2], {[failure]:true,dangling:[{id:`sha256:${'a'.repeat(64)}`,project:'recipeboibot-max'}]});
+  try {
+    assert.notEqual(context.run().status,0);
+    assert.ok(fs.existsSync(path.join(context.backups,'retention-error')));
+    assert.equal(context.state().dangling.length,1);
+  } finally {context.cleanup();}
+});
+
+test('hourly cleanup protects recent uploads before they acquire the deployment lock', () => {
+  const context=fixture();
+  try {
+    const pending=path.join(context.uploads,'recipeboibot-max-release-pending.tgz');
+    fs.writeFileSync(pending,'pending release');
+    assert.equal(context.run().status,0);
+    assert.equal(fs.readFileSync(pending,'utf8'),'pending release');
+    assert.equal(context.run('--check').status,0);
+    fs.utimesSync(pending,1,1);
+    assert.equal(context.run().status,0);
+    assert.equal(fs.existsSync(pending),false);
+  } finally {context.cleanup();}
+});
+
+test('retention is scheduled independently from successful releases with the shared lock', () => {
+  const service=fs.readFileSync('deploy/recipeboibot-retention.service','utf8');
+  const timer=fs.readFileSync('deploy/recipeboibot-retention.timer','utf8');
+  assert.match(service,/flock -n -E 0 \/tmp\/recipeboibot-docker-deploy.lock .*retention.sh --apply-all/);
+  assert.match(timer,/OnCalendar=hourly/);
+  assert.match(timer,/Persistent=true/);
+  assert.match(fs.readFileSync('deploy/enable-monitor.sh','utf8'),/enable --now recipeboibot-retention.timer/);
+  for(const file of ['scripts/deploy.js','scripts/deploy-test.js']) {
+    const source=fs.readFileSync(file,'utf8');
+    for(const suffix of ['service','timer']) assert.ok(source.includes(`'deploy/recipeboibot-retention.${suffix}'`));
+  }
+});
+
+for (const [file, contour] of [['apply-release.sh','production'], ['apply-test-release.sh','test'], ['apply-max-release.sh','max']]) {
+  for (const health of ['healthy','starting']) test(`${contour} real rollback function bounds artifacts only after healthy restoration and still reports failure (${health})`, () => {
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-rollback-'));
+    try {
+      fs.mkdirSync(path.join(directory,'deploy'));
+      fs.writeFileSync(path.join(directory,'DEPLOYED_REVISION'),'old-revision');
+      fs.writeFileSync(path.join(directory,'deploy/retention.sh'), '#!/bin/bash\nprintf "cleanup:%s\\n" "$*" >> "$ROLLBACK_EVENTS"\nexit 1\n');
+      const events=path.join(directory,'events');
+      const source=fs.readFileSync(path.join('deploy',file),'utf8');
+      const start=source.indexOf('rollback() {');
+      const rollback=source.slice(start,source.indexOf('\n}',start)+2);
+      const result=spawnSync(shell,['-c',`
+        set -eu
+        cd ${quote(directory)}
+        export ROLLBACK_EVENTS=${quote(events)}
+        record() { printf '%s\\n' "$*" >> "$ROLLBACK_EVENTS"; }
+        sudo() { shift; "$@"; }
+        tar() { record restore; }
+        rm() { record remove-source; }
+        replace_source_directories() { record replace-source; }
+        docker() {
+          if [ "$1" = inspect ]; then record health; printf '%s\\n' '${health}';
+          elif [ "$1" = compose ]; then record restore-runtime;
+          else record docker-tag; fi
+        }
+        backup=backup.tgz source_backup=backup.tgz previous=previous-image
+        existing=true payment_config_changed=false container=fixture image=fixture secret_file=fixture root=.
+        ${rollback}
+        rollback
+      `],{encoding:'utf8'});
+      assert.equal(result.status,1,result.stderr);
+      const actions=fs.readFileSync(events,'utf8');
+      assert.match(actions,/restore-runtime\nhealth/);
+      if(health==='healthy') {
+        assert.ok(actions.includes(`cleanup:${contour} --apply`));
+        assert.match(result.stderr,/retention needs retry/);
+      } else assert.doesNotMatch(actions,/cleanup:/);
+      assert.match(source,/trap rollback (?:ERR )?HUP INT TERM/);
+    } finally {fs.rmSync(directory,{recursive:true,force:true});}
+  });
+}
 
 test('unknown contour or operation is rejected before Docker or file deletion', () => {
   for (const args of [['other', '--apply'], ['max', '--prune-all'], []]) {

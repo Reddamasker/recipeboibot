@@ -1,0 +1,11 @@
+[Unit]
+Description=Recipe bot bounded backup and Docker maintenance
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/recipeboibot
+# A live deployment owns the same lock. Skip it; the next hourly run retries.
+ExecStart=/usr/bin/flock -n -E 0 /tmp/recipeboibot-docker-deploy.lock /bin/bash /opt/recipeboibot/deploy/retention.sh --apply-all
+TimeoutStartSec=10min

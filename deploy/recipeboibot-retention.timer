@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly recipe bot retention, including interrupted releases
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=recipeboibot-retention.service
+
+[Install]
+WantedBy=timers.target
