@@ -19,7 +19,7 @@ async function api(path, options = {}) {
   const observed = options.method && options.method !== 'GET' && !/engagement|analytics|\/prefetch$|\/exposure$/.test(path);
   const flow = observed ? options.recipeFlow || crypto.randomUUID() : null;
   if (flow) {
-    const step = /billing/.test(path) ? (/trial/.test(path) ? 'trial' : 'checkout') : /notifications/.test(path) ? 'notifications' : /import/.test(path) ? 'import' : /profile|onboarding/.test(path) ? 'onboarding' : 'request';
+    const step = /dinner\/tastes/.test(path) ? 'taste' : /billing/.test(path) ? (/trial/.test(path) ? 'trial' : 'checkout') : /notifications/.test(path) ? 'notifications' : /import/.test(path) ? 'import' : /profile|onboarding/.test(path) ? 'onboarding' : 'request';
     globalThis.window?.RecipeAnalytics?.event('step_submit', step, {flowId:flow});
     if(['/api/import','/api/recipe-request','/api/dinner/request','/api/dinner/recommend','/api/dinner/next','/api/suggestions'].includes(path) || /\/replace$/.test(path)) {
       resultFlow = flow; latestRecipeFlow = null;
@@ -459,65 +459,43 @@ async function showDinnerOnboarding() {
   } catch (error) { toast(error.message); }
 }
 
-function tasteChoices(categories, { title = 'Что ты любишь есть?', copy = 'Отметь любимые блюда и те, которые не по вкусу. Так подбор станет точнее.' } = {}) {
-  const groups = [
-    ['Блюда', [['burger','Бургеры'],['pizza','Пицца'],['sushi','Суши'],['shawarma','Шаурма'],['wok','Вок'],['pasta','Паста'],['barbecue','Шашлык'],['dessert','Десерты'],['fastfood','Фастфуд'],['breakfast','Завтраки'],['lunch','Обеды'],['coffee','Кофе']]],
-    ['Кухни', [['georgian','Грузия'],['russian','Русская'],['eastern','Восток'],['chinese','Китай'],['japanese','Япония'],['caucasian','Кавказ'],['uzbek','Узбекская'],['italian','Италия'],['european','Европа'],['asian','Азия']]],
-    ['Другие предпочтения', [['rice','Рис'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['soup','Супы'],['salad','Салаты'],['home','Домашняя еда']]]
-  ];
-  const tagButtons = (tags, value) => tags.map(([key, label]) => `<button type="button" class="dinner-option ${Math.sign(categories[key] || 0) === value ? 'selected' : ''}" data-taste="${key}" data-value="${value}" aria-pressed="${Math.sign(categories[key] || 0) === value}">${label}</button>`).join('');
-  return `<h1>${esc(title)}</h1><p>${esc(copy)}</p>${[[1, 'Нравится'], [-1, 'Не нравится']].map(([value, groupTitle]) => `<fieldset class="taste-group"><legend>${groupTitle}</legend>${groups.map(([sectionTitle, tags]) => `<h3 class="taste-subtitle">${sectionTitle}</h3><div class="dinner-options">${tagButtons(tags, value)}</div>`).join('')}</fieldset>`).join('')}<p class="dinner-help">Можно выбрать несколько тегов. Повторное нажатие снимает выбор. Нелюбимые блюда будем предлагать реже. Аллергию и продукты, которые нельзя, укажи отдельно в настройках.</p>`;
-}
-
-function bindTasteChoices(data, redraw) {
-  document.querySelectorAll('[data-taste]').forEach((button) => button.onclick = () => {
-    if (data.saving) return;
-    const key = button.dataset.taste, value = Number(button.dataset.value);
-    if (Math.sign(data.preferredCategories[key] || 0) === value) delete data.preferredCategories[key];
-    else data.preferredCategories[key] = value;
-    redraw();
-    document.querySelector(`[data-taste="${key}"][data-value="${value}"]`)?.focus();
-  });
-}
-
 function showDinnerTastePreferences() {
   clearTimeout(dinnerPollTimer);
-  state.onboarding = { tasteOnly: true, preferredCategories: { ...state.dinner.profile.preferredCategories }, dishPreferences: { ...state.dinner.profile.dishPreferences }, saving: false };
+  state.onboarding = { tasteOnly: true };
   dinnerView();
-  if (state.trialOnboarding === 'taste') resetPageScroll();
+  resetPageScroll();
 }
 
 function tastePreferencesView() {
-  if (root.dataset) root.dataset.analyticsStep = 'taste';
   const data = state.onboarding;
+  if (data.tasteMount?.isConnected) return;
+  if (root.dataset) root.dataset.analyticsStep = 'taste';
+  clearTimeout(dinnerPollTimer);
   const trial = state.trialOnboarding === 'taste';
-  const trialAccess = !state.trialGuideActive || state.payment?.accessSource === 'trial';
-  const welcomeKicker = trialAccess ? 'ПРОБНЫЙ ПЕРИОД НАЧАЛСЯ' : 'ТВОИ РЕЦЕПТЫ';
-  const welcomeTitle = trialAccess ? 'Спасибо, что пробуешь «Твои рецепты»' : 'Спасибо, что ты с нами';
-  root.innerHTML = `${header()}<main class="dinner-page ${trial ? 'trial-onboarding' : ''}">${trialGuideCloseButton()}${trial ? `<div class="trial-progress" aria-label="Шаг 1 из 3"><span class="active"></span><span></span><span></span></div><section class="trial-welcome"><div class="trial-icon" aria-hidden="true">✓</div><div><div class="eyebrow">${welcomeKicker}</div><h2>${welcomeTitle}</h2><p>Настроим всё за пару минут, чтобы бот лучше понимал твои вкусы и помогал каждый день.</p></div></section>` : '<div class="eyebrow">ТВОИ ВКУСЫ</div>'}<section class="dinner-onboarding">${tasteChoices(data.preferredCategories, trial ? { title: 'Что ты любишь есть?', copy: 'Выбери любимые направления и то, что тебе не по вкусу. Это улучшит качество определения и подбора рецептов.' } : {})}<label for="liked-dishes">Любимые блюда (через запятую)</label><input class="field" id="liked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v > 0).map(([k]) => k).join(', '))}" placeholder="Стейк, лазанья"><label for="disliked-dishes">Нелюбимые блюда (через запятую)</label><input class="field" id="disliked-dishes" maxlength="1000" value="${esc(Object.entries(data.dishPreferences).filter(([, v]) => v < 0).map(([k]) => k).join(', '))}"><div class="dinner-actions"><button class="primary accent" id="taste-save" ${data.saving ? 'disabled' : ''}>${data.saving ? 'Сохраняю…' : trial ? 'Сохранить и продолжить' : 'Сохранить и подобрать ужин'}</button><button class="secondary" id="taste-skip" ${data.saving ? 'disabled' : ''}>${trial ? 'Пропустить этот шаг' : 'Пока пропустить'}</button></div><p class="dinner-help">Ответы можно изменить в настройках в любой момент.</p></section></main>`;
+  root.innerHTML = '<main class="dish-taste-page">' + trialGuideCloseButton() + (data.tasteOnly ? '' : '<button class="back-link" id="taste-back">← Назад</button>') + '<section class="taste-mount"><p class="taste-loading" role="status">Загружаем твои вкусы…</p></section></main>';
   bindCommon();
-  bindTasteChoices(data, tastePreferencesView);
-  const captureDishes = () => { data.dishPreferences = Object.fromEntries([[1, '#liked-dishes'], [-1, '#disliked-dishes']].flatMap(([weight, selector]) => document.querySelector(selector).value.split(',').map((v) => v.trim().toLocaleLowerCase('ru')).filter(Boolean).map((name) => [name, weight]))); };
-  document.querySelector('#liked-dishes').oninput = captureDishes;
-  document.querySelector('#disliked-dishes').oninput = captureDishes;
-  const finish = async (skip) => {
-    if (data.saving) return;
-    data.saving = true; tastePreferencesView();
-    const guideWasActive = state.trialGuideActive;
-    try {
-      const input = skip ? { tastePreferencesStatus: 'skipped' } : { preferredCategories: data.preferredCategories, dishPreferences: data.dishPreferences, tastePreferencesStatus: 'completed' };
-      await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify(input) });
-      if (guideWasActive && !state.trialGuideActive) return;
-      state.onboarding = null;
-      if (trial) {
-        setTrialOnboardingStep('notifications');
-        setRoute({ view: state.trialGuideActive ? 'trial-guide' : 'trial-onboarding' });
-        trialOnboardingPage();
-      } else await beginDinner();
-    } catch (error) { data.saving = false; tastePreferencesView(); toast(error.message); }
+  const element = root.querySelector('.taste-mount');
+  data.tasteMount = element;
+  document.querySelector('#taste-back')?.addEventListener('click', () => { data.step=2; data.tasteMount=null; onboardingView(); });
+  const settings = data.tasteOnly ? {} : { householdType:data.householdType, householdSize:data.householdSize, hasChildren:data.hasChildren, preferredMaxCookingTime:data.preferredMaxCookingTime, excludedIngredients:data.excludedIngredients.split(',').map(item=>item.trim()).filter(Boolean), onboardingCompleted:true };
+  const finish = async profile => {
+    if (state.onboarding !== data) return;
+    state.dinner.profile = profile;
+    state.onboarding = null;
+    if (trial) {
+      setTrialOnboardingStep('notifications');
+      setRoute({view:state.trialGuideActive ? 'trial-guide' : 'trial-onboarding'});
+      trialOnboardingPage();
+    } else await beginDinner();
   };
-  document.querySelector('#taste-save').onclick = () => finish(false);
-  document.querySelector('#taste-skip').onclick = () => finish(true);
+  data.tasteReady = import('/taste-editor.js?v=1').then(({mountTasteEditor}) => {
+    if (state.onboarding !== data || !element.isConnected) return;
+    return mountTasteEditor({element,api:(...args)=>api(...args),settings,complete:finish,skip:finish});
+  }).catch(error => {
+    if(state.onboarding !== data || !element.isConnected) return;
+    element.innerHTML = '<p class="taste-status" role="alert">'+esc(error.message)+'</p><button class="secondary" id="taste-retry">Попробовать снова</button>';
+    element.querySelector('#taste-retry').onclick = () => { data.tasteMount=null; tastePreferencesView(); };
+  });
 }
 
 function trialOnboardingPage() {
@@ -670,15 +648,14 @@ async function replaceDinnerCard(reason, panel = null) {
 
 function onboardingView() {
   if (root.dataset) root.dataset.analyticsStep = 'onboarding';
-  if (state.onboarding.tasteOnly) return tastePreferencesView();
+  if (state.onboarding.tasteOnly || state.onboarding.step === 3) return tastePreferencesView();
   const data = state.onboarding, step = data.step;
   if(root.dataset)root.dataset.analyticsStep=['household','time','exclusions','taste'][step];
   const choices = (items, selected, field) => `<div class="dinner-options">${items.map(([value, label]) => `<button type="button" class="dinner-option ${selected === value ? 'selected' : ''}" data-${field}="${value}" aria-pressed="${selected === value}">${label}</button>`).join('')}</div>`;
   const content = [
     `<h1>Для кого обычно готовишь?</h1>${choices([['self', 'Для себя'], ['couple', 'Для двоих'], ['family', 'Для семьи']], data.householdType, 'household')}<label class="dinner-help" for="dinner-household-size">Сколько человек за столом?</label><input class="field" id="dinner-household-size" type="number" min="1" max="10" inputmode="numeric" value="${data.householdSize || ''}" placeholder="Например, 3"><p class="dinner-help">Есть дети?</p>${choices([['yes','Да'],['no','Нет']], data.hasChildren === null ? null : data.hasChildren ? 'yes' : 'no', 'children')}`,
     `<h1>Сколько времени есть на ужин?</h1>${choices([['15', 'До 15 минут'], ['30', 'До 30 минут'], ['60', 'До 60 минут'], ['any', 'Неважно']], data.preferredMaxCookingTime === null ? 'any' : String(data.preferredMaxCookingTime), 'time')}`,
-    `<h1>Есть ли аллергия?</h1><p>Назови аллергены и другие продукты, которые нужно исключить.</p><label class="label" for="dinner-excluded">Аллергены и исключённые продукты</label><input class="field" id="dinner-excluded" value="${esc(data.excludedIngredients)}" placeholder="Например: грибы, арахис" aria-describedby="dinner-excluded-help"><p class="dinner-help" id="dinner-excluded-help">Разделяй продукты запятыми. Если аллергии и исключений нет, оставь поле пустым.</p>`,
-    tasteChoices(data.preferredCategories)
+    `<h1>Есть ли аллергия?</h1><p>Назови аллергены и другие продукты, которые нужно исключить.</p><label class="label" for="dinner-excluded">Аллергены и исключённые продукты</label><input class="field" id="dinner-excluded" value="${esc(data.excludedIngredients)}" placeholder="Например: грибы, арахис" aria-describedby="dinner-excluded-help"><p class="dinner-help" id="dinner-excluded-help">Разделяй продукты запятыми. Если аллергии и исключений нет, оставь поле пустым.</p>`
   ][step];
   root.innerHTML = `${header()}<main class="dinner-page"><button class="back-link" id="dinner-home">← На главную</button><div class="eyebrow">БЫСТРАЯ НАСТРОЙКА · ${step + 1} ИЗ 4</div><section class="dinner-onboarding">${content}<div class="dinner-actions"><button class="primary accent" id="onboarding-next">${step === 3 ? 'Показать ужин' : 'Дальше'}</button>${step !== 2 ? '<button class="secondary" id="onboarding-skip">Пропустить</button>' : ''}</div></section></main>`;
   bindCommon();
@@ -688,18 +665,10 @@ function onboardingView() {
   document.querySelector('#dinner-household-size')?.addEventListener('input', (event) => { const value = Number(event.target.value); data.householdSize = Number.isInteger(value) && value >= 1 && value <= 10 ? value : null; });
   document.querySelectorAll('[data-children]').forEach((button) => button.onclick = () => { data.hasChildren = button.dataset.children === 'yes'; redrawChoice('children', button.dataset.children); });
   document.querySelectorAll('[data-time]').forEach((button) => button.onclick = () => { data.preferredMaxCookingTime = button.dataset.time === 'any' ? null : Number(button.dataset.time); redrawChoice('time', button.dataset.time); });
-  bindTasteChoices(data, onboardingView);
   const advance = async (skip = false) => {
     if (data.saving) return;
     if (step === 2) data.excludedIngredients = document.querySelector('#dinner-excluded').value;
-    if (step < 3) { data.step += 1; onboardingView(); const heading = root.querySelector('h1'); heading.tabIndex = -1; heading.focus(); return; }
-    data.saving = true;
-    document.querySelector('#onboarding-next').disabled = true;
-    document.querySelector('#onboarding-skip').disabled = true;
-    try {
-      const profile = await api('/api/dinner/profile', { method: 'PUT', body: JSON.stringify({ householdType: data.householdType, householdSize: data.householdSize, hasChildren: data.hasChildren, preferredMaxCookingTime: data.preferredMaxCookingTime, excludedIngredients: data.excludedIngredients.split(',').map((item) => item.trim()).filter(Boolean), ...(!skip ? { preferredCategories: data.preferredCategories } : {}), tastePreferencesStatus: skip ? 'skipped' : 'completed', onboardingCompleted: true }) });
-      state.dinner.profile = profile; state.onboarding = null; await beginDinner();
-    } catch (error) { data.saving = false; onboardingView(); toast(error.message); }
+    data.step += 1; onboardingView(); resetPageScroll();
   };
   document.querySelector('#onboarding-next').onclick = () => advance();
   document.querySelector('#onboarding-skip')?.addEventListener('click', () => advance(true));
@@ -1878,7 +1847,7 @@ if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined
   const seen = new WeakSet();
   const scan = () => {
     const screen = root.querySelector('main, .dinner-onboarding, .dinner-page');
-    if (screen && !seen.has(screen)) {
+    if (screen && !seen.has(screen) && (!screen.matches('.dish-taste-page') || screen.querySelector('#taste-save'))) {
       seen.add(screen);
       const route = new URLSearchParams(location.search).get('view');
       const step = root.dataset.analyticsStep || (root.querySelector('#offer-pay, #go-checkout') ? 'offer' : root.querySelector('#dinner-onboarding-next') ? 'onboarding' : root.querySelector('#taste-save') ? 'taste' : ({'offer':'offer','checkout':'checkout','payment-result':'payment_result','benefits':'benefits','notifications':'notifications','collection':'collection','trial-onboarding':'taste','dinner':'request','request':'request'})[route] || 'home');

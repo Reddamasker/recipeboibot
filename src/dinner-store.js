@@ -1,3 +1,4 @@
+import { legacyDishRatings, namedDishRatings, dishTasteProfile } from './taste-profile.js';
 import { randomUUID } from 'node:crypto';
 import { db, saveDinnerRecipe, saveDinnerRecipeImage, withNutrition } from './db.js';
 import { normalizeMealRequest } from './meal-request.js';
@@ -81,6 +82,8 @@ ensureColumn('dinner_sessions', 'buffer_context', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('dinner_sessions', 'buffer_retry_at', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('dinner_sessions', 'viewed_at', 'TEXT');
 ensureColumn('food_profiles', 'dish_preferences_json', "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn('food_profiles', 'dish_ratings_json', 'TEXT');
+ensureColumn('food_profiles', 'taste_revision', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('dinner_sessions', 'meal_request_json', "TEXT NOT NULL DEFAULT 'null'");
 ensureColumn('dinner_contexts', 'meal_request_json', "TEXT NOT NULL DEFAULT 'null'");
 ensureColumn('dinner_options', 'display_position', 'INTEGER');
@@ -90,9 +93,11 @@ const parseJson = (value, fallback) => { try { return JSON.parse(value); } catch
 
 export function getFoodProfile(userId) {
   const row = db.prepare('SELECT * FROM food_profiles WHERE user_id=?').get(userId);
-  if (!row) return { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, dishPreferences: {}, tastePreferencesStatus: 'pending', onboardingCompleted: false };
+  if (!row) return { householdType: null, householdSize: null, hasChildren: null, preferredMaxCookingTime: null, excludedIngredients: [], preferredCategories: {}, dishPreferences: {}, dishRatings: {}, tasteRevision: 0, tasteProfile: dishTasteProfile({}), tastePreferencesStatus: 'pending', onboardingCompleted: false };
   const preferredCategories = parseJson(row.preferred_categories_json, {});
-  const dishPreferences = parseJson(row.dish_preferences_json, {});
+  const legacyDishes = parseJson(row.dish_preferences_json, {});
+  const dishRatings = row.dish_ratings_json === null ? legacyDishRatings(legacyDishes) : parseJson(row.dish_ratings_json, {});
+  const dishPreferences = { ...legacyDishes, ...namedDishRatings(dishRatings) };
   const hasSavedTastes = Object.keys(preferredCategories).length > 0 || Object.keys(dishPreferences).length > 0;
   return {
     householdType: row.household_type,
@@ -101,7 +106,7 @@ export function getFoodProfile(userId) {
     preferredMaxCookingTime: row.preferred_max_cooking_time,
     excludedIngredients: parseJson(row.excluded_ingredients_json, []),
     preferredCategories,
-    dishPreferences,
+    dishPreferences, dishRatings, tasteRevision: row.taste_revision, tasteProfile: dishTasteProfile(dishRatings),
     tastePreferencesStatus: row.taste_preferences_status === 'pending'
       ? hasSavedTastes ? 'completed' : row.onboarding_completed ? 'skipped' : 'pending'
       : row.taste_preferences_status,
@@ -110,12 +115,14 @@ export function getFoodProfile(userId) {
 }
 
 export function saveFoodProfile(userId, profile) {
-  db.prepare(`INSERT INTO food_profiles(user_id,household_type,household_size,has_children,preferred_max_cooking_time,excluded_ingredients_json,preferred_categories_json,onboarding_completed,updated_at,taste_preferences_status)
-    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET household_type=excluded.household_type,household_size=excluded.household_size,has_children=excluded.has_children,
+  const current = getFoodProfile(userId);
+  db.prepare(`INSERT INTO food_profiles(user_id,household_type,household_size,has_children,preferred_max_cooking_time,excluded_ingredients_json,preferred_categories_json,onboarding_completed,updated_at,taste_preferences_status,dish_preferences_json,dish_ratings_json,taste_revision)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET household_type=excluded.household_type,household_size=excluded.household_size,has_children=excluded.has_children,
     preferred_max_cooking_time=excluded.preferred_max_cooking_time,excluded_ingredients_json=excluded.excluded_ingredients_json,
-    preferred_categories_json=excluded.preferred_categories_json,onboarding_completed=excluded.onboarding_completed,updated_at=excluded.updated_at,taste_preferences_status=excluded.taste_preferences_status`)
-    .run(userId, profile.householdType, profile.householdSize, profile.hasChildren === null ? null : profile.hasChildren ? 1 : 0, profile.preferredMaxCookingTime, JSON.stringify(profile.excludedIngredients), JSON.stringify(profile.preferredCategories), profile.onboardingCompleted ? 1 : 0, now(), profile.tastePreferencesStatus ?? getFoodProfile(userId).tastePreferencesStatus);
-  db.prepare('UPDATE food_profiles SET dish_preferences_json=? WHERE user_id=?').run(JSON.stringify(profile.dishPreferences ?? getFoodProfile(userId).dishPreferences), userId);
+    preferred_categories_json=excluded.preferred_categories_json,onboarding_completed=excluded.onboarding_completed,updated_at=excluded.updated_at,taste_preferences_status=excluded.taste_preferences_status,
+    dish_preferences_json=excluded.dish_preferences_json,dish_ratings_json=excluded.dish_ratings_json,taste_revision=excluded.taste_revision`)
+    .run(userId, profile.householdType, profile.householdSize, profile.hasChildren === null ? null : profile.hasChildren ? 1 : 0, profile.preferredMaxCookingTime, JSON.stringify(profile.excludedIngredients), JSON.stringify(profile.preferredCategories), profile.onboardingCompleted ? 1 : 0, now(), profile.tastePreferencesStatus ?? current.tastePreferencesStatus,
+      JSON.stringify(profile.dishPreferences ?? current.dishPreferences), JSON.stringify(profile.dishRatings ?? current.dishRatings), profile.tasteRevision ?? current.tasteRevision);
   return getFoodProfile(userId);
 }
 

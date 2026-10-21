@@ -18,6 +18,7 @@ import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
 import { transcribeAudio } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage, addDinnerEvent } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
+import { getTasteCatalog } from './taste-profile.js';
 import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextDinner, prefetchDinner, recommendDinner, rejectDinnerBatch, replaceDinner, setDinnerRejectionReason, startDinner, startDinnerOnboarding, updateDinnerProfile } from './dinner-service.js';
 import { cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
@@ -246,6 +247,8 @@ async function api(request, response, url) {
   }
   if (request.method === 'GET' && url.pathname === '/api/recipes') return json(response, 200, listRecipes(user.id));
   if (request.method === 'GET' && url.pathname === '/api/library') return json(response, 200, { recipes: listRecipes(user.id), jobs: listImportJobs(user.id) });
+  if (request.method === 'GET' && url.pathname === '/api/dinner/tastes') return json(response, 200, { ...getTasteCatalog(), profile: getFoodProfile(user.id) });
+  if (request.method === 'PUT' && url.pathname === '/api/dinner/tastes') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 64000)));
   if (request.method === 'GET' && url.pathname === '/api/dinner/profile') return json(response, 200, getFoodProfile(user.id));
   if (request.method === 'GET' && url.pathname.startsWith('/api/dinner/recipes/')) {
     const found=getDinnerRecipe(user.id,decodeURIComponent(url.pathname.slice('/api/dinner/recipes/'.length)));
@@ -264,7 +267,7 @@ async function api(request, response, url) {
     const token = recipe ? createDinnerRecipeShare(user.id, key, recipe, image) : null;
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
-  if (request.method === 'PUT' && url.pathname === '/api/dinner/profile') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 4000)));
+  if (request.method === 'PUT' && url.pathname === '/api/dinner/profile') return json(response, 200, updateDinnerProfile(user.id, await bodyJson(request, 64000)));
   if (request.method === 'POST' && url.pathname === '/api/dinner/open') return json(response, 200, startDinner(user.id));
   if (request.method === 'PUT' && url.pathname === '/api/dinner/request') return json(response, 200, await changeDinnerRequest(user.id, (await bodyJson(request, 4000)).query));
   if (request.method === 'POST' && url.pathname === '/api/dinner/onboarding/start') {
@@ -452,7 +455,9 @@ async function handleRequest(request, response) {
         enqueueMaxUpdate(update);
         return json(response, 200, { ok: true });
       }
-      rateLimit(`${robokassaResult ? 'payment' : 'ip'}:${clientIp(request)}`, robokassaResult ? 600 : 90);
+      // Browsing a photo-rich taste catalog must not consume the account/API budget.
+      const dishPhoto = request.method === 'GET' && /^\/assets\/dinner\/[a-z0-9-]+\.jpg$/.test(url.pathname);
+      rateLimit(`${robokassaResult ? 'payment' : dishPhoto ? 'dish-photo' : 'ip'}:${clientIp(request)}`, robokassaResult || dishPhoto ? 600 : 90);
       if (url.pathname === '/web-login/preview' && config.testContour && request.method === 'GET') return htmlResponse(response,200,webLoginPreviewDocument());
       if (await webLoginRoute(request,response,url,{bodyJson,rateLimit,ip:clientIp(request)})) return;
       if (url.pathname === '/api/internal/max-funnel') {

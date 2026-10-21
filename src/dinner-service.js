@@ -1,3 +1,4 @@
+import { validateDishRatings, withoutCatalogDishes, legacyDishRatings } from './taste-profile.js';
 import { listRecipes, saveDinnerRecipe, withNutrition } from './db.js';
 import { config } from './config.js';
 import { requireRecipeEntry, requireDinnerEntry, completeFirstDinner, stageFirstRecipe, getPendingFirstRecipe, isFirstRecipeAwaitingTrial, assertFirstRecipeReadable } from './subscriptions.js';
@@ -18,6 +19,7 @@ const notFound = () => Object.assign(new Error('Сценарий ужина не
 const CATEGORIES = new Set(DINNER_CATEGORIES.map(([key]) => key));
 
 export function updateDinnerProfile(userId, input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('Проверьте настройки профиля');
   const current = getFoodProfile(userId);
   const householdType = input.householdType ?? current.householdType;
   if (householdType !== null && !['self', 'couple', 'family'].includes(householdType)) throw badRequest('Неверный размер семьи');
@@ -30,13 +32,24 @@ export function updateDinnerProfile(userId, input) {
   const excludedIngredients = input.excludedIngredients === undefined ? current.excludedIngredients : input.excludedIngredients;
   if (!Array.isArray(excludedIngredients) || excludedIngredients.length > 20 || excludedIngredients.some((item) => typeof item !== 'string' || item.length > 80)) throw badRequest('Проверьте исключённые продукты');
   const categories = input.preferredCategories === undefined ? current.preferredCategories : input.preferredCategories;
-  const dishPreferences = input.dishPreferences ?? current.dishPreferences;
-  if (!dishPreferences || typeof dishPreferences !== 'object' || Array.isArray(dishPreferences) || Object.entries(dishPreferences).length > 30 || Object.entries(dishPreferences).some(([key, value]) => key.length < 2 || key.length > 100 || ![-1, 1].includes(value))) throw badRequest('Проверьте любимые блюда');
+  if (input.dishPreferences !== undefined && (!input.dishPreferences || typeof input.dishPreferences !== 'object' || Array.isArray(input.dishPreferences))) throw badRequest('Проверьте любимые блюда');
+  let dishPreferences = input.dishPreferences ?? current.dishPreferences;
+  const dishRatings = input.dishRatings === undefined
+    ? input.dishPreferences === undefined ? current.dishRatings : { ...current.dishRatings, ...legacyDishRatings(input.dishPreferences) }
+    : validateDishRatings(input.dishRatings);
+  const ratingsChanged = Object.keys({ ...current.dishRatings, ...dishRatings }).some(key => current.dishRatings[key] !== dishRatings[key]);
+  if (input.dishRatings !== undefined) {
+    if (!Number.isSafeInteger(input.tasteRevision) || input.tasteRevision < 0) throw badRequest('Обнови экран перед сохранением вкусов');
+    if (ratingsChanged && input.tasteRevision !== current.tasteRevision) throw Object.assign(new Error('Вкусы изменились на другом устройстве. Обновляем выбор.'), {status:409});
+    if (Object.keys(dishRatings).length < 3) throw badRequest('Отметь хотя бы три блюда');
+    dishPreferences = withoutCatalogDishes(dishPreferences);
+  }
+  if (!dishPreferences || typeof dishPreferences !== 'object' || Array.isArray(dishPreferences) || Object.entries(withoutCatalogDishes(dishPreferences)).length > 30 || Object.entries(dishPreferences).some(([key, value]) => key.length < 2 || key.length > 100 || ![-1, 1].includes(value))) throw badRequest('Проверьте любимые блюда');
   if (!categories || typeof categories !== 'object' || Array.isArray(categories) || Object.entries(categories).some(([key, value]) => !CATEGORIES.has(key) || !Number.isFinite(value) || value < -1 || value > 1)) throw badRequest('Проверьте предпочтения в блюдах');
   const tastePreferencesStatus = input.tastePreferencesStatus === undefined ? current.tastePreferencesStatus : input.tastePreferencesStatus;
   if (!['pending', 'completed', 'skipped'].includes(tastePreferencesStatus)) throw badRequest('Проверьте статус знакомства со вкусами');
   const firstCompletion = !current.onboardingCompleted && input.onboardingCompleted === true;
-  const saved = saveFoodProfile(userId, { householdType, householdSize, hasChildren, preferredMaxCookingTime, excludedIngredients: [...new Set(excludedIngredients.map((item) => item.trim().toLocaleLowerCase('ru')).filter(Boolean))], preferredCategories: categories, dishPreferences, tastePreferencesStatus, onboardingCompleted: Boolean(input.onboardingCompleted ?? current.onboardingCompleted) });
+  const saved = saveFoodProfile(userId, { householdType, householdSize, hasChildren, preferredMaxCookingTime, excludedIngredients: [...new Set(excludedIngredients.map((item) => item.trim().toLocaleLowerCase('ru')).filter(Boolean))], preferredCategories: categories, dishPreferences, dishRatings, tasteRevision: current.tasteRevision + (ratingsChanged ? 1 : 0), tastePreferencesStatus, onboardingCompleted: Boolean(input.onboardingCompleted ?? current.onboardingCompleted) });
   if (tastePreferencesStatus !== current.tastePreferencesStatus && tastePreferencesStatus !== 'pending') addDinnerEvent(userId, `taste_preferences_${tastePreferencesStatus}`);
   if (firstCompletion) addDinnerEvent(userId, 'onboarding_completed');
   return saved;

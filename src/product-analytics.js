@@ -140,6 +140,7 @@ export function apiStep(path) {
   if (/billing\/trial/.test(path)) return 'trial';
   if (/billing/.test(path)) return 'offer';
   if (/transcribe|recipe-request|suggest/.test(path)) return 'request';
+  if (/dinner\/tastes/.test(path)) return 'taste';
   if (/dinner\/(profile|onboarding)/.test(path)) return 'onboarding';
   if (/dinner/.test(path)) return 'request';
   if (/notifications/.test(path)) return 'notifications';

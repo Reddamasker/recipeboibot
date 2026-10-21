@@ -1,3 +1,4 @@
+import { dishTasteScore } from './taste-profile.js';
 import { createHash } from 'node:crypto';
 import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes, withNutrition, recordRecipeRequestResult } from './db.js';
 import { getFoodProfile, getDinnerHistory, getDinnerOption } from './dinner-store.js';
@@ -80,7 +81,7 @@ async function requestedRecipes(userId, query, contextOverride = null) {
       const categories = recipeCategories(recipe);
       const retrievalHint = (matchesMealRequest(recipe, context.mealRequest) ? 40 : 0)
         + context.requestedCategories.filter((category) => categories.includes(category)).length * 10;
-      return { recipe, order, score: retrievalHint
+      return { recipe, order, score: retrievalHint + dishTasteScore(recipe, context.profile) * 4
         + (recipe.title.toLocaleLowerCase('ru').replaceAll('ё', 'е') === context.normalized.toLocaleLowerCase('ru').replaceAll('ё', 'е') ? 100 : 0)
         + categories.reduce((score, category) => score + (context.profile.preferredCategories[category] || 0), 0)
         + Object.entries(context.profile.dishPreferences || {}).reduce((score, [dish, weight]) => score + (matchesMealRequest(recipe, { dish }) ? weight * 4 : 0), 0) };

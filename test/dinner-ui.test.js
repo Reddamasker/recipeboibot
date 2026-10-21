@@ -256,7 +256,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const source = fs.readFileSync('public/app.js', 'utf8');
   const document = fs.readFileSync('public/index.html', 'utf8');
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
-  assert.match(document, /app\.js\?v=dinner-10\.81/);
+  assert.match(document, /app\.js\?v=dinner-10\.82/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
   const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
@@ -353,42 +353,6 @@ test('provider confirmation shows congratulations only for a paid order and wait
   assert.equal(sandbox.state.trialOnboarding, 'taste');
   assert.equal(route.view, 'dinner');
   assert.deepEqual(dinnerArgs, [false, true]);
-});
-
-test('taste tags switch between like, dislike and neutral; failed saves retain draft, skip omits it', async () => {
-  const source = fs.readFileSync('public/app.js', 'utf8');
-  const handler = source.slice(source.indexOf('function tasteChoices('), source.indexOf('\nasync function loadDinnerRecommendation'));
-  const buttons = [1, -1].map((value) => ({ dataset: { taste: 'fish', value: String(value) } }));
-  const elements = Object.fromEntries(['#taste-save', '#taste-skip'].map((key) => [key, {}]));
-  const root = { innerHTML: '' }, requests = [], errors = [];
-  let fail = true, dinners = 0;
-  const state = { dinner: { profile: { preferredCategories: { pasta: 0.8 } } } };
-  const sandbox = { root, state, clearTimeout() {}, dinnerPollTimer: null, header: () => '', bindCommon() {}, trialGuideCloseButton: () => '', esc: String,
-    document: { querySelectorAll: () => buttons, querySelector: (key) => elements[key] || { focus() {} } },
-    dinnerView: () => sandbox.tastePreferencesView(),
-    beginDinner: async () => { dinners++; }, toast: (message) => errors.push(message),
-    api: async (url, options) => { requests.push(JSON.parse(options.body)); if (fail) throw new Error('offline'); return {}; } };
-  vm.runInNewContext(handler, sandbox);
-  sandbox.showDinnerTastePreferences();
-  assert.match(root.innerHTML, /Нравится/); assert.match(root.innerHTML, /Не нравится/);
-  assert.match(root.innerHTML, /data-taste="rice"/);
-  for (const label of ['Бургеры','Пицца','Суши','Шаурма','Вок','Паста','Шашлык','Десерты','Фастфуд','Завтраки','Обеды','Кофе','Грузия','Русская','Восток','Китай','Япония','Кавказ','Узбекская','Италия','Европа','Азия']) assert.match(root.innerHTML, new RegExp(`>${label}<`));
-  buttons[0].onclick(); assert.equal(state.onboarding.preferredCategories.fish, 1);
-  buttons[1].onclick(); assert.equal(state.onboarding.preferredCategories.fish, -1);
-  assert.match(root.innerHTML, /data-taste="fish" data-value="-1" aria-pressed="true"/);
-  buttons[1].onclick(); assert.equal(state.onboarding.preferredCategories.fish, undefined);
-  buttons[1].onclick();
-  await elements['#taste-save'].onclick();
-  assert.equal(dinners, 0); assert.deepEqual(errors, ['offline']);
-  assert.equal(state.onboarding.preferredCategories.fish, -1); assert.equal(state.onboarding.saving, false);
-  fail = false;
-  await elements['#taste-save'].onclick();
-  assert.deepEqual(requests.at(-1), { preferredCategories: { pasta: 0.8, fish: -1 }, dishPreferences: {}, tastePreferencesStatus: 'completed' });
-  assert.equal(state.onboarding, null); assert.equal(dinners, 1);
-  sandbox.showDinnerTastePreferences(); buttons[0].onclick();
-  await elements['#taste-skip'].onclick();
-  assert.deepEqual(requests.at(-1), { tastePreferencesStatus: 'skipped' });
-  assert.equal(dinners, 2);
 });
 
 test('trial onboarding continues from tastes to notifications and collection instructions', () => {

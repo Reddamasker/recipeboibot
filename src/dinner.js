@@ -1,3 +1,4 @@
+import { dishTasteScore, isDislikedDish } from './taste-profile.js';
 import { matchesMealRequest, matchesObjectiveMealRequest, containsFoodPhrase, matchesIngredientConstraint, isSpicy } from './meal-request.js';
 
 export const DINNER_WEIGHTS = Object.freeze({
@@ -171,6 +172,7 @@ import { totalMinutes, hasCompleteCookingTime } from './recipe-time.js';
 export { totalMinutes, hasCompleteCookingTime };
 
 export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
+  if (isDislikedDish(recipe, profile)) return null;
   if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
   if (!matchesObjectiveMealRequest(recipe, mealRequest)) return null;
   // Relax timing metadata only for usable recipes, not incomplete imports
@@ -196,7 +198,8 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
     + (mealRequest && matchesMealRequest(recipe, mealRequest) ? 8 : 0);
   let score = (recipe.userSaved ? DINNER_WEIGHTS.saved : 0) + requestHint;
   const namedTaste = Object.entries(profile.dishPreferences || {}).reduce((sum, [dish, weight]) => sum + (matchesMealRequest(recipe, { dish }) ? weight : 0), 0);
-  score += namedTaste * 8;
+  const dishTaste = dishTasteScore(recipe, profile);
+  score += namedTaste * 8 + dishTaste * 8;
   const pantryMatch = pantryCoverage(recipe, pantry);
   if (pantryMatch) {
     const hasBase = pantryMatch.mainIngredients.length && !pantryMatch.missingMainIngredients.length;
@@ -218,7 +221,7 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
   const recentShown = events.some((event) => event.event === 'recommendation_shown' && now - Date.parse(event.createdAt) < 86400000);
   if (recentCook) score -= DINNER_WEIGHTS.recentCookPenalty;
   if (recentShown) score -= DINNER_WEIGHTS.recentShownPenalty;
-  return { recipe, score, categories, minutes, pantryMatch, namedTaste };
+  return { recipe, score, categories, minutes, pantryMatch, namedTaste, dishTaste };
 }
 
 export function rankCandidates(recipes, context = {}) {
@@ -230,7 +233,7 @@ const uncooked = (candidate, history) => !history.some((event) => event.recipeKe
 const sideKeys = (candidate) => (candidate.recipe.ingredients || []).map((item) => pantryKey(item.name || item.raw || item)).filter((key) => ['rice', 'pasta', 'buckwheat', 'potato', 'couscous', 'cabbage'].includes(key));
 const categoryDistance = (candidate, selected) => candidate.categories.filter((key) => !selected.some((item) => item.categories.includes(key))).length
   + sideKeys(candidate).filter((key) => !selected.some((item) => sideKeys(item).includes(key))).length * DINNER_WEIGHTS.newSideVariety;
-const preferenceFit = (candidate, preferredCategories = {}) => (candidate.namedTaste || 0) * 2 + candidate.categories.reduce((sum, key) => sum + (preferredCategories[key] || 0), 0);
+const preferenceFit = (candidate, preferredCategories = {}) => (candidate.namedTaste || 0) * 2 + (candidate.dishTaste || 0) * 2 + candidate.categories.reduce((sum, key) => sum + (preferredCategories[key] || 0), 0);
 const preferenceChoice = (candidates, preferredCategories = {}) => candidates
   .filter((candidate) => preferenceFit(candidate, preferredCategories) > 0)
   .sort((a, b) => preferenceFit(b, preferredCategories) - preferenceFit(a, preferredCategories) || b.score - a.score)[0];
