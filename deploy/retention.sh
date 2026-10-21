@@ -65,17 +65,22 @@ retention_trim_files() {
 }
 
 retention_trim_images() {
-  local mode=$1 listing tag count=0
+  local mode=$1 listing tag id duplicate count=0
+  local -A seen=()
   listing=$(docker image ls --format '{{.Repository}} {{.Tag}}') || return 1
   listing=$(printf '%s\n' "$listing" |
     awk -v repository="$retention_repository" -v prefix="$retention_image_prefix" \
       '$1 == repository && index($2, prefix) == 1 { print $1 ":" $2 }' | sort -r) || return 1
   while IFS= read -r tag; do
     [[ -n "$tag" ]] || continue
-    count=$((count + 1))
-    if (( count > 3 )); then
+    id=$(docker image inspect --format '{{.Id}}' "$tag") || return 1
+    [[ "$id" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+    duplicate=false
+    if [[ -n "${seen[$id]:-}" ]]; then duplicate=true
+    else seen[$id]=1; count=$((count + 1)); fi
+    if [[ "$duplicate" = true ]] || (( count > 3 )); then
       if [[ "$mode" = --check ]]; then
-        printf 'Retention image limit exceeded: %s (keep 3)\n' "$retention_repository" >&2
+        printf 'Retention image limit or duplicate tag: %s (keep 3 distinct images)\n' "$retention_repository" >&2
         return 1
       fi
       # No force, global image prune or volume operation. Docker protects in-use images.
@@ -144,7 +149,7 @@ retention_execute() {
     docker builder prune --all --force --keep-storage 1GB || return 1
     retention_policy --check || return 1
     rm -- "$retention_root/backups/retention-error" || return 1
-    printf 'Retention verified: %s (3 rollback tags, 5 source archives, 30 DB backups, 10 test logs)\n' "$retention_root"
+    printf 'Retention verified: %s (up to 3 distinct rollback images, 5 source archives, 30 DB backups, 10 test logs)\n' "$retention_root"
   fi
 }
 

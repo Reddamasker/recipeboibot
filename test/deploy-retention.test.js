@@ -27,6 +27,10 @@ if(args[0]==='image'&&args[1]==='ls') {
     console.log((state.dangling||[]).filter(i=>i.project===project).map(i=>i.id).join('\\n'));
   } else console.log(state.images.map(i=>i.replace(':',' ')).join('\\n'));
 } else if(args[0]==='image'&&args[1]==='inspect') {
+  if(args.includes('{{.Id}}')) {
+    const tag=args.at(-1), n=tag.match(/(\\d+)$/)?.[1];
+    console.log(state.imageIds?.[tag]||('sha256:'+n.padStart(64,'0')));process.exit(0);
+  }
   if(state.failInspect)process.exit(1);
   const i=state.dangling.find(i=>i.id===args.at(-1));
   if(!i)process.exit(1);
@@ -120,6 +124,20 @@ for (const failure of ['failList', 'failDelete', 'failCache']) test(`retention $
     assert.notEqual(context.run().status, 0);
     assert.ok(fs.existsSync(path.join(context.backups, 'retention-error')));
     assert.notEqual(context.run('--check').status, 0);
+  } finally {context.cleanup();}
+});
+
+test('repeated failed releases cannot crowd older distinct rollback images out with duplicate tags', () => {
+  const context=fixture(policies[2],{imageIds:{
+    'recipeboibot-max-app:before-max-0008':`sha256:${'a'.repeat(64)}`,
+    'recipeboibot-max-app:before-max-0007':`sha256:${'a'.repeat(64)}`,
+    'recipeboibot-max-app:before-max-0006':`sha256:${'a'.repeat(64)}`
+  }});
+  try {
+    assert.equal(context.run().status,0);
+    assert.deepEqual(context.state().images.filter(n=>n.startsWith('recipeboibot-max-app:before-max-')),
+      [4,5,8].map(n=>`recipeboibot-max-app:before-max-${String(n).padStart(4,'0')}`));
+    assert.equal(context.run('--check').status,0);
   } finally {context.cleanup();}
 });
 
