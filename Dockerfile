@@ -8,7 +8,9 @@ RUN apt-get update \
   && chmod 0755 /usr/local/bin/yt-dlp
 
 FROM node:24-bookworm-slim
-RUN apt-get update \
+COPY --from=video-tools /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+  && apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
