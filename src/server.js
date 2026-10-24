@@ -29,6 +29,7 @@ import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer,
 import { promoQuote, redeemFreePromo } from './promos.js';
 import { getSubscriptionAccess, getPendingFirstRecipe, startTrial, getTrialStatus, requireRecipeEntry, protectFirstRecipeResponse, assertFirstRecipeReadable } from './subscriptions.js';
 import { queueTrialWelcome, deliverTrialWelcome, markFirstRecipeReadForWelcome } from './trial-welcome.js';
+import { digestMember } from './trial-digest-store.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
@@ -168,7 +169,7 @@ async function api(request, response, url) {
     if (!used && trial.active) {
       recordEngagement(user.id, 'trial_activated');
       addDinnerEvent(user.id, 'trial_started', { detail: { source: 'app' } });
-      queueTrialWelcome(user.id, request.telegramUser.id, { ready: !getPendingFirstRecipe(user.id) });
+      queueTrialWelcome(user.id, request.telegramUser.id, { ready: !getPendingFirstRecipe(user.id), timezone: input.timezone });
     }
     response.once('finish', () => { void deliverTrialWelcome(user.id); });
     return json(response, 200, config.testContour && !billingAvailable() ? mockPaymentStatus(user.id) : getBillingOffer(user.id));
@@ -224,7 +225,7 @@ async function api(request, response, url) {
     const botUsername = config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
     return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
   }
-  if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, getNotificationSchedule(user.id));
+  if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, {...getNotificationSchedule(user.id),dailyDigest:Boolean(digestMember(user.id))});
   if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));
   const notificationAction = url.pathname.match(/^\/api\/notifications\/([0-9a-f-]{36})\/(open|select)$/i);
   if (request.method === 'POST' && notificationAction) {

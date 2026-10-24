@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { getTrialStatus, getSubscriptionAccess } from './subscriptions.js';
 import { selectionRecord } from './first-recipe-selection.js';
 import { log } from './log.js';
+import { enrollTrialDigest, eligibleDigestUser } from './trial-digest-store.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS trial_welcome_messages (
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -21,9 +22,11 @@ function ownsRecipient(userId, chatId) {
  UNION SELECT 1 FROM private_test_profiles p JOIN users u ON u.id=p.owner_user_id
  WHERE p.test_user_id=? AND u.telegram_id=?`).get(userId,id,userId,id));
 }
-export function queueTrialWelcome(userId, chatId, {ready=false}={}) {
+export function queueTrialWelcome(userId, chatId, {ready=false,timezone}={}) {
  const trial=getTrialStatus(userId);
  if(!trial.active||!getSubscriptionAccess(userId).active||!ownsRecipient(userId,chatId))return false;
+ const digest=enrollTrialDigest(userId,timezone);
+ if(digest) { ready=true; markTrialWelcomeReady(userId); }
  return Boolean(db.prepare('INSERT OR IGNORE INTO trial_welcome_messages(user_id,chat_id,trial_started_at,ready,next_attempt_at) VALUES(?,?,?,?,?)')
  .run(userId,String(chatId),trial.startsAt,ready?1:0,new Date().toISOString()).changes);
 }
@@ -47,6 +50,10 @@ export async function deliverTrialWelcome(userId, sendFn=sender) {
   db.prepare("UPDATE trial_welcome_messages SET status='sent',sent_at=?,last_error=NULL WHERE user_id=? AND status='sending' AND claimed_at=?").run(new Date().toISOString(),userId,row.claimed_at);
   return true;
  }catch(error){
+  if(error?.digestTerminal) {
+   db.prepare("UPDATE trial_welcome_messages SET status='cancelled',last_error=? WHERE user_id=? AND status='sending'").run(error.code,userId);
+   log('warn','trial_digest_welcome_stopped',{code:error.code});return false;
+  }
   const next=new Date(Date.now()+Math.min(3600000,30000*2**Math.min(row.attempts-1,7))).toISOString();
   db.prepare("UPDATE trial_welcome_messages SET status='pending',next_attempt_at=?,claimed_at=NULL,last_error=? WHERE user_id=? AND status='sending' AND claimed_at=?")
   .run(next,String(error?.message||'delivery failed').slice(0,250),userId,row.claimed_at);
@@ -62,9 +69,23 @@ export function startTrialWelcomeScheduler(sendFn) {
  stopTrialWelcomeScheduler();sender=sendFn;
  const tick=async()=>{
   if(running)return;running=true;
-  try{for(const row of db.prepare("SELECT user_id FROM trial_welcome_messages WHERE ready=1 AND status IN ('pending','sending') ORDER BY next_attempt_at LIMIT 20").all())await deliverTrialWelcome(row.user_id);}
+  try{
+   recoverDigestWelcomes();
+   for(const row of db.prepare("SELECT user_id FROM trial_welcome_messages WHERE ready=1 AND status IN ('pending','sending') ORDER BY next_attempt_at LIMIT 20").all())await deliverTrialWelcome(row.user_id);
+  }
   catch(error){log('warn','trial_welcome_scheduler_failed',{error});}finally{running=false;}
  };
  timer=setInterval(()=>void tick(),15000);timer.unref();void tick();
 }
 export function stopTrialWelcomeScheduler(){if(timer)clearInterval(timer);timer=null;sender=undefined;}
+
+export function recoverDigestWelcomes(at=new Date()) {
+ if(config.botPlatform!=='telegram')return;
+ const since=db.prepare('SELECT started_at FROM trial_digest_rollout WHERE id=1').get()?.started_at;
+ if(!since)return;
+ const rows=db.prepare(`SELECT u.id,u.telegram_id FROM users u JOIN user_trials t ON t.user_id=u.id
+ WHERE u.created_at>? AND t.expires_at>? AND u.is_allowed=1
+ AND (NOT EXISTS(SELECT 1 FROM trial_digest_members m WHERE m.user_id=u.id)
+ OR NOT EXISTS(SELECT 1 FROM trial_welcome_messages w WHERE w.user_id=u.id)) LIMIT 100`).all(since,at.toISOString());
+ for(const u of rows)if(eligibleDigestUser(u.id,at))queueTrialWelcome(u.id,u.telegram_id,{ready:true});
+}

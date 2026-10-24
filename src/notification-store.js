@@ -101,6 +101,10 @@ export function saveNotificationSchedule(userId, input, at = new Date()) {
   if (schedule.enabled) requireNotificationSubscription(userId, at);
   const nextDueAt = nextNotificationAt(schedule, at)?.toISOString() || null;
   const timestamp = nowIso(at);
+  if (!schedule.enabled && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trial_digest_members'").get()) {
+    db.prepare(`UPDATE trial_digest_members SET opted_out_at=COALESCE(opted_out_at,?) WHERE user_id=?
+      AND EXISTS(SELECT 1 FROM notification_schedules s WHERE s.user_id=? AND s.enabled=1)`).run(timestamp,userId,userId);
+  }
   db.prepare(`INSERT INTO notification_schedules(user_id,enabled,weekdays_json,local_time,timezone,next_due_at,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,weekdays_json=excluded.weekdays_json,
     local_time=excluded.local_time,timezone=excluded.timezone,next_due_at=excluded.next_due_at,updated_at=excluded.updated_at`)

@@ -13,8 +13,10 @@ import { startTrialWelcomeScheduler, stopTrialWelcomeScheduler } from './trial-w
 import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
 import { startTrialReminderScheduler, stopTrialReminderScheduler } from './trial-reminders.js';
 import { sendTrialRecipeReminder } from './telegram.js';
+import { initializeTrialDigest } from './trial-digest-store.js';
 
 assertConfig();
+if (config.telegramPolling) initializeTrialDigest();
 let maxBotId;
 if (config.botPlatform === 'max') {
   const bot = await maxApiCall('/me');

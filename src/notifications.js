@@ -7,6 +7,7 @@ import {
 } from './notification-store.js';
 import { log } from './log.js';
 import { getSubscriptionAccess, requireNotificationSubscription } from './subscriptions.js';
+import { digestMember, cancelDigestParts } from './trial-digest-store.js';
 
 const notFound = () => Object.assign(new Error('Это уведомление больше недоступно'), { status: 404 });
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
@@ -14,6 +15,7 @@ const badRequest = (message) => Object.assign(new Error(message), { status: 400 
 function preparedDelivery(id) {
   let delivery = getNotificationDeliveryForDispatch(id);
   if (!delivery) throw notFound();
+  if (digestMember(delivery.userId)) return delivery;
   if (!delivery.sessionId) {
     const dinner = startDinner(delivery.userId, { prefetchOnly: true });
     delivery = attachNotificationSession(id, dinner.sessionId);
@@ -58,8 +60,10 @@ export async function runNotificationCycle({ sendReminder, sendChoice }, at) {
   try {
     enqueueDueNotifications(currentTime());
     for (const pending of listPendingReminderDeliveries(currentTime())) {
-      if (!getSubscriptionAccess(pending.userId, currentTime()).active || !getNotificationSchedule(pending.userId, currentTime()).enabled) {
+      if (!getSubscriptionAccess(pending.userId, currentTime()).active || !getNotificationSchedule(pending.userId, currentTime()).enabled
+        || digestMember(pending.userId) && currentTime().getTime()-Date.parse(pending.scheduledFor)>15*60000) {
         discardNotificationDelivery(pending.id, currentTime());
+        cancelDigestParts(pending.id);
         continue;
       }
       try {
@@ -67,7 +71,8 @@ export async function runNotificationCycle({ sendReminder, sendChoice }, at) {
         await sendReminder(delivery);
         markReminderSent(delivery.id);
       } catch (error) {
-        markReminderFailed(pending.id);
+        if (error?.digestTerminal) { discardNotificationDelivery(pending.id,currentTime()); cancelDigestParts(pending.id); }
+        else markReminderFailed(pending.id);
         log('warn', 'notification_reminder_failed', { error, deliveryId: pending.id });
       }
     }

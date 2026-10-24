@@ -3,6 +3,7 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { getSubscriptionAccess } from './subscriptions.js';
 import { log } from './log.js';
+import { eligibleDigestUser, digestMember } from './trial-digest-store.js';
 
 // Delivery state is also the analytics source. No message contents are stored.
 db.exec(`CREATE TABLE IF NOT EXISTS trial_reminder_settings (
@@ -67,11 +68,13 @@ export async function runTrialReminderCycle(send, at = new Date()) {
       SELECT t.user_id,?,t.starts_at,strftime('%Y-%m-%dT%H:%M:%fZ',t.starts_at,'+' || ? || ' hours')
       FROM user_trials t JOIN users u ON u.id=t.user_id
       WHERE t.starts_at>=? AND t.starts_at<=? AND t.expires_at>? AND u.is_allowed=1
+      AND NOT EXISTS(SELECT 1 FROM trial_digest_rollout r WHERE u.created_at>r.started_at AND t.starts_at>=r.started_at)
       AND NOT EXISTS(SELECT 1 FROM private_test_profiles p WHERE p.test_user_id=t.user_id OR p.owner_user_id=t.user_id)`)
       .run(timestamp,settings.delay_hours,settings.started_at,timestamp,timestamp);
     const members = db.prepare('SELECT * FROM trial_reminder_members WHERE stopped_at IS NULL ORDER BY next_due_at LIMIT 500').all();
     let dispatched = 0;
     for (const member of members) {
+      if (digestMember(member.user_id) || eligibleDigestUser(member.user_id,at)) { stop(member.user_id,'daily_digest',timestamp); continue; }
       const added = ownRecipe(member.user_id);
       if (added) {
         db.prepare('UPDATE trial_reminder_members SET added_at=? WHERE user_id=?').run(added.created_at,member.user_id);

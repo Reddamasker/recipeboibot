@@ -142,7 +142,7 @@ async function activateTrial(event) {
   const pendingFirstRecipe = state.payment?.pendingFirstRecipe;
   try {
     if (state.payment?.trialViewToken) flushVisibleEngagement();
-    state.payment = await api('/api/billing/trial', { method: 'POST', body: JSON.stringify(button.engagementEntry ? { offerView: button.engagementEntry } : {}) });
+    state.payment = await api('/api/billing/trial', { method: 'POST', body: JSON.stringify({ ...(button.engagementEntry ? { offerView: button.engagementEntry } : {}), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
     if (!state.payment.active) { closeOverlay(); openOffer(); return; }
     closeOverlay();
     const unlocked = state.payment.unlockedFirstRecipe || state.payment.pendingFirstRecipe || pendingFirstRecipe;
@@ -486,7 +486,8 @@ function tastePreferencesView() {
       setTrialOnboardingStep('notifications');
       setRoute({view:state.trialGuideActive ? 'trial-guide' : 'trial-onboarding'});
       trialOnboardingPage();
-    } else await beginDinner();
+    } else if (new URLSearchParams(location.search).get('view')==='tastes') { setRoute({view:'menu'}); await render(); }
+    else await beginDinner();
   };
   data.tasteReady = import('/taste-editor.js?v=1').then(({mountTasteEditor}) => {
     if (state.onboarding !== data || !element.isConnected) return;
@@ -939,12 +940,13 @@ async function notificationSettingsPage() {
   const schedule = state.notificationSchedule;
   const hasAccess = schedule.access?.active === true;
   const timezone = schedule.timezone || deviceTimezone;
+  const saveTimezone = schedule.dailyDigest ? timezone : deviceTimezone;
   const days = [[1, 'Пн'], [2, 'Вт'], [3, 'Ср'], [4, 'Чт'], [5, 'Пт'], [6, 'Сб'], [0, 'Вс']];
   let next = '';
   if (hasAccess && schedule.enabled && schedule.nextDueAt) {
     try { next = new Intl.DateTimeFormat('ru-RU', { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(schedule.nextDueAt)); } catch {}
   }
-  root.innerHTML = `${header()}<main class="notification-page ${trial ? 'trial-notification-settings' : ''}">${trialGuideCloseButton()}${trial ? '<div class="trial-progress" aria-label="Настройка шага 2 из 3"><span></span><span class="active"></span><span></span></div>' : ''}<button class="back-link" id="notifications-back">← ${trial ? 'Назад' : 'На главную'}</button><div class="eyebrow">УВЕДОМЛЕНИЯ В ${esc(globalThis.window?.RecipePlatform?.label || 'Telegram').toUpperCase()}</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">Часовой пояс этого устройства: <strong>${esc(deviceTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">${trial ? 'Сохранить и продолжить' : 'Сохранить расписание'}</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
+  root.innerHTML = `${header()}<main class="notification-page ${trial ? 'trial-notification-settings' : ''}">${trialGuideCloseButton()}${trial ? '<div class="trial-progress" aria-label="Настройка шага 2 из 3"><span></span><span class="active"></span><span></span></div>' : ''}<button class="back-link" id="notifications-back">← ${trial ? 'Назад' : 'На главную'}</button><div class="eyebrow">УВЕДОМЛЕНИЯ В ${esc(globalThis.window?.RecipePlatform?.label || 'Telegram').toUpperCase()}</div><h1>Когда напомнить об ужине?</h1><p class="notification-intro">${schedule.dailyDigest ? 'В выбранные дни пришлём в чат до трёх рецептов с фото и временем приготовления. Учтём твои вкусы и ограничения.' : 'В выбранные дни бот пришлёт кнопку с тремя вариантами. После выбора отдельное сообщение со ссылкой на рецепт останется в чате.'}</p><form id="notification-form" class="notification-form"><label class="notification-switch"><input id="notification-enabled" type="checkbox" ${schedule.enabled ? 'checked' : ''}><span><strong>Присылать подборку</strong><small>Можно отключить в любой момент</small></span></label><fieldset id="notification-fields" ${schedule.enabled ? '' : 'disabled'}><legend>Дни недели</legend><div class="notification-days">${days.map(([value, label]) => `<label><input type="checkbox" name="weekday" value="${value}" ${schedule.weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><label class="notification-time"><span>Время</span><input class="field" id="notification-time" type="time" value="${esc(schedule.time || '18:00')}" required></label><p class="help">${schedule.dailyDigest ? 'Часовой пояс расписания' : 'Часовой пояс этого устройства'}: <strong>${esc(saveTimezone)}</strong>. Он сохранится вместе с расписанием.</p></fieldset><p class="form-error" id="notification-error" role="alert" hidden tabindex="-1"></p><button class="primary accent" type="submit">${trial ? 'Сохранить и продолжить' : 'Сохранить расписание'}</button>${next ? `<p class="notification-next">Следующая подборка: ${esc(next)}</p>` : ''}</form></main>`;
   if (trial) resetPageScroll();
   bindCommon();
   document.querySelector('#notifications-back').onclick = () => {
@@ -981,7 +983,7 @@ async function notificationSettingsPage() {
     if (enabled.checked && !weekdays.length) { error.textContent = 'Выбери хотя бы один день.'; error.hidden = false; error.focus(); return; }
     button.disabled = true; button.textContent = 'Сохраняю…';
     try {
-      state.notificationSchedule = await api('/api/notifications/schedule', { method: 'PUT', body: JSON.stringify({ enabled: enabled.checked, weekdays, time: document.querySelector('#notification-time').value, timezone: deviceTimezone }) });
+      state.notificationSchedule = await api('/api/notifications/schedule', { method: 'PUT', body: JSON.stringify({ enabled: enabled.checked, weekdays, time: document.querySelector('#notification-time').value, timezone: saveTimezone }) });
       if (guideWasActive && !state.trialGuideActive) return;
       if (trial) {
         setTrialOnboardingStep('collection');
@@ -1006,6 +1008,11 @@ async function render() {
   else if (view === 'benefits') benefitsPage();
   else if (view === 'pricing') providerOfferPage();
   else if (view === 'trial-guide') await startTrialGuide();
+  else if (view === 'tastes') {
+    state.trialGuideActive=false; state.trialOnboarding=null;
+    state.dinner={profile:await api('/api/dinner/profile'),recommendations:[],pantry:[]};
+    showDinnerTastePreferences();
+  }
   else if (view === 'checkout' && state.payment?.available) checkoutPage();
   else if (view === 'payment-result' && (state.payment?.available || state.payment?.active)) paymentResultPage();
   else if (view === 'trial-onboarding' && state.trialOnboarding) trialOnboardingPage();
@@ -1915,7 +1922,7 @@ async function boot() {
       setRoute({ view: 'collection', recipe: firstRecipeReopen }, { replace: true });
       await render();
     } else if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) await render();
-    else if (routeParams.get('view') === 'menu' || routeParams.get('view') === 'trial-guide' || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
+    else if (['menu','trial-guide','tastes','notifications'].includes(routeParams.get('view')) || routeParams.has('recipe') || maxRecipeLaunch || maxPaymentLaunch || maxAccessLaunch || !await resumePendingTrialTastePreferences()) await render();
     window.miniProbe?.('view-rendered');
   } catch (error) {
     window.__miniRendered = true;

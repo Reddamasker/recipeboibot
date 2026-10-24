@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
 import { trialReminderReport } from './trial-reminders.js';
+import { trialDigestReport } from './trial-digest-store.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
@@ -95,6 +96,15 @@ export function validProductReport(value, { legacy = false } = {}) {
   const numeric = x => x === null || Number.isFinite(x) && x >= 0;
   if (!value || value.platform !== 'max' || !Number.isFinite(Date.parse(value.trackingSince))) return false;
   if (legacy && (value.trialReminders != null || value.catalogBenefits != null)) return false;
+  if (value.trialDigest != null) {
+    const d=value.trialDigest,t=d.deliveryTiming;
+    if (!Number.isFinite(Date.parse(d.trackingSince))
+      || !['enrolled','autoEnabled','optedOut','welcomeSent','personalizationSent','batches','batchesSent','batchesFailed','cardsSent','failed','unknown','waiting','cancelled'].every(k=>Number.isSafeInteger(d[k])&&d[k]>=0)
+      || d.autoEnabled>d.enrolled || d.optedOut>d.enrolled || d.welcomeSent>d.enrolled || d.personalizationSent>d.welcomeSent
+      || d.batchesSent+d.batchesFailed>d.batches || d.cardsSent>d.batches*3
+      || !t || !Number.isSafeInteger(t.samples)||t.samples<0||!numeric(t.p50)||!numeric(t.p95)
+      || (t.samples===0?t.p50!==null||t.p95!==null:t.p50===null||t.p95===null||t.p50>t.p95)) return false;
+  }
   if (!legacy) {
   const r = value.trialReminders;
   if (!r || !Number.isFinite(Date.parse(r.trackingSince))
@@ -303,5 +313,5 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   return { platform: config.botPlatform, trackingSince: productTrackingSince(), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
-    imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), checkout,retention,catalog,catalogBenefits,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
+    imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
 }

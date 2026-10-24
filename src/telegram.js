@@ -31,6 +31,8 @@ import { inspectMaxAudio } from './max-media.js';
 import { createHash } from 'node:crypto';
 import { queueTrialWelcome, markTrialWelcomeReady, deliverTrialWelcome } from './trial-welcome.js';
 import { trialReminderAction } from './trial-reminders.js';
+import { digestMember, stopTrialDigest } from './trial-digest-store.js';
+import { sendDigestWelcome, sendDigestBatch } from './trial-digest.js';
 
 const chatPlatformLabel = config.botPlatform === 'max' ? 'MAX' : 'Telegram';
 
@@ -42,7 +44,7 @@ async function telegram(method, body = {}) {
   if (config.botPlatform === 'max') return maxChatCall(method, body);
   const response = await fetch(`${apiBase()}/${method}`, { method: 'POST', signal: AbortSignal.timeout(method === 'getUpdates' ? 40000 : 15000), headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const payload = await response.json();
-  if (!payload.ok) throw new Error(`Telegram ${method}: ${payload.description || response.status}`);
+  if (!payload.ok) throw Object.assign(new Error(`Telegram ${method}: ${payload.description || response.status}`), {telegramStatus:Number(payload.error_code || response.status),retryAfter:Number(payload.parameters?.retry_after)||null});
   return payload.result;
 }
 
@@ -98,6 +100,7 @@ async function sendUnlockedFirstRecipe(chatId, userId) {
 
 export async function sendTrialWelcomeMessage(userId, chatId, trial) {
   if (!trial?.active) throw new Error('Пробный период уже не активен');
+  if (digestMember(userId)) return sendDigestWelcome(userId,chatId,trial,{send:telegram,url:webAppUrl});
   const url = webAppUrl({ view: 'trial-guide' });
   const text = '<b>Спасибо, что запустил пробный период!</b>\n\nПознакомься с возможностями «Рецептов» — они помогут проще решать, что приготовить.\n\n<b>Вкусы и предпочтения</b>\nУкажи любимые блюда и то, что тебе не по вкусу — подбор станет точнее.\n\n<b>Напоминания</b>\nВыбери удобное время, чтобы не вспоминать об ужине в последний момент.\n\n<b>Коллекция</b>\nСохраняй понравившиеся блюда и возвращайся к ним, когда захочется повторить.\n\nЗнакомство можно пройти сейчас или открыть позже.';
   return send(chatId, text, url ? { reply_markup: { inline_keyboard: [[{ text: 'Познакомиться с возможностями', web_app: { url } }]] } } : {});
@@ -113,6 +116,13 @@ export async function sendTrialRecipeReminder(delivery) {
 }
 
 export async function handleTrialReminderCallback(callback) {
+  if (callback.data==='digest:stop' && callback.message?.chat?.type==='private' && callback.from && String(callback.from.id)===String(callback.message.chat.id)) {
+    const user=resolvePrivateTelegramUser(callback.from);
+    identifyProductUser(user.id); identifyProductStep('notifications');
+    const stopped=stopTrialDigest(user.id);
+    await telegram('answerCallbackQuery',{callback_query_id:callback.id,text:stopped?'Подборки отключены':'Рассылка недоступна'});
+    return true;
+  }
   const match = String(callback.data || '').match(/^trial-reminder:(add|stop):([a-f0-9-]{36})$/);
   if (!match || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from);
@@ -499,6 +509,7 @@ export async function sendFeedbackNotification(row) {
 }
 
 export async function sendNotificationReminder(delivery) {
+  if (digestMember(delivery.userId)) return sendDigestBatch(delivery,{send:telegram,url:webAppUrl});
   const url = webAppUrl({ view: 'dinner', notification: delivery.id });
   if (!url) throw new Error('APP_URL is not configured for notifications');
   await send(delivery.telegramId, '<b>Пора выбрать, что приготовить</b>\n\nЯ подготовил три варианта с учётом твоих вкусов и ограничений.', {
