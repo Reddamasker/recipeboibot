@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 const directory=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-digest-'));
 Object.assign(process.env,{DATABASE_PATH:path.join(directory,'recipes.sqlite'),BOT_PLATFORM:'telegram',TELEGRAM_BOT_TOKEN:'123456:digest-test',TELEGRAM_POLLING:'false',TEST_CONTOUR:'false',BILLING_REQUIRED:'false',APP_URL:'https://recipes.example.test',DINNER_LLM_ENABLED:'false',DINNER_IMAGES_ENABLED:'false',OPENAI_API_KEY:'unused-test-key'});
-const {db,upsertTelegramUser,allowUser}=await import('../src/db.js');
+const {db,upsertTelegramUser,allowUser,deleteUserData}=await import('../src/db.js');
 const {startTrial,getTrialStatus,grantSubscription}=await import('../src/subscriptions.js');
 const {initializeTrialDigest,digestStartedAt,digestMember,enrollTrialDigest,stopTrialDigest,sendDigestPart,trialDigestReport}=await import('../src/trial-digest-store.js');
 const {sendDigestWelcome,sendDigestBatch,digestRecipes}=await import('../src/trial-digest.js');
@@ -180,4 +180,12 @@ test('analytics filters sources, contains no food payload, keeps unavailable MAX
  assert.equal(validProductReport({...base,trialDigest:{...report,cardsSent:-1}}),false);
  const result=spawnSync(process.execPath,['--input-type=module','-e',"const m=await import('./src/trial-digest-store.js'); console.log(JSON.stringify([m.initializeTrialDigest(),m.trialDigestReport([]),m.digestMember('x')]));"],{encoding:'utf8',env:{...process.env,BOT_PLATFORM:'max',MAX_BOT_TOKEN:'preview-only'}});
  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/\[null,null,null\]/);
+});
+test('account deletion removes digest state and delivery history without dangling foreign keys',async()=>{
+ const u=member(),at=new Date(getNotificationSchedule(u.id,start).nextDueAt);
+ await sendDigestWelcome(u.id,u.telegram_id,getTrialStatus(u.id,start),adapter([]),start);
+ await sendDigestBatch(due(u,at),adapter([]),at);
+ assert.equal(deleteUserData(u.id),true);
+ for(const table of ['trial_digest_members','trial_digest_batches','trial_digest_parts','notification_deliveries'])assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE user_id=?`).get(u.id).n,0);
+ assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
 });

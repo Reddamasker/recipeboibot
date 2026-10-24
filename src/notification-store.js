@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import './dinner-store.js'; // Create referenced session/recommendation tables even in report-only entrypoints.
 import { db } from './db.js';
 import { getSubscriptionAccess, requireNotificationSubscription } from './subscriptions.js';
 
