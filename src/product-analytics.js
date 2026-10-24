@@ -208,16 +208,28 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const rows = db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
   const events = rows.filter(r => r.user_id && eligible(r));
   const positions = new Map(events.map((r,i)=>[r,i]));
+  // Partition once: scanning every account's events for every other account made
+  // the MAX bridge exceed its request deadline as the account cohort grew.
+  const eventsByUser = new Map();
+  for (const row of events) {
+    if (!eventsByUser.has(row.user_id)) eventsByUser.set(row.user_id, []);
+    eventsByUser.get(row.user_id).push(row);
+  }
   const engagement = exists('recipe_engagement') ? db.prepare("SELECT user_id,created_at FROM recipe_engagement WHERE event='recipe_opened' ORDER BY created_at").all().filter(eligible) : [];
+  const lastRecipeOpen = new Map();
+  for (const row of engagement) {
+    const time = Date.parse(row.created_at);
+    if (time > (lastRecipeOpen.get(row.user_id) ?? -Infinity)) lastRecipeOpen.set(row.user_id, time);
+  }
   const countUsers = (list, event) => new Set(list.filter(r => r.event === event).map(r => r.user_id || r.subject)).size;
   const stepRows = steps.filter(s => s !== 'catalog').map(step => {
     const list = events.filter(r => r.step === step), operations = list.filter(r => r.event === 'operation_finished');
     const errors = operations.filter(r => JSON.parse(r.detail_json).status >= 400);
     const lastViews = new Map(list.filter(r=>r.event==='screen_view').map(r=>[r.user_id,r]));
     const abandoned = new Set([...lastViews.values()].filter(r => Date.parse(at)-Date.parse(r.created_at)>=86400000
-      && !events.some(s=>s.user_id===r.user_id && positions.get(s)>positions.get(r)
+      && !eventsByUser.get(r.user_id).some(s=>positions.get(s)>positions.get(r)
         && (s.event==='step_submit' || s.event==='screen_view' && s.step!==step))
-      && !engagement.some(s=>s.user_id===r.user_id && Date.parse(s.created_at)>=Date.parse(r.created_at))).map(r=>r.user_id));
+      && !((lastRecipeOpen.get(r.user_id) ?? -Infinity) >= Date.parse(r.created_at))).map(r=>r.user_id));
     return { step, viewed: countUsers(list, 'screen_view'), submitted: countUsers(list, 'step_submit'), prompts:countUsers(list,'chat_prompt_delivered'), inactive:abandoned.size, operations: operations.length,
       errors: errors.length, errorUsers: new Set(errors.map(r => r.user_id)).size,
       p50: percentile(operations.map(r => r.duration_ms), .5), p95: percentile(operations.map(r => r.duration_ms), .95) };
@@ -248,7 +260,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   // Ordered conversion only uses the new observation window. Never divide old payments by new impressions.
   checkout.ordered = [0,0,0,0,0];
   for (const user of cohort) {
-    const list = events.filter(r => r.user_id === user.id);
+    const list = eventsByUser.get(user.id) || [];
     const offerIndex = list.findIndex(r => r.step === 'offer' && r.event === 'screen_view');
     const offer = list[offerIndex];
     const click = offer && list.find((r,i) => i>offerIndex && r.event === 'checkout_requested' && r.created_at >= offer.created_at);

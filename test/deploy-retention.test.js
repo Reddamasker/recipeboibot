@@ -224,6 +224,23 @@ test('hourly cleanup protects recent uploads before they acquire the deployment 
   } finally {context.cleanup();}
 });
 
+test('upload audit allows the next hourly cleanup but still detects missed maintenance', () => {
+  const context=fixture();
+  try {
+    assert.equal(context.run().status,0);
+    const pending=path.join(context.uploads,'recipeboibot-max-release-completed.tgz');
+    fs.writeFileSync(pending,'completed upload');
+    const age=minutes=>{const time=Date.now()/1000-minutes*60;fs.utimesSync(pending,time,time);};
+    age(70);
+    assert.equal(context.run('--check').status,0,'Eligible uploads may await the hourly cleanup');
+    assert.equal(context.run().status,0);
+    assert.equal(fs.existsSync(pending),false,'Cleanup still removes uploads older than 60 minutes');
+    fs.writeFileSync(pending,'missed cleanup');age(140);
+    assert.notEqual(context.run('--check').status,0,'Missing the entire cleanup window remains an incident');
+    assert.equal(fs.existsSync(pending),true,'Audit never deletes files');
+  } finally {context.cleanup();}
+});
+
 test('retention is scheduled independently from successful releases with the shared lock', () => {
   const service=fs.readFileSync('deploy/recipeboibot-retention.service','utf8');
   const timer=fs.readFileSync('deploy/recipeboibot-retention.timer','utf8');

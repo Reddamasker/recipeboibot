@@ -115,17 +115,20 @@ retention_dangling_images() {
 }
 
 retention_policy() {
-  local mode=$1 directory
+  local mode=$1 directory upload_age=60
   retention_trim_files "$retention_root/backups" "$retention_source_pattern" 5 "$mode" || return 1
   retention_trim_files "$retention_root/backups" "$retention_database_pattern" 30 "$mode" || return 1
   retention_trim_files "$retention_root/backups" 'tests-*.log' 10 "$mode" || return 1
   retention_trim_images "$mode" || return 1
   retention_dangling_images "$mode" || return 1
+  # A file becomes eligible at 60 minutes, then waits for the hourly timer
+  # (plus its five-minute jitter). Audit only overdue work, not that normal wait.
+  [[ "$mode" != --check ]] || upload_age=130
   for directory in "${retention_upload_directories[@]}"; do
     [[ -d "$directory" ]] || continue
     # Uploads happen before the deploy lock is acquired. Do not race a pending SCP.
-    retention_trim_files "$directory" "$retention_upload_prefix*.tgz" 0 "$mode" 60 || return 1
-    retention_trim_files "$directory" "$retention_upload_prefix*.sh" 0 "$mode" 60 || return 1
+    retention_trim_files "$directory" "$retention_upload_prefix*.tgz" 0 "$mode" "$upload_age" || return 1
+    retention_trim_files "$directory" "$retention_upload_prefix*.sh" 0 "$mode" "$upload_age" || return 1
   done
 }
 
