@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { getTrialStatus, getSubscriptionAccess } from './subscriptions.js';
 import { selectionRecord } from './first-recipe-selection.js';
 import { log } from './log.js';
-import { enrollTrialDigest, eligibleDigestUser } from './trial-digest-store.js';
+import { enrollTrialDigest, eligibleDigestUser, cancelDigestParts } from './trial-digest-store.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS trial_welcome_messages (
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -38,7 +38,7 @@ export async function deliverTrialWelcome(userId, sendFn=sender) {
  let row=rowFor(userId);if(!row||!row.ready||['sent','cancelled'].includes(row.status))return false;
  const now=new Date(),trial=getTrialStatus(userId,now);
  if(!trial.active||trial.startsAt!==row.trial_started_at||!getSubscriptionAccess(userId,now).active||!ownsRecipient(userId,row.chat_id)) {
-  db.prepare("UPDATE trial_welcome_messages SET status='cancelled' WHERE user_id=? AND status<>'sent'").run(userId);return false;
+  db.prepare("UPDATE trial_welcome_messages SET status='cancelled' WHERE user_id=? AND status<>'sent'").run(userId);cancelDigestParts(null,userId);return false;
  }
  const stale=new Date(now.getTime()-120000).toISOString();
  db.prepare("UPDATE trial_welcome_messages SET status='pending',claimed_at=NULL WHERE user_id=? AND status='sending' AND claimed_at<=?").run(userId,stale);

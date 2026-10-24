@@ -74,10 +74,11 @@ export function stopTrialDigest(userId, at = new Date()) {
   return true;
 }
 export const digestTerminal = code => Object.assign(new Error(code),{digestTerminal:true,code});
-export function cancelDigestParts(deliveryId) {
+export function cancelDigestParts(deliveryId, userId=null) {
   db.prepare(`UPDATE trial_digest_parts SET status=CASE WHEN status='sending' THEN 'unknown' ELSE 'cancelled' END,
     error_code=CASE WHEN status='sending' THEN 'interrupted' ELSE 'stopped' END
-    WHERE delivery_id=? AND status IN ('sending','pending')`).run(deliveryId);
+    WHERE (delivery_id=? OR (? IS NULL AND user_id=? AND delivery_id IS NULL))
+    AND status IN ('sending','pending')`).run(deliveryId,deliveryId,userId);
 }
 
 // Checkpoint each confirmed message. An ambiguous network result is never replayed.
@@ -117,9 +118,11 @@ export function trialDigestReport(cohort, campaign=false) {
   const users = new Map(cohort.map(u=>[u.id,u]));
   const eligible = r => users.has(r.user_id) && (!campaign || r.created_at>=users.get(r.user_id).started_at);
   const members=db.prepare('SELECT * FROM trial_digest_members').all().filter(eligible);
-  const parts=db.prepare('SELECT * FROM trial_digest_parts').all().filter(eligible);
+  const included=new Set(members.map(m=>m.user_id));
+  const partEligible=r=>included.has(r.user_id)&&eligible(r);
+  const parts=db.prepare('SELECT * FROM trial_digest_parts').all().filter(partEligible);
   const sent=parts.filter(p=>p.status==='sent');
-  const batches=db.prepare(`SELECT b.*,d.status FROM trial_digest_batches b JOIN notification_deliveries d ON d.id=b.delivery_id`).all().filter(eligible);
+  const batches=db.prepare(`SELECT b.*,d.status FROM trial_digest_batches b JOIN notification_deliveries d ON d.id=b.delivery_id`).all().filter(partEligible);
   const delays=sent.map(p=>Math.max(0,Date.parse(p.sent_at)-Date.parse(p.due_at))).sort((a,b)=>a-b);
   return {trackingSince,enrolled:members.length,autoEnabled:members.filter(m=>m.auto_enabled).length,
     optedOut:members.filter(m=>m.opted_out_at).length,welcomeSent:sent.filter(p=>p.kind==='welcome').length,
