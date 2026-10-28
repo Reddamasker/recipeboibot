@@ -6,7 +6,7 @@ import { buildWebDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { webLoginRoute, webLoginStore, webLoginPreviewDocument } from './web-login-prototype.js';
 import { platformLegalDocument } from './platform-legal.js';
-import { archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSharedRecipeImage, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
+import { db, archiveRecipe, createDinnerRecipeShare, createRecipeShare, deleteUserData, getRecipe, getRecipeImage, getRecipeSuggestion, getSharedRecipe, getSharedRecipeImage, getSuggestionImage, listImportJobs, listRecipes, saveRecipeSuggestion, searchRecipes, updateRecipe, resolvePrivateTelegramUser } from './db.js';
 import { importTextWithAccess as importText, importUrlWithAccess as importUrl, importYoutubePlaylist } from './importer.js';
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
@@ -41,6 +41,8 @@ import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from '
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 import { telegramOpenDocument } from './telegram-open.js';
 import { catalogSearch, catalogRecipe } from './web-catalog.js';
+import { isPublicCatalogRecipe } from './catalog-handoff.js';
+import { createCatalogHandoff, catalogHandoffPublicKey, verifyCatalogEnvelope, catalogHandoffResolveForTarget, acceptCatalogHandoffOutcome, registerCatalogAcquisitionVisit } from './catalog-handoff-transport.js';
 import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
 import { acceptProductEvents, apiStep, identifyProductUser, productOperation, recordProduct } from './product-analytics.js';
 
@@ -356,8 +358,8 @@ async function api(request, response, url) {
   if (request.method === 'GET' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
     const found=getRecipe(user.id,decodeURIComponent(url.pathname.split('/').at(-1)));
     if(!found)return json(response,404,{error:'Рецепт не найден'});
-    assertFirstRecipeReadable(user.id);
-    const recipe = await ensureNutrition(user.id, found);
+    assertFirstRecipeReadable(user.id,{recipeId:found.id});
+    const recipe = isPublicCatalogRecipe(user.id,found.id) ? found : await ensureNutrition(user.id, found);
     if(recipe)response.once('finish',()=>markFirstRecipeReadForWelcome(user.id,recipe.id));
     return recipe ? json(response, 200, recipe) : json(response, 404, { error: 'Рецепт не найден' });
   }
@@ -365,8 +367,8 @@ async function api(request, response, url) {
     const id = decodeURIComponent(url.pathname.split('/').at(-2));
     const recipe = getRecipe(user.id, id);
     if (!recipe) return json(response, 404, { error: 'Рецепт не найден' });
-    assertFirstRecipeReadable(user.id);
-    await ensureNutrition(user.id, recipe);
+    assertFirstRecipeReadable(user.id,{recipeId:id});
+    if(!isPublicCatalogRecipe(user.id,id))await ensureNutrition(user.id, recipe);
     const token = createRecipeShare(user.id, id);
     return token ? json(response, 200, { token, path: `/share/${token}` }) : json(response, 404, { error: 'Рецепт не найден' });
   }
@@ -395,10 +397,11 @@ async function api(request, response, url) {
   if (request.method === 'PUT' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) {
     const id = decodeURIComponent(url.pathname.split('/').at(-1)), existing = getRecipe(user.id, id);
     if (!existing) return json(response, 404, { error: 'Рецепт не найден' });
-    assertFirstRecipeReadable(user.id);
+    assertFirstRecipeReadable(user.id,{recipeId:id});
     const input = cleanRecipeInput(await bodyJson(request), existing);
     const changed = input.servings !== existing.servings || JSON.stringify(input.ingredients) !== JSON.stringify(existing.ingredients) || JSON.stringify(input.steps) !== JSON.stringify(existing.steps);
-    const enriched = await ensureNutrition(user.id, { ...existing, ...input, nutrition: changed ? null : existing.nutrition });
+    const candidate = { ...existing, ...input, nutrition: changed ? null : existing.nutrition };
+    const enriched = isPublicCatalogRecipe(user.id,id) ? candidate : await ensureNutrition(user.id, candidate);
     return json(response, 200, updateRecipe(user.id, id, { ...input, nutrition: enriched.nutrition }));
   }
   if (request.method === 'DELETE' && /^\/api\/recipes\/[^/]+$/.test(url.pathname)) return json(response, archiveRecipe(user.id, decodeURIComponent(url.pathname.split('/').at(-1))) ? 204 : 404, {});
@@ -420,7 +423,7 @@ function serveStatic(request, response, pathname) {
   }
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
-  if (requested === '/catalog.html') {
+  if (['/catalog.html','/catalog-legacy.html'].includes(requested)) {
     const document = fs.readFileSync(file, 'utf8');
     securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
   }
@@ -466,12 +469,34 @@ async function handleRequest(request, response) {
         return json(response, 200, maxFunnelSnapshot());
       }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
+      if (url.pathname.startsWith('/api/internal/catalog-handoff/')) {
+        const action=url.pathname.slice('/api/internal/catalog-handoff/'.length);
+        if(action==='key'&&request.method==='GET')return json(response,200,catalogHandoffPublicKey());
+        if(!['resolve','outcome'].includes(action))return json(response,404,{error:'Не найдено'});
+        if(request.method!=='POST')return json(response,405,{error:'Метод не поддерживается'});
+        rateLimit(`handoff-internal:${clientIp(request)}`,120);
+        const {source,data}=await verifyCatalogEnvelope(await bodyJson(request,16000));
+        return json(response,200,action==='resolve'?catalogHandoffResolveForTarget(data?.token,source):acceptCatalogHandoffOutcome(data,source));
+      }
+      if (url.pathname === '/api/catalog-handoff') {
+        if(request.method!=='POST')return json(response,405,{error:'Метод не поддерживается'});
+        if(request.headers['x-catalog-request']!=='1'||(request.headers.origin&&new URL(request.headers.origin).host!==request.headers.host))return json(response,403,{error:'Запрос отклонён'});
+        rateLimit(`catalog-handoff:${clientIp(request)}`,20);
+        return json(response,200,createCatalogHandoff(await bodyJson(request,2000)));
+      }
       if (url.pathname === '/api/analytics/public') {
         if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
         if (request.headers['x-analytics-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
         if (/bot\b|crawler|spider|preview/i.test(request.headers['user-agent'] || '')) return json(response, 200, { accepted: [] });
         rateLimit(`analytics:${clientIp(request)}`, 30);
-        return json(response, 200, acceptProductEvents(null, await bodyJson(request, 16000)));
+        const input=await bodyJson(request,16000),result=acceptProductEvents(null,input);
+        for(const event of input.events||[])if(result.accepted.includes(event.id)&&['catalog_list','catalog_open'].includes(event.event)){
+          try{
+            const stored=db.prepare('SELECT event,flow_id,detail_json FROM product_events WHERE subject=? AND id=?').get('v:'+input.visitor,event.id);
+            if(stored?.event===event.event&&stored.flow_id===event.flowId&&JSON.parse(stored.detail_json).journey==='recipe-first-v1')registerCatalogAcquisitionVisit({...event,sessionId:input.visitor,visible:true});
+          }catch{/* Telemetry must not block browsing. */}
+        }
+        return json(response, 200, result);
       }
       // Public house catalog only. Personal recipes and AI results retain their authentication gates.
       if (url.pathname === '/api/catalog' || url.pathname.startsWith('/api/catalog/')) {
@@ -481,11 +506,11 @@ async function handleRequest(request, response) {
         const recipe = catalogRecipe(url.pathname.slice('/api/catalog/'.length));
         return json(response, recipe ? 200 : 404, recipe || { error: 'Рецепт не найден' });
       }
-      if (url.pathname === '/recipes' || url.pathname === '/recipes/' || /^\/recipes\/[a-z0-9-]+$/.test(url.pathname)) {
+      if (/^\/(?:recipes|dinner)(?:\/[a-z0-9-]*)?$/.test(url.pathname)) {
         if (!['GET', 'HEAD'].includes(request.method)) return json(response, 405, { error: 'Метод не поддерживается' });
-        const id = url.pathname.slice('/recipes/'.length);
-        if (url.pathname.length > '/recipes/'.length && !catalogRecipe(id)) return htmlResponse(response, 404, '<!doctype html><html lang="ru"><meta charset="utf-8"><title>Рецепт не найден</title><h1>Рецепт не найден</h1><a href="/recipes">Вернуться в каталог</a></html>');
-        return serveStatic(request, response, '/catalog.html');
+        const id = url.pathname.split('/')[2], back = url.pathname.startsWith('/dinner') ? '/dinner' : '/recipes';
+        if (id && !catalogRecipe(id)) return htmlResponse(response, 404, `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Рецепт не найден</title><h1>Рецепт не найден</h1><a href="${back}">Вернуться к рецептам</a></html>`);
+        return serveStatic(request, response, !config.testContour && back === '/recipes' ? '/catalog-legacy.html' : '/catalog.html');
       }
       if (url.pathname === '/dashboard' || url.pathname === '/dashboard/') return serveStatic(request, response, '/dashboard.html');
       if (url.pathname.startsWith('/api/dashboard/')) {

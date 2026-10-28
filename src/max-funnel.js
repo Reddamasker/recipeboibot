@@ -47,7 +47,7 @@ function validateSnapshot(data) {
       || a.engagedRecipeUsers < Math.max(a.recipeUsers, a.fullRecipeUsers)) throw new Error('Invalid MAX return counts');
     const product = report.productAnalytics?.platforms;
     if (!Array.isArray(product) || product.length !== 1 || !validProductReport(product[0], { legacy: data.version === 6 })) throw new Error('Invalid MAX product analytics');
-    if (data.version !== 6 && (scope === 'campaign' ? product[0].catalogBenefits !== null : product[0].catalogBenefits === null)) throw new Error('Invalid MAX catalog scope');
+    if (data.version !== 6 && scope === 'campaign' && product[0].catalogBenefits !== null) throw new Error('Invalid MAX catalog scope');
     const j = report.trialJourney;
     if (trialCounters.some(k => !count(j?.[k]) || j[k] > report.totals.starts)
       || j.clicked > j.offered || j.activated > j.clicked || j.opened > j.activated
@@ -90,7 +90,12 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     if (text.length > 64000) throw new Error('MAX aggregate too large');
     const data = validateSnapshot(JSON.parse(text));
     const remote = specific ? data.campaign : data.all;
-    for (const product of remote.productAnalytics.platforms) product.latency ??= null;
+    for (const product of remote.productAnalytics.platforms) {
+      product.latency ??= null;
+      // Website-origin flows already include authenticated remote receipts.
+      // Keep origins separate; adding the target's confirmations doubles them.
+      product.catalogJourney ??= null;
+    }
     // The existing account metrics in v6 retain their validation. New sections
     // remain unavailable instead of becoming zero or hiding the entire funnel.
     if (data.version === 6) for (const product of remote.productAnalytics.platforms) {

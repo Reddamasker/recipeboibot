@@ -20,7 +20,10 @@ const {sendTrialWelcomeMessage,sendNotificationReminder,handleTrialReminderCallb
 const {productReport,validProductReport}=await import('../src/product-analytics.js');
 const {createServer}=await import('../src/server.js');
 const {makeTelegramInitData}=await import('../src/security.js');
-const cutoff=new Date(Date.now()-86400000),start=new Date(Math.ceil(Date.now()/86400000)*86400000+16*3600000);
+// Calendar/DST cases below activate on October 25–26. Keep their test rollout
+// earlier than those fixed instants even when the real clock has moved on.
+// Live API cases still start their trials at the actual current time.
+const cutoff=new Date(Math.min(Date.now()-86400000,Date.parse('2026-10-24T00:00:00Z'))),start=new Date(Math.ceil(Date.now()/86400000)*86400000+16*3600000);
 let serial=799100000;
 const url=params=>{const u=new URL('https://recipes.example.test/');for(const [k,v] of Object.entries(params))u.searchParams.set(k,v);return u.toString();};
 const adapter=messages=>({url,send:async(method,body)=>{messages.push({method,...body});return {message_id:messages.length};}});

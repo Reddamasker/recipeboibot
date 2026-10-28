@@ -75,17 +75,22 @@ test('old MAX aggregates and impossible selection order remain unknown rather th
  }
 });
 
-test('benefits bridge rejects missing and wrongly scoped public metrics in the current schema',async()=>{
+const benefitsFixture=()=>({trackingSince:new Date().toISOString(),views:0,visits:0,closes:0,ctas:0,unmatchedActions:0,ctr:null,
+ closeTiming:{samples:0,p50:null,p95:null},ctaTiming:{samples:0,p50:null,p95:null}});
+test('benefits bridge accepts explicit unavailability but rejects missing, invalid and wrongly scoped metrics',async()=>{
  const missing=maxFunnelSnapshot();delete missing.all.productAnalytics.platforms[0].catalogBenefits;
- const wrongScope=maxFunnelSnapshot();wrongScope.campaign.productAnalytics.platforms[0].catalogBenefits=wrongScope.all.productAnalytics.platforms[0].catalogBenefits;
- const missingAll=maxFunnelSnapshot();missingAll.all.productAnalytics.platforms[0].catalogBenefits=null;
- for(const snapshot of [missing,wrongScope,missingAll]){
+ const wrongScope=maxFunnelSnapshot();wrongScope.campaign.productAnalytics.platforms[0].catalogBenefits=benefitsFixture();
+ const invalid=maxFunnelSnapshot();invalid.all.productAnalytics.platforms[0].catalogBenefits={...benefitsFixture(),ctas:1};
+ for(const snapshot of [missing,wrongScope,invalid]){
   const result=await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)});
   assert.equal(result.remoteFunnel.status,'error');assert.equal(result.productAnalytics,null);assert.equal(result.totals.starts,null);
  }
  const snapshot=maxFunnelSnapshot();
+ assert.equal(snapshot.all.productAnalytics.platforms[0].catalogBenefits,null,'unreleased MAX dialog is unavailable');
  const result=await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(snapshot)});
  assert.equal(result.remoteFunnel.status,'ready');assert.deepEqual(result.productAnalytics.platforms[0].catalogBenefits,snapshot.all.productAnalytics.platforms[0].catalogBenefits);
+ const active=maxFunnelSnapshot();active.all.productAnalytics.platforms[0].catalogBenefits=benefitsFixture();
+ assert.equal((await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(active)})).remoteFunnel.status,'ready');
 });
 
 test('deployed v6 preserves validated MAX metrics while newer sections remain unavailable',async()=>{
@@ -102,7 +107,7 @@ test('deployed v6 preserves validated MAX metrics while newer sections remain un
  }
  const invalid=structuredClone(snapshot);invalid.all.productAnalytics.platforms[0].steps[0].errors=999;
  assert.equal((await mergeMaxFunnelReport(report(null),{...options,transport:async()=>Response.json(invalid)})).remoteFunnel.status,'error');
- const disguised=maxFunnelSnapshot();disguised.version=6;
+ const disguised=maxFunnelSnapshot();disguised.version=6;disguised.all.productAnalytics.platforms[0].catalogBenefits=benefitsFixture();
  assert.equal((await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(disguised)})).remoteFunnel.status,'error');
 });
 

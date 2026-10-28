@@ -9,6 +9,7 @@ test('catalog invitation resolves the correct bot in all contours without accept
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'catalog-entry-'));
   fs.mkdirSync(path.join(directory,'public'));
   fs.copyFileSync(new URL('../public/catalog.html',import.meta.url),path.join(directory,'public','catalog.html'));
+  fs.copyFileSync(new URL('../public/catalog-legacy.html',import.meta.url),path.join(directory,'public','catalog-legacy.html'));
   const serverModule = new URL('../src/server.js', import.meta.url).href;
   const dbModule = new URL('../src/db.js', import.meta.url).href;
   try {
@@ -35,8 +36,12 @@ test('catalog invitation resolves the correct bot in all contours without accept
         const html = await catalog.text();
         const head = await fetch('http://127.0.0.1:' + server.address().port + '/recipes', {method:'HEAD'});
         const headBody = await head.text();
+        const dinner = await fetch(origin + '/dinner');
+        const dinnerHtml = await dinner.text();
+        const dinnerRecipe = await fetch(origin + '/dinner/pasta-tomato');
+        const dinnerRecipeHtml = await dinnerRecipe.text();
         await new Promise(resolve => server.close(resolve)); db.close();
-        console.log(JSON.stringify({results, html, catalogStatus:catalog.status, cache:catalog.headers.get('cache-control'), headStatus:head.status, headBody}));
+        console.log(JSON.stringify({results, html, catalogStatus:catalog.status, cache:catalog.headers.get('cache-control'), headStatus:head.status, headBody,dinnerStatus:dinner.status,dinnerHtml,dinnerRecipeStatus:dinnerRecipe.status,dinnerRecipeHtml}));
       `;
       const run = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
         cwd: directory, encoding: 'utf8', timeout: 15000,
@@ -46,10 +51,18 @@ test('catalog invitation resolves the correct bot in all contours without accept
           TELEGRAM_POLLING: 'false', DINNER_LLM_ENABLED: 'false', DINNER_IMAGES_ENABLED: 'false', OPENAI_API_KEY: 'unused' },
       });
       assert.equal(run.status, 0, run.stderr);
-      const {results,html,catalogStatus,cache,headStatus,headBody} = JSON.parse(run.stdout.trim());
+      const {results,html,catalogStatus,cache,headStatus,headBody,dinnerStatus,dinnerHtml,dinnerRecipeStatus,dinnerRecipeHtml} = JSON.parse(run.stdout.trim());
       assert.equal(catalogStatus,200);assert.equal(cache,'no-store');assert.equal(headStatus,200);assert.equal(headBody,'');
-      assert.ok(html.includes('id="benefits-cta"'));assert.ok(html.includes('id="benefits-cta-max"'));
-      assert.ok(html.includes('href="/open/recipe-bot/telegram"'));assert.ok(html.includes('href="/open/recipe-bot/max"'));
+      if(testContour==='true'){
+        assert.ok(html.includes('id="benefits-cta"'));assert.ok(html.includes('id="benefits-cta-max"'));
+        assert.ok(html.includes('href="/open/recipe-bot/telegram"'));assert.ok(html.includes('href="/open/recipe-bot/max"'));
+        assert.ok(!html.includes('/catalog-legacy.js'));
+      }else{
+        assert.ok(html.includes('/catalog-legacy.js?v=9870784'));
+        assert.ok(!html.includes('catalog-benefits'));assert.ok(!html.includes('catalog-handoff'));
+      }
+      assert.equal(dinnerStatus,200);assert.equal(dinnerRecipeStatus,200);
+      for(const document of [dinnerHtml,dinnerRecipeHtml]){assert.ok(document.includes('/catalog-handoff.js'));assert.ok(!document.includes('/catalog-legacy.js'));}
       assert.equal(html.includes('<svg data-benefits-telegram hidden'),false);
       for (const result of results) {
         if (!['','/telegram','/max'].includes(result.route)) {

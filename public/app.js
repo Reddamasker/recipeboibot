@@ -998,7 +998,8 @@ async function notificationSettingsPage() {
 async function render() {
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
   if (state.trialGuideActive && view !== 'trial-guide') { state.trialGuideActive = false; state.trialOnboarding = null; state.onboarding = null; }
-  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !['pricing', 'promo', 'feedback', 'menu', 'trial-guide'].includes(view)) {
+  const publicRecipeRoute = publicCatalogRouteReadable(view,params.get('recipe'));
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !publicRecipeRoute && !['pricing', 'promo', 'feedback', 'menu', 'trial-guide'].includes(view)) {
     closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return;
   }
   if (view === 'menu') mainMenuPage();
@@ -1216,6 +1217,14 @@ async function submitImport(event) {
 }
 
 let recipeOpenRevision = 0;
+function publicCatalogRecipeReadable(id) {
+  return Boolean(id && state.payment?.firstRecipe?.publicCatalogRecipeIds?.includes(id));
+}
+function publicCatalogRouteReadable(view,id) {
+  if (view === 'collection') return Boolean(state.payment?.firstRecipe?.publicCatalogRecipeIds?.length);
+  if (view === 'tastes') return state.payment?.firstRecipe?.catalogObtained === true;
+  return !view && publicCatalogRecipeReadable(id);
+}
 function closeDetailRoute() {
   recipeOpenRevision += 1;
   if (history.state?.recipeOverlay) pendingRouteFocus = modalStack[0] || null;
@@ -1225,7 +1234,7 @@ function closeDetailRoute() {
 }
 
 async function openRecipe(id, pushRoute = false) {
-  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
+  if (state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !publicCatalogRecipeReadable(id)) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const revision = ++recipeOpenRevision;
   try {
     if (pushRoute && new URLSearchParams(location.search).get('recipe') !== id) { state.scrollY = scrollY; const params = Object.fromEntries(new URLSearchParams(location.search)); params.recipe = id; setRoute(params, { historyState: { recipeOverlay: true, scrollY: state.scrollY } }); }
@@ -1259,7 +1268,7 @@ async function waitForRecipeImage(id) {
 }
 
 function recipeDetail(r, { shared = false, suggestion = null, engagement = null } = {}) {
-  if (!shared && state.payment?.firstRecipe?.awaitingTrial && !state.payment.active) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
+  if (!shared && state.payment?.firstRecipe?.awaitingTrial && !state.payment.active && !(r.publicCatalogSaved && publicCatalogRecipeReadable(r.id))) { closeOverlay(); setRoute({ view: 'benefits' }, { replace: true }); benefitsPage(); return; }
   const catalog = r.origin === 'seed' || r.dinnerGenerated || Boolean(suggestion);
   const requestMode = !shared && new URLSearchParams(location.search).get('view') === 'request';
   const dinnerOption = state.dinner?.recommendations.find((option) => option.recipe.id === r.id);

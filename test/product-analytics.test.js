@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { randomUUID } from 'node:crypto';
 const file = `data/product-test-${randomUUID()}.sqlite`;
-Object.assign(process.env,{DATABASE_PATH:file,TELEGRAM_BOT_TOKEN:'analytics-test',TELEGRAM_POLLING:'false',TEST_CONTOUR:'false',BOT_PLATFORM:'telegram',DINNER_LLM_ENABLED:'false',DINNER_IMAGES_ENABLED:'false',OPENAI_API_KEY:'disabled'});
+// The catalogue benefits dialog is enabled only in the test contour; exercise
+// its actual report here rather than asserting counters for an unreleased UI.
+Object.assign(process.env,{DATABASE_PATH:file,TELEGRAM_BOT_TOKEN:'analytics-test',TELEGRAM_POLLING:'false',TEST_CONTOUR:'true',BOT_PLATFORM:'telegram',DINNER_LLM_ENABLED:'false',DINNER_IMAGES_ENABLED:'false',OPENAI_API_KEY:'disabled'});
 const {db,upsertTelegramUser,allowUser,deleteUserData}=await import('../src/db.js');
 const {createServer}=await import('../src/server.js');
 const {recordProduct:record,acceptProductEvents:accept,productReport:report,productOperation,identifyProductUser,productMilestone,apiStep,validProductReport}=await import('../src/product-analytics.js');

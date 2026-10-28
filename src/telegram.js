@@ -33,6 +33,9 @@ import { queueTrialWelcome, markTrialWelcomeReady, deliverTrialWelcome } from '.
 import { trialReminderAction } from './trial-reminders.js';
 import { digestMember, stopTrialDigest } from './trial-digest-store.js';
 import { sendDigestWelcome, sendDigestBatch } from './trial-digest.js';
+import { hasCatalogFirstRecipe, isPublicCatalogRecipe, latestPublicCatalogRecipe, saveCatalogRecipeForUser } from './catalog-handoff.js';
+import { resolveCatalogHandoff, recordCatalogBotStart, queueCatalogHandoffOutcome } from './catalog-handoff-transport.js';
+import { recordCatalogJourneyServer } from './catalog-journey-analytics.js';
 
 const chatPlatformLabel = config.botPlatform === 'max' ? 'MAX' : 'Telegram';
 
@@ -224,6 +227,7 @@ function prepareDinner(userId) {
   }
 }
 async function sendDinnerEntry(chatId, userId, { skipOnboarding = false, firstStart = false } = {}) {
+  if (hasCatalogFirstRecipe(userId)) { await sendCatalogContinuation(chatId, userId, latestPublicCatalogRecipe(userId)); return true; }
   if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return true; }
   if (userId && !skipOnboarding && !getFoodProfile(userId).onboardingCompleted) {
     const pending = getPendingIntent(userId);
@@ -580,7 +584,7 @@ export async function interpretVoice(message, user, adapters = {}) {
 
 function recipeButton(recipe, { groupMode = false, userId = recipe.user_id } = {}) {
   if (groupMode) return undefined;
-  if (awaitingFirstRecipe(userId)) return firstRecipeBenefitsMarkup();
+  if (awaitingFirstRecipe(userId) && !isPublicCatalogRecipe(userId, recipe.id)) return firstRecipeBenefitsMarkup();
   const url = webAppUrl({ recipe: recipe.id });
   return url ? { inline_keyboard: [[{ text: 'Открыть рецепт', web_app: { url } }]] } : undefined;
 }
@@ -1045,6 +1049,59 @@ async function handlePendingChoice(message, user, pending) {
   return false;
 }
 
+async function sendCatalogContinuation(chatId, userId, recipe, { saved = false, duplicate = false } = {}) {
+  const rows = [];
+  const recipeUrl = webAppUrl(recipe ? { view: 'collection', recipe: recipe.id } : { view: 'collection' });
+  if (recipeUrl) rows.push([{ text: recipe ? 'Открыть рецепт' : 'Мои рецепты', web_app: { url: recipeUrl } }]);
+  const tastesUrl = webAppUrl({ view: 'tastes' });
+  if (tastesUrl) rows.push([{ text: 'Настроить мои вкусы', web_app: { url: tastesUrl } }]);
+  const access = getSubscriptionAccess(userId), trial = getTrialStatus(userId);
+  if (!access.active) {
+    if (!trial.used) rows.push([{ text: 'Попробовать 7 дней бесплатно', callback_data: 'trial:start' }]);
+    else {
+      const offerUrl = webAppUrl({ view: 'offer' });
+      if (offerUrl) rows.push([{ text: 'Возможности и подписка', web_app: { url: offerUrl } }]);
+    }
+  }
+  const title = recipe ? `<b>${escapeHtml(recipe.title)}</b>\n\n` : '';
+  const result = saved ? (duplicate ? 'Рецепт уже есть в вашей коллекции.' : 'Рецепт сохранён в вашей коллекции.') : 'Ваши сохранённые рецепты под рукой.';
+  const text = `${title}${result}\n\nРецепт с сайта можно открывать бесплатно. Настройка вкусов необязательна — она поможет будущим подборкам.${!access.active && !trial.used ? '\n\nДля персональных подборок и других возможностей можно отдельно начать 7 дней бесплатно. Карта не нужна.' : ''}`;
+  await send(chatId, text, { reply_markup: { inline_keyboard: rows } });
+}
+
+async function handleCatalogHandoff(message, user, payload) {
+  const started = Date.now();
+  let context, result;
+  const outcome = (type, extra = {}) => {
+    if (!context) return;
+    const options = { userId: user.id, flowId: context.flowId, sessionId: context.sessionId, campaign: context.campaign,
+      platform: config.botPlatform, isReturning: Boolean(user.is_allowed), isInternal: context.origin === 't' && config.botPlatform === 'max',
+      occurredAt: new Date().toISOString(), durationMs: Math.max(0, Date.now() - started), ...extra };
+    // Neither telemetry nor its cross-contour relay may prevent recipe saving.
+    try { recordCatalogJourneyServer(type, options); } catch {}
+    try { queueCatalogHandoffOutcome(context, { type, ...options }); } catch {}
+  };
+  try {
+    context = await resolveCatalogHandoff(payload);
+    try { recordCatalogBotStart(user, context); } catch {}
+    outcome('catalog_bot_started');
+    result = saveCatalogRecipeForUser(user.id, context.catalogId, { flowId: context.flowId });
+    if (!user.is_allowed) allowUser(user.id);
+    const pending = getPendingIntent(user.id);
+    if (['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) clearPendingIntent(user.id);
+    outcome('catalog_recipe_saved');
+  } catch (error) {
+    const code = error.status === 410 ? 'expired' : error.status === 404 ? 'not_found' : error.status >= 500 ? 'network' : error.status === 400 || error.status === 403 ? 'invalid' : 'failed';
+    outcome('catalog_save_failed', { code });
+    const url = config.appUrl?.startsWith('https://') ? new URL('/recipes', config.appUrl).toString() : null;
+    await send(message.chat.id, code === 'network' ? 'Не получилось получить рецепт с сайта. Попробуйте открыть ту же ссылку ещё раз.' : 'Эта ссылка на рецепт недоступна. Вернитесь в каталог и выберите «Сохранить в боте» ещё раз.', url ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть каталог', url }]] } } : {});
+    return;
+  }
+  // A delivery failure is not a failed save. A repeated start safely reuses the
+  // persisted recipe and may retry this acknowledgement without a second grant.
+  await sendCatalogContinuation(message.chat.id, user.id, result.recipe, { saved: true, duplicate: !result.created });
+}
+
 export async function handleMessage(message) {
   if (!message.from || message.from.is_bot) return;
   if (['group', 'supergroup'].includes(message.chat?.type)) { await handleGroupMessage(message); return; }
@@ -1064,6 +1121,8 @@ export async function handleMessage(message) {
   else if (analyticsCommand === '/save') identifyProductStep('import');
   else if (analyticsCommand === '/collection') identifyProductStep('collection');
   else if (analyticsCommand === '/preferences') identifyProductStep('intake');
+  const catalogPayload = text.match(/^\/start(?:@[A-Za-z0-9_]+)?\s+(ch_[\s\S]*)$/i)?.[1].trim();
+  if (catalogPayload) { identifyProductStep('catalog'); await handleCatalogHandoff(message, user, catalogPayload); return; }
   recordBotStart(user, text);
   const feedbackEntry = getPendingIntent(user.id);
   const feedbackStart = text === '/feedback' || text === 'Обратная связь' || /^\/start(?:@[A-Za-z0-9_]+)?\s+feedback\s*$/i.test(text);
@@ -1099,7 +1158,12 @@ export async function handleMessage(message) {
   }
   if (text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
-  if (awaitingFirstRecipe(user.id) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text)) {
+  if (hasCatalogFirstRecipe(user.id) && /^\/start(?:@[A-Za-z0-9_]+)?(?:\s+dinner)?\s*$/i.test(text)) {
+    if (!user.is_allowed) allowUser(user.id);
+    await sendCatalogContinuation(chatId, user.id, latestPublicCatalogRecipe(user.id));
+    return;
+  }
+  if (awaitingFirstRecipe(user.id) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text) && !(text === '/collection' && hasCatalogFirstRecipe(user.id))) {
     if (text.startsWith('/start') && !user.is_allowed) allowUser(user.id);
     await sendFirstRecipeBenefits(chatId, user.id);
     return;

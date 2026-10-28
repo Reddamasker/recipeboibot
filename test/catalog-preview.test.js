@@ -7,11 +7,11 @@ const catalogSource=fs.readFileSync(new URL('../public/catalog.js',import.meta.u
 const analyticsSource=fs.readFileSync(new URL('../public/analytics.js',import.meta.url),'utf8');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 
-function browser(search='?benefits=preview&cuisine=italian', {failFirst=false}={}) {
+function browser(search='?benefits=preview&cuisine=italian', {failFirst=false,pathname='/recipes/pasta'}={}) {
   const nodes=new Map(),listeners={},opens=[],observations=[],replaces=[],requests=[];
-  const element=()=>({dataset:{},style:{},addEventListener(){},setAttribute(){},before(){},value:'',innerHTML:'',textContent:''});
+  const element=()=>({dataset:{},style:{},addEventListener(){},setAttribute(){},before(){},after(){},append(){},value:'',innerHTML:'',textContent:''});
   const node=selector=>{if(!nodes.has(selector))nodes.set(selector,element());return nodes.get(selector);};
-  const location={pathname:'/recipes/pasta',search,hash:'#recipe',origin:'https://catalog.example'};
+  const location={pathname,search,hash:'#recipe',origin:'https://catalog.example'};
   const history={state:{preserved:true},replaceState(state,unused,url){replaces.push(url);this.state=state;const parsed=new URL(url,location.origin);location.pathname=parsed.pathname;location.search=parsed.search;location.hash=parsed.hash;}};
   const document={body:element(),querySelector:node,querySelectorAll:()=>[],createElement:element,addEventListener:(name,fn)=>{listeners['document:'+name]=fn;}};
   const window={RecipeAnalytics:{observe:(...args)=>observations.push(args)},CatalogBenefits:{close(){},open(recipe,options){opens.push({recipe,options});return true;}},addEventListener:(name,fn)=>{listeners[name]=fn;}};
@@ -49,6 +49,13 @@ test('ordinary direct recipe link and unknown preview value preserve ordinary be
   for(const query of ['', '?benefits=other']){
     const b=browser(query);await tick();assert.equal(b.opens.length,0);assert.equal(b.observations.length,1);assert.equal(b.replaces.length,0);
   }
+});
+
+test('advertising recipe route shows the full recipe without sales overlay even with preview intent',async()=>{
+  const b=browser('?benefits=preview&cuisine=italian',{pathname:'/dinner/pasta'});await tick();
+  assert.equal(b.opens.length,0);assert.equal(b.observations.length,1);
+  assert.deepEqual(b.requests,['/api/catalog/pasta']);
+  assert.equal(b.location.pathname,'/dinner/pasta');assert.equal(b.location.search,'?cuisine=italian');
 });
 
 test('review analytics is inert for the whole document and does not touch a stored queue',async()=>{

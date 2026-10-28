@@ -4,11 +4,12 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { trialReminderReport } from './trial-reminders.js';
 import { trialDigestReport } from './trial-digest-store.js';
+import { catalogJourney, catalogJourneyPublicEvents, recordCatalogJourneyPublic, catalogJourneyReport, validCatalogJourneyReport } from './catalog-journey-analytics.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
 const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
-export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, 'client_error', 'telemetry_health'];
+export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, ...catalogJourneyPublicEvents, 'client_error', 'telemetry_health'];
 export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
 const idPattern = /^[a-zA-Z0-9_-]{16,80}$/;
 const exists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
@@ -40,6 +41,16 @@ export function acceptProductEvents(userId, input) {
     if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
     const detail = {};
+    if (catalogJourneyPublicEvents.includes(row.event) && row.journey !== catalogJourney) return invalid();
+    if (row.journey !== undefined) {
+      if (userId || row.journey !== catalogJourney || row.step !== 'catalog' || !idPattern.test(row.flowId || '')) return invalid();
+      detail.journey = catalogJourney;
+    }
+    if (row.platform !== undefined) {
+      if (row.journey !== catalogJourney || !['telegram','max'].includes(row.platform)) return invalid();
+      detail.platform = row.platform;
+    }
+    if (['catalog_platform_selected','catalog_handoff_ready'].includes(row.event) && !row.platform) return invalid();
     if (row.presentation !== undefined) {
       if (!(row.event === 'request_visible' ? ['selection','full'] : row.event === 'request_preview_visible' ? ['preview'] : []).includes(row.presentation)
         || !Number.isSafeInteger(row.durationMs) || row.durationMs < 0 || row.durationMs > 86400000) return invalid();
@@ -61,14 +72,20 @@ export function acceptProductEvents(userId, input) {
       detail.code = row.code;
     }
     if (row.durationMs != null && (!Number.isSafeInteger(row.durationMs) || row.durationMs < 0 || row.durationMs > 86400000)) return invalid();
-    return { event: row.event, options: { id: row.id, visitor: userId ? null : input.visitor, step: row.step,
+    return { event: row.event, journey: row, options: { id: row.id, visitor: userId ? null : input.visitor, step: row.step,
       flowId: row.flowId || null, durationMs: row.durationMs ?? null, detail,
       at: new Date(Date.now() - Math.min(86400000, row.ageMs || 0)).toISOString() } };
   });
   const accepted = [];
   for (const row of rows) {
     const inserted = recordProduct(userId, row.event, row.options);
-    if (inserted || db.prepare('SELECT 1 FROM product_events WHERE subject=? AND id=?').get(userId ? 'u:' + userId : 'v:' + input.visitor, row.options.id)) accepted.push(row.options.id);
+    const previous = inserted ? null : db.prepare('SELECT event,flow_id,detail_json FROM product_events WHERE subject=? AND id=?').get(userId ? 'u:' + userId : 'v:' + input.visitor, row.options.id);
+    if (inserted || previous) {
+      accepted.push(row.options.id);
+      // Reusing an acknowledged event ID must not register a different journey.
+      if (!userId && (inserted || previous.event === row.event && previous.flow_id === row.options.flowId
+        && JSON.parse(previous.detail_json).journey === row.journey.journey)) recordCatalogJourneyPublic(row.journey, input.visitor, row.options.at);
+    }
   }
   return { accepted };
 }
@@ -105,7 +122,7 @@ export function validProductReport(value, { legacy = false } = {}) {
       || !t || !Number.isSafeInteger(t.samples)||t.samples<0||!numeric(t.p50)||!numeric(t.p95)
       || (t.samples===0?t.p50!==null||t.p95!==null:t.p50===null||t.p95===null||t.p50>t.p95)) return false;
   }
-  if (!legacy) {
+  if (!legacy && value.trialReminders !== null) {
   const r = value.trialReminders;
   if (!r || !Number.isFinite(Date.parse(r.trackingSince))
     || !['enrolled','deliveries','sent','sentUsers','clicked','optedOut','failed','unknown','waiting','eligible24h','added24h'].every(k=>Number.isSafeInteger(r[k])&&r[k]>=0)
@@ -119,6 +136,7 @@ export function validProductReport(value, { legacy = false } = {}) {
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (value.latency != null && !validLatencyReport(value.latency)) return false;
+  if (value.catalogJourney != null && !validCatalogJourneyReport(value.catalogJourney)) return false;
   if (!Array.isArray(value.retention) || value.retention.length>60 || value.retention.some(r => !/^\d{4}-\d\d-\d\d$/.test(r.date) || !['users','d1Eligible','d1','d7Eligible','d7','d1Rate','d7Rate'].every(k=>numeric(r[k])) || r.d1>r.d1Eligible || r.d7>r.d7Eligible || r.d1Eligible>r.users || r.d7Eligible>r.users)) return false;
   if (!Array.isArray(value.checkout?.ordered) || value.checkout.ordered.length!==5 || value.checkout.ordered.some((n,i,a)=>!Number.isSafeInteger(n)||n<0||(i&&n>a[i-1]))) return false;
   const b = value.catalogBenefits;
@@ -202,7 +220,7 @@ function requestLatencyReport(events) {
     visible:group(['selection','full','preview'],shown,r => JSON.parse(r.detail_json).presentation),
     stages:group(['interpretation','generation','validation','nutrition','catalog'],events.filter(r => r.event === 'request_stage' && r.created_at >= trackingSince),r => JSON.parse(r.detail_json).stage)};
 }
-export function productReport(cohort, campaign = false, at = new Date().toISOString()) {
+export function productReport(cohort, campaign = false, at = new Date().toISOString(), catalogCampaign = null) {
   const users = new Map(cohort.map(u => [u.id, u]));
   const eligible = row => users.has(row.user_id) && (!campaign || row.created_at >= users.get(row.user_id).started_at);
   const rows = db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
@@ -281,7 +299,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   const retention = [...cohorts.values()].sort((a,b) => b.date.localeCompare(a.date)).slice(0,60).map(r => ({...r,d1Rate:p(r.d1,r.d1Eligible),d7Rate:p(r.d7,r.d7Eligible)}));
   const publicRows = campaign ? [] : rows.filter(r => !r.user_id && r.step === 'catalog');
-  const catalog = campaign ? null : publicEvents.filter(e => e.startsWith('catalog_')).map(event => ({ event, events: publicRows.filter(r => r.event===event).length, visits: countUsers(publicRows,event) }));
+  const catalog = campaign ? null : publicEvents.filter(e => e.startsWith('catalog_') && !catalogJourneyPublicEvents.includes(e)).map(event => ({ event, events: publicRows.filter(r => r.event===event).length, visits: countUsers(publicRows,event) }));
   // A public visit is a browser tab, not an account. Count each visible presentation once,
   // and match actions to its random flow within the same anonymous subject.
   const benefitFlows = new Map();
@@ -302,7 +320,9 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
       else if (actions.length) unmatchedActions++;
     }
   }
-  const catalogBenefits = campaign ? null : {
+  // The sales dialog is still a test-only catalogue preview. Shipping the
+  // shared report must not turn an unreleased screen into observed zeroes.
+  const catalogBenefits = campaign || !config.testContour ? null : {
     trackingSince: db.prepare("SELECT value FROM product_analytics_metadata WHERE key='catalog_benefits_since'").get().value,
     views: benefitViews.length, visits: new Set(benefitViews.map(r => r.subject)).size,
     closes: benefitCloses.length, ctas: benefitCtas.length, ctr: p(benefitCtas.length,benefitViews.length),
@@ -325,5 +345,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   return { platform: config.botPlatform, trackingSince: productTrackingSince(), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
-    imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
+    imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:config.botPlatform === 'max' ? null : trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
+    catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),
+    health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
 }

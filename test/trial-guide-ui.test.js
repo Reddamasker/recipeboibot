@@ -119,6 +119,7 @@ test('ordinary menu navigation exits an optional guide and a late save cannot fo
   const saving = f.nodes['#taste-save'].onclick();
   f.sandbox.location = { search: '?view=menu' }; f.sandbox.URLSearchParams = URLSearchParams;
   f.sandbox.mainMenuPage = () => f.pages.push('menu');
+  vm.runInContext(source.slice(source.indexOf('function publicCatalogRecipeReadable('), source.indexOf('\nfunction closeDetailRoute(')), f.sandbox);
   vm.runInContext(source.slice(source.indexOf('async function render()'), source.indexOf('async function refresh()')), f.sandbox);
   await f.sandbox.render(); finish({}); await saving;
   assert.deepEqual(f.pages, ['menu']);

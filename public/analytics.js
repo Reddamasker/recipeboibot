@@ -1,9 +1,9 @@
 (() => {
-  const version = 'product-1', publicMode = location.pathname.startsWith('/recipes');
+  const version = 'product-1', publicMode = /^\/(?:recipes|dinner)(?:\/|$)/.test(location.pathname);
   // Review links never read or flush a saved queue, even after the URL is consumed.
   if (publicMode && location.search && new URLSearchParams(location.search).get('benefits') === 'preview') {
     const noop = () => {};
-    window.RecipeAnalytics = {event:noop,observe:noop,visible:()=>false,setUser:noop,receipt:()=>Promise.resolve(),requestStarted:noop,requestVisible:noop,step:noop,health:noop};
+    window.RecipeAnalytics = {event:noop,observe:noop,visible:()=>false,setUser:noop,receipt:()=>Promise.resolve(),requestStarted:noop,requestVisible:noop,step:noop,health:noop,flushBeforeNavigate:noop};
     return;
   }
   const key = publicMode ? 'recipe-public-analytics-v1' : 'recipe-private-analytics-v1';
@@ -54,6 +54,25 @@
   function health() {
     enqueue('telemetry_health', activeStep, {pending:queue.length,dropped,code:storageError?'storage':'queue'});
   }
+  let lastNavigationFlush = 0;
+  function flushBeforeNavigate() {
+    if (!publicMode || !queue.length || navigator.onLine === false || Date.now() - lastNavigationFlush < 1000) return;
+    lastNavigationFlush = Date.now();
+    const pending = queue.filter(r => !r.receipt && Date.now() - r.queuedAt <= 86400000);
+    let budget = 48000;
+    while (pending.length && budget > 0) {
+      let size = Math.min(20, pending.length), body;
+      const serialize = count => JSON.stringify({visitor,events:pending.slice(0,count).map(({queuedAt,...r})=>({...r,attempts:r.attempts+1,ageMs:Math.min(86400000,Date.now()-queuedAt)}))});
+      do { body = serialize(size); if(new TextEncoder().encode(body).length <= Math.min(12000,budget))break; size--; } while(size);
+      if (!size) break;
+      pending.splice(0,size).forEach(r=>r.attempts++);save();
+      budget -= new TextEncoder().encode(body).length;
+      // Keep the original IDs until acknowledgement. An interrupted callback is
+      // safely retried from sessionStorage on return; saving never waits for it.
+      void fetch('/api/analytics/public',{method:'POST',headers:{'content-type':'application/json','x-analytics-request':'1'},body,keepalive:true})
+        .then(response=>response.ok?response.json():null).then(result=>{if(result){const accepted=new Set(result.accepted||[]);queue=queue.filter(r=>!accepted.has(r.id));save();}}).catch(()=>{});
+    }
+  }
   function visible(element) {
     if(!element?.isConnected||document.visibilityState!=='visible')return false;
     const r=element.getBoundingClientRect(),s=getComputedStyle(element);
@@ -78,8 +97,9 @@
   const pendingRequests=new Map();
   function requestStarted(id,step){pendingRequests.clear();pendingRequests.set(id,{step,at:Date.now()});enqueue('request_started',step,{flowId:id});}
   function requestVisible(element,id,preview=false,presentation=preview?'preview':'full'){const r=pendingRequests.get(id);if(r){observe(element,preview?'request_preview_visible':'request_visible',r.step,{flowId:id,_started:r.at,presentation});pendingRequests.delete(id);}}
-  window.RecipeAnalytics={event:enqueue,observe,visible,setUser,receipt,requestStarted,requestVisible,step(value){activeStep=value;},health};
+  window.RecipeAnalytics={event:enqueue,observe,visible,setUser,receipt,requestStarted,requestVisible,sessionId:visitor,step(value){activeStep=value;},health,flushBeforeNavigate};
   window.addEventListener('online',()=>schedule(0));
+  window.addEventListener('pagehide',flushBeforeNavigate);
   document.addEventListener('visibilitychange',()=>{check();if(document.visibilityState==='visible'){health();schedule(0);}});
   document.addEventListener('scroll',check,true);window.addEventListener('resize',check);
   document.addEventListener('transitionend',check,true);document.addEventListener('animationend',check,true);

@@ -14,6 +14,7 @@ import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
 import { startTrialReminderScheduler, stopTrialReminderScheduler } from './trial-reminders.js';
 import { sendTrialRecipeReminder } from './telegram.js';
 import { initializeTrialDigest } from './trial-digest-store.js';
+import { startCatalogHandoffScheduler, stopCatalogHandoffScheduler } from './catalog-handoff-transport.js';
 
 assertConfig();
 if (config.telegramPolling) initializeTrialDigest();
@@ -31,12 +32,14 @@ server.listen(config.port, '0.0.0.0', () => {
   log('info', 'server_started', { port: config.port, appUrlConfigured: Boolean(config.appUrl) });
   startBillingScheduler();
   startDirectScheduler();
+  startCatalogHandoffScheduler();
   if (config.imageModel) void (async () => {
     for (const item of listGeneratedRecipesWithoutImages()) await ensureRecipeImage(item.userId, getRecipe(item.userId, item.id));
   })().catch((error) => log('warn', 'recipe_image_backfill_failed', { error }));
   if (config.telegramPolling || config.botPlatform === 'max') {
     startTrialWelcomeScheduler(sendTrialWelcomeMessage);
-    startTrialReminderScheduler(sendTrialRecipeReminder);
+    // MAX has not opted into this separate reminder rollout.
+    if(config.botPlatform==='telegram')startTrialReminderScheduler(sendTrialRecipeReminder);
     startFeedbackScheduler(sendFeedbackNotification);
     startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
     if (config.telegramPolling) startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
@@ -46,6 +49,7 @@ let shuttingDown = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopCatalogHandoffScheduler();
   stopTrialReminderScheduler();
   stopTrialWelcomeScheduler(); stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
   const deadline = setTimeout(() => process.exit(1), 80000); deadline.unref();

@@ -53,7 +53,7 @@ test('anonymous browser gets catalog and full house recipe; private API still re
 });
 test('catalog and direct recipe URLs work without messenger SDK and unknown recipes return 404',async()=>{
   for(const route of ['/recipes','/recipes/','/recipes/pasta-tomato']) {
-    const response=await fetch(base+route),html=await response.text();assert.equal(response.status,200);assert.match(html,/catalog\.js/);assert.doesNotMatch(html,/telegram-web-app|platform-bridge/);
+    const response=await fetch(base+route),html=await response.text();assert.equal(response.status,200);assert.match(html,/catalog(?:-legacy)?\.js/);assert.doesNotMatch(html,/telegram-web-app|platform-bridge/);
   }
   assert.equal((await fetch(base+'/recipes/unknown')).status,404);
 });

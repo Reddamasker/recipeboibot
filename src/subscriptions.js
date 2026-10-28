@@ -3,6 +3,7 @@ import {selectionRecord,selectionMetadata,stageSelection,unlockSelection,redactR
 import { config } from './config.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { hasCatalogFirstRecipe, isPublicCatalogRecipe, publicCatalogRecipeIds } from './catalog-handoff.js';
 
 // Only trusted server administration/payment integrations may write this table.
 db.exec(`CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -53,25 +54,38 @@ export function firstRecipePreviewLocked(userId){
  return false;
 }
 export function assertFirstRecipeReadable(userId,options={}){
+ if(isPublicCatalogRecipe(userId,options.recipeId))return;
  const freshCatalog=options?.catalog&&getFirstRecipeStatus(userId).available&&!db.prepare('SELECT 1 FROM first_dinner_previews WHERE user_id=? AND trial_gate=0').get(userId);
  if(!firstRecipePreviewLocked(userId)&&!freshCatalog){if(getSubscriptionAccess(userId).active)unlockFirstRecipe(userId);return;}
  throw Object.assign(new Error(getPendingFirstRecipe(userId)?'Рецепт выбран. Начните 7 дней бесплатно, чтобы открыть ингредиенты и шаги.':'Сначала выберите первый рецепт и начните пробный период.'),{status:402,offerPath:'/?view=benefits',awaitingTrial:isFirstRecipeAwaitingTrial(userId),pendingFirstRecipe:getPendingFirstRecipe(userId)});
 }
 export function protectFirstRecipeResponse(userId,value){
- if(!firstRecipePreviewLocked(userId))return value;
- const safe=redactRecipeData(value),pending=getPendingFirstRecipe(userId);
+ const locked=firstRecipePreviewLocked(userId);
+ const protect = input => {
+  if(Array.isArray(input))return input.map(protect);
+  if(!input||typeof input!=='object')return input;
+  if(Array.isArray(input.ingredients)||Array.isArray(input.steps)){
+   if(isPublicCatalogRecipe(userId,input.id))return {...input,publicCatalogSaved:true};
+   return locked?redactRecipeData(input):input;
+  }
+  return Object.fromEntries(Object.entries(input).filter(([key])=>!locked||!['pantryMatch','pantryCoverage','ingredientText','sourceText','pitch','reasons'].includes(key)).map(([key,child])=>[key,protect(child)]));
+ };
+ const safe=protect(value),pending=getPendingFirstRecipe(userId);
+ if(!locked)return safe;
+ if(isPublicCatalogRecipe(userId,safe?.id))return safe;
  if(pending&&safe&&typeof safe==='object'&&!Array.isArray(safe))return {...safe,firstFreeRecipe:false,awaitingTrial:true,pendingFirstRecipe:pending};
  return safe;
 }
 
 export function hasFirstDinnerPreview(userId) {
-  return !hasUsedTrialOrPromo(userId) && !db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id=?').get(userId)
+  return !hasCatalogFirstRecipe(userId) && !hasUsedTrialOrPromo(userId) && !db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id=?').get(userId)
     && Boolean(db.prepare('SELECT 1 FROM first_dinner_previews WHERE user_id=? AND selected_id IS NULL').get(userId));
 }
 
 export function requireDinnerEntry(userId, claim = true) {
   if(isFirstRecipeAwaitingTrial(userId))return assertFirstRecipeReadable(userId);
   if (getSubscriptionAccess(userId).active || hasFirstDinnerPreview(userId)) return;
+  if (hasCatalogFirstRecipe(userId)) return requireUnexpiredTrial(userId);
   const legacy = db.prepare('SELECT request_key,result_json FROM first_recipe_results WHERE user_id=?').get(userId);
   if (legacy?.request_key.startsWith('dinner:') && legacy.result_json && !getFirstRecipeStatus(userId).usedAccess
     && !db.prepare("SELECT 1 FROM dinner_events WHERE user_id=? AND event='recommendation_accepted' LIMIT 1").get(userId)) {
@@ -84,7 +98,7 @@ export function requireDinnerEntry(userId, claim = true) {
 }
 
 export function canChooseFirstDinner(userId) {
-  if (getSubscriptionAccess(userId).active || getFirstRecipeStatus(userId).usedAccess) return false;
+  if (hasCatalogFirstRecipe(userId) || getSubscriptionAccess(userId).active || getFirstRecipeStatus(userId).usedAccess) return false;
   if (hasFirstDinnerPreview(userId) || getFirstRecipeStatus(userId).available) return true;
   const legacy = db.prepare('SELECT request_key,result_json FROM first_recipe_results WHERE user_id=?').get(userId);
   return Boolean(legacy?.request_key.startsWith('dinner:') && legacy.result_json
@@ -119,8 +133,9 @@ export function getFirstRecipeStatus(userId) {
   const usedAccess = hasUsedTrialOrPromo(userId) || Boolean(db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id=?').get(userId));
   const preview = hasFirstDinnerPreview(userId);
   const awaitingTrial=isFirstRecipeAwaitingTrial(userId);
-  return { available: !row && (!historical || preview) && !usedAccess, delivered: !preview && !awaitingTrial && (Boolean(row?.result_json) || historical),
-    pending: Boolean(row && !row.result_json), usedAccess,awaitingTrial,trialGateUsed:firstRecipeTrialGateUsed(userId) };
+  const catalogObtained=hasCatalogFirstRecipe(userId);
+  return { available: !catalogObtained && !row && (!historical || preview) && !usedAccess, delivered: catalogObtained || !preview && !awaitingTrial && (Boolean(row?.result_json) || historical),
+    pending: Boolean(row && !row.result_json), usedAccess,awaitingTrial,trialGateUsed:firstRecipeTrialGateUsed(userId),catalogObtained,publicCatalogRecipeIds:publicCatalogRecipeIds(userId) };
 }
 
 export function canReceiveFirstRecipe(userId) {
