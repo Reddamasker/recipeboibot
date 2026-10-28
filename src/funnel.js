@@ -7,6 +7,7 @@ import { MAX_AD_PLACEMENT, MAX_AD_PAYLOAD, MAX_AD_NAME, maxAdvertisingLink } fro
 import { campaignPriceAssignment, DINNER_PRICE_EXPERIMENT } from './campaign-prices.js';
 import { recipeActivityReport } from './recipe-activity.js';
 import { trialJourneyReport } from './recipe-engagement.js';
+import { RECIPE_FIRST_PLACEMENT, recipeFirstAdvertisingLink } from './recipe-first-acquisition.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS acquisition_campaigns (
   slug TEXT PRIMARY KEY, name TEXT NOT NULL, impressions INTEGER, reach INTEGER,
@@ -35,6 +36,7 @@ const botUsername = () => config.testContour ? config.testBotUsername : 'Recipeb
 const slugPattern = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 
 export function campaignLink(slug) {
+  if (slug === RECIPE_FIRST_PLACEMENT) return recipeFirstAdvertisingLink();
   return slug === MAX_AD_PLACEMENT ? maxAdvertisingLink() : `${config.appUrl}/go/${slug}`;
 }
 export function createCampaign(slug, name = slug) {

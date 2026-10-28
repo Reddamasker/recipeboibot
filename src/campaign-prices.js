@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { db } from './db.js';
 import { config } from './config.js';
 import { SUBSCRIPTION_PLANS } from './plans.js';
+import { RECIPE_FIRST_PLACEMENT } from './recipe-first-acquisition.js';
 
 export const DINNER_PRICE_EXPERIMENT = Object.freeze({
   key: 'ya-dinner-promo-199-159-v1', campaign: 'ya-dinner-202610', promoCode: 'DINNER159',
-  campaigns: Object.freeze(['ya-dinner-202610', 'ya-dinner-landing-202610', 'ya-dinner-outside-202610', 'ya-max-dinner-202610']),
+  campaigns: Object.freeze(['ya-dinner-202610', 'ya-dinner-landing-202610', 'ya-dinner-outside-202610', 'ya-max-dinner-202610', RECIPE_FIRST_PLACEMENT]),
   basePriceRub: 199, promoPriceRub: 159, threeMonthsPriceRub: 499, threeMonthsPromoPriceRub: 399
 });
 db.exec(`CREATE TABLE IF NOT EXISTS campaign_price_assignments (

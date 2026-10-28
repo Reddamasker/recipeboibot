@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { createCampaign, funnelReport } from './funnel.js';
 import { log } from './log.js';
 import { MAX_AD_PLACEMENT, MAX_AD_NAME, maxAdvertisingLink } from './max-acquisition.js';
+import { RECIPE_FIRST_PLACEMENT, RECIPE_FIRST_NAME, recipeFirstAdvertisingLink } from './recipe-first-acquisition.js';
 
 export const DIRECT_REPORT_URL = 'https://api.direct.yandex.com/json/v501/reports';
 export const DIRECT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
@@ -16,6 +17,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS acquisition_direct_stats (
 );`);
 
 export function directImportSettings(slug = config.yandexDirectPlacement) {
+  if (slug === RECIPE_FIRST_PLACEMENT) return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
+    campaignId: config.yandexDirectRecipeFirstCampaignId, slug, name: RECIPE_FIRST_NAME };
   if (slug === MAX_AD_PLACEMENT) return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
     campaignId: config.yandexDirectMaxCampaignId, slug, name: MAX_AD_NAME };
   if (slug === 'ya-dinner-outside-202610') return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
@@ -59,7 +62,9 @@ export function dashboardFunnelReport(slug = 'all') {
   const report = funnelReport(slug);
   report.linkRequests = slug === MAX_AD_PLACEMENT ? null : report.clicks;
   const imported = new Map(report.campaigns.map(campaign => [campaign.slug, directImportStatus(campaign.slug)]));
-  report.campaigns = report.campaigns.map(campaign => ({ ...campaign, statsSource: imported.get(campaign.slug) ? 'direct' : 'manual', ...(campaign.slug === MAX_AD_PLACEMENT ? { link: maxAdvertisingLink(), platform: 'max' } : {}) }));
+  report.campaigns = report.campaigns.map(campaign => ({ ...campaign, statsSource: imported.get(campaign.slug) ? 'direct' : 'manual',
+    ...(campaign.slug === MAX_AD_PLACEMENT ? { link: maxAdvertisingLink(), platform: 'max' } : {}),
+    ...(campaign.slug === RECIPE_FIRST_PLACEMENT ? { link: recipeFirstAdvertisingLink() } : {}) }));
   const scope = report.campaign ? [report.campaign] : report.campaigns;
   const hasDirect = scope.some(campaign => imported.get(campaign.slug));
   report.clickSource = hasDirect ? 'direct' : 'link';
@@ -94,13 +99,17 @@ export function dashboardFunnelReport(slug = 'all') {
     report.conversions.clickFromImpression = null;
   }
   if (!hasDirect) report.directStats = report.campaign ? null : directImportStatus(config.yandexDirectPlacement);
-  report.defaultCampaign = imported.get(config.yandexDirectPlacement) ? config.yandexDirectPlacement : null;
+  const defaultPlacement = config.yandexDirectRecipeFirstCampaignId
+    && imported.get(RECIPE_FIRST_PLACEMENT)?.campaignId === config.yandexDirectRecipeFirstCampaignId
+    ? RECIPE_FIRST_PLACEMENT : config.yandexDirectPlacement;
+  report.defaultCampaign = imported.get(defaultPlacement) ? defaultPlacement : null;
   return report;
 }
 function configuredDirectSettings() {
   return [config.yandexDirectPlacement, ...(config.yandexDirectLandingCampaignId ? ['ya-dinner-landing-202610'] : []),
     ...(config.yandexDirectOutsideCampaignId ? ['ya-dinner-outside-202610'] : []),
-    ...(config.yandexDirectMaxCampaignId ? [MAX_AD_PLACEMENT] : [])].map(slug => directImportSettings(slug));
+    ...(config.yandexDirectMaxCampaignId ? [MAX_AD_PLACEMENT] : []),
+    ...(config.yandexDirectRecipeFirstCampaignId ? [RECIPE_FIRST_PLACEMENT] : [])].map(slug => directImportSettings(slug));
 }
 export async function syncDirectCampaigns(slug = 'all', options = {}) {
   if (slug !== 'all') return syncDirectStats({ ...options, settings: directImportSettings(slug) });
