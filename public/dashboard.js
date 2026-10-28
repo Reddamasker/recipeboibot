@@ -34,14 +34,17 @@ function render(data) {
     ? coverage.includedCampaignCount < coverage.campaignCount ? `Есть данные по ${coverage.includedCampaignCount} из ${coverage.campaignCount} кампаний Директа` : `По всем кампаниям Директа: ${coverage.campaignCount}`
     : data.clickSource === 'direct' ? 'По статистике Директа' : 'По статистике площадки';
   const metrics = [ ['Показы рекламы', data.impressions, advertisingNote], [data.clickSource === 'direct' ? 'Клики рекламы' : 'Обращения к ссылке', data.clicks, data.clickSource === 'direct' ? advertisingNote : 'Включая повторные открытия'], ['Запустили бота', data.totals.starts, data.platform === 'combined' ? data.remoteFunnel?.status === 'error' ? 'Учтён только Telegram' : 'Аккаунты Telegram и MAX' : 'Уникальные пользователи'], ['Результат подбора', data.totals.firstRecipe, 'Рецепт или предложенные варианты'], ['Выбрали рецепт', data.totals.selectedRecipe, 'Выбрали блюдо из предложенных'], ['Начали триал', data.totals.trial, 'Активировали 7 дней'], ['Оплатили', data.totals.paid, 'Подтверждённые оплаты'] ];
+  if(data.campaignPlatformOutcomes)for(const metric of metrics.slice(2))metric[0]='Telegram: '+metric[0];
   $('#metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'), title = node('p', 'metric-label'); title.append(node('span', 'stage-dot'), document.createTextNode(label)); card.append(title, node('p', `metric-number${value === null ? ' unknown' : ''}`, number(value)), node('p', 'metric-note', note)); return card; }));
   const ordered = [['Запустили бота', data.ordered.starts], ['Результат подбора', data.ordered.firstRecipe], ['Начали триал', data.ordered.trial], ['Оплатили', data.ordered.paid]];
   $('#funnel').replaceChildren(...ordered.map(([label, value]) => { const row = node('div', 'funnel-row'), track = node('div', 'bar-track'), bar = node('div', 'bar'); bar.style.width = `${data.ordered.starts ? value / data.ordered.starts * 100 : 0}%`; track.append(bar); row.append(node('span', 'funnel-label', label), track, node('span', 'funnel-count', number(value))); return row; }));
   $('#funnel-note').textContent = selected === 'all' ? data.directStats?.aggregate ? 'Показы и клики — по кампаниям Директа. Запуски и следующие этапы включают всех пользователей, в том числе органику. Конверсия из клика учитывает только рекламные запуски.' : 'Общий запуск включает органику. Для оценки рекламы выберите отдельное размещение.' : `Новые пользователи этого размещения.${data.returningStarts ? ` Повторных пользователей: ${number(data.returningStarts)}.` : ''}`;
   if (data.remoteFunnel?.error) $('#funnel-note').textContent += ' ' + data.remoteFunnel.error;
   if (data.platform === 'max') $('#funnel-note').textContent += ' Источник определяется по метке запуска MAX. Отдельное открытие чата неизвестно.';
+  if(data.campaignPlatformOutcomes)$('#funnel-note').textContent+=' Карточки, основная воронка и её конверсии относятся к Telegram. Trial и оплаты обоих ботов показаны отдельно в разделе «Результаты размещения по платформам». Клики между платформами не складываются.';
   const c = data.conversions;
   const conversions = [['Показ → клик', c.clickFromImpression], [data.clickSource === 'direct' ? 'Клик → запуск' : 'Обращение → запуск', c.startFromClick], ['Запуск → подбор', c.firstRecipeFromStart], ['Подбор → триал', c.trialAfterRecipe], ['Триал → оплата', c.paidAfterTrial], ['Подбор → выбор блюда', c.selectionFromRecipe]];
+  if(data.campaignPlatformOutcomes)for(const conversion of conversions.slice(1))conversion[0]='Telegram: '+conversion[0];
   $('#conversions').replaceChildren(...conversions.map(([label, value]) => { const row = node('div', 'conversion'); row.append(node('span', 'conversion-label', label), node('span', `conversion-value${value === null ? ' empty' : ''}`, percent(value))); return row; }));
   $('#placement-count').textContent = `${data.campaigns.length} размещений`;
   $('#empty-placements').hidden = Boolean(data.campaigns.length); $('#placements').closest('.table-scroll').hidden = !data.campaigns.length;
@@ -215,6 +218,19 @@ function renderProductAnalytics(data) {
       const box=node('details','methodology');box.open=open;box.append(node('summary','',title));
       const scroll=node('div','table-scroll'),t=node('table'),head=node('thead'),tr=node('tr');headers.forEach(h=>tr.append(node('th','',h)));head.append(tr);t.append(head);
       const body=node('tbody');for(const row of rows){const tr=node('tr');row.forEach(v=>tr.append(node('td','',v)));body.append(tr);}t.append(body);scroll.append(t);box.append(scroll,node('p','panel-note',note));container.append(box);
+    }
+    if(data.campaignPlatformOutcomes) {
+      const quality=data.campaignPlatformOutcomes.platforms;
+      table('Результаты размещения по платформам',['Показатель','Telegram','MAX'],[
+        ['Состояние',...quality.map(p=>p.status==='ready'?'Данные получены':'Недоступно')],
+        ['Новые запуски',...quality.map(p=>number(p.starts))],
+        ['Начали trial',...quality.map(p=>number(p.trial))],
+        ['Подтверждённая оплата',...quality.map(p=>number(p.paid))],
+        ['Запуск → trial',...quality.map(p=>percent(p.trialFromStart))],
+        ['Запуск → оплата',...quality.map(p=>percent(p.paidFromStart))],
+        ['Возвращающиеся аккаунты, отдельно',...quality.map(p=>number(p.returningStarts))]
+      ],'Новые аккаунты выбранного размещения за всю доступную историю; первое размещение аккаунта не меняется. Trial и настоящая оплата подтверждены сервером после первого запуска, внутренние аккаунты и тестовые оплаты исключены. Это вся когорта источника, а не только пользователи, сохранившие рецепт с нового сайта. Одинаковый человек в Telegram и MAX считается двумя аккаунтами; строки платформ и конверсии из клика не складываются. Для сравнения качества нужны одинаковые завершённые сроки наблюдения. Ноль означает проверенное отсутствие результата; «Недоступно» — отсутствие проверенных данных MAX. Основные карточки и воронка выше показывают Telegram; селектор платформы меняет подробные продуктовые показатели ниже.',true);
+      container.lastElementChild.classList.add('campaign-quality-report');
     }
     table('Шаги и ошибки',['Шаг','Видели, аккаунтов','Отправлено в чат, аккаунтов','Действовали, аккаунтов','Без действия 24 ч','Операции','Ошибки','Медиана','95% быстрее'],a.steps.map(r=>[labels[r.step],r.viewed,r.prompts,r.submitted,r.inactive,r.operations,r.errors,seconds(r.p50),seconds(r.p95)]),
       'Показ — видимый экран Mini App; отправка в чат не означает прочтение. Действие — отправка формы, переход шага или запрос. Строки отражают разные маршруты, не одну линейную воронку. «Без действия 24 ч» — после последнего показа минимум сутки не зарегистрировано действие или переход на другой экран; это сигнал для разбора, а не доказанный уход. Ошибки включают отказы доступа. Время операций измеряется на сервере.',true);

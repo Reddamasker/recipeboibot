@@ -466,7 +466,7 @@ async function handleRequest(request, response) {
       if (await webLoginRoute(request,response,url,{bodyJson,rateLimit,ip:clientIp(request)})) return;
       if (url.pathname === '/api/internal/max-funnel') {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
-        return json(response, 200, maxFunnelSnapshot());
+        return json(response, 200, maxFunnelSnapshot(url.searchParams.has('campaign') ? url.searchParams.get('campaign') : null));
       }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
       if (url.pathname.startsWith('/api/internal/catalog-handoff/')) {

@@ -54,7 +54,8 @@ test('specific MAX funnel uses MAX stages and Direct clicks, all-users adds MAX 
  assert.equal(specific.totals.selectedRecipe,1);assert.equal(specific.ordered.selectedRecipe,1);assert.equal(specific.totals.starts,1);assert.equal(specific.clicks,20);assert.equal(specific.conversions.startFromClick,5);assert.equal(specific.linkRequests,null);
  const combined=await mergeMaxFunnelReport(report(null),{...options,transport});
  assert.equal(combined.totals.selectedRecipe,2);assert.equal(combined.ordered.selectedRecipe,2);assert.equal(combined.totals.starts,7);assert.equal(combined.convertedClicks,5);assert.equal(combined.conversions.startFromClick,25);
- const original=report('ya-dinner-202610');assert.equal(await mergeMaxFunnelReport(original,{...options,transport:()=>{throw new Error('should not fetch');}}),original);
+ const original=report('ya-dinner-202610');const unavailable=await mergeMaxFunnelReport(original,{...options,transport:()=>{throw new Error('unavailable scoped bridge');}});
+ assert.deepEqual(unavailable.totals,original.totals);assert.equal(unavailable.campaignPlatformOutcomes.platforms[1].status,'unavailable');
 });
 test('MAX outage preserves advertising stats and marks stages unknown without false zeroes or credential errors',async()=>{
  const transport=async()=>{throw new Error('private '+options.token);};

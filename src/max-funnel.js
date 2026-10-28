@@ -15,25 +15,33 @@ export function maxFunnelAuthorized(header, token = config.maxFunnelToken) {
   return /^[A-Za-z0-9_-]{43,128}$/.test(token) && typeof header === 'string'
     && timingSafeEqual(digest(header), digest('Bearer ' + token));
 }
-export function maxFunnelSnapshot() {
-  const exists = db.prepare('SELECT 1 FROM acquisition_campaigns WHERE slug=?').get(MAX_AD_PLACEMENT);
+export function maxFunnelSnapshot(requestedCampaign = null) {
+  if (requestedCampaign !== null && (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(requestedCampaign) || requestedCampaign === 'all')) {
+    throw Object.assign(new Error('Неверное размещение'), { status: 400 });
+  }
+  const placement = requestedCampaign || MAX_AD_PLACEMENT;
+  const exists = db.prepare('SELECT 1 FROM acquisition_campaigns WHERE slug=?').get(placement);
   const all = funnelReport('all');
-  const campaign = exists ? funnelReport(MAX_AD_PLACEMENT) : {
-    ...all, productAnalytics: { platforms: [productReport([], true)] }, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
+  const campaign = exists ? funnelReport(placement) : {
+    ...all, productAnalytics: { platforms: [productReport([], true, new Date().toISOString(), placement)] }, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
     trialJourney: { ...emptyTrialJourney(), trackingSince: engagementSince() },
     convertedClicks: 0, selectedTrials: 0, returningStarts: 0, testPaidUsers: 0, unclassifiedPaidUsers: 0, historicalStartsWithoutDate: 0, priceExperiment: null
   };
   const summary = report => ({ ...Object.fromEntries(['generatedAt', 'totals', 'ordered', 'convertedClicks', 'selectedTrials', 'returningStarts',
     'testPaidUsers', 'unclassifiedPaidUsers', 'historicalStartsWithoutDate', 'priceExperiment', 'recipeActivity', 'trialJourney', 'productAnalytics'].map(k => [k, report[k]])),
     productAnalytics: { platforms: report.productAnalytics.platforms.map(p => ({ ...p, platform: 'max' })) } });
-  return { version: 8, platform: 'max', placement: MAX_AD_PLACEMENT, campaign: summary(campaign), all: summary(all) };
+  return { version: requestedCampaign === null ? 8 : 9, platform: 'max', placement, campaign: summary(campaign), all: summary(all) };
 }
-function validateSnapshot(data) {
-  if (![6, 8].includes(data?.version) || data.platform !== 'max' || data.placement !== MAX_AD_PLACEMENT) throw new Error('Invalid MAX aggregate');
+function validateSnapshot(data, requestedCampaign = null) {
+  if (!(requestedCampaign ? data?.version === 9 : [6, 8].includes(data?.version)) || data.platform !== 'max'
+    || data.placement !== (requestedCampaign || MAX_AD_PLACEMENT)) throw new Error('Invalid MAX aggregate');
   for (const scope of ['campaign', 'all']) {
     const report = data[scope];
     if (!report || !Number.isFinite(Date.parse(report.generatedAt))) throw new Error('Invalid MAX timestamp');
     for (const key of stages) if (!count(report.totals?.[key]) || !count(report.ordered?.[key]) || report.ordered[key] > report.totals[key]) throw new Error('Invalid MAX counts');
+    if (stages.some(key => report.totals[key] > report.totals.starts)
+      || (scope === 'campaign' || report.returningStarts !== null) && !count(report.returningStarts)
+      || ['testPaidUsers','unclassifiedPaidUsers','historicalStartsWithoutDate'].some(key => !count(report[key]))) throw new Error('Invalid MAX cohort counts');
     if (report.ordered.firstRecipe > report.ordered.starts || report.ordered.selectedRecipe > report.ordered.firstRecipe || report.ordered.trial > report.ordered.firstRecipe || report.ordered.paid > report.ordered.trial) throw new Error('Invalid MAX order');
     if (!count(report.selectedTrials) || report.selectedTrials > report.ordered.selectedRecipe || report.selectedTrials > report.ordered.trial) throw new Error('Invalid MAX selection conversion');
     const a = report.recipeActivity;
@@ -75,21 +83,30 @@ function mergePrice(a, b) {
   });
   return { ...a, rows };
 }
+function campaignQuality(platform, report = null) {
+  return { platform, status: report ? 'ready' : 'unavailable', generatedAt: report?.generatedAt || null,
+    starts: report?.totals.starts ?? null, trial: report?.totals.trial ?? null, paid: report?.totals.paid ?? null,
+    returningStarts: report?.returningStarts ?? null,
+    trialFromStart: report ? ratio(report.totals.trial, report.totals.starts) : null,
+    paidFromStart: report ? ratio(report.totals.paid, report.totals.starts) : null };
+}
 export async function mergeMaxFunnelReport(report, { transport = fetch, origin = config.maxFunnelOrigin,
   token = config.maxFunnelToken, enabled = Boolean(config.yandexDirectMaxCampaignId) && !config.testContour && config.botPlatform === 'telegram' } = {}) {
   const specific = report.campaign?.slug === MAX_AD_PLACEMENT;
-  if (!enabled || (report.campaign && !specific)) return report;
+  if (!enabled) return report;
+  const scopedCampaign = report.campaign && !specific ? report.campaign.slug : null;
   const result = structuredClone(report);
   try {
     if (origin !== 'https://recipeboibot-max.89-223-123-75.sslip.io' || !/^[A-Za-z0-9_-]{43,128}$/.test(token)) throw new Error('MAX bridge unconfigured');
-    const response = await transport(origin + '/api/internal/max-funnel', {
+    if (scopedCampaign && (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(scopedCampaign) || scopedCampaign === 'all')) throw new Error('Invalid MAX campaign');
+    const response = await transport(origin + '/api/internal/max-funnel' + (scopedCampaign ? '?campaign=' + encodeURIComponent(scopedCampaign) : ''), {
       headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000), redirect: 'error'
     });
     if (!response.ok) throw new Error('MAX bridge unavailable');
     const text = await response.text();
     if (text.length > 64000) throw new Error('MAX aggregate too large');
-    const data = validateSnapshot(JSON.parse(text));
-    const remote = specific ? data.campaign : data.all;
+    const data = validateSnapshot(JSON.parse(text), scopedCampaign);
+    const remote = specific || scopedCampaign ? data.campaign : data.all;
     for (const product of remote.productAnalytics.platforms) {
       product.latency ??= null;
       // Website-origin flows already include authenticated remote receipts.
@@ -101,6 +118,15 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     if (data.version === 6) for (const product of remote.productAnalytics.platforms) {
       product.catalogBenefits = null;
       product.trialReminders = null;
+    }
+    if (scopedCampaign) {
+      // Account outcomes can be compared by source and platform. The same
+      // website click can start both bots, so never add converted-click counts.
+      result.campaignPlatformOutcomes = { campaign: scopedCampaign,
+        platforms: [campaignQuality('telegram', report), campaignQuality('max', remote)] };
+      result.productAnalytics = { platforms: [...(report.productAnalytics?.platforms || []), ...remote.productAnalytics.platforms] };
+      result.remoteFunnel = { platform: 'max', status: 'ready', generatedAt: remote.generatedAt, error: null };
+      return result;
     }
     result.platform = specific ? 'max' : 'combined';
     result.productAnalytics = { platforms: specific ? remote.productAnalytics.platforms : [...(report.productAnalytics?.platforms || []), ...remote.productAnalytics.platforms] };
@@ -134,6 +160,13 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
   } catch {
     // Keep advertising numbers; unavailable bot data must never become false zeroes.
     const unavailable = structuredClone(report);
+    if (scopedCampaign) {
+      unavailable.campaignPlatformOutcomes = { campaign: scopedCampaign,
+        platforms: [campaignQuality('telegram', report), campaignQuality('max')] };
+      unavailable.remoteFunnel = { platform: 'max', status: 'error', generatedAt: null,
+        error: 'Результаты MAX для выбранного размещения сейчас недоступны. Показатели Telegram сохранены.' };
+      return unavailable;
+    }
     unavailable.platform = specific ? 'max' : 'combined';
     unavailable.remoteFunnel = { platform: 'max', status: 'error', generatedAt: null,
       error: 'Данные MAX сейчас недоступны.' + (specific ? '' : ' Общие пользовательские этапы пока учитывают только Telegram.') };
