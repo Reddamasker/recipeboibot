@@ -522,3 +522,10 @@ button:disabled { cursor: wait; opacity: .5; }
 .main-menu-page .home-choice-actions { gap: 14px; }
 .main-menu-page .home-choice-button { min-height: 86px; text-decoration: none; box-sizing: border-box; }
 .main-menu-page .home-choice-button > span:last-child { flex-shrink: 0; }
+
+.photo-pages { display:grid; gap:10px; }
+.photo-page { display:grid; grid-template-columns:64px minmax(0,1fr); gap:12px; align-items:center; padding:10px; border:1px solid var(--line, #ddd6e6); border-radius:14px; }
+.photo-page img { width:64px; height:80px; object-fit:contain; background:#fff; border-radius:6px; }
+.photo-page-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.photo-page-actions button { min-height:36px; padding:5px 8px; border:1px solid var(--line, #ddd6e6); border-radius:8px; background:transparent; color:inherit; font:inherit; font-size:12px; }
+.photo-page-actions button:disabled { opacity:.4; }

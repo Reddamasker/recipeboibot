@@ -1088,11 +1088,12 @@ function mountModal(element, dialog, onDismiss, initialFocus = null) {
 }
 function unmountModal(element) {
   const index = modalStack.findIndex((record) => record.element === element);
-  if (index < 0) { element?.remove(); return; }
+  if (index < 0) { element?.onDispose?.(); element?.remove(); return; }
   while (modalStack.length > index) {
     const record = modalStack.pop();
     document.removeEventListener('keydown', record.keydown, true);
     document.removeEventListener('focusin', record.focusin, true);
+    record.element.onDispose?.();
     record.element.remove();
     for (const [sibling, wasInert] of record.background) sibling.inert = wasInert;
     restoreModalFocus(record);
@@ -1133,6 +1134,8 @@ function importSheet() {
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs" role="group" aria-label="Источник рецепта"><button data-tab="text" class="active" aria-pressed="true">Текст</button><button data-tab="url" aria-pressed="false">Ссылка</button><button data-tab="image" aria-pressed="false">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
   const form = el.querySelector('#import-form');
+  form.recipePhotoFiles = [];
+  el.onDispose = () => { for (const item of form.recipePhotoFiles) URL.revokeObjectURL(item.url); };
   globalThis.window?.RecipeAnalytics?.observe(form, 'screen_view', 'import');
   el.querySelector('#import-field').insertAdjacentHTML('afterend', '<p class="form-error" id="import-error" role="alert" tabindex="-1" hidden></p>');
   form.addEventListener('input', () => {
@@ -1144,10 +1147,40 @@ function importSheet() {
     state.tab = button.dataset.tab;
     el.querySelectorAll('[data-tab]').forEach((tab) => { tab.classList.toggle('active', tab === button); tab.setAttribute('aria-pressed', String(tab === button)); });
     el.querySelector('#import-field').innerHTML = state.tab === 'image'
-      ? '<label class="label" for="source-file">Фото рецепта</label><input class="field" id="source-file" type="file" accept="image/jpeg,image/png,image/webp"><label class="label" for="source-caption">Подпись к фото (необязательно)</label><input class="field" id="source-caption" placeholder="Например, название блюда">'
+      ? '<label class="label" for="source-file">Фото одного рецепта</label><input id="source-file" type="file" hidden multiple accept="image/jpeg,image/png,image/webp" aria-describedby="photo-help"><button id="photo-add" class="secondary" type="button" aria-controls="source-file">Добавить фото</button><p class="help" id="photo-help">Выберите все части рецепта или добавляйте по одной. До 10 фото, вместе до 6 МБ. Проверьте порядок чтения перед сохранением.</p><div id="photo-pages" class="photo-pages" aria-label="Порядок фото"></div><p class="help" id="photo-count" role="status"></p><label class="label" for="source-caption">Подпись к фото (необязательно)</label><input class="field" id="source-caption" placeholder="Например, название блюда">'
       : `<label class="label" for="source-value">${state.tab === 'url' ? 'Ссылка на рецепт' : 'Текст рецепта'}</label><textarea class="field" id="source-value" placeholder="${state.tab === 'url' ? 'https://сайт/рецепт' : 'Вставьте ингредиенты и шаги…'}"></textarea>`;
+    if (state.tab === 'image') setupImportPhotos(form);
   });
   el.querySelector('#import-form').onsubmit = submitImport;
+}
+
+function setupImportPhotos(form) {
+  const field = form.querySelector('#source-file'), list = form.querySelector('#photo-pages');
+  form.querySelector('#photo-add').onclick = () => field.click();
+  const render = () => {
+    list.innerHTML = form.recipePhotoFiles.map((item, index, all) => `<div class="photo-page"><img src="${esc(item.url)}" alt="Фото ${index + 1}" loading="lazy"><div><strong>Фото ${index + 1}</strong><div class="photo-page-actions"><button type="button" data-photo-action="up" data-photo-index="${index}" aria-label="Фото ${index + 1}: выше" ${index === 0 ? 'disabled' : ''}>Выше</button><button type="button" data-photo-action="down" data-photo-index="${index}" aria-label="Фото ${index + 1}: ниже" ${index === all.length - 1 ? 'disabled' : ''}>Ниже</button><button type="button" data-photo-action="remove" data-photo-index="${index}" aria-label="Удалить фото ${index + 1}">Удалить</button></div></div></div>`).join('');
+    const size = form.recipePhotoFiles.reduce((sum, item) => sum + item.file.size, 0);
+    form.querySelector('#photo-count').textContent = form.recipePhotoFiles.length ? `Добавлено фото: ${form.recipePhotoFiles.length} из 10. Размер: ${(size / 1024 / 1024).toFixed(1)} из 6 МБ.` : 'Фото пока не добавлены.';
+    list.querySelectorAll('[data-photo-action]').forEach(button => button.onclick = () => {
+      if (form.querySelector('button[type=submit]').disabled) return;
+      const index = Number(button.dataset.photoIndex), action = button.dataset.photoAction, items = form.recipePhotoFiles;
+      if (action === 'remove') URL.revokeObjectURL(items.splice(index, 1)[0].url);
+      else { const target = index + (action === 'up' ? -1 : 1); [items[index], items[target]] = [items[target], items[index]]; }
+      clearImportError(form); render();
+      list.querySelector(`[data-photo-index="${Math.min(index, items.length - 1)}"][data-photo-action="remove"]`)?.focus();
+    });
+  };
+  field.onchange = () => {
+    if (form.querySelector('button[type=submit]').disabled) return;
+    const files = [...field.files], combined = [...form.recipePhotoFiles.map(item => item.file), ...files];
+    const error = combined.length > 10 ? 'Можно добавить до 10 фото одного рецепта.' : combined.reduce((sum, file) => sum + file.size, 0) > 6 * 1024 * 1024 ? 'Общий размер фото превышает 6 МБ. Выберите файлы поменьше.' : files.some(file => !/^image\/(jpeg|png|webp)$/.test(file.type)) ? 'Разрешены JPEG, PNG и WEBP.' : null;
+    field.value = '';
+    if (error) { const message = form.querySelector('#import-error'); message.textContent = error; message.hidden = false; message.focus(); return; }
+    clearImportError(form);
+    form.recipePhotoFiles.push(...files.map(file => ({ file, url: URL.createObjectURL(file) })));
+    render();
+  };
+  render();
 }
 
 function clearImportError(form) {
@@ -1169,14 +1202,21 @@ async function submitImport(event) {
   button.disabled = true; button.innerHTML = '<span class="loader"></span>Обрабатываю…';
   form.setAttribute('aria-busy', 'true');
   tabs.forEach((control) => { control.disabled = true; });
+  const photoControls = [...form.querySelectorAll('[data-photo-action], #photo-add, #source-file, #source-caption')].map(control => [control, control.disabled]);
+  photoControls.forEach(([control]) => { control.disabled = true; });
   try {
     let body;
     if (tab === 'image') {
-      const file = field.files[0];
-      if (!file) throw Object.assign(new Error('Выберите фото рецепта.'), { invalidField: true });
-      if (file.size > 6 * 1024 * 1024) throw Object.assign(new Error('Фото больше 6 МБ. Выберите файл поменьше.'), { invalidField: true });
-      const value = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Не удалось прочитать фото. Выберите его ещё раз.')); reader.readAsDataURL(file); });
-      body = { kind: 'image', value, mime: file.type, caption: form.querySelector('#source-caption').value };
+      const files = form.recipePhotoFiles ? form.recipePhotoFiles.map(item => item.file) : [...field.files];
+      if (!files.length) throw Object.assign(new Error('Выберите фото рецепта.'), { invalidField: true });
+      if (files.length > 10) throw Object.assign(new Error('Можно добавить до 10 фото одного рецепта.'), { invalidField: true });
+      if (files.reduce((sum, file) => sum + file.size, 0) > 6 * 1024 * 1024) throw Object.assign(new Error('Общий размер фото превышает 6 МБ. Выберите файлы поменьше.'), { invalidField: true });
+      const photos = [];
+      for (const file of files) {
+        const value = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Не удалось прочитать фото. Выберите его ещё раз.')); reader.readAsDataURL(file); });
+        photos.push({ value, mime: file.type });
+      }
+      body = { kind: 'image', ...(photos.length === 1 ? photos[0] : { photos }), caption: form.querySelector('#source-caption').value };
     } else {
       const value = field.value.trim();
       if (!value) throw Object.assign(new Error(tab === 'url' ? 'Вставьте ссылку на рецепт.' : 'Вставьте текст рецепта.'), { invalidField: true });
@@ -1206,13 +1246,15 @@ async function submitImport(event) {
     message.textContent = error.invalidField ? error.message : `Не удалось сохранить рецепт. ${error instanceof TypeError ? 'Проверьте соединение.' : error.message} Данные остались в форме. Нажмите «Повторить сохранение».`;
     message.hidden = false;
     if (error.invalidField) {
-      field.setAttribute('aria-invalid', 'true'); field.setAttribute('aria-describedby', message.id); field.focus();
+      field.setAttribute('aria-invalid', 'true'); field.setAttribute('aria-describedby', message.id);
+      (tab === 'image' && form.querySelector('#photo-add') || field).focus();
     } else { message.focus(); }
     button.textContent = error.invalidField ? 'Сохранить' : 'Повторить сохранение';
   } finally {
     form.removeAttribute('aria-busy');
     button.disabled = false;
     tabs.forEach((control) => { control.disabled = false; });
+    photoControls.forEach(([control, disabled]) => { control.disabled = disabled; });
   }
 }
 

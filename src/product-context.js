@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 // Lightweight: importing the logger must never open a database or load configuration.
 export const productContext = new AsyncLocalStorage();
+export function setPhotoImportCount(count) {
+  const current = productContext.getStore();
+  if (current && Number.isInteger(count) && count > 0 && count <= 10) current.photoCount = count;
+}
 export function setProductResult(mode) {
   const current = productContext.getStore();
   if (current && !current.finished && ['catalog', 'generated', 'cache', 'mixed', 'empty'].includes(mode)) current.resultMode = mode;

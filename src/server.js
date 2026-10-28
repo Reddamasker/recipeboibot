@@ -386,10 +386,17 @@ async function api(request, response, url) {
       outcome = await importUrl(user.id, value);
     }
     if (input.kind === 'image') {
-      if (!/^image\/(jpeg|png|webp)$/.test(input.mime || '')) throw Object.assign(new Error('Разрешены JPEG, PNG и WEBP'), { status: 415 });
-      const buffer = Buffer.from(String(input.value || ''), 'base64'); if (!buffer.length || buffer.length > config.maxUploadBytes) throw Object.assign(new Error('Изображение слишком большое'), { status: 413 });
-      const detectedMime = detectedImageMime(buffer); if (!detectedMime || detectedMime !== input.mime) throw Object.assign(new Error('Содержимое файла не совпадает с форматом изображения'), { status: 415 });
-      outcome = await importText(user.id, String(input.caption || ''), { sourceType: 'image', sourceName: 'Фото из Mini App', image: { buffer, mime: detectedMime } });
+      const files = input.photos === undefined ? [input] : input.photos;
+      if (!Array.isArray(files) || !files.length || files.length > 10) throw Object.assign(new Error('Выберите от 1 до 10 фото одного рецепта.'), { status: 400 });
+      let bytes = 0;
+      const photos = files.map(file => {
+        if (!/^image\/(jpeg|png|webp)$/.test(file?.mime || '')) throw Object.assign(new Error('Разрешены JPEG, PNG и WEBP'), { status: 415 });
+        const buffer = Buffer.from(String(file.value || ''), 'base64'); bytes += buffer.length;
+        if (!buffer.length || bytes > config.maxUploadBytes) throw Object.assign(new Error('Общий размер фото превышает 6 МБ.'), { status: 413 });
+        const mime = detectedImageMime(buffer); if (!mime || mime !== file.mime) throw Object.assign(new Error('Содержимое файла не совпадает с форматом изображения'), { status: 415 });
+        return { buffer, mime };
+      });
+      outcome = await importText(user.id, String(input.caption || ''), { sourceType: 'image', sourceName: 'Фото из Mini App', photos });
     }
     if (!outcome) outcome = await importText(user.id, String(input.value || ''), { sourceType: 'text', sourceName: 'Текст из Mini App' });
     return json(response, outcome.state === 'created' ? 201 : outcome.state === 'processing' ? 202 : 200, outcome);

@@ -1,4 +1,8 @@
 import { productOperation, identifyProductUser, identifyProductStep, recordProduct } from './product-analytics.js';
+import { productError } from './product-analytics.js';
+import { addPhotoDraft, getPhotoDraft, changePhotoDraft, claimPhotoDraft, finishPhotoDraft } from './photo-drafts.js';
+import { recipePhotos } from './photo-sources.js';
+import { setPhotoImportCount } from './product-context.js';
 import { assertMaxDeliveryAvailable } from './max-api-error.js';
 import { config } from './config.js';
 import { handleWebLoginUpdate } from './web-login-prototype.js';
@@ -960,6 +964,11 @@ async function saveContent(message, user, content, options = {}) {
     return;
   }
   if (!canUsePaidImport(user.id)) { await sendTestOffer(chatId, user.id, true); return; }
+  if (message.photo?.length) {
+    const draft = addPhotoDraft(user.id, message);
+    await sendPhotoDraft(chatId, draft);
+    return false;
+  }
   if (playlist) {
     await send(chatId, 'Получено. Обрабатываю до 30 роликов из плейлиста. Результат отправлю сюда; чат можно закрыть.');
     void (async () => {
@@ -986,15 +995,80 @@ async function saveContent(message, user, content, options = {}) {
   }
   await send(chatId, 'Получено. Извлекаю рецепт — статус уже сохранён, можно закрыть чат.');
   let outcome;
-  if (message.photo?.length) {
-    const photo = message.photo.at(-1);
-    const { buffer } = await downloadTelegramFile(photo.file_id, config.maxUploadBytes);
-    const mime = config.botPlatform === 'max' ? maxPhotoMime(buffer) : 'image/jpeg';
-    outcome = await importText(user.id, message.caption || '', { sourceType: 'image', sourceName: `Фото из ${chatPlatformLabel}`, label: `Фото из ${chatPlatformLabel}`, sourceKey: `${config.botPlatform}-photo:${photo.file_unique_id || photo.file_id}`, image: { buffer, mime } });
-  } else if (content.url) outcome = await importUrl(user.id, content.url);
+  if (content.url) outcome = await importUrl(user.id, content.url);
   else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : `Сообщение в ${chatPlatformLabel}`, label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
   await finishImport(chatId, outcome, options);
   if (!options.groupMode && outcome.state === 'created' && !awaitingFirstRecipe(user.id)) await sendTestOffer(chatId, user.id);
+  return true;
+}
+
+async function sendPhotoDraft(chatId, draft) {
+  const action = value => `photos:${value}:${draft.id}:${draft.revision}`;
+  await send(chatId, `<b>Один рецепт из фото</b>\n\nДобавлено фото: ${draft.parts.length} из 10. Отправьте остальные части в порядке чтения, затем нажмите «Собрать рецепт». Общий размер — до 6 МБ.\n\nФото сохраняются в черновике на 24 часа. Для другого рецепта отмените этот набор.`, {
+    reply_markup: { inline_keyboard: [[{ text: 'Собрать рецепт', callback_data: action('build') }], [{ text: 'Убрать последнее фото', callback_data: action('remove') }, { text: 'Отменить набор', callback_data: action('cancel') }]] }
+  });
+}
+export async function handlePhotoDraftCallback(callback) {
+  const match = /^photos:(build|remove|cancel):([a-f0-9]{20}):(\d+)$/.exec(String(callback.data || ''));
+  if (!match) return false;
+  if (!callback.from || callback.from.is_bot || !callback.message?.chat) return true;
+  const chat = callback.message.chat;
+  let user, groupMode = false;
+  if (chat.type === 'private' && String(chat.id) === String(callback.from.id)) user = resolvePrivateTelegramUser(callback.from);
+  else if (['group', 'supergroup'].includes(chat.type)) {
+    const binding = getActiveTelegramGroup(chat.id);
+    if (binding?.group_access) { user = getUserById(binding.owner_user_id); groupMode = true; }
+  }
+  if (!user) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Этот набор недоступен.' }); return true; }
+  identifyProductUser(user.id); identifyProductStep('import');
+  const draft = getPhotoDraft(user.id, chat.id, callback.from.id);
+  if (!draft || draft.id !== match[2]) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Набор уже завершён, отменён или истёк. Пришлите фото заново.' }); return true; }
+  if (draft.busy) { await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Рецепт уже обрабатывается.' }); return true; }
+  if (draft.revision !== Number(match[3])) {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Набор изменился. Используйте новую кнопку ниже.' });
+    await sendPhotoDraft(chat.id, draft); return true;
+  }
+  await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+  if (match[1] !== 'build') {
+    changePhotoDraft(draft, match[1]);
+    const next = getPhotoDraft(user.id, chat.id, callback.from.id);
+    if (next) await sendPhotoDraft(chat.id, next);
+    else {
+      if (!groupMode) { const pending = getPendingIntent(user.id); if (pending?.kind === 'recipe-save') restoreAfterRecipeSave(user.id, pending); }
+      await send(chat.id, 'Набор фото отменён. Можно прислать новый рецепт.');
+    }
+    return true;
+  }
+  if (!canUsePaidImport(user.id)) { productError(402); await sendTestOffer(chat.id, user.id, true); return true; }
+  if (!claimPhotoDraft(draft)) return true;
+  setPhotoImportCount(draft.parts.length);
+  let success = false;
+  try {
+    await send(chat.id, `Собираю один рецепт из ${draft.parts.length} фото. Можно закрыть чат.`);
+    const photos = [];
+    let size = 0;
+    for (const part of draft.parts) {
+      const { buffer } = await downloadTelegramFile(part.fileId, Math.max(1, config.maxUploadBytes - size));
+      size += buffer.length;
+      photos.push({ buffer, mime: config.botPlatform === 'max' ? maxPhotoMime(buffer) : 'image/jpeg' });
+    }
+    const outcome = await importText(user.id, [...new Set(draft.parts.map(p => p.caption).filter(Boolean))].join('\n'), {
+      sourceType: 'image', sourceName: `Фото из ${chatPlatformLabel}`, photos: recipePhotos({ photos }),
+      ...(draft.parts.length === 1 ? { sourceKey: `${config.botPlatform}-photo:${draft.parts[0].key}` } : {})
+    });
+    // Finish only after the result was delivered; a transport retry can return
+    // the existing recipe without another extraction or another quota entry.
+    await finishImport(chat.id, outcome, { userId: user.id, groupMode });
+    success = outcome.state !== 'processing';
+    if (success && !groupMode) {
+      const pending = getPendingIntent(user.id);
+      if (pending?.kind === 'recipe-save') restoreAfterRecipeSave(user.id, pending);
+    }
+  } catch (error) {
+    productError(error.status || 500);
+    await send(chat.id, `Не получилось собрать рецепт: ${escapeHtml(error.message)}\n\nФото остались в наборе. Можно добавить недостающие части, убрать последнее фото или повторить сборку.`);
+  } finally { finishPhotoDraft(draft, success); }
+  if (!success) await sendPhotoDraft(chat.id, getPhotoDraft(user.id, chat.id, callback.from.id));
   return true;
 }
 
@@ -1205,6 +1279,17 @@ export async function handleMessage(message) {
     return;
   }
   if (!user.is_allowed) { await send(chatId, 'Нажмите Start — код или пароль не нужен.'); return; }
+  if (text === '/cancel') {
+    const draft = getPhotoDraft(user.id, chatId, message.from.id);
+    if (draft) {
+      if (draft.busy) { await send(chatId, 'Рецепт уже обрабатывается. Дождитесь результата.'); return; }
+      changePhotoDraft(draft, 'cancel');
+      const pending = getPendingIntent(user.id);
+      if (pending?.kind === 'recipe-save') restoreAfterRecipeSave(user.id, pending);
+      await send(chatId, 'Набор фото отменён. Можно прислать новый рецепт.');
+      return;
+    }
+  }
   if (['/collection', '/preferences', '/save', '/dinner', '/find', '/ingredients'].includes(text)) {
     await retireDialoguePrompt(chatId, user.id, getRecipeDialogue(user.id), 'Уточнение отменено: выбрано другое действие.');
   }
@@ -1426,7 +1511,7 @@ export async function handleChatUpdate(update) {
 }
 async function handleChatWorkflow(update) {
   if (update.callback_query) {
-    if (!await handleTrialReminderCallback(update.callback_query) && !await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
+    if (!await handlePhotoDraftCallback(update.callback_query) && !await handleTrialReminderCallback(update.callback_query) && !await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
   } else if (update.message) await handleMessage(update.message);
 }
 

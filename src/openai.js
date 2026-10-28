@@ -8,6 +8,7 @@ import { nutritionSchema, nutritionInstructions, recipeNutrition } from './nutri
 import { DINNER_LIMITS, dinnerPantryConstraints } from './dinner.js';
 import { rejectionCriteria, rejectionScope } from './recipe-rejection.js';
 import { photoDetailImages } from './photo-detail.js';
+import { recipePhotos } from './photo-sources.js';
 import { measureProductStage } from './product-context.js';
 
 const recipeSchema = {
@@ -35,6 +36,11 @@ const photoRecipeSchema = {
   ...extractedRecipeSchema,
   properties: { sourceText: { type: 'string', description: 'Дословная расшифровка всех строк рецепта с изображения перед заполнением остальных полей. Не сокращай перечисления.' }, ...extractedRecipeSchema.properties },
   required: ['sourceText', ...extractedRecipeSchema.required]
+};
+const multiPhotoRecipeSchema = {
+  ...photoRecipeSchema,
+  properties: { ...photoRecipeSchema.properties, coverageComplete: { type: 'boolean', description: 'Все фото прочитаны, относятся к одному рецепту; нет признаков пропущенных частей или оборванных шагов.' }, missingParts: { type: 'array', items: { type: 'string' }, description: 'Кратко опиши отсутствующие или нечитаемые части, без догадок о содержимом.' } },
+  required: [...photoRecipeSchema.required, 'coverageComplete', 'missingParts']
 };
 
 function ensureBudget(inputLength) {
@@ -166,11 +172,16 @@ function unreliablePhotoRecipe(recipe) {
     || [...ingredients, ...steps].some(item => !Number.isFinite(item.confidence) || item.confidence < 0.6);
 }
 
-export async function normalizeRecipe({ userId, text, image, images = [], sourceName }) {
+export async function normalizeRecipe({ userId, text, image, photos, images = [], sourceName }) {
+  const pages = recipePhotos({ image, photos });
+  const isPhoto = pages.length > 0, multi = pages.length > 1;
   const content = [{ type: 'input_text', text: `${systemPrompt}\n\nИсточник: ${sourceName || 'не указан'}\n<source>\n${text || 'Извлеки рецепт с изображения.'}\n</source>` }];
-  if (image) content.push({ type: 'input_image', image_url: `data:${image.mime};base64,${image.buffer.toString('base64')}`, detail: 'high' });
-  if (image) {
-    const details = await photoDetailImages(image);
+  for (const [pageIndex, page] of pages.entries()) {
+    if (multi) content.push({ type: 'input_text', text: `Фото ${pageIndex + 1} из ${pages.length}. Части одного рецепта в порядке пользователя.` });
+    content.push({ type: 'input_image', image_url: `data:${page.mime};base64,${page.buffer.toString('base64')}`, detail: 'high' });
+    // Full-resolution pages already provide detail. Keep the established crops
+    // for a single dense photo without multiplying ten pages into fifty images.
+    const details = multi ? [] : await photoDetailImages(page);
     for (const [index, part] of details.entries()) {
       content.push({ type: 'input_text', text: `Увеличенный фрагмент того же фото ${index + 1}/4. Фрагменты перекрываются; не дублируй строки рецепта.` });
       content.push({ type: 'input_image', image_url: `data:${part.mime};base64,${part.buffer.toString('base64')}`, detail: 'high' });
@@ -180,18 +191,21 @@ export async function normalizeRecipe({ userId, text, image, images = [], source
     content.push({ type: 'input_text', text: `Кадр видео: ${frame.seconds.toFixed(1)} с.` });
     content.push({ type: 'input_image', image_url: `data:${frame.mime};base64,${frame.buffer.toString('base64')}`, detail: 'high' });
   }
-  const schema = image ? photoRecipeSchema : extractedRecipeSchema;
-  const instructions = `${extractionInstructions} ${image ? 'Сначала заполни sourceText: дословно перепиши все строки рецепта с фото, без сокращений и пересказа. Затем заполни остальные поля по этой расшифровке.' : ''} Если название отсутствует, дай короткое описательное название по прочитанным продуктам и способу приготовления и отметь это в предупреждении; не используй заглушку «Не указано». Шаги не сокращай: не исключай продукты из перечислений, даже если считаешь их второстепенными. Перед ответом сверь каждую строку с оригиналом. В описании и предупреждениях используй обычные слова, не названия полей JSON.`;
+  const schema = multi ? multiPhotoRecipeSchema : isPhoto ? photoRecipeSchema : extractedRecipeSchema;
+  const instructions = `${extractionInstructions} ${isPhoto ? 'Сначала заполни sourceText: дословно перепиши все строки рецепта с каждого фото по порядку, без сокращений и пересказа. Затем заполни остальные поля по этой расшифровке.' : ''} ${multi ? 'Объедини все фото в ОДИН рецепт. Убери только одинаковые строки в перекрывающихся областях соседних скриншотов; одинаковые продукты для теста, начинки, соуса и других этапов не объединяй. Проверь все страницы, непрерывность нумерации шагов, обрезанные предложения, список ингредиентов и приготовление. Если виден пропуск, нечитаемая часть, несколько разных рецептов или противоречивые количества, coverageComplete=false и заполни missingParts. Не дописывай отсутствующее продолжение по памяти. Полноту оценивай по источнику, а не по тому, можно ли приготовить блюдо по фрагменту.' : ''} Если название отсутствует, дай короткое описательное название по прочитанным продуктам и способу приготовления и отметь это в предупреждении; не используй заглушку «Не указано». Шаги не сокращай: не исключай продукты из перечислений, даже если считаешь их второстепенными. Перед ответом сверь каждую строку с оригиналом. В описании и предупреждениях используй обычные слова, не названия полей JSON.`;
+  const incomplete = result => unreliablePhotoRecipe(result) || multi && (result.coverageComplete !== true || !Array.isArray(result.missingParts) || result.missingParts.length > 0);
   let result = await requestResponse({ userId, operation: 'recipe_extraction', schema, instructions, input: [{ role: 'user', content }] });
-  if (image && unreliablePhotoRecipe(result)) {
+  if (isPhoto && incomplete(result)) {
     result = await requestResponse({ userId, operation: 'recipe_extraction', schema,
       instructions: `${instructions} Повторная проверка: предыдущее чтение дало неполный или неуверенный результат. Заново прочитай оригинал построчно, отдельно список ингредиентов и приготовление. Не повышай confidence без надёжного чтения и не додумывай отсутствующие части.`,
       input: [{ role: 'user', content }] });
-    if (unreliablePhotoRecipe(result)) throw Object.assign(new Error('Не удалось надёжно прочитать полный рецепт с фото. Попробуйте прислать отдельно область с ингредиентами и приготовлением или вставить текст.'), { status: 422, code: 'RECIPE_EXTRACTION_INCOMPLETE' });
+    if (incomplete(result)) throw Object.assign(new Error('Не удалось прочитать полный рецепт. Добавьте фото недостающих ингредиентов или шагов, замените нечитаемые фото либо вставьте полный текст. Все части должны относиться к одному рецепту.'), { status: 422, code: 'RECIPE_EXTRACTION_INCOMPLETE' });
   }
   if (!result.title?.trim() || (!result.ingredients?.length && !result.steps?.length)) throw Object.assign(new Error('В источнике не удалось надёжно найти рецепт'), { status: 422, code: 'RECIPE_NOT_FOUND' });
   // The transcription is an intermediate reading aid, not additional stored user data.
   delete result.sourceText;
+  delete result.coverageComplete;
+  delete result.missingParts;
   return requireNutrition(result);
 }
 

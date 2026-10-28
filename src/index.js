@@ -1,5 +1,6 @@
 import { assertConfig, config } from './config.js';
 import { createServer } from './server.js';
+import { recoverPhotoDrafts } from './photo-drafts.js';
 import { sendTrialWelcomeMessage, sendNotificationRecipeLink, sendNotificationReminder, sendFeedbackNotification, startTelegramPolling, stopTelegramPolling, handleChatUpdate } from './telegram.js';
 import { maxApiCall } from './max-client.js';
 import { startMaxWorker } from './max-events.js';
@@ -25,6 +26,7 @@ if (config.botPlatform === 'max') {
   maxBotId = bot.user_id;
 }
 const interruptedJobs = interruptActiveJobs();
+recoverPhotoDrafts();
 if (interruptedJobs) log('warn', 'import_jobs_recovered', { count: interruptedJobs });
 const server = createServer();
 const maxWorker = config.botPlatform === 'max' ? startMaxWorker(handleChatUpdate, { botId: maxBotId, onError: detail => log('warn', 'max_update_failed', detail) }) : null;

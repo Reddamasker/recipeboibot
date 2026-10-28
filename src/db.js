@@ -162,6 +162,7 @@ ensureColumn('users', 'group_access', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('recipes', 'source_key', 'TEXT');
 ensureColumn('recipes', 'thumbnail_url', 'TEXT');
 ensureColumn('import_jobs', 'source_key', 'TEXT');
+ensureColumn('import_jobs', 'image_count', 'INTEGER');
 ensureColumn('import_jobs', 'source_url', 'TEXT');
 ensureColumn('import_jobs', 'label', "TEXT NOT NULL DEFAULT 'Источник'");
 ensureColumn('import_jobs', 'thumbnail_url', 'TEXT');

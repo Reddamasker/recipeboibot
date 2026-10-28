@@ -7,9 +7,13 @@ import { youtubePlaylist, youtubeVideo, extractYoutubePlaylist, YOUTUBE_PLAYLIST
 import { socialVideo, extractSocialVideoSource } from './social-video.js';
 import { extractYoutubeRecipe } from './youtube-recipe.js';
 import { withFirstRecipe } from './subscriptions.js';
+import { recipePhotos, photoSourceKey } from './photo-sources.js';
+import { db } from './db.js';
+import { setPhotoImportCount } from './product-context.js';
 
 export function importTextWithAccess(userId, text, options = {}) {
-  const key = options.sourceKey || (options.image?.buffer ? digest(options.image.buffer) : digest(String(text)));
+  const photos = recipePhotos(options);
+  const key = options.sourceKey || (photos.length ? photoSourceKey(photos) : digest(String(text)));
   return withFirstRecipe(userId, `import:${key}`, () => importText(userId, text, options), result => ['created', 'existing'].includes(result.state));
 }
 export function importUrlWithAccess(userId, input) {
@@ -105,18 +109,21 @@ function outcomeFromClaim(claim) {
 }
 
 export async function importText(userId, text, options = {}) {
-  if (!options.image?.buffer && String(text).trim().length < 10) throw Object.assign(new Error('Добавьте сам рецепт: ингредиенты или шаги.'), { status: 400, code: 'SOURCE_TOO_SHORT' });
+  const photos = recipePhotos(options);
+  setPhotoImportCount(photos.length);
+  if (!photos.length && String(text).trim().length < 10) throw Object.assign(new Error('Добавьте сам рецепт: ингредиенты или шаги.'), { status: 400, code: 'SOURCE_TOO_SHORT' });
   const sourceType = options.sourceType || 'text';
-  const contentKey = options.image?.buffer ? `image:${digest(options.image.buffer)}` : sourceKeyForText(text, sourceType);
+  const contentKey = photos.length ? photoSourceKey(photos) : sourceKeyForText(text, sourceType);
   const sourceKey = options.sourceKey || contentKey;
   const label = options.label || options.sourceName || (sourceType === 'audio' ? 'Ваше голосовое' : sourceType === 'image' ? 'Фото' : 'Текстовый рецепт');
   const claim = claimImport(userId, { sourceType, sourceKey, sourceUrl: options.sourceUrl || null, label, thumbnailUrl: options.thumbnailUrl || null });
   const existing = outcomeFromClaim(claim); if (existing) return existing;
   const job = claim.job;
+  if (photos.length) db.prepare('UPDATE import_jobs SET image_count=? WHERE id=?').run(photos.length, job.id);
   try {
     updateJob(job.id, 'normalizing');
     const normalize = options.normalize || normalizeRecipe;
-    const normalized = await normalize({ userId, text, image: options.image, sourceName: options.sourceName || label });
+    const normalized = await normalize({ userId, text, ...(photos.length > 1 ? { photos } : { image: photos[0] }), sourceName: options.sourceName || label });
     const recipe = createRecipe(userId, { ...normalized, status: options.status || 'ready', origin: 'imported', sourceType, sourceUrl: options.sourceUrl || null, sourceKey, sourceName: normalized.sourceName || options.sourceName || label, thumbnailUrl: options.thumbnailUrl || null });
     updateJob(job.id, 'ready', { recipeId: recipe.id });
     return { state: 'created', recipe, job: { ...job, status: 'ready', recipeId: recipe.id } };

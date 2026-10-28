@@ -1,4 +1,5 @@
 import { maxEventId, maxStore } from './max-store.js';
+import { createHash } from 'node:crypto';
 import { sanitizeWebLoginEvent } from './web-login-prototype.js';
 import { MaxApiError, isPermanentMaxError, withMaxDelivery } from './max-api-error.js';
 
@@ -30,7 +31,8 @@ export function normalizeMaxUpdate(event, { store = maxStore, botId, eventId } =
       if (!attachment.payload?.url) continue;
       if (attachment.type === 'image') {
         message.photo ||= [];
-        message.photo.push({ file_id: attachment.payload.url, file_unique_id: attachment.payload.token || attachment.payload.photo_id || mid });
+        message.photo.push({ file_id: attachment.payload.url, file_unique_id: attachment.payload.token || attachment.payload.photo_id || createHash('sha256').update(attachment.payload.url).digest('hex') });
+        message.recipePhotos = message.photo;
       }
       if (attachment.type === 'audio') {
         if (attachment.transcription && !message.text) { message.text = attachment.transcription; continue; }

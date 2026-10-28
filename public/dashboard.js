@@ -280,6 +280,14 @@ function renderProductAnalytics(data) {
     container.lastElementChild.classList.add('benefits-report');
     table('Работа сервиса — доступная история',['Показатель','Значение'],[['AI-вызовы',a.provider.calls],['Ошибки AI',a.provider.errors],['Входные токены',a.provider.input],['Выходные токены',a.provider.output],['Вызовы с полным учётом расхода',a.provider.complete],...Object.entries(a.imports).map(([k,v])=>['Импорт: '+k,v]),...Object.entries(a.notifications).map(([k,v])=>['Напоминание: '+k,v])],
       'Расход токенов не равен стоимости в рублях. Импорт — одна задача на источник; повторное распознавание фото увеличивает AI-вызовы, но не число импортов. Непрочитанный рецепт учитывается как failed, а не ready. Ошибки, очереди и успешные действия показаны отдельно; отправленное напоминание не считается прочитанным.');
+    const photos=a.photoImports;
+    table('Рецепты из фото',['Показатель','Значение'],photos?[
+      ['Импорты из одного / нескольких фото',photos.single+' / '+photos.multiple],
+      ['Изображений в этих импортах',photos.images],['Готово / ошибка / обработка',photos.ready+' / '+photos.failed+' / '+photos.pending],
+      ['Наборы в чате: начаты / отменены',photos.drafts+' / '+photos.cancelled],
+      ['Сборка: попытки / медиана / p95, мс',photos.assemblyTiming.samples+' / '+(photos.assemblyTiming.p50??'нет данных')+' / '+(photos.assemblyTiming.p95??'нет данных')]
+    ]:[],photos?'Сбор с '+new Date(photos.trackingSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК. Один набор источников — одна задача, повторная отправка не создаёт импорт. Изменение состава или порядка фото — новый источник. Старые импорты без числа фото исключены. Начало и отмена набора — действия в чате, не просмотры; истечение 24 часов не считается явной отменой. Ошибки и время обработки — в шаге «Импорт», видимый результат — отдельно.':'Данные импорта нескольких фото недоступны для этой версии платформы.');
+    container.lastElementChild.classList.add('photo-import-report');
     const reminders=a.trialReminders;
     const digest=a.trialDigest;
     table('Новые пользователи: ежедневные подборки',['Показатель','Значение'],digest?[

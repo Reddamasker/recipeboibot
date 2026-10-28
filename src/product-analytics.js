@@ -22,6 +22,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS product_events (
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('tracking_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_benefits_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_latency_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('photo_imports_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
 let writeFailures = 0;
 export function recordProduct(userId, event, { id = randomUUID(), visitor = null, step = 'other', flowId = null, durationMs = null, detail = {}, at = new Date().toISOString() } = {}) {
@@ -103,7 +104,7 @@ export function productOperation(step, fn, { userId = null, flowId = null } = {}
     catch (error) { c.error = Number(error.status) || 500; throw error; }
     finally { c.finished = true;
       if (c.userId) {
-        recordProduct(c.userId, 'operation_finished', { step:c.step, flowId: c.id, durationMs: Date.now() - c.started, detail: { status: c.status >= 400 ? c.status : c.error || c.status || 200, ...(c.resultMode ? { resultMode: c.resultMode } : {}) } });
+        recordProduct(c.userId, 'operation_finished', { step:c.step, flowId: c.id, durationMs: Date.now() - c.started, detail: { status: c.status >= 400 ? c.status : c.error || c.status || 200, ...(c.resultMode ? { resultMode: c.resultMode } : {}), ...(c.photoCount ? { photoCount: c.photoCount } : {}) } });
         for (const stage of c.stages || []) recordProduct(c.userId, 'request_stage', {step:c.step,flowId:c.id,durationMs:stage.durationMs,detail:{stage:stage.stage}});
       }
       else if ((c.error || c.status || 200)>=400) recordProduct(null,'auth_error',{visitor:c.id,step,detail:{status:c.error||c.status}}); }
@@ -137,6 +138,13 @@ export function validProductReport(value, { legacy = false } = {}) {
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (value.latency != null && !validLatencyReport(value.latency)) return false;
   if (value.catalogJourney != null && !validCatalogJourneyReport(value.catalogJourney)) return false;
+  if (value.photoImports != null) {
+    const r = value.photoImports, t = r.assemblyTiming;
+    if (!Number.isFinite(Date.parse(r.trackingSince)) || !['single','multiple','images','ready','failed','pending','drafts','cancelled'].every(k => Number.isSafeInteger(r[k]) && r[k] >= 0)
+      || r.ready + r.failed + r.pending !== r.single + r.multiple || r.images < r.single + 2 * r.multiple || r.images > r.single + 10 * r.multiple || r.cancelled > r.drafts
+      || !t || !Number.isSafeInteger(t.samples) || t.samples < 0 || !numeric(t.p50) || !numeric(t.p95)
+      || (t.samples === 0 ? t.p50 !== null || t.p95 !== null : t.p50 === null || t.p95 === null || t.p50 > t.p95)) return false;
+  }
   if (!Array.isArray(value.retention) || value.retention.length>60 || value.retention.some(r => !/^\d{4}-\d\d-\d\d$/.test(r.date) || !['users','d1Eligible','d1','d7Eligible','d7','d1Rate','d7Rate'].every(k=>numeric(r[k])) || r.d1>r.d1Eligible || r.d7>r.d7Eligible || r.d1Eligible>r.users || r.d7Eligible>r.users)) return false;
   if (!Array.isArray(value.checkout?.ordered) || value.checkout.ordered.length!==5 || value.checkout.ordered.some((n,i,a)=>!Number.isSafeInteger(n)||n<0||(i&&n>a[i-1]))) return false;
   const b = value.catalogBenefits;
@@ -263,7 +271,19 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     reasons[safe] = (reasons[safe] || 0) + 1;
   }
   const provider = exists('provider_requests') ? db.prepare('SELECT user_id,created_at,status,input_units,output_units,usage_complete FROM provider_requests').all().filter(eligible) : [];
-  const imports = exists('import_jobs') ? db.prepare('SELECT user_id,created_at,status FROM import_jobs').all().filter(eligible) : [];
+  const imports = exists('import_jobs') ? db.prepare('SELECT user_id,created_at,status,image_count FROM import_jobs').all().filter(eligible) : [];
+  const photoJobs = imports.filter(r => Number.isInteger(r.image_count) && r.image_count > 0);
+  const photoDraftFlows = new Set(events.filter(r => r.event === 'photo_draft_started').map(r => r.flow_id));
+  const photoImports = {
+    trackingSince: db.prepare("SELECT value FROM product_analytics_metadata WHERE key='photo_imports_since'").get().value,
+    single: photoJobs.filter(r => r.image_count === 1).length, multiple: photoJobs.filter(r => r.image_count > 1).length,
+    images: photoJobs.reduce((sum, r) => sum + r.image_count, 0),
+    ready: photoJobs.filter(r => r.status === 'ready').length, failed: photoJobs.filter(r => ['failed','interrupted'].includes(r.status)).length,
+    pending: photoJobs.filter(r => !['ready','failed','interrupted'].includes(r.status)).length,
+    drafts: photoDraftFlows.size,
+    cancelled: new Set(events.filter(r => r.event === 'photo_draft_cancelled' && photoDraftFlows.has(r.flow_id)).map(r => r.flow_id)).size,
+    assemblyTiming: timing(events.filter(r => r.event === 'operation_finished' && r.step === 'import' && Number.isInteger(JSON.parse(r.detail_json).photoCount)))
+  };
   const notifications = exists('notification_deliveries') ? db.prepare('SELECT user_id,created_at,status FROM notification_deliveries').all().filter(eligible) : [];
   const groupStatuses = list => Object.fromEntries([...new Set(list.map(r => r.status))].map(status => [status,list.filter(r => r.status === status).length]));
   const orders = exists('payment_orders') && db.prepare('PRAGMA table_info(payment_orders)').all().some(c => c.name === 'is_test')
@@ -345,7 +365,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   return { platform: config.botPlatform, trackingSince: productTrackingSince(), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
-    imports:groupStatuses(imports),notifications:groupStatuses(notifications), trialReminders:config.botPlatform === 'max' ? null : trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
+    imports:groupStatuses(imports),photoImports,notifications:groupStatuses(notifications), trialReminders:config.botPlatform === 'max' ? null : trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
     catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),
     health:health(events),publicHealth:campaign?null:health(rows.filter(r=>!r.user_id)),writeFailures };
 }
