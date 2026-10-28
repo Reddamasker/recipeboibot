@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 
-const dbPath = path.resolve('data', `max-integration-${process.pid}.sqlite`);
+const dbPath = path.resolve('data', `max-integration-${randomUUID()}.sqlite`);
 Object.assign(process.env, { BOT_PLATFORM: 'max', MAX_BOT_TOKEN: 'max-test-secret', MAX_BOT_USERNAME: 'recipe_test_bot', MAX_WEBHOOK_SECRET: 's'.repeat(64), TELEGRAM_BOT_TOKEN: '', TELEGRAM_POLLING: 'false', DATABASE_PATH: dbPath, APP_URL: 'https://max-recipes.example.test', OPENAI_API_KEY: 'test-key', OPENAI_TEXT_MODEL: 'test-model', OPENAI_TRANSCRIBE_MODEL: 'test-transcribe', DINNER_LLM_ENABLED: 'false', DINNER_IMAGES_ENABLED: 'false' });
 const { db, resolvePrivateTelegramUser, allowUser } = await import('../src/db.js');
 const { createServer } = await import('../src/server.js');
