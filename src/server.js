@@ -35,6 +35,7 @@ import { ensureNutrition } from './nutrition-service.js';
 import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { mergeMaxFunnelReport, maxFunnelSnapshot, maxFunnelAuthorized } from './max-funnel.js';
+import { catalogDetailFilters, catalogDetailReport, dashboardCatalogDetails } from './catalog-detail-analytics.js';
 import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
@@ -475,6 +476,10 @@ async function handleRequest(request, response) {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
         return json(response, 200, maxFunnelSnapshot(url.searchParams.has('campaign') ? url.searchParams.get('campaign') : null));
       }
+      if (url.pathname === '/api/internal/catalog-visits') {
+        if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
+        return json(response, 200, catalogDetailReport(catalogDetailFilters(url.searchParams,'max')));
+      }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
       if (url.pathname.startsWith('/api/internal/catalog-handoff/')) {
         const action=url.pathname.slice('/api/internal/catalog-handoff/'.length);
@@ -534,6 +539,10 @@ async function handleRequest(request, response) {
           return json(response, 200, { ok: true });
         }
         if (!dashboardSessionValid(cookie)) return json(response, 401, { error: 'Войдите в дашборд' });
+        if (url.pathname === '/api/dashboard/catalog-visits') {
+          if (request.method !== 'GET') return json(response, 405, { error: 'Метод не поддерживается' });
+          return json(response, 200, await dashboardCatalogDetails(url.searchParams));
+        }
         if (request.method === 'GET' && url.pathname === '/api/dashboard/web-login-prototype') return json(response,200,webLoginStore?.report() || null);
         if (request.method === 'POST' && url.pathname === '/api/dashboard/logout') {
           closeDashboardSession(cookie); response.setHeader('set-cookie', sessionCookie(''));

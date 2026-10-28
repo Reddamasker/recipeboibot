@@ -5,11 +5,12 @@ import { config } from './config.js';
 import { trialReminderReport } from './trial-reminders.js';
 import { trialDigestReport } from './trial-digest-store.js';
 import { catalogJourney, catalogJourneyPublicEvents, recordCatalogJourneyPublic, catalogJourneyReport, validCatalogJourneyReport } from './catalog-journey-analytics.js';
+import { catalogDetailPublicEvents, catalogDetailEventFields } from './catalog-detail-analytics.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
 const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
-export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, ...catalogJourneyPublicEvents, 'client_error', 'telemetry_health'];
+export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, ...catalogJourneyPublicEvents, ...catalogDetailPublicEvents, 'client_error', 'telemetry_health'];
 export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
 const idPattern = /^[a-zA-Z0-9_-]{16,80}$/;
 const exists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
@@ -41,7 +42,7 @@ export function acceptProductEvents(userId, input) {
       || !steps.includes(row.step) || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
     if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
-    const detail = {};
+    const detail = catalogDetailEventFields(row);
     if (catalogJourneyPublicEvents.includes(row.event) && row.journey !== catalogJourney) return invalid();
     if (row.journey !== undefined) {
       if (userId || row.journey !== catalogJourney || row.step !== 'catalog' || !idPattern.test(row.flowId || '')) return invalid();
@@ -80,12 +81,12 @@ export function acceptProductEvents(userId, input) {
   const accepted = [];
   for (const row of rows) {
     const inserted = recordProduct(userId, row.event, row.options);
-    const previous = inserted ? null : db.prepare('SELECT event,flow_id,detail_json FROM product_events WHERE subject=? AND id=?').get(userId ? 'u:' + userId : 'v:' + input.visitor, row.options.id);
+    const previous = inserted ? null : db.prepare('SELECT event,flow_id,detail_json,created_at FROM product_events WHERE subject=? AND id=?').get(userId ? 'u:' + userId : 'v:' + input.visitor, row.options.id);
     if (inserted || previous) {
       accepted.push(row.options.id);
       // Reusing an acknowledged event ID must not register a different journey.
       if (!userId && (inserted || previous.event === row.event && previous.flow_id === row.options.flowId
-        && JSON.parse(previous.detail_json).journey === row.journey.journey)) recordCatalogJourneyPublic(row.journey, input.visitor, row.options.at);
+        && JSON.parse(previous.detail_json).journey === row.journey.journey)) recordCatalogJourneyPublic(row.journey, input.visitor, previous?.created_at || row.options.at);
     }
   }
   return { accepted };
@@ -319,7 +320,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   }
   const retention = [...cohorts.values()].sort((a,b) => b.date.localeCompare(a.date)).slice(0,60).map(r => ({...r,d1Rate:p(r.d1,r.d1Eligible),d7Rate:p(r.d7,r.d7Eligible)}));
   const publicRows = campaign ? [] : rows.filter(r => !r.user_id && r.step === 'catalog');
-  const catalog = campaign ? null : publicEvents.filter(e => e.startsWith('catalog_') && !catalogJourneyPublicEvents.includes(e)).map(event => ({ event, events: publicRows.filter(r => r.event===event).length, visits: countUsers(publicRows,event) }));
+  const catalog = campaign ? null : publicEvents.filter(e => e.startsWith('catalog_') && !catalogJourneyPublicEvents.includes(e) && !catalogDetailPublicEvents.includes(e)).map(event => ({ event, events: publicRows.filter(r => r.event===event).length, visits: countUsers(publicRows,event) }));
   // A public visit is a browser tab, not an account. Count each visible presentation once,
   // and match actions to its random flow within the same anonymous subject.
   const benefitFlows = new Map();

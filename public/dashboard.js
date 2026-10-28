@@ -10,9 +10,10 @@ async function api(path, method = 'GET', body) {
   return data;
 }
 function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 3500); }
-function showLogin() { webLoginDiagnosticsRevision++; $('#web-login-diagnostics').hidden = true; $('#dashboard').hidden = true; $('#login').hidden = false; }
+function showLogin() { webLoginDiagnosticsRevision++; window.CatalogVisitsDashboard?.clear(); $('#web-login-diagnostics').hidden = true; $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  window.CatalogVisitsDashboard?.refresh(data);
   renderProductAnalytics(data);
   $('#page-error').textContent = data.remoteFunnel?.error || '';
   $('#page-error').hidden = !data.remoteFunnel?.error;

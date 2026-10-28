@@ -39,7 +39,7 @@ function register({ flowId, sessionId, campaign = null }, local, at = now()) {
   if (previous && previous.session_id !== sessionId) return false;
   db.prepare(`INSERT OR IGNORE INTO catalog_journey_visits(flow_id,session_id,campaign,local_origin,created_at)
     VALUES(?,?,?,?,?)`).run(flowId, sessionId, knownCampaign(campaign), local ? 1 : 0, at);
-  if (local) db.prepare('UPDATE catalog_journey_visits SET local_origin=1 WHERE flow_id=?').run(flowId);
+  if (local) db.prepare('UPDATE catalog_journey_visits SET local_origin=1,created_at=MIN(created_at,?) WHERE flow_id=?').run(at,flowId);
   return true;
 }
 
@@ -48,7 +48,7 @@ export function registerCatalogJourneyHandoff(value) {
 }
 
 export function recordCatalogJourneyPublic(row, visitor, at) {
-  if (row.journey !== catalogJourney || row.step !== 'catalog' || !publicStages.has(row.event)) return;
+  if (row.journey !== catalogJourney || row.step !== 'catalog' || !publicStages.has(row.event) && row.event !== 'catalog_page_started') return;
   try { register({ flowId: row.flowId, sessionId: visitor, campaign: row.campaign }, true, at); } catch { /* Access never depends on analytics. */ }
 }
 

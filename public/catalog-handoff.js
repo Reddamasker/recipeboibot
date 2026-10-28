@@ -13,8 +13,9 @@
   const sessionId = window.RecipeAnalytics?.sessionId || crypto.randomUUID();
   const context = { flowId, sessionId, ...(campaign ? { campaign } : {}) };
   const detail = () => ({ flowId, journey: 'recipe-first-v1', ...(campaign ? { campaign } : {}) });
+  const action = name => {try{window.CatalogDetail?.action(name);}catch{}};
   function record(name, extra = {}) {
-    try { window.RecipeAnalytics?.event(name, 'catalog', { ...detail(), ...extra }); } catch {}
+    try { window.RecipeAnalytics?.event(name, 'catalog', { ...detail(), ...window.CatalogDetail?.detail(), ...extra }); } catch {}
   }
   function safeDestination(value, platform) {
     try {
@@ -31,23 +32,29 @@
     const status = element.querySelector('.handoff-status');
     const continuation = element.querySelector('.handoff-continue');
     const buttons = [...element.querySelectorAll('[data-handoff-platform]')];
+    const mountedPageId=window.CatalogDetail?.detail()?.pageId;
+    const currentView=()=>element.isConnected&&!element.closest?.('[hidden]')&&(!mountedPageId||window.CatalogDetail?.detail()?.pageId===mountedPageId);
     let busy = false, opened = false, requestController = null;
     trigger.addEventListener('click', () => {
-      if (!element.isConnected || document.visibilityState !== 'visible') return;
+      if (!currentView() || document.visibilityState !== 'visible') return;
       choices.hidden = false;
       trigger.setAttribute('aria-expanded', 'true');
+      action('save_open');
       if (!opened) { record('catalog_save_intent'); opened = true; }
       buttons[0].focus({ preventScroll: true });
     });
     element.querySelector('.handoff-cancel').addEventListener('click', () => {
+      action('cancel_save');
       requestController?.abort();
       choices.hidden = true;
       trigger.setAttribute('aria-expanded', 'false');
       trigger.focus({ preventScroll: true });
     });
+    continuation.addEventListener('click',()=>{action('open_bot');try{window.RecipeAnalytics?.flushBeforeNavigate?.();}catch{}});
     for (const button of buttons) button.addEventListener('click', async () => {
-      if (busy || choices.hidden || document.visibilityState !== 'visible') return;
+      if (busy || !currentView() || choices.hidden || document.visibilityState !== 'visible') return;
       const platform = button.dataset.handoffPlatform;
+      action(platform==='max'?'platform_max':'platform_telegram');
       record('catalog_platform_selected', { platform });
       status.textContent = 'Готовим переход к выбранному рецепту…';
       continuation.hidden = true;
@@ -65,17 +72,18 @@
         const result = await response.json();
         const url = safeDestination(result.url, platform);
         if (!url) throw Object.assign(new Error('http'), { code: 'http' });
-        if (!element.isConnected || choices.hidden || requestController.signal.aborted) return;
+        if (!currentView() || choices.hidden || requestController.signal.aborted) return;
         record('catalog_handoff_ready', { platform, durationMs: Math.max(0, Date.now() - startedAt) });
         continuation.href = url;
         continuation.textContent = platform === 'max' ? 'Открыть MAX' : 'Открыть Telegram';
         continuation.hidden = false;
         status.textContent = 'В боте нажмите «Начать», чтобы сохранить этот рецепт. Если приложение не открылось, нажмите на ссылку ниже.';
+        action('open_bot');
         try { window.RecipeAnalytics?.flushBeforeNavigate?.(); } catch {}
         // The same tab avoids popup blocking after the asynchronous preparation.
         location.assign(url);
       } catch (error) {
-        if (!element.isConnected || choices.hidden) return;
+        if (!currentView() || choices.hidden) return;
         const code = requestController.signal.aborted ? 'timeout' : error.code || 'network';
         record('catalog_handoff_error', { platform, code, durationMs: Math.max(0, Date.now() - startedAt) });
         status.textContent = error.status === 404 || error.status === 410

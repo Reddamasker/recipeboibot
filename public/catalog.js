@@ -9,7 +9,8 @@
   const params = () => new URLSearchParams(location.search);
   const adEntry = /^\/dinner(?:\/|$)/.test(location.pathname);
   const routeBase = adEntry ? '/dinner' : '/recipes';
-  const analyticsDetail = () => window.CatalogHandoff?.detail() || {};
+  const journey = (method,...args) => {try{return window.CatalogDetail?.[method]?.(...args);}catch{}};
+  const analyticsDetail = () => ({...window.CatalogHandoff?.detail(),...journey('detail')});
   const resetUrl = () => { const p=params(); for(const name of ['q',...filterNames,'favorites','page','sort'])p.delete(name);return searchUrl(p); };
   const previousFilters=params();
   if(['asian','eastern','european','caucasian'].includes(previousFilters.get('cuisine'))) {
@@ -58,11 +59,11 @@
     $('#search').placeholder='Например, паста с томатами';
     $('#search-form button').textContent='Найти';
     $('.header a[aria-current]').href=searchUrl(new URLSearchParams());
-    $('#all-cuisines').addEventListener('click',()=>{expandedCuisines=!expandedCuisines;if(visualResult)renderVisualFilters(params(),visualResult);});
-    $('#show-results').addEventListener('click',()=>{if(adEntry)$('#dinner-filters').open=false;$('.results').scrollIntoView({behavior:'smooth',block:'start'});});
-    $('#more-filters').addEventListener('click',()=>{const panel=$('#visual-refinements');panel.hidden=!panel.hidden;$('#more-filters').setAttribute('aria-expanded',String(!panel.hidden));});
-    $('#visual-reset').addEventListener('click',()=>navigate(resetUrl()));
-    $('#visual-products').addEventListener('submit',event=>{event.preventDefault();const p=params();for(const name of ['include','exclude']){const value=$('#visual-'+name).value.trim();if(value)p.set(name,value);else p.delete(name);}p.delete('page');navigate(searchUrl(p));});
+    $('#all-cuisines').addEventListener('click',()=>{expandedCuisines=!expandedCuisines;if(expandedCuisines)journey('action','more_cuisines');if(visualResult)renderVisualFilters(params(),visualResult);journey('mount');});
+    $('#show-results').addEventListener('click',()=>{journey('action','results_jump');if(adEntry)$('#dinner-filters').open=false;$('.results').scrollIntoView({behavior:'smooth',block:'start'});});
+    $('#more-filters').addEventListener('click',()=>{const panel=$('#visual-refinements');panel.hidden=!panel.hidden;if(!panel.hidden)journey('action','filters_expand');$('#more-filters').setAttribute('aria-expanded',String(!panel.hidden));journey('recheck');});
+    $('#visual-reset').addEventListener('click',()=>{journey('action','filter_reset');navigate(resetUrl(),{navigation:'reset'});});
+    $('#visual-products').addEventListener('submit',event=>{event.preventDefault();journey('action','filter_change');const p=params();for(const name of ['include','exclude']){const value=$('#visual-'+name).value.trim();if(value)p.set(name,value);else p.delete(name);}p.delete('page');navigate(searchUrl(p),{navigation:'filter'});});
   }
   if(adEntry) {
     document.body.dataset.catalogEntry='dinner';
@@ -75,6 +76,7 @@
       const filters=document.createElement('details');filters.id='dinner-filters';filters.className='dinner-filters';
       filters.innerHTML='<summary>Кухни, продукты и время</summary>';
       $('#visual-discovery').before(filters);filters.append($('#visual-discovery'));
+      filters.addEventListener('toggle',()=>{if(filters.open)journey('action','filters_expand');journey('recheck');});
       $('.quick').innerHTML='<span>Быстрый выбор:</span><button data-quick="time:30">До 30 минут</button><button data-quick="cuisine:italian">Итальянская кухня</button><button data-quick="cuisine:georgian">Грузинская кухня</button><button data-quick="category:chicken">С курицей</button>';
       filters.before($('.quick'));
     }
@@ -82,21 +84,22 @@
   const favoriteText = id => favorites.has(id) ? 'Сохранено' : 'В избранное';
   function notice(text) { $('#notice').textContent=text; $('#notice').hidden=false; clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>$('#notice').hidden=true,3500); }
   function saveFavorite(id) {
+    journey('action',favorites.has(id)?'favorite_remove':'favorite_add');
     if(favorites.has(id)) favorites.delete(id); else favorites.add(id);
-    try { localStorage.setItem(key,JSON.stringify([...favorites])); window.RecipeAnalytics?.event(favorites.has(id)?'catalog_favorite_add':'catalog_favorite_remove','catalog'); notice(favorites.has(id)?'Рецепт сохранён в этом браузере':'Рецепт убран из избранного'); }
+    try { localStorage.setItem(key,JSON.stringify([...favorites])); window.RecipeAnalytics?.event(favorites.has(id)?'catalog_favorite_add':'catalog_favorite_remove','catalog',analyticsDetail()); notice(favorites.has(id)?'Рецепт сохранён в этом браузере':'Рецепт убран из избранного'); }
     catch { notice('Хранилище браузера недоступно. Избранное сохранится только до закрытия страницы.'); }
     updateFavorites();
-    if(!currentRecipe && params().get('favorites')==='1') load();
+    if(!currentRecipe && params().get('favorites')==='1') load({navigation:'favorites'});
   }
   function updateFavorites() {
     $('#saved-count').textContent=favorites.size;
     document.querySelectorAll('[data-save]').forEach(button=>{button.textContent=favoriteText(button.dataset.save);button.setAttribute('aria-pressed',String(favorites.has(button.dataset.save)));});
   }
-  function navigate(url, {scroll=false, benefits=false}={}) { const target=new URL(url,location.origin);if(visualMode)target.searchParams.set('filters','visual');history.pushState({},'',target.pathname+target.search); load({benefits}); if(scroll) window.scrollTo({top:0}); }
+  function navigate(url, {scroll=false, benefits=false, navigation='link'}={}) { const target=new URL(url,location.origin);if(visualMode)target.searchParams.set('filters','visual');history.pushState({},'',target.pathname+target.search); load({benefits,navigation}); if(scroll) window.scrollTo({top:0}); }
   function searchUrl(p) { if(visualMode)p.set('filters','visual');if(window.CatalogHandoff?.context.campaign)p.set('campaign',window.CatalogHandoff.context.campaign);return routeBase+(p.size?'?'+p.toString():''); }
   async function request(url, signal) {
     const response=await fetch(url,{signal});
-    if(!response.ok) throw new Error(response.status===404?'Рецепт не найден':response.status===429?'Слишком много запросов. Попробуйте через минуту.':'Не удалось загрузить рецепты. Проверьте соединение и повторите.');
+    if(!response.ok) throw Object.assign(new Error(response.status===404?'Рецепт не найден':response.status===429?'Слишком много запросов. Попробуйте через минуту.':'Не удалось загрузить рецепты. Проверьте соединение и повторите.'),{code:'http'});
     return response.json();
   }
   function options(name, values, selected) {
@@ -124,11 +127,12 @@
       return `<button data-remove="${name}" aria-label="Убрать фильтр ${escape(label)}">${escape(label)}: ${escape(value)} ×</button>`;
     }).join('');
   }
-  async function load({benefits=false}={}) {
+  async function load({benefits=false,navigation='initial'}={}) {
     const startedAt=Date.now();
     window.CatalogBenefits?.close({restoreFocus:false, observeRecipe:false});
     controller?.abort(); controller=new AbortController(); const signal=controller.signal;
     const p=params(), id=location.pathname.match(/^\/(?:recipes|dinner)\/([a-z0-9-]+)$/)?.[1];
+    journey('begin',id?'recipe':'list',navigation);
     if (p.get('benefits') === 'preview') pendingBenefitsPreview = id || null;
     else if (pendingBenefitsPreview !== id) pendingBenefitsPreview = null;
     const previewBenefits = Boolean(id && pendingBenefitsPreview === id);
@@ -144,14 +148,14 @@
       try {
         const recipe=await request('/api/catalog/'+id,signal);
         if(signal.aborted) return;
-        currentRecipe=recipe; renderRecipe(recipe,p);
+        currentRecipe=recipe; renderRecipe(recipe,p);journey('mount');
         let observed=false;
         const observeRecipe=()=>{if(observed || signal.aborted || currentRecipe!==recipe)return;observed=true;try{window.RecipeAnalytics?.observe($('#recipe-view'),'catalog_open','catalog',{...analyticsDetail(),_started:startedAt});}catch{}};
         const opened=!adEntry && (benefits || previewBenefits) && window.CatalogBenefits?.open(recipe,{automatic:!previewBenefits,afterClose:observeRecipe});
         if (previewBenefits) pendingBenefitsPreview = null;
         if(!opened)observeRecipe();
       }
-      catch(error) { if(error.name!=='AbortError') $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← В каталог</a><div class="empty"><h1>${escape(error.message)}</h1><button data-retry>Повторить</button></div>`; }
+      catch(error) { if(error.name!=='AbortError') {try{window.RecipeAnalytics?.event('client_error','catalog',{...analyticsDetail(),code:error.code==='http'?'http':'network'});}catch{}$('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← В каталог</a><div class="empty"><h1>${escape(error.message)}</h1><button data-retry>Повторить</button></div>`;journey('mount');} }
       return;
     }
     document.title=adEntry?'Что приготовить на ужин — Твои рецепты':'Выбрать рецепт — Твои рецепты';
@@ -177,7 +181,8 @@
       if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{...analyticsDetail(),filters});
       $('#cards').innerHTML=result.recipes.length?result.recipes.map(card).join(''):`<div class="empty"><h3>${p.get('favorites')==='1'&&!favorites.size?'Здесь будут любимые рецепты':'Подходящих рецептов пока нет'}</h3><p>${p.get('favorites')==='1'&&!favorites.size?'Нажмите «В избранное» на понравившейся карточке.':'Попробуйте убрать часть фильтров или увеличить время приготовления.'}</p><button data-reset>Показать все рецепты</button></div>`;
       $('#pagination').innerHTML=result.pages>1?`<button data-page="${result.page-1}" ${result.page===1?'disabled':''}>Назад</button><span>${result.page} из ${result.pages}</span><button data-page="${result.page+1}" ${result.page===result.pages?'disabled':''}>Далее</button>`:'';
-    } catch(error) { if(error.name!=='AbortError') { $('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`; } }
+      journey('mount');
+    } catch(error) { if(error.name!=='AbortError') { try{window.RecipeAnalytics?.event('client_error','catalog',{...analyticsDetail(),code:error.code==='http'?'http':'network'});}catch{}$('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`;journey('mount'); } }
     finally { if(!signal.aborted) $('#cards').setAttribute('aria-busy','false'); }
   }
   function renderRecipe(recipe,p) {
@@ -197,9 +202,9 @@
     const n=recipe.nutrition;
     $('#nutrition').innerHTML=n?`<strong>Пищевая ценность на порцию</strong>${Math.round(n.calories)} ккал · Белки ${escape(n.protein)} г<br>Жиры ${escape(n.fat)} г · Углеводы ${escape(n.carbs)} г<br><span>Расчётные значения, зависят от продуктов.</span>`:'Пищевая ценность пока не рассчитана.';
     $('#servings').addEventListener('input',event=>{ const value=Number(event.target.value); if(Number.isInteger(value)&&value>=1&&value<=20) renderIngredients(value); });
-    $('#servings').addEventListener('change',event=>{const value=Math.max(1,Math.min(20,Math.round(Number(event.target.value)||currentRecipe.servings)));event.target.value=value;renderIngredients(value);});
-    $('#share-recipe').addEventListener('click',async()=>{const url=location.origin+routeBase+'/'+recipe.id;try{await navigator.clipboard.writeText(url);notice('Ссылка на рецепт скопирована');window.RecipeAnalytics?.event('catalog_share','catalog');}catch{notice('Скопируйте адрес рецепта из строки браузера');}});
-    $('#print-recipe').addEventListener('click',()=>{window.RecipeAnalytics?.event('catalog_print','catalog');window.print();});
+    $('#servings').addEventListener('change',event=>{journey('action','servings_change');const value=Math.max(1,Math.min(20,Math.round(Number(event.target.value)||currentRecipe.servings)));event.target.value=value;renderIngredients(value);});
+    $('#share-recipe').addEventListener('click',async()=>{journey('action','share');const url=location.origin+routeBase+'/'+recipe.id;try{await navigator.clipboard.writeText(url);notice('Ссылка на рецепт скопирована');window.RecipeAnalytics?.event('catalog_share','catalog',analyticsDetail());}catch{notice('Скопируйте адрес рецепта из строки браузера');}});
+    $('#print-recipe').addEventListener('click',()=>{journey('action','print');window.RecipeAnalytics?.event('catalog_print','catalog',analyticsDetail());window.print();});
   }
   function renderIngredients(servings) {
     const checked=new Set([...document.querySelectorAll('#ingredients input:checked')].map(input=>input.value));
@@ -207,34 +212,37 @@
   }
   function applyFilters(event) {
     event.preventDefault();const p=params();p.delete('page');
+    const navigation=event.target.id==='sort'?'sort':event.target.id==='search-form'?'search':'filter';
+    journey('action',navigation==='sort'?'sort_change':navigation==='search'?'search_submit':'filter_change',{control:event.target.name});
     const values={q:$('#search').value.trim(),sort:$('#sort').value,...Object.fromEntries(new FormData($('#filters')))};
     for(const [name,value] of Object.entries(values)) { if(value && value!=='recommended') p.set(name,value); else p.delete(name); }
-    navigate(searchUrl(p));
+    navigate(searchUrl(p),{navigation});
   }
   $('#search-form').addEventListener('submit',applyFilters); $('#filters').addEventListener('submit',applyFilters);
   $('#filters').addEventListener('change',event=>{if(event.target.tagName==='SELECT')applyFilters(event);});
   $('#sort').addEventListener('change',applyFilters);
-  $('#reset').addEventListener('click',()=>navigate(resetUrl()));
-  $('#saved-toggle').addEventListener('click',()=>{const p=new URLSearchParams();if(params().get('favorites')!=='1')p.set('favorites','1');navigate(searchUrl(p),{scroll:true});});
+  $('#reset').addEventListener('click',()=>{journey('action','filter_reset');navigate(resetUrl(),{navigation:'reset'});});
+  $('#saved-toggle').addEventListener('click',()=>{const p=new URLSearchParams();if(params().get('favorites')!=='1')p.set('favorites','1');navigate(searchUrl(p),{scroll:true,navigation:'favorites'});});
   document.addEventListener('click',event=>{
     const target=event.target.closest('button,a'); if(!target)return;
-    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigate(target.getAttribute('href'),{scroll:true,benefits:target.classList.contains('card-link')});}
+    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();const isCard=target.classList.contains('card-link'),isBack=target.classList.contains('back');if(isCard)journey('action','card_open',{position:[...document.querySelectorAll('#cards .card-link')].indexOf(target)+1});else if(isBack)journey('action','back_to_list');navigate(target.getAttribute('href'),{scroll:true,benefits:isCard,navigation:isBack?'back':'link'});}
     else if(target.dataset.save) saveFavorite(target.dataset.save);
-    else if(target.hasAttribute('data-reset')) navigate(resetUrl());
-    else if(target.hasAttribute('data-retry')) load();
+    else if(target.hasAttribute('data-reset')) {journey('action','filter_reset');navigate(resetUrl(),{navigation:'reset'});}
+    else if(target.hasAttribute('data-retry')) {journey('action','retry');load({navigation:'retry'});}
     else if(target.dataset.visualFilter) {
       const p=params(),name=target.dataset.visualFilter,value=target.dataset.value;
+      journey('action','filter_change',{control:name});
       if(name==='include') {const chosen=selectedProducts(p);const next=chosen.includes(value)?chosen.filter(v=>v!==value):[...chosen,value];if(next.length)p.set(name,next.join(','));else p.delete(name);}
       else if(p.get(name)===value||!value)p.delete(name);else p.set(name,value);
-      p.delete('page');navigate(searchUrl(p));
+      p.delete('page');navigate(searchUrl(p),{navigation:'filter'});
     }
-    else if(target.dataset.quick) {const p=params(),[name,value]=target.dataset.quick.split(':');p.set(name,value);p.delete('page');navigate(searchUrl(p));}
-    else if(target.dataset.remove){const p=params();p.delete(target.dataset.remove);p.delete('page');navigate(searchUrl(p));}
-    else if(target.dataset.page){const p=params();p.set('page',target.dataset.page);navigate(searchUrl(p));$('.results').scrollIntoView({block:'start'});}
+    else if(target.dataset.quick) {const p=params(),[name,value]=target.dataset.quick.split(':');journey('action','filter_change',{control:name});p.set(name,value);p.delete('page');navigate(searchUrl(p),{navigation:'filter'});}
+    else if(target.dataset.remove){journey('action','filter_change',{control:target.dataset.remove});const p=params();p.delete(target.dataset.remove);p.delete('page');navigate(searchUrl(p),{navigation:'filter'});}
+    else if(target.dataset.page){journey('action','pagination');const p=params();p.set('page',target.dataset.page);navigate(searchUrl(p),{navigation:'pagination'});$('.results').scrollIntoView({block:'start'});}
   });
   const mobile = matchMedia('(max-width:760px)');
   if(mobile.matches) $('#filter-panel').open=false;
   mobile.addEventListener('change',event=>{if(!event.matches)$('#filter-panel').open=true;});
-  window.addEventListener('popstate',load);
+  window.addEventListener('popstate',()=>load({navigation:'back'}));
   updateFavorites(); load();
 })();
