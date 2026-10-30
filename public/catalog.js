@@ -18,6 +18,7 @@
     history.replaceState({},'',location.pathname+(previousFilters.size?'?'+previousFilters.toString():''));
   }
   const visualMode = params().get('filters') !== 'classic';
+  const dinnerVariant = adEntry && visualMode;
   const mainCuisines = ['everyday','russian','italian','georgian','japanese','chinese'];
   const mainCuisineValues = values => mainCuisines.map(id=>values.find(value=>value.id===id)).filter(Boolean);
   const dishTypes=['noodles','rice','pasta','soup','salad','baking','pizza'];
@@ -28,6 +29,13 @@
     ['Другие продукты', [['овощи','Овощи','vegetables'],['грибы','Грибы','mushroom'],['яйца','Яйца','egg'],['сыр','Сыр','cheese']]]
   ];
   const newProductImages = new Set(['noodles','pasta','vegetables']);
+  const dinnerProducts = [
+    ['картофель','Картофель','potato'],['курица','Курица','chicken'],['макароны','Макароны','pasta'],['сыр','Сыр','cheese'],
+    ['фарш','Фарш','mince'],['лук','Лук','onion'],['морковь','Морковь','carrot'],['яйца','Яйца','egg'],
+    ['свинина','Свинина','pork'],['говядина','Говядина','beef'],['рис','Рис','rice'],['лапша','Лапша','noodles']
+  ];
+  const dinnerPhotos = new Set(['mince','onion','carrot','egg']);
+  const cuisinePhotos = new Set(['everyday','russian','italian','georgian','japanese','chinese']);
   const selectedProducts = p => (p.get('include')||'').split(',').map(s=>s.trim()).filter(Boolean);
   function visualButton(name,value,label,extra='') {
     const selected=name==='include'?selectedProducts(params()).includes(value):(params().get(name)||'')===value;
@@ -40,12 +48,13 @@
     const choices=result.cuisineChoices||result.cuisines;
     const primary=mainCuisineValues(choices), other=choices.filter(c=>!mainCuisines.includes(c.id));
     const visible=[...primary,...other.filter(c=>expandedCuisines||c.id===p.get('cuisine'))];
-    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`<span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
+    $('#cuisine-tiles').innerHTML=visible.map(c=>visualButton('cuisine',c.id,`${dinnerVariant&&cuisinePhotos.has(c.id)?`<img src="/assets/filters/variant2/cuisine-${c.id}.webp" width="40" height="40" alt="">`:''}<span class="tile-label">${escape(c.label)}<small>${c.count}</small></span>`,'class="cuisine-tile"')).join('');
     $('#cuisine-tiles').dataset.expanded='true';
     $('#all-cuisines').hidden=!other.length;
     $('#all-cuisines').textContent=expandedCuisines?'Свернуть':'Другие кухни';
     $('#all-cuisines').setAttribute('aria-expanded',String(expandedCuisines));
     $('#ingredient-chips').innerHTML=productGroups.map(([heading,products])=>`<section class="ingredient-group" aria-label="${escape(heading)}"><h3>${escape(heading)}</h3><div class="ingredient-grid">${products.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/ingredients-${newProductImages.has(illustration)?'v3':'v2'}/${illustration}.webp" alt="" width="160" height="128"><span>${label}</span>`,'class="ingredient-chip"')).join('')}</div></section>`).join('');
+    if(dinnerVariant) $('#ingredient-chips').innerHTML=dinnerProducts.map(([value,label,illustration])=>visualButton('include',value,`<img src="/assets/filters/${dinnerPhotos.has(illustration)?'variant2':`ingredients-${newProductImages.has(illustration)?'v3':'v2'}`}/${illustration}.webp" alt="" width="160" height="160"><span>${label}</span>`,'class="ingredient-chip"')).join('');
     $('#time-chips').innerHTML='<span>Время</span>'+[['','Любое'],['20','До 20 мин'],['30','До 30 мин'],['45','До 45 мин'],['60','До часа']].map(([value,label])=>visualButton('time',value,label)).join('');
     $('#category-chips').innerHTML=visualButton('category','','Все блюда')+result.categories.filter(c=>dishTypes.includes(c.id)).map(c=>visualButton('category',c.id,escape(c.label))).join('');
     $('#visual-include').value=p.get('include')||'';
@@ -68,17 +77,17 @@
   if(adEntry) {
     document.body.dataset.catalogEntry='dinner';
     $('.intro h1').innerHTML='Что приготовить <em>на ужин?</em>';
-    const copy=document.createElement('p');copy.className='catalog-entry-copy';copy.textContent='Выберите блюдо и откройте полный рецепт. Все ингредиенты и шаги — сразу на сайте.';
-    $('.intro h1').after(copy);
+    if(!dinnerVariant) {const copy=document.createElement('p');copy.className='catalog-entry-copy';copy.textContent='Выберите блюдо и откройте полный рецепт. Все ингредиенты и шаги — сразу на сайте.';$('.intro h1').after(copy);}
     $('.header a[aria-current]').href=searchUrl(params());
     $('.header .brand').href=searchUrl(params());
     if(visualMode) {
-      const filters=document.createElement('details');filters.id='dinner-filters';filters.className='dinner-filters';
-      filters.innerHTML='<summary>Кухни, продукты и время</summary>';
-      $('#visual-discovery').before(filters);filters.append($('#visual-discovery'));
-      filters.addEventListener('toggle',()=>{if(filters.open)journey('action','filters_expand');journey('recheck');});
-      $('.quick').innerHTML='<span>Быстрый выбор:</span><button data-quick="time:30">До 30 минут</button><button data-quick="cuisine:italian">Итальянская кухня</button><button data-quick="cuisine:georgian">Грузинская кухня</button><button data-quick="category:chicken">С курицей</button>';
-      filters.before($('.quick'));
+      document.body.dataset.dinnerVariant='2';
+      $('.ingredients-heading h2').textContent='Ингредиенты';
+      $('.ingredient-help').innerHTML='Выберите продукты, которые есть дома.<br>Покажем блюда со всеми выбранными ингредиентами.';
+      $('.search-label').textContent='Или найдите рецепт по названию';
+      $('#selection-tags').append($('#active-filters'));
+      $('#selection-head').append($('#visual-reset'));
+      $('#selection-state').hidden=true;
     }
   }
   const favoriteText = id => favorites.has(id) ? 'Сохранено' : 'В избранное';
@@ -122,10 +131,17 @@
   }
   function activeFilters(p, result) {
     const labels={q:'Поиск',cuisine:'Кухня',category:'Блюдо',time:'До, минут',include:'С продуктами',exclude:'Без продуктов',favorites:'Избранное'};
-    $('#active-filters').innerHTML=Object.entries(labels).filter(([name])=>p.get(name)).map(([name,label])=>{
+    const products=selectedProducts(p);
+    const productChips=dinnerVariant?products.map(value=>`<button data-remove="include" data-product="${escape(value)}" aria-label="Убрать продукт ${escape(value)}">${escape(dinnerProducts.find(([key])=>key===value)?.[1]||value)} <span aria-hidden="true">×</span></button>`).join(''):'';
+    $('#active-filters').innerHTML=productChips+Object.entries(labels).filter(([name])=>p.get(name)&&!(dinnerVariant&&name==='include')).map(([name,label])=>{
       const value=name==='favorites'?'в этом браузере':name==='cuisine'?(result.cuisineChoices||result.cuisines).find(c=>c.id===p.get(name))?.label||p.get(name):name==='category'?result.categories.find(c=>c.id===p.get(name))?.label||p.get(name):p.get(name);
-      return `<button data-remove="${name}" aria-label="Убрать фильтр ${escape(label)}">${escape(label)}: ${escape(value)} ×</button>`;
+      return `<button data-remove="${name}" aria-label="Убрать фильтр ${escape(label)}">${dinnerVariant&&name==='cuisine'?'':escape(label)+': '}${escape(value)} <span aria-hidden="true">×</span></button>`;
     }).join('');
+    if(dinnerVariant) {
+      const count=products.length+Object.keys(labels).filter(name=>name!=='include'&&p.get(name)).length;
+      $('#selection-state').hidden=!count;
+      $('#selection-label').textContent=count===products.length?`Выбрано ${count} ${count===1?'продукт':count<5?'продукта':'продуктов'}`:`Выбрано фильтров: ${count}`;
+    }
   }
   async function load({benefits=false,navigation='initial'}={}) {
     const startedAt=Date.now();
@@ -163,23 +179,34 @@
     for(const name of filterNames) $(`#filters [name="${name}"]`).value=p.get(name)||'';
     $('#sort').value=p.get('sort')||'recommended';
     $('#cards').setAttribute('aria-busy','true'); $('#result-count').textContent='Загружаем каталог…';
+    if(dinnerVariant) {
+      if(visualResult) {renderVisualFilters(p,visualResult);activeFilters(p,visualResult);}
+      $('#cards').innerHTML=Array.from({length:2},()=>'<div class="catalog-skeleton" aria-hidden="true"><div></div><span></span><span></span></div>').join('');
+      $('#pagination').innerHTML='';
+      $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':['q',...filterNames].some(name=>p.get(name))?'Подходящие рецепты':'Все рецепты';
+    }
     const apiParams=new URLSearchParams(p);
     if(p.get('favorites')==='1') apiParams.set('saved',[...favorites].join(',')); else apiParams.delete('saved');
     try {
       const result=await request('/api/catalog?'+apiParams.toString(),signal);
+      if(signal.aborted)return;
       options('cuisine',result.cuisineChoices||result.cuisines,p.get('cuisine')); options('category',result.categories,p.get('category'));
       renderVisualFilters(p,result);
       $('#catalog-total').textContent=result.catalogTotal;
       $('#show-results').textContent=`Показать рецепты (${result.total})`;
-      $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':'Рецепты для вас';
+      $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':['q',...filterNames].some(name=>p.get(name))?'Подходящие рецепты':'Все рецепты';
       $('#result-count').textContent=`Найдено: ${result.total}${p.get('favorites')==='1'?' · Сохранено в этом браузере':''}`;
       activeFilters(p,result);
-      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog',{...analyticsDetail(),results:result.recipes.length,_started:startedAt});
       if(p.get('q'))window.RecipeAnalytics?.event('catalog_search','catalog',{...analyticsDetail(),results:result.recipes.length});
       if(!result.recipes.length)window.RecipeAnalytics?.event('catalog_empty','catalog',analyticsDetail());
       const filters=filterNames.filter(k=>p.get(k)).length;
       if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{...analyticsDetail(),filters});
       $('#cards').innerHTML=result.recipes.length?result.recipes.map(card).join(''):`<div class="empty"><h3>${p.get('favorites')==='1'&&!favorites.size?'Здесь будут любимые рецепты':'Подходящих рецептов пока нет'}</h3><p>${p.get('favorites')==='1'&&!favorites.size?'Нажмите «В избранное» на понравившейся карточке.':'Попробуйте убрать часть фильтров или увеличить время приготовления.'}</p><button data-reset>Показать все рецепты</button></div>`;
+      if(dinnerVariant&&!result.recipes.length&&p.get('favorites')!=='1') {
+        const cuisine=(result.cuisineChoices||result.cuisines).find(c=>c.id===p.get('cuisine'));
+        $('#cards').innerHTML=`<div class="empty"><h3>Ничего не нашли</h3><p>${cuisine?'С такой кухней и набором продуктов пока нет блюд.<br>Уберите кухню или один из продуктов.':'Попробуйте убрать один из фильтров или изменить запрос.'}</p>${cuisine?'<button class="primary" data-remove="cuisine">Убрать выбранную кухню</button>':''}<button class="empty-reset" data-reset>Сбросить все фильтры</button></div>`;
+      }
+      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog',{...analyticsDetail(),results:result.recipes.length,_started:startedAt});
       $('#pagination').innerHTML=result.pages>1?`<button data-page="${result.page-1}" ${result.page===1?'disabled':''}>Назад</button><span>${result.page} из ${result.pages}</span><button data-page="${result.page+1}" ${result.page===result.pages?'disabled':''}>Далее</button>`:'';
       journey('mount');
     } catch(error) { if(error.name!=='AbortError') { try{window.RecipeAnalytics?.event('client_error','catalog',{...analyticsDetail(),code:error.code==='http'?'http':'network'});}catch{}$('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`;journey('mount'); } }
@@ -237,7 +264,7 @@
       p.delete('page');navigate(searchUrl(p),{navigation:'filter'});
     }
     else if(target.dataset.quick) {const p=params(),[name,value]=target.dataset.quick.split(':');journey('action','filter_change',{control:name});p.set(name,value);p.delete('page');navigate(searchUrl(p),{navigation:'filter'});}
-    else if(target.dataset.remove){journey('action','filter_change',{control:target.dataset.remove});const p=params();p.delete(target.dataset.remove);p.delete('page');navigate(searchUrl(p),{navigation:'filter'});}
+    else if(target.dataset.remove){journey('action','filter_change',{control:target.dataset.remove});const p=params();if(target.dataset.remove==='include'&&target.dataset.product){const next=selectedProducts(p).filter(value=>value!==target.dataset.product);if(next.length)p.set('include',next.join(','));else p.delete('include');}else p.delete(target.dataset.remove);p.delete('page');navigate(searchUrl(p),{navigation:'filter'});}
     else if(target.dataset.page){journey('action','pagination');const p=params();p.set('page',target.dataset.page);navigate(searchUrl(p),{navigation:'pagination'});$('.results').scrollIntoView({block:'start'});}
   });
   const mobile = matchMedia('(max-width:760px)');

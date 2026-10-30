@@ -84,3 +84,78 @@ body[data-filter-layout="visual"] .search-row button:hover{background:var(--surf
 .ingredient-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 @media(max-width:760px){.ingredient-chips{display:block}.ingredient-grid{gap:8px}.ingredient-group{margin-bottom:14px}.ingredient-group h3{font-size:12px}.ingredient-chip img{height:82px}}
 @media(max-width:350px){.ingredient-chips{display:block}.ingredient-grid{gap:6px}.ingredient-chip{font-size:10px}.ingredient-chip img{height:66px}}
+
+/* Approved dinner variant 2. The legacy catalogue keeps its own layout. */
+body[data-dinner-variant="2"]{--accent:#974661;--accent-hover:#803953}
+body[data-dinner-variant="2"] :is(.catalog-note,.quick,.show-results,.dish-heading,#category-chips,.discovery-toolbar,.header a[aria-current],#saved-toggle){display:none}
+body[data-dinner-variant="2"] .header{border-bottom:0;flex-wrap:nowrap;padding-block:0}
+body[data-dinner-variant="2"] .header nav{width:auto;flex-wrap:nowrap}
+body[data-dinner-variant="2"] #visual-discovery{padding:0 16px}
+body[data-dinner-variant="2"] .ingredient-help{max-width:none;margin-bottom:10px;line-height:1.55}
+body[data-dinner-variant="2"] .ingredient-chips{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px 8px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+body[data-dinner-variant="2"] .ingredient-chip{padding:0 0 9px;border-radius:12px;font-size:13px;line-height:16px}
+body[data-dinner-variant="2"] .ingredient-chip img{width:100%;height:auto;aspect-ratio:1;object-fit:contain}
+body[data-dinner-variant="2"] .ingredient-chip span{margin-top:6px}
+body[data-dinner-variant="2"] .ingredient-chip[aria-pressed="true"]:after{width:18px;height:18px;top:3px;right:3px;font-size:12px}
+body[data-dinner-variant="2"] .ingredient-chip[aria-pressed="true"]{background:var(--surface)}
+body[data-dinner-variant="2"] .cuisine-heading{margin-top:24px;margin-bottom:10px}
+body[data-dinner-variant="2"] .cuisine-tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;overflow:visible;padding:0}
+body[data-dinner-variant="2"] .cuisine-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:72px;padding:5px 4px 6px;border:1px solid #e2d9e8;border-radius:16px;background:var(--surface);box-shadow:0 2px 6px #3025370a;text-align:center}
+body[data-dinner-variant="2"] .cuisine-tile img{width:40px;height:40px;flex:0 0 40px;padding:0;border-radius:50%;object-fit:cover;background:var(--paper)}
+body[data-dinner-variant="2"] .cuisine-tiles .cuisine-tile .tile-label{min-height:15px;display:block;padding:0;font-size:12px;font-weight:400;line-height:15px}
+body[data-dinner-variant="2"] .cuisine-tile[aria-pressed="true"]{border-color:#974661;background:#f7edf2;color:var(--ink);box-shadow:inset 0 0 0 1px #974661}
+body[data-dinner-variant="2"] .cuisine-tile[aria-pressed="true"] .tile-label{font-weight:700}
+body[data-dinner-variant="2"] .cuisine-tile[aria-pressed="true"]:after{display:grid;width:16px;height:16px;right:7px;top:6px;font-size:11px;background:#974661}
+body[data-dinner-variant="2"] .cuisine-tile:hover{background:var(--surface-muted)}
+body[data-dinner-variant="2"] .cuisine-tile[aria-pressed="true"]:hover{background:#f2e1e9}
+.selection-state{margin-top:20px;color:var(--muted);font-size:12px}
+#selection-head{display:flex;justify-content:space-between;align-items:center;min-height:24px;margin-bottom:7px}
+#selection-head #visual-reset{padding:0;min-height:24px;color:var(--accent);text-decoration:none}
+.selection-state .active-filters{margin-bottom:12px;gap:8px}
+.selection-state .active-filters button{display:flex;gap:8px;align-items:center;min-height:30px;border:1px solid var(--field-border);border-radius:18px;background:var(--surface);padding:5px 10px;font-size:11px}
+.selection-state .active-filters button span{color:var(--accent);font-size:16px;line-height:16px}
+.selection-state p{margin:0;font-size:11px;line-height:1.5}
+body[data-dinner-variant="2"][data-filter-layout="visual"] #search-form{margin:24px 16px 0;display:block}
+body[data-dinner-variant="2"] .search-label{margin-bottom:8px}
+body[data-dinner-variant="2"] .search-row{max-width:none}
+body[data-dinner-variant="2"] .empty{border:0;padding:20px 0;text-align:left}
+body[data-dinner-variant="2"] .empty h3{margin-bottom:12px}
+body[data-dinner-variant="2"] .empty p{margin-bottom:20px}
+body[data-dinner-variant="2"] .empty button{display:block;width:100%}
+body[data-dinner-variant="2"] .empty-reset{border:0;color:var(--accent);margin-top:8px;font-size:12px}
+.catalog-skeleton>div{aspect-ratio:1.3;border-radius:10px;background:var(--surface-muted)}
+.catalog-skeleton>span{display:block;height:9px;margin-top:12px;border-radius:5px;background:var(--surface-muted)}
+.catalog-skeleton>span:last-child{width:65%;margin-top:7px}
+@media(max-width:760px){
+  body[data-dinner-variant="2"] .header{min-height:68px}
+  body[data-dinner-variant="2"] .header .brand{font-size:26px;gap:8px}
+  body[data-dinner-variant="2"] .header nav{font-size:11px;gap:0}
+  body[data-dinner-variant="2"] .header .brand img{width:32px;height:32px}
+  body[data-dinner-variant="2"][data-filter-layout="visual"] .intro{padding:0 0 12px}
+  body[data-dinner-variant="2"][data-filter-layout="visual"] .intro h1{font-size:36px;letter-spacing:-1.3px}
+  body[data-dinner-variant="2"] .ingredient-chips{grid-template-columns:repeat(4,minmax(0,1fr));gap:16px 8px;padding:8px}
+  body[data-dinner-variant="2"] .ingredient-chip{font-size:11px}
+  body[data-dinner-variant="2"] .ingredient-chip img{height:82px;aspect-ratio:auto}
+  body[data-dinner-variant="2"] .ingredient-help{font-size:12px}
+  body[data-dinner-variant="2"] .cuisine-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+  body[data-dinner-variant="2"] .discovery-heading>button{font-size:12px;text-decoration:none}
+  body[data-dinner-variant="2"] .results-head{align-items:flex-start}
+  body[data-dinner-variant="2"] .sort-label{max-width:110px;flex-direction:column;align-items:flex-end;gap:0}
+  body[data-dinner-variant="2"] #sort{font-size:11px;max-width:110px;padding:0}
+  body[data-dinner-variant="2"] .results h2{font-size:26px}
+  body[data-dinner-variant="2"] .card h3{font-size:19px}
+  body[data-dinner-variant="2"] .card-description{display:none}
+  body[data-dinner-variant="2"] .card-media{aspect-ratio:1.3}
+}
+@media(max-width:350px){
+  body[data-dinner-variant="2"] .header .brand{font-size:22px}
+  body[data-dinner-variant="2"] #visual-discovery{padding:0 8px}
+  body[data-dinner-variant="2"] .ingredient-chips{gap:12px 5px;padding:6px}
+  body[data-dinner-variant="2"] .ingredient-chip{font-size:10px}
+  body[data-dinner-variant="2"] .ingredient-chip img{height:70px}
+  body[data-dinner-variant="2"] .cuisine-tile .tile-label{font-size:11px}
+  body[data-dinner-variant="2"] .results-head{flex-wrap:wrap}
+  body[data-dinner-variant="2"] .sort-label{margin-left:auto}
+  body[data-dinner-variant="2"] .card h3{font-size:17px}
+  body[data-dinner-variant="2"][data-filter-layout="visual"] .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

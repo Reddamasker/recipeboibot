@@ -106,7 +106,7 @@
       watch('intro',all('#catalog-view .intro'));
       watch('products',all('#ingredient-chips'));
       watch('cuisines',all('#cuisine-tiles'));
-      watch('filters',all('#time-chips,#category-chips,#visual-refinements,#filter-panel form'));
+      watch('filters',all('#selection-state,#time-chips,#category-chips,#visual-refinements,#filter-panel form'));
       watch('results',all('#catalog-view .results'));
       current.cards=all('#cards .card-link').slice(0,24);
     }else{
