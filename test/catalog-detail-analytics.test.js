@@ -111,7 +111,7 @@ test('Moscow visit-start cohorts handle out-of-order delivery and keep later act
   assert.equal(report(v.campaign,{from:'2026-10-01',to:'2026-10-01'}).totalVisits,1);
   assert.equal(report(v.campaign,{from:'2026-10-02',to:'2026-10-02'}).totalVisits,0);
   assert.equal(report(v.campaign,{from:'2026-10-01',to:'2026-10-01'}).visits[0].events.length,3);
-  for(const invalid of [{from:'2026-02-30'},{from:'2026-10-02',to:'2026-10-01'},{page:0},{page:'1.5'},{campaign:'https://invalid'},{platform:'all'}])assert.throws(()=>catalogDetailFilters(invalid),{status:400});
+  for(const invalid of [{from:'2026-02-30'},{from:'2026-10-02',to:'2026-10-01'},{page:0},{page:'1.5'},{campaign:'https://invalid'},{platform:'all'},{group:'unknown'},{group:'all?private=1'}])assert.throws(()=>catalogDetailFilters(invalid),{status:400});
   const unknown=catalogDetailReport({campaign:'unknown-campaign'});
   assert.equal(unknown.status,'ready');assert.equal(unknown.totalVisits,0);assert.equal(unknown.campaign,'unknown-campaign');
 });
@@ -138,7 +138,7 @@ test('MAX bridge validates full schema and exact scope, with missing or corrupt 
   const transport=payload=>async(url,request)=>{assert.equal(new URL(url).pathname,'/api/internal/catalog-visits');assert.equal(request.redirect,'error');return new Response(JSON.stringify(payload));};
   const good=await dashboardCatalogDetails(scope,{...options,transport:transport(empty)});
   assert.equal(good.status,'ready');assert.equal(good.totalVisits,0);assert.equal(good.summary.visibleMsTotal,null);
-  for(const payload of [{...empty,version:2},{...empty,campaign:'all'},{...empty,from:'2026-10-01'},{...empty,secret:'private'}, {...empty,summary:{...empty.summary,visits:1}}]){
+  for(const payload of [{...empty,version:1},{...empty,version:3},{...empty,campaign:'all'},{...empty,from:'2026-10-01'},{...empty,group:'one_recipe'},{...empty,secret:'private'}, {...empty,summary:{...empty.summary,visits:1}}]){
     const result=await dashboardCatalogDetails(scope,{...options,transport:transport(payload)});
     assert.equal(result.status,'unavailable');assert.equal(result.summary,null);assert.equal(result.totalVisits,null);
   }

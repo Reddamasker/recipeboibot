@@ -2,6 +2,7 @@ import { db } from './db.js';
 import { config } from './config.js';
 
 export const catalogDetailPublicEvents = ['catalog_page_started', 'catalog_section_visible', 'catalog_page_progress', 'catalog_action'];
+export const catalogPathGroups = Object.freeze(['unconfirmed','brief_catalog','deep_catalog','active_catalog','empty_results','one_recipe','multiple_recipes','legacy_catalog','unknown_catalog','save_intent','bot_started','saved']);
 const screens = ['list', 'recipe'];
 const navigations = ['initial','link','back','filter','search','pagination','reset','sort','favorites','retry'];
 const viewports = ['compact','medium','wide'];
@@ -56,14 +57,14 @@ export function catalogDetailEventFields(row) {
 
 export function catalogDetailFilters(input = {}, defaultPlatform = ownPlatform) {
   const get = name => input instanceof URLSearchParams ? input.get(name) : input[name];
-  const campaign = get('campaign') || 'all', platform = get('platform') || defaultPlatform;
+  const campaign = get('campaign') || 'all', platform = get('platform') || defaultPlatform, group = get('group') || 'all';
   const from = get('from') || '', to = get('to') || '', rawPage = get('page') ?? '1';
-  if (!slugPattern.test(campaign) || !['telegram','max'].includes(platform) || !/^\d{1,8}$/.test(String(rawPage))) return fail();
+  if (!slugPattern.test(campaign) || !['telegram','max'].includes(platform) || !['all',...catalogPathGroups].includes(group) || !/^\d{1,8}$/.test(String(rawPage))) return fail();
   const page = Number(rawPage);
   if (!integer(page, 1, 10000000)) return fail();
   for (const date of [from,to]) if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0,10) !== date)) return fail();
   if (from && to && from > to) return fail();
-  return { campaign, platform, from, to, page };
+  return { campaign, platform, from, to, page, group };
 }
 
 function baseQuery(filters, at, flowIds = null) {
@@ -78,7 +79,7 @@ const literals = values => values.map(value => "'" + value + "'").join(',');
 const safeJson = "CASE WHEN json_valid(p.detail_json) THEN p.detail_json ELSE '{}' END";
 const numeric = (field, max) => `CASE WHEN json_type(d,'$.${field}')='integer' AND json_extract(d,'$.${field}') BETWEEN 0 AND ${max} THEN json_extract(d,'$.${field}') END`;
 function ctes(where) {
-  return `WITH cutoff AS (SELECT ? AS at),selected AS MATERIALIZED (SELECT v.* FROM catalog_journey_visits v WHERE ${where}),
+  return `WITH cutoff AS (SELECT ? AS at),selected AS MATERIALIZED (SELECT v.*,v.rowid AS visit_order FROM catalog_journey_visits v WHERE ${where}),
     event_rows AS MATERIALIZED (SELECT p.rowid AS eid,p.id,p.flow_id,p.event,p.duration_ms,p.created_at,${safeJson} AS d
       FROM selected v JOIN product_events p ON p.flow_id=v.flow_id AND p.subject='v:'||v.session_id
       WHERE p.created_at<=(SELECT at FROM cutoff) AND p.user_id IS NULL AND p.step='catalog' AND p.event IN (${literals(events)})
@@ -99,6 +100,8 @@ function ctes(where) {
       FROM normalized WHERE page_key IS NOT NULL GROUP BY flow_id,page_key),
     event_flags AS (SELECT flow_id,
       MAX(event='catalog_list' OR event='catalog_page_started' AND screen='list') AS saw_list,
+      MAX(event='catalog_list') AS visible_list,SUM(event='catalog_open') AS recipe_opens,
+      MAX(event='catalog_empty') AS empty_result,MAX(event='catalog_action') AS explicit_action,
       MAX(event='catalog_open') AS saw_recipe,
       MAX(event='catalog_save_intent' OR event='catalog_action' AND json_extract(d,'$.action')='save_open') AS save_intent,
       MAX(event IN ('client_error','catalog_handoff_error')) AS error,
@@ -106,12 +109,20 @@ function ctes(where) {
       FROM normalized GROUP BY flow_id),
     outcomes AS (SELECT o.* FROM selected v JOIN catalog_journey_outcomes o ON o.flow_id=v.flow_id WHERE o.created_at<=(SELECT at FROM cutoff)),
     outcome_flags AS (SELECT flow_id,MAX(event='catalog_bot_started') AS started,MAX(event='catalog_recipe_saved') AS saved,
-      MAX(event='catalog_save_failed') AS error,MAX(created_at) AS last_at FROM outcomes GROUP BY flow_id)`;
+      MAX(event='catalog_save_failed') AS error,MAX(created_at) AS last_at FROM outcomes GROUP BY flow_id),
+    page_flags AS (SELECT flow_id,MAX(CASE WHEN screen='list' THEN cards_seen END) AS max_cards FROM pages GROUP BY flow_id),
+    classified AS MATERIALIZED (SELECT v.*,ROW_NUMBER() OVER(ORDER BY v.created_at,v.visit_order) AS visit_number,
+      CASE WHEN o.saved=1 THEN 'saved' WHEN o.started=1 THEN 'bot_started' WHEN e.save_intent=1 THEN 'save_intent'
+        WHEN e.recipe_opens>=2 THEN 'multiple_recipes' WHEN e.recipe_opens=1 THEN 'one_recipe'
+        WHEN e.empty_result=1 THEN 'empty_results' WHEN COALESCE(e.visible_list,0)=0 THEN 'unconfirmed'
+        WHEN COALESCE(e.detailed,0)=0 THEN 'legacy_catalog' WHEN e.explicit_action=1 THEN 'active_catalog'
+        WHEN p.max_cards>8 THEN 'deep_catalog' WHEN p.max_cards>=1 THEN 'brief_catalog' ELSE 'unknown_catalog' END AS path_group
+      FROM selected v LEFT JOIN event_flags e USING(flow_id) LEFT JOIN outcome_flags o USING(flow_id) LEFT JOIN page_flags p USING(flow_id))`;
 }
 
 function unavailable(filters) {
-  return { version: 1, ...filters, status: 'unavailable', trackingSince: null, generatedAt: new Date().toISOString(), pageSize,
-    totalVisits: null, summary: null, visits: [] };
+  return { version: 2, ...filters, status: 'unavailable', trackingSince: null, generatedAt: new Date().toISOString(), pageSize,
+    totalVisits: null, summary: null, groups: null, visits: [] };
 }
 
 export function catalogDetailReport(input = {}, { at = new Date().toISOString() } = {}) {
@@ -120,7 +131,7 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
   db.exec(`CREATE INDEX IF NOT EXISTS product_events_catalog_flow_time ON product_events(flow_id,created_at) WHERE user_id IS NULL;
     CREATE INDEX IF NOT EXISTS catalog_visits_detail_scope ON catalog_journey_visits(local_origin,internal,campaign,created_at);`);
   const base = baseQuery(filters, at), cte = ctes(base.where);
-  const summary = db.prepare(`${cte} SELECT
+  const {groupCounts,...summary} = db.prepare(`${cte} SELECT
     (SELECT COUNT(*) FROM selected) AS visits,
     (SELECT COUNT(DISTINCT flow_id) FROM pages WHERE visible_ms IS NOT NULL) AS measuredVisits,
     (SELECT SUM(visible_ms) FROM pages) AS visibleMsTotal,
@@ -130,9 +141,15 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
     (SELECT COUNT(*) FROM event_flags WHERE save_intent=1) AS saveIntentVisits,
     (SELECT COUNT(*) FROM outcome_flags WHERE started=1) AS starts,
     (SELECT COUNT(*) FROM outcome_flags WHERE saved=1) AS saved,
-    (SELECT COUNT(*) FROM selected v LEFT JOIN event_flags e USING(flow_id) LEFT JOIN outcome_flags o USING(flow_id) WHERE e.error=1 OR o.error=1) AS errors`).get(at,...base.values);
+    (SELECT COUNT(*) FROM selected v LEFT JOIN event_flags e USING(flow_id) LEFT JOIN outcome_flags o USING(flow_id) WHERE e.error=1 OR o.error=1) AS errors,
+    (SELECT json_group_object(path_group,n) FROM (SELECT path_group,COUNT(*) AS n FROM classified GROUP BY path_group)) AS groupCounts`).get(at,...base.values);
+  const counts=JSON.parse(groupCounts),groups=catalogPathGroups.map(id=>({id,count:counts[id]||0}));
+  const totalVisits=filters.group==='all'?summary.visits:counts[filters.group]||0;
   const offset = (filters.page - 1) * pageSize;
-  const selected = db.prepare(`SELECT v.* FROM catalog_journey_visits v WHERE ${base.where} ORDER BY v.created_at DESC,v.rowid DESC LIMIT ? OFFSET ?`).all(...base.values,pageSize,offset);
+  // Group membership and visit ordinals use the whole cohort, before any
+  // display limits. A late recipe event beyond event 80 still wins its group.
+  const selected = db.prepare(`${cte} SELECT * FROM classified WHERE (?='all' OR path_group=?)
+    ORDER BY created_at DESC,visit_order DESC LIMIT ? OFFSET ?`).all(at,...base.values,filters.group,filters.group,pageSize,offset);
   const visits = [];
   if (selected.length) {
     const subset = baseQuery(filters,at,selected.map(v => v.flow_id)), pageCte = ctes(subset.where);
@@ -147,13 +164,13 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
       WHERE p.flow_id=? AND p.subject=? AND p.created_at<=? AND p.user_id IS NULL AND p.step='catalog' AND p.event IN (${literals(events.filter(e => e !== 'catalog_page_progress'))})
         AND json_extract(${safeJson},'$.journey')='recipe-first-v1' ORDER BY p.created_at,p.rowid LIMIT ?`);
     const outcomes = db.prepare('SELECT event,platform,created_at FROM catalog_journey_outcomes WHERE flow_id=? AND created_at<=? ORDER BY created_at,platform,event');
-    for (const [index,visit] of selected.entries()) {
+    for (const visit of selected) {
       const pageList = pageRows.filter(p => p.flow_id === visit.flow_id), numbers = new Map(pageList.map(p => [p.page_key,p.number]));
       const rows = timeline.all(visit.flow_id,'v:'+visit.session_id,at,maxEvents+1);
       const details = flags.get(visit.flow_id);
       const startedAt = [visit.created_at,details.first_at].filter(Boolean).sort()[0];
       const lastEventAt = [startedAt,details.last_at,details.outcome_last].filter(Boolean).sort().at(-1);
-      visits.push({ number: summary.visits-offset-index, startedAt,lastEventAt,legacy: !details.detailed,visibleMs: details.visible_ms,
+      visits.push({ number: visit.visit_number, group:visit.path_group, startedAt,lastEventAt,legacy: !details.detailed,visibleMs: details.visible_ms,
         observedSpanMs: Math.max(0,Date.parse(lastEventAt)-Date.parse(startedAt)), pagesTruncated: pageList.length>maxPages,
         pages: pageList.slice(0,maxPages).map(p => ({ number:p.number,screen:screens.includes(p.screen)?p.screen:'list',startedAt:p.started_at,
           visibleMs:p.visible_ms,scrollDepth:p.scroll_depth,cardsSeen:p.cards_seen,sections:JSON.parse(p.sections).filter(s => sections.includes(s)),
@@ -175,30 +192,39 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
         eventsTruncated:rows.length>maxEvents });
     }
   }
-  return { version:1,...filters,status:'ready',trackingSince:db.prepare("SELECT value FROM catalog_detail_metadata WHERE key='tracking_since'").get().value,
-    generatedAt:at,pageSize,totalVisits:summary.visits,summary,visits };
+  return { version:2,...filters,status:'ready',trackingSince:db.prepare("SELECT value FROM catalog_detail_metadata WHERE key='tracking_since'").get().value,
+    generatedAt:at,pageSize,totalVisits,summary,groups,visits };
 }
 
 const exactKeys=(object,keys)=>object&&typeof object==='object'&&!Array.isArray(object)&&Object.keys(object).every(k=>keys.includes(k));
 const nullableNumber=(n,max=Number.MAX_SAFE_INTEGER)=>n===null||integer(n,0,max);
 export function validCatalogDetailReport(report, expected = null) {
-  if(!exactKeys(report,['version','platform','status','trackingSince','generatedAt','campaign','from','to','page','pageSize','totalVisits','summary','visits'])
-    ||report.version!==1||report.pageSize!==pageSize||!validTime(report.generatedAt)||!Array.isArray(report.visits)||report.visits.length>pageSize)return false;
+  if(!exactKeys(report,['version','platform','status','trackingSince','generatedAt','campaign','from','to','page','group','pageSize','totalVisits','summary','groups','visits'])
+    ||report.version!==2||report.pageSize!==pageSize||!validTime(report.generatedAt)||!Array.isArray(report.visits)||report.visits.length>pageSize)return false;
   let filters;try{filters=catalogDetailFilters(report);}catch{return false;}
   if(expected&&Object.entries(catalogDetailFilters(expected)).some(([key,value])=>report[key]!==value))return false;
   if(Object.entries(filters).some(([key,value])=>report[key]!==value))return false;
-  if(report.status==='unavailable')return report.trackingSince===null&&report.totalVisits===null&&report.summary===null&&report.visits.length===0;
+  if(report.status==='unavailable')return report.trackingSince===null&&report.totalVisits===null&&report.summary===null&&report.groups===null&&report.visits.length===0;
   if(report.status!=='ready'||!validTime(report.trackingSince)||!integer(report.totalVisits))return false;
   const s=report.summary,counts=['visits','measuredVisits','pageViews','onlyListVisits','recipeVisits','saveIntentVisits','starts','saved','errors'];
-  if(!exactKeys(s,[...counts,'visibleMsTotal'])||!counts.every(k=>integer(s[k]))||s.visits!==report.totalVisits
+  if(!exactKeys(s,[...counts,'visibleMsTotal'])||!counts.every(k=>integer(s[k]))
     ||!nullableNumber(s.visibleMsTotal)||(s.measuredVisits===0?s.visibleMsTotal!==null:s.visibleMsTotal===null)
     ||s.onlyListVisits+s.recipeVisits>s.visits||s.measuredVisits>s.pageViews
     ||['measuredVisits','onlyListVisits','recipeVisits','saveIntentVisits','starts','saved','errors'].some(k=>s[k]>s.visits))return false;
+  if(!Array.isArray(report.groups)||report.groups.length!==catalogPathGroups.length
+    ||report.groups.some((g,index)=>!exactKeys(g,['id','count'])||g.id!==catalogPathGroups[index]||!integer(g.count))
+    ||report.groups.reduce((sum,g)=>sum+g.count,0)!==s.visits)return false;
+  const groupCounts=Object.fromEntries(report.groups.map(g=>[g.id,g.count]));
+  if(report.totalVisits!==(report.group==='all'?s.visits:groupCounts[report.group])
+    ||groupCounts.saved!==s.saved||groupCounts.bot_started>s.starts||groupCounts.save_intent>s.saveIntentVisits
+    ||groupCounts.one_recipe+groupCounts.multiple_recipes>s.recipeVisits)return false;
   const offset=(report.page-1)*pageSize;
   if(report.visits.length!==Math.min(pageSize,Math.max(0,report.totalVisits-offset)))return false;
   for(const [index,v] of report.visits.entries()){
-    if(!exactKeys(v,['number','startedAt','lastEventAt','legacy','visibleMs','observedSpanMs','pages','events','outcomes','eventsTruncated','pagesTruncated'])
-      ||v.number!==report.totalVisits-offset-index||!validTime(v.startedAt)||!validTime(v.lastEventAt)||v.lastEventAt<v.startedAt||v.lastEventAt>report.generatedAt
+    if(!exactKeys(v,['number','group','startedAt','lastEventAt','legacy','visibleMs','observedSpanMs','pages','events','outcomes','eventsTruncated','pagesTruncated'])
+      ||!integer(v.number,1,s.visits)||(report.group==='all'?v.number!==s.visits-offset-index:index>0&&v.number>=report.visits[index-1].number)
+      ||!catalogPathGroups.includes(v.group)||!groupCounts[v.group]||report.group!=='all'&&v.group!==report.group
+      ||!validTime(v.startedAt)||!validTime(v.lastEventAt)||v.lastEventAt<v.startedAt||v.lastEventAt>report.generatedAt
       ||typeof v.legacy!=='boolean'||!nullableNumber(v.visibleMs)||!integer(v.observedSpanMs)||typeof v.eventsTruncated!=='boolean'||typeof v.pagesTruncated!=='boolean'
       ||v.observedSpanMs!==Date.parse(v.lastEventAt)-Date.parse(v.startedAt)
       ||!Array.isArray(v.pages)||v.pages.length>maxPages||!Array.isArray(v.events)||v.events.length>maxEvents||!Array.isArray(v.outcomes)||v.outcomes.length>6)return false;
@@ -219,6 +245,7 @@ export function validCatalogDetailReport(report, expected = null) {
     // outcomes must not rewrite the website visit-start cohort.
     if(v.outcomes.some(o=>!exactKeys(o,['event','platform','at'])||!outcomeEvents.includes(o.event)||!['telegram','max'].includes(o.platform)||!validTime(o.at)||o.at>v.lastEventAt))return false;
   }
+  if(report.groups.some(g=>report.visits.filter(v=>v.group===g.id).length>g.count))return false;
   return true;
 }
 

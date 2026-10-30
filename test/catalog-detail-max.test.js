@@ -24,6 +24,20 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
       navigation: 'initial', viewport: 'compact', pageNumber: 1
     }] });
     assert.deepEqual(accepted.accepted, [eventId]);
+    function anotherVisit(active) {
+      const session = randomUUID(), flow = randomUUID(), page = randomUUID();
+      const shared = { step: 'catalog', flowId: flow, journey: 'recipe-first-v1', campaign, pageId: page, screen: 'list' };
+      const events = [
+        { id: randomUUID(), ...shared, event: 'catalog_page_started', navigation: 'initial', viewport: 'compact', pageNumber: 1 },
+        { id: randomUUID(), ...shared, event: 'catalog_list', durationMs: 230, results: 12 },
+        active
+          ? { id: randomUUID(), ...shared, event: 'catalog_action', action: 'filter_change', control: 'time' }
+          : { id: randomUUID(), ...shared, event: 'catalog_page_progress', visibleMs: 1000, elapsedMs: 1000, scrollDepth: 20, cardsSeen: 3, reason: 'heartbeat' }
+      ];
+      assert.equal(acceptProductEvents(null, { visitor: session, events }).accepted.length, events.length);
+    }
+    anotherVisit(false);
+    anotherVisit(true);
     const server = createServer();
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const base = 'http://127.0.0.1:' + server.address().port;
@@ -42,16 +56,47 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
       const body = await response.text(), report = JSON.parse(body);
       const filters = { campaign, platform: 'max', from: '', to: '', page: 1 };
       assert.equal(validCatalogDetailReport(report, filters), true);
+      assert.equal(report.version, 2);
       assert.equal(report.status, 'ready');
-      assert.equal(report.totalVisits, 1);
-      assert.equal(report.summary.pageViews, 1);
-      assert.equal(report.summary.measuredVisits, 0);
-      assert.equal(report.summary.visibleMsTotal, null);
-      assert.equal(report.visits[0].visibleMs, null, 'a started page is not a zero-duration sample');
-      assert.equal(report.visits[0].pages[0].loadMs, null, 'page start does not assert visible content');
-      assert.equal(report.visits[0].events[0].event, 'catalog_page_started');
+      assert.equal(report.group, 'all');
+      assert.equal(report.totalVisits, 3);
+      assert.equal(report.summary.visits, 3);
+      assert.equal(report.summary.pageViews, 3);
+      assert.equal(report.summary.measuredVisits, 1);
+      assert.equal(report.summary.visibleMsTotal, 1000);
+      assert.equal(report.groups.length, 12);
+      assert.equal(report.groups.reduce((sum, group) => sum + group.count, 0), 3);
+      assert.deepEqual(report.groups.filter(group => group.count).map(group => [group.id, group.count]).sort(),
+        [['active_catalog', 1], ['brief_catalog', 1], ['unconfirmed', 1]]);
+      const original = report.visits.find(visit => visit.number === 1);
+      assert.equal(original.group, 'unconfirmed');
+      assert.equal(original.visibleMs, null, 'a started page is not a zero-duration sample');
+      assert.equal(original.pages[0].loadMs, null, 'page start does not assert visible content');
+      assert.equal(original.events[0].event, 'catalog_page_started');
+      assert.equal(validCatalogDetailReport({ ...report, version: 1 }, filters), false,
+        'the group contract must reject an older response schema');
       for (const secret of [visitor, flowId, pageId, eventId, process.env.MAX_FUNNEL_TOKEN])
         assert.ok(!body.includes(secret), 'report must omit session, event and credential identifiers');
+
+      const groupedResponse = await fetch(endpoint + '?campaign=' + campaign + '&group=brief_catalog', { headers });
+      assert.equal(groupedResponse.status, 200);
+      const grouped = await groupedResponse.json();
+      assert.equal(validCatalogDetailReport(grouped, { ...filters, group: 'brief_catalog' }), true);
+      assert.equal(grouped.group, 'brief_catalog');
+      assert.equal(grouped.totalVisits, 1);
+      assert.deepEqual(grouped.summary, report.summary, 'group selection preserves the complete campaign summary');
+      assert.deepEqual(grouped.groups, report.groups, 'group counts do not shrink to the selected path');
+      assert.equal(grouped.visits.length, 1);
+      assert.equal(grouped.visits[0].number, 2, 'the visit keeps its number in the entire campaign cohort');
+      assert.equal(grouped.visits[0].group, 'brief_catalog');
+      assert.equal(validCatalogDetailReport(grouped, { ...filters, group: 'active_catalog' }), false,
+        'a response for a different path is unavailable, not a substitute list');
+      const later = await (await fetch(endpoint + '?campaign=' + campaign + '&group=brief_catalog&page=2', { headers })).json();
+      assert.equal(validCatalogDetailReport(later, { ...filters, group: 'brief_catalog', page: 2 }), true);
+      assert.equal(later.totalVisits, 1);
+      assert.deepEqual(later.visits, []);
+      assert.deepEqual(later.summary, report.summary);
+      assert.equal((await fetch(endpoint + '?group=invalid-path', { headers })).status, 400);
 
       const unavailableResponse = await fetch(endpoint + '?campaign=' + campaign + '&platform=telegram', { headers });
       assert.equal(unavailableResponse.status, 200);
@@ -59,6 +104,7 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
       assert.equal(validCatalogDetailReport(unavailable), true);
       assert.equal(unavailable.status, 'unavailable');
       assert.equal(unavailable.summary, null);
+      assert.equal(unavailable.groups, null);
       assert.equal(unavailable.totalVisits, null);
       assert.deepEqual(unavailable.visits, []);
 
@@ -69,6 +115,8 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
       assert.equal(empty.status, 'ready', 'a source campaign may exist only on the main site');
       assert.equal(empty.totalVisits, 0);
       assert.equal(empty.summary.visibleMsTotal, null);
+      assert.equal(empty.groups.length, 12);
+      assert.ok(empty.groups.every(group => group.count === 0));
       assert.deepEqual(empty.visits, []);
       assert.equal((await fetch(endpoint + '?campaign=invalid%2Fslug', { headers })).status, 400);
       assert.equal((await fetch(endpoint + '?page=0', { headers })).status, 400);
