@@ -197,16 +197,16 @@
       $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':['q',...filterNames].some(name=>p.get(name))?'Подходящие рецепты':'Все рецепты';
       $('#result-count').textContent=`Найдено: ${result.total}${p.get('favorites')==='1'?' · Сохранено в этом браузере':''}`;
       activeFilters(p,result);
-      if(p.get('q'))window.RecipeAnalytics?.event('catalog_search','catalog',{...analyticsDetail(),results:result.recipes.length});
-      if(!result.recipes.length)window.RecipeAnalytics?.event('catalog_empty','catalog',analyticsDetail());
+      if(p.get('q'))window.RecipeAnalytics?.event('catalog_search','catalog',{...analyticsDetail(),results:result.recipes.length,resultsTotal:result.total});
+      if(!result.recipes.length)window.RecipeAnalytics?.event('catalog_empty','catalog',{...analyticsDetail(),resultsTotal:result.total});
       const filters=filterNames.filter(k=>p.get(k)).length;
-      if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{...analyticsDetail(),filters});
+      if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{...analyticsDetail(),filters,resultsTotal:result.total});
       $('#cards').innerHTML=result.recipes.length?result.recipes.map(card).join(''):`<div class="empty"><h3>${p.get('favorites')==='1'&&!favorites.size?'Здесь будут любимые рецепты':'Подходящих рецептов пока нет'}</h3><p>${p.get('favorites')==='1'&&!favorites.size?'Нажмите «В избранное» на понравившейся карточке.':'Попробуйте убрать часть фильтров или увеличить время приготовления.'}</p><button data-reset>Показать все рецепты</button></div>`;
       if(dinnerVariant&&!result.recipes.length&&p.get('favorites')!=='1') {
         const cuisine=(result.cuisineChoices||result.cuisines).find(c=>c.id===p.get('cuisine'));
         $('#cards').innerHTML=`<div class="empty"><h3>Ничего не нашли</h3><p>${cuisine?'С такой кухней и набором продуктов пока нет блюд.<br>Уберите кухню или один из продуктов.':'Попробуйте убрать один из фильтров или изменить запрос.'}</p>${cuisine?'<button class="primary" data-remove="cuisine">Убрать выбранную кухню</button>':''}<button class="empty-reset" data-reset>Сбросить все фильтры</button></div>`;
       }
-      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog',{...analyticsDetail(),results:result.recipes.length,_started:startedAt});
+      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog',{...analyticsDetail(),results:result.recipes.length,resultsTotal:result.total,_started:startedAt});
       $('#pagination').innerHTML=result.pages>1?`<button data-page="${result.page-1}" ${result.page===1?'disabled':''}>Назад</button><span>${result.page} из ${result.pages}</span><button data-page="${result.page+1}" ${result.page===result.pages?'disabled':''}>Далее</button>`:'';
       journey('mount');
     } catch(error) { if(error.name!=='AbortError') { try{window.RecipeAnalytics?.event('client_error','catalog',{...analyticsDetail(),code:error.code==='http'?'http':'network'});}catch{}$('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`;journey('mount'); } }

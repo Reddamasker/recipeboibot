@@ -8,6 +8,7 @@ const source=fs.readFileSync(new URL('../public/catalog-journey-detail.js',impor
 const queueSource=fs.readFileSync(new URL('../public/analytics.js',import.meta.url),'utf8');
 const handoffSource=fs.readFileSync(new URL('../public/catalog-handoff.js',import.meta.url),'utf8');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
+const {catalogSelection}=await import('../src/catalog-selection.js');
 function browser({hidden=false,pathname='/dinner',search='?campaign=detail-campaign',actualQueue=false,trackerThrows=false}={}){
   let clock=0,next=0,uuids=0;
   const events=[],flushes=[],timers=new Map(),frames=new Map(),selectors=new Map(),stored=new Map(),requests=[];
@@ -34,6 +35,21 @@ function browser({hidden=false,pathname='/dinner',search='?campaign=detail-campa
     show(){document.visibilityState='visible';document.dispatch('visibilitychange');}
   };
 }
+
+test('each list navigation captures submitted selection once, bounds free text and leaves excluded names out',()=>{
+  const search=new URLSearchParams({include:'картофель,курица',cuisine:'japanese',q:'курица с картофелем',time:'30',exclude:'private-allergy',campaign:'detail-campaign'}).toString();
+  const b=browser({search:'?'+search,hidden:true});b.api.begin('list');
+  const first=b.events[0];assert.deepEqual(first.selection,{version:1,products:['картофель','курица'],cuisine:'japanese',query:'курица с картофелем',minutes:30,category:null,excludedCount:1});
+  assert.deepEqual(catalogSelection(first.selection),first.selection);assert.equal(b.events.length,1);assert.ok(!JSON.stringify(first).includes('private-allergy'));
+  b.location.search='?include=курица&q=новый+поиск';b.api.begin('list','search');
+  assert.equal(b.events.at(-1).selection.query,'новый поиск');assert.equal(first.selection.query,'курица с картофелем');
+  b.location.search='?'+new URLSearchParams({q:'https://private.example/?token=secret',include:'user@example.test',exclude:'private-allergy'});
+  b.api.begin('list','search');assert.equal(b.events.at(-1).selection.query,'[скрыто]');assert.deepEqual(b.events.at(-1).selection.products,['[скрыто]']);
+  assert.ok(!JSON.stringify(b.events).includes('private.example'));
+  b.location.search='?'+new URLSearchParams({q:'я'.repeat(200),include:Array(15).fill('я'.repeat(90)).join(','),time:'-3',cuisine:'not-valid'});
+  b.api.begin('list');const limited=b.events.at(-1).selection;assert.equal(limited.query.length,160);assert.doesNotThrow(()=>catalogSelection(limited));
+  b.api.begin('recipe');assert.equal(b.events.at(-1).selection,undefined);
+});
 
 test('visible sections and actual card positions are recorded once per page, including collapsed controls',()=>{
   const b=browser(),intro=b.node(),products=b.node(false),results=b.node(),cards=Array.from({length:25},(_,i)=>b.node(i===0));
@@ -93,7 +109,8 @@ test('navigation finishes the prior page before a new random page ID and BFcache
 });
 
 test('actions retain only bounded enums and position and final progress enters keepalive before navigation',()=>{
-  const b=browser({search:'?campaign=detail-campaign&page=3&q=private+allergy'});b.api.begin('list','pagination');
+  const b=browser({search:'?campaign=detail-campaign&page=3&q=быстрый+ужин'});b.api.begin('list','pagination');
+  assert.equal(b.events[0].selection.query,'быстрый ужин');
   assert.equal(b.events[0].pageNumber,3);assert.equal(b.events[0].viewport,'compact');
   b.api.action('filter_change',{control:'include',position:2,recipeId:'private-recipe',value:'private allergy',url:'https://private.example'});
   b.api.action('card_open',{position:2,control:'include'});

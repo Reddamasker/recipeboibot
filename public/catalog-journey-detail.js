@@ -13,6 +13,20 @@
   const listActions = new Set(['filter_change','filter_reset','search_submit','card_open','pagination','sort_change','results_jump','more_cuisines','filters_expand']);
   const recipeActions = new Set(['back_to_list','share','print','servings_change','save_open','platform_telegram','platform_max','cancel_save','open_bot']);
   const ceiling = 86400000;
+  function selection() {
+    const p=new URLSearchParams(location.search);
+    const sensitive=/(?:[a-z][a-z0-9+.-]*:\/\/|www\.|\b[^\s@]+@[^\s@]+\.[^\s@]+|\bBearer\s+|\bsk-[a-z0-9_-]{12,}|\b\d{5,}:[a-z0-9_-]{20,}|\b(?:token|password|secret|api[_-]?key)\s*[:=])/iu;
+    const clean=(value,max)=>{const s=String(value||'').replace(/[\u0000-\u001f\u007f]/gu,' ').trim();return sensitive.test(s)?'[скрыто]':s.slice(0,max).trim();};
+    const split=key=>String(p.get(key)||'').slice(0,250).split(',').map(s=>s.trim()).filter(Boolean).slice(0,12);
+    const cuisines=['everyday','italian','georgian','russian','ukrainian','belarusian','greek','indian','hungarian','japanese','chinese','uzbek','lebanese','turkish'];
+    const categories=['noodles','rice','pasta','soup','salad','baking','chicken','meat','fish','pizza','home'];
+    const minutes=Number(p.get('time'));
+    const products=[];let remaining=250;
+    for(const value of split('include')){const product=clean(value,Math.min(80,remaining));if(!product||product.length>remaining)break;products.push(product);remaining-=product.length+1;if(remaining<=0)break;}
+    return {version:1,products,cuisine:cuisines.includes(p.get('cuisine'))?p.get('cuisine'):null,
+      query:clean(p.get('q'),160),minutes:Number.isSafeInteger(minutes)&&minutes>=1&&minutes<=1440?minutes:null,
+      category:categories.includes(p.get('category'))?p.get('category'):null,excludedCount:split('exclude').length};
+  }
   let current = null, timer = null, frame = null, pageHidden = false;
   const now = () => performance.now();
   const visibleDocument = () => !pageHidden && document.visibilityState === 'visible';
@@ -89,7 +103,7 @@
       watched:new Map(),seenSections:new Set(),cards:[],seenCards:new Set(),depth:0,lastProgress:null,mounted:false};
     const rawPage=Number(new URLSearchParams(location.search).get('page'));
     const pageNumber=Number.isInteger(rawPage)&&rawPage>=1&&rawPage<=1000?rawPage:1;
-    emit('catalog_page_started',{navigation:navigations.has(navigation)?navigation:'initial',viewport:innerWidth<=480?'compact':innerWidth<=1024?'medium':'wide',pageNumber});
+    emit('catalog_page_started',{navigation:navigations.has(navigation)?navigation:'initial',viewport:innerWidth<=480?'compact':innerWidth<=1024?'medium':'wide',pageNumber,...(screen==='list'?{selection:selection()}:{})});
     schedule();
   }
   function watch(section,elements) {

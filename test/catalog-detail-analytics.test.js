@@ -27,6 +27,49 @@ function event(v,name,detail={},time=iso){
 const start=(v,screen='list',time=iso)=>{const pageId=randomUUID();event(v,'catalog_page_started',{pageId,screen,navigation:'initial',viewport:'compact',pageNumber:1},time);return pageId;};
 const report=(campaign,options={})=>catalogDetailReport({campaign,...options},{at:'2026-10-02T12:00:00.000Z'});
 
+test('selection snapshots survive retries, join empty and successful results by page, and distinguish legacy or internal visits',()=>{
+  const v=visit('selection-history'),pageId=randomUUID();
+  const selection={version:1,products:['картофель','курица'],cuisine:'japanese',query:'ужин',minutes:30,category:null,excludedCount:1};
+  const base={step:'catalog',flowId:v.flowId,journey:'recipe-first-v1',campaign:v.campaign,pageId,screen:'list'};
+  const first={id:randomUUID(),...base,event:'catalog_page_started',navigation:'filter',viewport:'compact',pageNumber:1,selection};
+  const empty={id:randomUUID(),...base,event:'catalog_empty',resultsTotal:0};
+  acceptProductEvents(null,{visitor:v.sessionId,events:[first,empty]});
+  acceptProductEvents(null,{visitor:v.sessionId,events:[{...first,selection:{...selection,query:'changed retry'}},empty]});
+  const second={...first,id:randomUUID(),pageId:randomUUID(),selection:{...selection,cuisine:null,query:'',minutes:null}};
+  acceptProductEvents(null,{visitor:v.sessionId,events:[second,{id:randomUUID(),...base,pageId:second.pageId,event:'catalog_list',results:3,resultsTotal:3}]});
+  const old=visit(v.campaign);start(old);
+  let r=catalogDetailReport({campaign:v.campaign});assert.equal(validCatalogDetailReport(r),true);assert.equal(r.version,3);assert.ok(r.selectionTrackingSince);
+  assert.equal(r.summary.visits,2);assert.equal(r.summary.selectionVisits,1);assert.equal(r.summary.emptySelectionVisits,1);
+  const fresh=r.visits.find(v=>v.pages.some(p=>p.selection));assert.equal(fresh.pages.length,2);
+  assert.deepEqual(fresh.pages[0].selection,selection);assert.equal(fresh.pages[0].resultsTotal,0);assert.deepEqual(fresh.pages[1].selection,second.selection);assert.equal(fresh.pages[1].resultsTotal,3);
+  assert.equal(r.visits.find(v=>!v.pages[0].selection).pages[0].resultsTotal,null);
+  assert.equal(fresh.events.filter(e=>e.event==='catalog_page_started').length,2);
+  const unsafe=structuredClone(r);unsafe.visits.find(v=>v.pages[0].selection).pages[0].selection.query='https://private.invalid';assert.equal(validCatalogDetailReport(unsafe),false);
+  for(const field of [{selection:{...selection,exclude:['not-authorised']}},{selection:{...selection,query:'x'.repeat(161)}}])assert.throws(()=>acceptProductEvents(null,{visitor:v.sessionId,events:[{...first,id:randomUUID(),...field}]}),{status:400});
+  assert.throws(()=>acceptProductEvents(null,{visitor:v.sessionId,events:[{...empty,id:randomUUID(),resultsTotal:1}]}),{status:400});
+  assert.throws(()=>acceptProductEvents(null,{visitor:v.sessionId,events:[{...empty,id:randomUUID(),selection}]}),{status:400});
+  assert.equal(catalogDetailReport({campaign:'other-selection'}).summary.selectionVisits,0);
+  recordCatalogJourneyServer('catalog_bot_started',{...v,platform:'telegram',isInternal:true});
+  r=catalogDetailReport({campaign:v.campaign});assert.equal(r.summary.visits,1);assert.equal(r.summary.selectionVisits,0);assert.equal(r.summary.emptySelectionVisits,0);
+});
+
+test('maximum selection text fits the bounded MAX bridge response for ten visits and twenty screens each',()=>{
+  const campaign='selection-bridge-size',selection={version:1,products:Array(3).fill('界'.repeat(80)),cuisine:'japanese',query:'界'.repeat(160),minutes:1440,category:'noodles',excludedCount:12};
+  for(let i=0;i<10;i++){
+    const v=visit(campaign);
+    for(let n=0;n<20;n++){
+      const pageId=randomUUID(),detail={pageId,screen:'list'};
+      event(v,'catalog_page_started',{...detail,navigation:'filter',viewport:'compact',pageNumber:1,selection},at(n*5));
+      event(v,'catalog_filter',{...detail,resultsTotal:999999,filters:5},at(n*5+1));
+      event(v,'catalog_list',{...detail,results:24,resultsTotal:999999},at(n*5+2));
+      event(v,'catalog_action',{...detail,action:'filter_change',control:'include'},at(n*5+3));
+    }
+  }
+  const r=report(campaign);assert.equal(validCatalogDetailReport(r),true);assert.equal(r.visits.length,10);
+  assert.ok(r.visits.every(v=>v.pages.length===20&&v.events.length===80));
+  assert.ok(Buffer.byteLength(JSON.stringify(r),'utf8')<512000,'Maximum lawful selection values must fit the existing bridge limit');
+});
+
 test('new public events are atomic, bounded and safe; page start registers a visit without a visible result',()=>{
   const v=visit('details-ingress'),pageId=randomUUID();
   const started={id:randomUUID(),event:'catalog_page_started',step:'catalog',flowId:v.flowId,journey:'recipe-first-v1',campaign:v.campaign,
@@ -79,7 +122,7 @@ test('per-page cumulative maxima, safe timelines and real outcomes preserve sour
   recordCatalogJourneyServer('catalog_save_failed',{...v,platform:'telegram',occurredAt:at(20)});
   const r=report(v.campaign),item=r.visits[0];
   assert.equal(validCatalogDetailReport(r),true);
-  assert.deepEqual({...r.summary},{visits:1,measuredVisits:1,visibleMsTotal:13000,pageViews:2,onlyListVisits:0,recipeVisits:1,saveIntentVisits:1,starts:1,saved:1,errors:1});
+  assert.deepEqual({...r.summary},{visits:1,measuredVisits:1,visibleMsTotal:13000,pageViews:2,onlyListVisits:0,recipeVisits:1,selectionVisits:0,emptySelectionVisits:0,saveIntentVisits:1,starts:1,saved:1,errors:1});
   assert.equal(r.platform,'telegram');assert.equal(item.visibleMs,13000);assert.equal(item.observedSpanMs,20000);
   assert.deepEqual(item.pages[0].sections,['results']);assert.equal(item.pages[0].visibleMs,9000);assert.equal(item.pages[0].cardsSeen,8);
   assert.equal(item.pages[0].loadMs,220);assert.equal(item.pages[0].incomplete,false);assert.equal(item.pages[1].incomplete,true);
@@ -138,7 +181,7 @@ test('MAX bridge validates full schema and exact scope, with missing or corrupt 
   const transport=payload=>async(url,request)=>{assert.equal(new URL(url).pathname,'/api/internal/catalog-visits');assert.equal(request.redirect,'error');return new Response(JSON.stringify(payload));};
   const good=await dashboardCatalogDetails(scope,{...options,transport:transport(empty)});
   assert.equal(good.status,'ready');assert.equal(good.totalVisits,0);assert.equal(good.summary.visibleMsTotal,null);
-  for(const payload of [{...empty,version:1},{...empty,version:3},{...empty,campaign:'all'},{...empty,from:'2026-10-01'},{...empty,group:'one_recipe'},{...empty,secret:'private'}, {...empty,summary:{...empty.summary,visits:1}}]){
+  for(const payload of [{...empty,version:1},{...empty,version:2},{...empty,version:4},{...empty,campaign:'all'},{...empty,from:'2026-10-01'},{...empty,group:'one_recipe'},{...empty,secret:'private'}, {...empty,summary:{...empty.summary,visits:1}}]){
     const result=await dashboardCatalogDetails(scope,{...options,transport:transport(payload)});
     assert.equal(result.status,'unavailable');assert.equal(result.summary,null);assert.equal(result.totalVisits,null);
   }

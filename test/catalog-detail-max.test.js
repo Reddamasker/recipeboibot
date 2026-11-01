@@ -21,7 +21,8 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
     const accepted = acceptProductEvents(null, { visitor, events: [{
       id: eventId, event: 'catalog_page_started', step: 'catalog',
       flowId, journey: 'recipe-first-v1', campaign, pageId, screen: 'list',
-      navigation: 'initial', viewport: 'compact', pageNumber: 1
+      navigation: 'initial', viewport: 'compact', pageNumber: 1,
+      selection:{version:1,products:['курица'],cuisine:'georgian',query:'чахохбили',minutes:null,category:null,excludedCount:0}
     }] });
     assert.deepEqual(accepted.accepted, [eventId]);
     function anotherVisit(active) {
@@ -56,7 +57,7 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
       const body = await response.text(), report = JSON.parse(body);
       const filters = { campaign, platform: 'max', from: '', to: '', page: 1 };
       assert.equal(validCatalogDetailReport(report, filters), true);
-      assert.equal(report.version, 2);
+      assert.equal(report.version, 3);
       assert.equal(report.status, 'ready');
       assert.equal(report.group, 'all');
       assert.equal(report.totalVisits, 3);
@@ -72,6 +73,9 @@ test('MAX detail endpoint requires its own token, preserves missing data and exc
       assert.equal(original.group, 'unconfirmed');
       assert.equal(original.visibleMs, null, 'a started page is not a zero-duration sample');
       assert.equal(original.pages[0].loadMs, null, 'page start does not assert visible content');
+      assert.equal(report.summary.selectionVisits,1);assert.equal(report.summary.emptySelectionVisits,0);
+      assert.equal(original.pages[0].selection.query,'чахохбили');assert.deepEqual(original.pages[0].selection.products,['курица']);
+      assert.ok(report.selectionTrackingSince);assert.equal(original.pages[0].resultsTotal,null);
       assert.equal(original.events[0].event, 'catalog_page_started');
       assert.equal(validCatalogDetailReport({ ...report, version: 1 }, filters), false,
         'the group contract must reject an older response schema');

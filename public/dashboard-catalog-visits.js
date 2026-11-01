@@ -26,6 +26,11 @@
   const duration = value => value == null ? 'Не измерялось' : value < 1000 ? '< 1 с' : value < 60000 ? `${Math.floor(value / 1000)} с` : `${Math.floor(value / 60000)} мин ${Math.floor(value % 60000 / 1000)} с`;
   const number = value => value == null ? 'Неизвестно' : Number(value).toLocaleString('ru-RU');
   const screenName = screen => screen === 'recipe' ? 'Полный рецепт' : screen === 'list' ? 'Список рецептов' : 'Страница';
+  const cuisineNames={everyday:'Домашняя',italian:'Итальянская',georgian:'Грузинская',russian:'Русская',ukrainian:'Украинская',belarusian:'Белорусская',greek:'Греческая',indian:'Индийская',hungarian:'Венгерская',japanese:'Японская',chinese:'Китайская',uzbek:'Узбекская',lebanese:'Ливанская',turkish:'Турецкая'};
+  function selectionLabel(s) {
+    if(!s)return 'Параметры подбора не сохранены для этого экрана.';
+    return `Продукты: ${s.products.length?s.products.join(', '):'не выбраны'} · Кухня: ${cuisineNames[s.cuisine]||'любая'} · Поиск: ${s.query?`«${s.query}»`:'без запроса'} · Время: ${s.minutes===null?'любое':`до ${s.minutes} мин`}${s.category?` · Тип блюда: ${s.category}`:''}${s.excludedCount?` · Исключено продуктов: ${s.excludedCount} (названия не собираются)`:''}`;
+  }
   function eventLabel(row) {
     if (row.event === 'catalog_page_started') return `Открыл экран: ${screenName(row.screen).toLowerCase()}`;
     if (row.event === 'catalog_section_visible') return `Увидел блок «${sectionNames[row.section] || 'Страница'}»`;
@@ -47,6 +52,10 @@
       const list=el('div','visit-pages');
       for (const p of pages) {
         const card=el('article','visit-page');card.append(el('h3','',`Экран ${p.number}: ${screenName(p.screen)}`));
+        if(p.screen==='list'){
+          card.append(el('p','visit-selection',selectionLabel(p.selection)));
+          card.append(el('p','',`Найдено рецептов: ${p.resultsTotal===null?'не зафиксировано':number(p.resultsTotal)}`));
+        }
         card.append(el('p','',`В видимой вкладке: ${duration(p.visibleMs)} · До появления содержимого: ${duration(p.loadMs)}`));
         card.append(el('p','',`Прокрутка: ${p.scrollDepth == null ? 'не измерялась' : p.scrollDepth + '%'}${p.screen === 'list' ? ` · Карточек попало на экран: ${p.cardsSeen == null ? 'не измерялось' : p.cardsSeen}` : ''}`));
         card.append(el('p','',`Видимые блоки: ${(p.sections || []).length ? p.sections.map(s=>sectionNames[s] || 'Страница').join(', ') : 'не зафиксированы'}`));
@@ -107,7 +116,9 @@
     if(data.status!=='ready')throw new Error('unavailable');
     const integer=value=>Number.isSafeInteger(value)&&value>=0;
     const s=data.summary;
-    if(data.version!==2 || !s || !integer(s.visits) || !Array.isArray(data.groups) || data.groups.length!==groupIds.length
+    if(data.version!==3 || !Number.isFinite(Date.parse(data.selectionTrackingSince)) || !s || !integer(s.visits)
+      || !integer(s.selectionVisits)||!integer(s.emptySelectionVisits)||s.emptySelectionVisits>s.selectionVisits||s.selectionVisits>s.visits
+      || !Array.isArray(data.groups) || data.groups.length!==groupIds.length
       || !data.groups.every(g=>groupIds.includes(g.id)&&integer(g.count)) || new Set(data.groups.map(g=>g.id)).size!==groupIds.length
       || data.groups.reduce((sum,g)=>sum+g.count,0)!==s.visits || !Array.isArray(data.visits)
       || data.group!==requested.group || data.page!==requested.page || data.pageSize!==10)throw new Error('unavailable');
@@ -119,7 +130,7 @@
   function draw(data) {
     const s=data.summary;
     $('#catalog-visits-summary').replaceChildren(...[
-      ['Посещения',number(s.visits)],['С замером времени',number(s.measuredVisits)],['Открыли рецепт',number(s.recipeVisits)],['Нажали сохранить',number(s.saveIntentVisits)],['Запуск бота',number(s.starts)],['Сохранено в боте',number(s.saved)]
+      ['Посещения',number(s.visits)],['С замером времени',number(s.measuredVisits)],['Открыли рецепт',number(s.recipeVisits)],['Нажали сохранить',number(s.saveIntentVisits)],['Запуск бота',number(s.starts)],['Сохранено в боте',number(s.saved)],['С параметрами подбора',number(s.selectionVisits)],['Пустая выдача с параметрами',number(s.emptySelectionVisits)]
     ].map(([label,value])=>metric(label,value)));
     const definitions=[...groupDefinitions,['all','Все посещения','Общий список для выбранного размещения, сайта и дат.']];
     for(const [index,[id,label,description]] of definitions.entries()){
@@ -142,7 +153,7 @@
       view.pager.hidden=data.totalVisits===0;
     }
     const since=data.trackingSince ? `${time(data.trackingSince)} МСК` : 'ещё не начат';
-    $('#catalog-visits-status').textContent=`Подробный сбор: ${since}. Всего экранов: ${number(s.pageViews)}. Посещений с ошибками: ${number(s.errors)}. Время и видимость старых посещений не восстановлены.`;
+    $('#catalog-visits-status').textContent=`Подробный сбор: ${since}. Продукты, кухни и поисковые запросы сохраняются с ${time(data.selectionTrackingSince)} МСК. Всего экранов: ${number(s.pageViews)}. Посещений с ошибками: ${number(s.errors)}. Параметры старых посещений не восстановлены. Пустой ответ не обязательно был виден посетителю.`;
   }
   function clearData() {
     if(activeGroup)rememberExpanded(activeGroup);

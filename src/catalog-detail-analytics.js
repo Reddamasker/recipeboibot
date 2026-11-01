@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { config } from './config.js';
+import { catalogSelection, validCatalogSelection } from './catalog-selection.js';
 
 export const catalogDetailPublicEvents = ['catalog_page_started', 'catalog_section_visible', 'catalog_page_progress', 'catalog_action'];
 export const catalogPathGroups = Object.freeze(['unconfirmed','brief_catalog','deep_catalog','active_catalog','empty_results','one_recipe','multiple_recipes','legacy_catalog','unknown_catalog','save_intent','bot_started','saved']);
@@ -24,12 +25,18 @@ const pageSize = 10, maxPages = 20, maxEvents = 80;
 
 db.exec('CREATE TABLE IF NOT EXISTS catalog_detail_metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL)');
 db.prepare("INSERT OR IGNORE INTO catalog_detail_metadata VALUES('tracking_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO catalog_detail_metadata VALUES('selection_tracking_since',?)").run(new Date().toISOString());
 
 export function catalogDetailEventFields(row) {
   const detailed = catalogDetailPublicEvents.includes(row.event);
-  if (!detailed && row.pageId === undefined && row.screen === undefined) return {};
+  if (!detailed && row.pageId === undefined && row.screen === undefined) { if(row.selection!==undefined||row.resultsTotal!==undefined)return fail();return {}; }
   if (row.journey !== 'recipe-first-v1' || row.step !== 'catalog' || !pageIdPattern.test(row.pageId || '') || !screens.includes(row.screen)) return fail();
   const detail = { pageId: row.pageId, screen: row.screen };
+  if(row.selection!==undefined){if(row.event!=='catalog_page_started'||row.screen!=='list')return fail();detail.selection=catalogSelection(row.selection);}
+  if(row.resultsTotal!==undefined){
+    if(!['catalog_list','catalog_search','catalog_filter','catalog_empty'].includes(row.event)||row.screen!=='list'||!integer(row.resultsTotal,0,1000000)||row.event==='catalog_empty'&&row.resultsTotal!==0)return fail();
+    detail.resultsTotal=row.resultsTotal;
+  }
   if (row.event === 'catalog_page_started') {
     if (!navigations.includes(row.navigation) || !viewports.includes(row.viewport) || !integer(row.pageNumber, 1, 1000)) return fail();
     Object.assign(detail, { navigation: row.navigation, viewport: row.viewport, pageNumber: row.pageNumber });
@@ -96,17 +103,21 @@ function ctes(where) {
       MAX(CASE WHEN event='catalog_page_started' THEN json_extract(d,'$.navigation') END) AS navigation,
       MAX(CASE WHEN event='catalog_page_started' THEN json_extract(d,'$.viewport') END) AS viewport,
       MAX(CASE WHEN event='catalog_page_started' THEN ${numeric('pageNumber',1000)} END) AS route_page,
+      MAX(${numeric('resultsTotal',1000000)}) AS results_total,
       json_group_array(DISTINCT CASE WHEN event='catalog_section_visible' THEN json_extract(d,'$.section') END) AS sections
       FROM normalized WHERE page_key IS NOT NULL GROUP BY flow_id,page_key),
-    event_flags AS (SELECT flow_id,
+    selection_pages AS MATERIALIZED (SELECT DISTINCT flow_id,page_key FROM normalized WHERE event='catalog_page_started' AND screen='list' AND json_extract(d,'$.selection.version')=1),
+    event_flags AS (SELECT n.flow_id,
       MAX(event='catalog_list' OR event='catalog_page_started' AND screen='list') AS saw_list,
+      MAX(s.page_key IS NOT NULL) AS has_selection,
+      MAX(event='catalog_empty' AND s.page_key IS NOT NULL) AS empty_selection,
       MAX(event='catalog_list') AS visible_list,SUM(event='catalog_open') AS recipe_opens,
       MAX(event='catalog_empty') AS empty_result,MAX(event='catalog_action') AS explicit_action,
       MAX(event='catalog_open') AS saw_recipe,
       MAX(event='catalog_save_intent' OR event='catalog_action' AND json_extract(d,'$.action')='save_open') AS save_intent,
       MAX(event IN ('client_error','catalog_handoff_error')) AS error,
       MAX(length(json_extract(d,'$.pageId'))=36) AS detailed,MIN(created_at) AS first_at,MAX(created_at) AS last_at
-      FROM normalized GROUP BY flow_id),
+      FROM normalized n LEFT JOIN selection_pages s ON s.flow_id=n.flow_id AND s.page_key=n.page_key GROUP BY n.flow_id),
     outcomes AS (SELECT o.* FROM selected v JOIN catalog_journey_outcomes o ON o.flow_id=v.flow_id WHERE o.created_at<=(SELECT at FROM cutoff)),
     outcome_flags AS (SELECT flow_id,MAX(event='catalog_bot_started') AS started,MAX(event='catalog_recipe_saved') AS saved,
       MAX(event='catalog_save_failed') AS error,MAX(created_at) AS last_at FROM outcomes GROUP BY flow_id),
@@ -121,7 +132,7 @@ function ctes(where) {
 }
 
 function unavailable(filters) {
-  return { version: 2, ...filters, status: 'unavailable', trackingSince: null, generatedAt: new Date().toISOString(), pageSize,
+  return { version: 3, ...filters, status: 'unavailable', trackingSince: null, selectionTrackingSince:null, generatedAt: new Date().toISOString(), pageSize,
     totalVisits: null, summary: null, groups: null, visits: [] };
 }
 
@@ -138,6 +149,8 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
     (SELECT COUNT(*) FROM pages) AS pageViews,
     (SELECT COUNT(*) FROM event_flags WHERE saw_list=1 AND saw_recipe=0) AS onlyListVisits,
     (SELECT COUNT(*) FROM event_flags WHERE saw_recipe=1) AS recipeVisits,
+    (SELECT COUNT(*) FROM event_flags WHERE has_selection=1) AS selectionVisits,
+    (SELECT COUNT(*) FROM event_flags WHERE empty_selection=1) AS emptySelectionVisits,
     (SELECT COUNT(*) FROM event_flags WHERE save_intent=1) AS saveIntentVisits,
     (SELECT COUNT(*) FROM outcome_flags WHERE started=1) AS starts,
     (SELECT COUNT(*) FROM outcome_flags WHERE saved=1) AS saved,
@@ -155,7 +168,9 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
     const subset = baseQuery(filters,at,selected.map(v => v.flow_id)), pageCte = ctes(subset.where);
     const pageRows = db.prepare(`${pageCte}, ranked AS (SELECT *,ROW_NUMBER() OVER(PARTITION BY flow_id ORDER BY started_at,first_id) AS number,
       COUNT(*) OVER(PARTITION BY flow_id) AS total FROM pages)
-      SELECT r.*,(SELECT json_extract(n.d,'$.reason') FROM normalized n WHERE n.flow_id=r.flow_id AND n.page_key=r.page_key AND n.event='catalog_page_progress'
+      SELECT r.*,(SELECT json_extract(n.d,'$.selection') FROM normalized n WHERE n.flow_id=r.flow_id AND n.page_key=r.page_key AND n.event='catalog_page_started'
+        AND json_extract(n.d,'$.selection.version')=1 ORDER BY n.created_at,n.eid LIMIT 1) AS selection_json,
+      (SELECT json_extract(n.d,'$.reason') FROM normalized n WHERE n.flow_id=r.flow_id AND n.page_key=r.page_key AND n.event='catalog_page_progress'
         ORDER BY n.created_at DESC,n.eid DESC LIMIT 1) AS last_reason FROM ranked r WHERE number<=? ORDER BY flow_id,number`).all(at,...subset.values,maxPages+1);
     const flags = new Map(db.prepare(`${pageCte} SELECT v.flow_id,e.detailed,e.first_at,e.last_at,o.last_at AS outcome_last,
       (SELECT SUM(visible_ms) FROM pages p WHERE p.flow_id=v.flow_id) AS visible_ms
@@ -177,7 +192,8 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
           lastReason:reasons.includes(p.last_reason)?p.last_reason:null,loadMs:p.load_ms,legacy:p.page_key.startsWith('legacy:'),
           incomplete:!['navigation','pagehide'].includes(p.last_reason),
           ...(navigations.includes(p.navigation)?{navigation:p.navigation}:{}),...(viewports.includes(p.viewport)?{viewport:p.viewport}:{}),
-          ...(integer(p.route_page,1,1000)?{routePageNumber:p.route_page}:{}) })),
+          ...(integer(p.route_page,1,1000)?{routePageNumber:p.route_page}:{}),
+          selection:p.selection_json&&validCatalogSelection(JSON.parse(p.selection_json))?JSON.parse(p.selection_json):null,resultsTotal:p.results_total })),
         events: rows.slice(0,maxEvents).map(row => {
           const d=JSON.parse(row.d), entry={at:row.created_at,event:row.event};
           const pageNumber=numbers.get(d.pageId || (['catalog_list','catalog_open'].includes(row.event)?'legacy:'+row.id:null));
@@ -192,25 +208,27 @@ export function catalogDetailReport(input = {}, { at = new Date().toISOString() 
         eventsTruncated:rows.length>maxEvents });
     }
   }
-  return { version:2,...filters,status:'ready',trackingSince:db.prepare("SELECT value FROM catalog_detail_metadata WHERE key='tracking_since'").get().value,
+  return { version:3,...filters,status:'ready',trackingSince:db.prepare("SELECT value FROM catalog_detail_metadata WHERE key='tracking_since'").get().value,
+    selectionTrackingSince:db.prepare("SELECT value FROM catalog_detail_metadata WHERE key='selection_tracking_since'").get().value,
     generatedAt:at,pageSize,totalVisits,summary,groups,visits };
 }
 
 const exactKeys=(object,keys)=>object&&typeof object==='object'&&!Array.isArray(object)&&Object.keys(object).every(k=>keys.includes(k));
 const nullableNumber=(n,max=Number.MAX_SAFE_INTEGER)=>n===null||integer(n,0,max);
 export function validCatalogDetailReport(report, expected = null) {
-  if(!exactKeys(report,['version','platform','status','trackingSince','generatedAt','campaign','from','to','page','group','pageSize','totalVisits','summary','groups','visits'])
-    ||report.version!==2||report.pageSize!==pageSize||!validTime(report.generatedAt)||!Array.isArray(report.visits)||report.visits.length>pageSize)return false;
+  if(!exactKeys(report,['version','platform','status','trackingSince','selectionTrackingSince','generatedAt','campaign','from','to','page','group','pageSize','totalVisits','summary','groups','visits'])
+    ||report.version!==3||report.pageSize!==pageSize||!validTime(report.generatedAt)||!Array.isArray(report.visits)||report.visits.length>pageSize)return false;
   let filters;try{filters=catalogDetailFilters(report);}catch{return false;}
   if(expected&&Object.entries(catalogDetailFilters(expected)).some(([key,value])=>report[key]!==value))return false;
   if(Object.entries(filters).some(([key,value])=>report[key]!==value))return false;
-  if(report.status==='unavailable')return report.trackingSince===null&&report.totalVisits===null&&report.summary===null&&report.groups===null&&report.visits.length===0;
-  if(report.status!=='ready'||!validTime(report.trackingSince)||!integer(report.totalVisits))return false;
-  const s=report.summary,counts=['visits','measuredVisits','pageViews','onlyListVisits','recipeVisits','saveIntentVisits','starts','saved','errors'];
+  if(report.status==='unavailable')return report.trackingSince===null&&report.selectionTrackingSince===null&&report.totalVisits===null&&report.summary===null&&report.groups===null&&report.visits.length===0;
+  if(report.status!=='ready'||!validTime(report.trackingSince)||!validTime(report.selectionTrackingSince)||!integer(report.totalVisits))return false;
+  const s=report.summary,counts=['visits','measuredVisits','pageViews','onlyListVisits','recipeVisits','selectionVisits','emptySelectionVisits','saveIntentVisits','starts','saved','errors'];
   if(!exactKeys(s,[...counts,'visibleMsTotal'])||!counts.every(k=>integer(s[k]))
     ||!nullableNumber(s.visibleMsTotal)||(s.measuredVisits===0?s.visibleMsTotal!==null:s.visibleMsTotal===null)
     ||s.onlyListVisits+s.recipeVisits>s.visits||s.measuredVisits>s.pageViews
-    ||['measuredVisits','onlyListVisits','recipeVisits','saveIntentVisits','starts','saved','errors'].some(k=>s[k]>s.visits))return false;
+    ||s.emptySelectionVisits>s.selectionVisits
+    ||['measuredVisits','onlyListVisits','recipeVisits','selectionVisits','saveIntentVisits','starts','saved','errors'].some(k=>s[k]>s.visits))return false;
   if(!Array.isArray(report.groups)||report.groups.length!==catalogPathGroups.length
     ||report.groups.some((g,index)=>!exactKeys(g,['id','count'])||g.id!==catalogPathGroups[index]||!integer(g.count))
     ||report.groups.reduce((sum,g)=>sum+g.count,0)!==s.visits)return false;
@@ -229,11 +247,12 @@ export function validCatalogDetailReport(report, expected = null) {
       ||v.observedSpanMs!==Date.parse(v.lastEventAt)-Date.parse(v.startedAt)
       ||!Array.isArray(v.pages)||v.pages.length>maxPages||!Array.isArray(v.events)||v.events.length>maxEvents||!Array.isArray(v.outcomes)||v.outcomes.length>6)return false;
     for(const [pageIndex,p] of v.pages.entries()){
-      if(!exactKeys(p,['number','screen','startedAt','visibleMs','scrollDepth','cardsSeen','sections','lastReason','loadMs','legacy','incomplete','navigation','viewport','routePageNumber'])
+      if(!exactKeys(p,['number','screen','startedAt','visibleMs','scrollDepth','cardsSeen','sections','lastReason','loadMs','legacy','incomplete','navigation','viewport','routePageNumber','selection','resultsTotal'])
         ||p.number!==pageIndex+1||!screens.includes(p.screen)||!validTime(p.startedAt)||p.startedAt<v.startedAt||p.startedAt>v.lastEventAt||!nullableNumber(p.visibleMs,86400000)||!nullableNumber(p.scrollDepth,100)
         ||!nullableNumber(p.cardsSeen,24)||!nullableNumber(p.loadMs,86400000)||!Array.isArray(p.sections)||p.sections.length>sections.length||!p.sections.every(s=>sections.includes(s))
         ||p.lastReason!==null&&!reasons.includes(p.lastReason)||typeof p.legacy!=='boolean'||typeof p.incomplete!=='boolean'
-        ||p.navigation!==undefined&&!navigations.includes(p.navigation)||p.viewport!==undefined&&!viewports.includes(p.viewport)||p.routePageNumber!==undefined&&!integer(p.routePageNumber,1,1000))return false;
+        ||p.navigation!==undefined&&!navigations.includes(p.navigation)||p.viewport!==undefined&&!viewports.includes(p.viewport)||p.routePageNumber!==undefined&&!integer(p.routePageNumber,1,1000)
+        ||p.selection!==null&&(!validCatalogSelection(p.selection)||p.screen!=='list')||!nullableNumber(p.resultsTotal,1000000))return false;
     }
     for(const e of v.events){
       if(!exactKeys(e,['at','event','screen','pageNumber','platform','action','section','control','position','results','filters','code'])||!validTime(e.at)||e.at<v.startedAt||e.at>v.lastEventAt||!events.includes(e.event)||e.event==='catalog_page_progress'

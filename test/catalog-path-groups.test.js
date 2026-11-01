@@ -46,7 +46,7 @@ test('groups partition full visits by explicit action, empty result and confirme
   const v8=visit(campaign,at(8));page(v8,{cards:0});
   const v9=visit(campaign,at(9));page(v9,{cards:5});page(v9,{cards:5,time:at(10)});
   const r=report(campaign),c=counts(r);
-  assert.equal(r.version,2);assert.equal(r.group,'all');assert.deepEqual(r.groups.map(g=>g.id),catalogPathGroups);
+  assert.equal(r.version,3);assert.equal(r.group,'all');assert.deepEqual(r.groups.map(g=>g.id),catalogPathGroups);
   assert.equal(r.totalVisits,10);assert.equal(r.groups.reduce((sum,g)=>sum+g.count,0),10);
   assert.deepEqual(c,{unconfirmed:1,brief_catalog:3,deep_catalog:1,active_catalog:1,empty_results:1,one_recipe:0,multiple_recipes:0,legacy_catalog:1,unknown_catalog:2,save_intent:0,bot_started:0,saved:0});
   assert.equal(category(v1),'brief_catalog','URL filter/search metadata are not explicit actions');
