@@ -13,7 +13,7 @@ test('legacy catalogue preserves its list and filters while using the shared rec
  };
  for(const [name,hash] of Object.entries(expected)){
   let content=fs.readFileSync(new URL('../public/'+name,import.meta.url),'utf8').replace(/\r\n?/g,'\n');
-  if(name.endsWith('.html'))content=content.replace(/<script defer src="\/(?:recipe-detail|recipe-cooking|catalog-recipe|catalog-handoff|catalog-journey-detail)\.js\?[^"]+"><\/script>/g,'').replace('catalog-legacy.js?v=shared-recipe-3','catalog-legacy.js?v=9870784').replace('  <link rel="stylesheet" href="/catalog-handoff.css?v=1"><link rel="stylesheet" href="/recipe-detail.css?v=3">\n','');
+  if(name.endsWith('.html'))content=content.replace(/<script defer src="\/(?:recipe-detail|recipe-cooking|catalog-recipe|catalog-handoff|catalog-journey-detail)\.js\?[^"]+"><\/script>/g,'').replace('catalog-legacy.js?v=shared-recipe-3','catalog-legacy.js?v=9870784').replace('  <link rel="stylesheet" href="/catalog-handoff.css?v=1"><link rel="stylesheet" href="/recipe-detail.css?v=4">\n','');
   if(name.endsWith('.js')){
     assert.match(content,/window\.CatalogRecipe\.render/);
     const start=content.indexOf('  function renderRecipe('),end=content.indexOf('  function applyFilters(',start);

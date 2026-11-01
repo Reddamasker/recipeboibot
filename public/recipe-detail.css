@@ -1,6 +1,9 @@
-.recipe-detail {
+:root:has(.recipe-detail):not(:has(#recipe-view[hidden])), .recipe-detail {
+  color-scheme: only light;
   --bg: #f3f0f7; --ink: #302537; --muted: #685e70; --berry: #a4415c; --berry-dark: #7f2f49;
   --lilac: #e7def0; --line: #ded5e5; --lime: #ddf18a;
+}
+.recipe-detail {
   color: var(--ink); background: var(--bg); font-family: Inter, "Segoe UI", system-ui, sans-serif;
   font-size: 16px; line-height: normal;
 }
@@ -12,10 +15,14 @@
 .recipe-detail .section-kicker { display: block; color: var(--berry); font-size: 10px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
 .recipe-detail button, .recipe-detail input { font-family: inherit; }
 .recipe-detail .primary, .recipe-detail .secondary { border: 0; padding: 14px 18px; font-size: 13px; font-weight: 800; cursor: pointer; }
-.recipe-detail .primary { background: var(--berry); color: #fff; }
+.recipe-detail .primary, .catalog-page-actions .primary { background: var(--berry); color: #fff; transition: background-color .18s, transform .18s; }
 .recipe-detail .secondary { background: var(--lilac); color: var(--ink); }
-.recipe-detail .primary:hover { background: var(--berry-dark); }
-.recipe-detail .secondary:hover { background: #ddd0e8; }
+@media (hover: hover) {
+  .recipe-detail .primary:not(:disabled):hover, .catalog-page-actions .primary:not(:disabled):hover { background: var(--berry-dark); }
+  .recipe-detail .secondary:not(:disabled):hover { background: #ddd0e8; }
+}
+.recipe-detail .primary:not(:disabled):active, .catalog-page-actions .primary:not(:disabled):active { background: var(--berry-dark); transform: translateY(1px); }
+.recipe-detail button:disabled, .catalog-page-actions button:disabled { opacity: .5; cursor: wait; }
 .recipe-detail :is(button,a,input,summary):focus-visible { outline: 3px solid var(--berry); outline-offset: 3px; }
 .recipe-detail a.detail-back { display: inline-flex; align-items: center; text-decoration: none; }
 /* Full recipe page */
@@ -78,6 +85,8 @@ a.source-chip { min-height: 44px; }
   cursor: pointer;
 }
 .detail-back span { margin-right: 4px; font-size: 19px; font-weight: 400; vertical-align: -1px; }
+.recipe-detail .detail-back:hover { background: rgba(248,245,250,.94); }
+.recipe-detail a.source-chip:hover { color: var(--ink); }
 
 .shared-intro {
   padding: calc(18px + env(safe-area-inset-top)) 18px 20px;
@@ -96,6 +105,7 @@ a.source-chip { min-height: 44px; }
 .detail-media.no-preview { height: auto; min-height: 40px; margin-right: 18px; margin-left: 18px; overflow: visible; border-radius: 0; background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .detail-media.no-preview .detail-back, .detail-media.no-preview .detail-media-source { position: static; }
 .detail-media.no-preview .detail-back { flex: 0 0 auto; background: var(--lilac); }
+.recipe-detail .detail-media.no-preview .detail-back:hover { background: var(--lilac); }
 .detail-media.no-preview .detail-media-source { min-width: 0; justify-content: flex-end; }
 .detail-media.no-preview .source-chip { background: var(--lilac); }
 .detail-media img { width: 100%; height: 100%; display: block; object-fit: cover; }
@@ -182,6 +192,13 @@ span.recipe-tag { cursor: default; }
 
 
 /* Public page host. The recipe's visual rules above are shared with Mini App. */
+:root:has(.catalog-recipe):not(:has(#recipe-view[hidden])) {
+  --paper: var(--bg); --accent: var(--berry); --accent-hover: var(--berry-dark); --olive: var(--berry);
+  --purple: var(--berry-dark); --surface: #fff; --surface-muted: var(--lilac); --surface-hover: #ddd0e8;
+  --on-accent: #fff; --surface-overlay: #f3f0f7f0;
+  color: var(--ink); background: var(--bg);
+}
+body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) { color: var(--ink); background: var(--bg); }
 .catalog-recipe { width: min(100%,760px); margin: 0 auto; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) #content { width: 100%; }
 .ingredient-name { min-width: 0; overflow-wrap: anywhere; }
@@ -221,6 +238,8 @@ body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) #content { width: 100%
 .cook button:disabled { opacity: .45; cursor: default; }
 
 .catalog-page-actions .catalog-save-bot { margin-top: 8px; }
+.catalog-page-actions .primary { border: 0; }
+.catalog-page-actions :is(button,a):focus-visible { outline: 3px solid var(--berry); outline-offset: 3px; }
 
 .recipe-context { padding: 0 18px 24px; }
 .recipe-context:empty { display: none; }
