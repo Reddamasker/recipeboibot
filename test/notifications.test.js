@@ -151,11 +151,14 @@ test('mobile settings expose the notification schedule controls and narrow-scree
   assert.match(styles, /grid-template-columns:\s*repeat\(7,\s*minmax\(0,\s*1fr\)\)/);
 });
 
-test('subscription expiry skips an occurrence without generating dinner; renewal resumes the saved schedule', async () => {
-  const user = database.upsertTelegramUser({ id: 7201, first_name: 'Expiry' });
+test('subscription expiry skips an occurrence without generating dinner; renewal resumes the saved schedule', async (t) => {
   const from = new Date('2026-09-27T12:00:00Z'), due = new Date('2026-09-28T15:30:00Z');
+  // The scheduler and recipe access checks must share this historical clock.
+  t.mock.timers.enable({ apis: ['Date'], now: from });
+  const user = database.upsertTelegramUser({ id: 7201, first_name: 'Expiry' });
   subscriptions.grantSubscription(user.id, 'subscription', due, from);
   notificationStore.saveNotificationSchedule(user.id, { enabled: true, weekdays: [1], time: '18:30', timezone: 'Europe/Moscow' }, from);
+  t.mock.timers.setTime(due.getTime());
   await notifications.runNotificationCycle({ sendReminder: assert.fail, sendChoice: assert.fail }, due);
   assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM dinner_sessions WHERE user_id=?').get(user.id).n, 0);
   assert.equal(database.db.prepare('SELECT COUNT(*) AS n FROM notification_deliveries WHERE user_id=?').get(user.id).n, 0);
@@ -169,6 +172,7 @@ test('subscription expiry skips an occurrence without generating dinner; renewal
   assert.deepEqual(resumed.weekdays, [1]);
   assert.equal(resumed.nextDueAt, '2026-10-05T15:30:00.000Z');
   let sends = 0;
+  t.mock.timers.setTime(Date.parse(resumed.nextDueAt));
   await notifications.runNotificationCycle({ sendReminder: async () => sends++, sendChoice: assert.fail }, new Date(resumed.nextDueAt));
   assert.equal(sends, 1);
 });
