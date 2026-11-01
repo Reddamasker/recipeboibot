@@ -191,7 +191,7 @@ span.recipe-tag { cursor: default; }
 }
 
 
-/* Public page host. The recipe's visual rules above are shared with Mini App. */
+/* Public recipe host. */
 :root:has(.catalog-recipe):not(:has(#recipe-view[hidden])) {
   --paper: var(--bg); --accent: var(--berry); --accent-hover: var(--berry-dark); --olive: var(--berry);
   --purple: var(--berry-dark); --surface: #fff; --surface-muted: var(--lilac); --surface-hover: #ddd0e8;
@@ -218,7 +218,7 @@ body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) #content { width: 100%
   .catalog-recipe .step-card, .catalog-recipe .ingredient-row { break-inside: avoid; }
 }
 
-/* The same cooking screen in the catalogue and Mini App. */
+/* Shared cooking screen. */
 .cook {
   position: fixed;
   inset: 0;
