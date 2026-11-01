@@ -1133,7 +1133,7 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
   assert.match(app, /class="detail-back"[^>]*data-close[^>]*>.*Назад/);
   assert.doesNotMatch(app, /detail-toolbar/);
   assert.match(app, /recipe-detail-sheet/);
-  assert.match(app, /data-tag=/);
+  assert.match(detail, /data-tag=/);
   assert.match(css, /\.recipe-detail-sheet \{/);
   assert.match(css, /\.detail-actions \{ position: fixed/);
   assert.match(css, /\.recipe-panel \{[\s\S]*border-top: 1px solid var\(--line\)/);
