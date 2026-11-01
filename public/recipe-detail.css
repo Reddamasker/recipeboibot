@@ -199,6 +199,9 @@ span.recipe-tag { cursor: default; }
   color: var(--ink); background: var(--bg);
 }
 body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) { color: var(--ink); background: var(--bg); }
+body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) .header button span { background: var(--lilac); }
+body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) .header button:hover,
+.catalog-page-actions .handoff-cancel:hover { background: var(--lilac); }
 .catalog-recipe { width: min(100%,760px); margin: 0 auto; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) #content { width: 100%; }
 .ingredient-name { min-width: 0; overflow-wrap: anywhere; }
