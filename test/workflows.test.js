@@ -1130,7 +1130,8 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
   assert.match(detail, /<a class="source-chip" data-source-link href=/);
   assert.match(app, /tg\.openLink\(r\.sourceUrl\)/);
   assert.match(detail, /detail-media-source">\$\{source\}/);
-  assert.match(app, /class="detail-back"[^>]*data-close[^>]*>.*Назад/);
+  assert.match(detail, /class="detail-back"[^>]*data-close[^>]*>.*Назад/);
+  assert.match(app, /window\.RecipeDetail\.back\(\)/);
   assert.doesNotMatch(app, /detail-toolbar/);
   assert.match(app, /recipe-detail-sheet/);
   assert.match(detail, /data-tag=/);
@@ -1143,8 +1144,10 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
 
 test('recipe detail exposes sharing to the owner and a read-only public view', () => {
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
+  const detail = fs.readFileSync(path.resolve('public/recipe-detail.js'), 'utf8');
   const css = fs.readFileSync(path.resolve('public/recipe-detail.css'), 'utf8');
-  assert.match(app, /id="share">Поделиться/);
+  assert.match(detail, /id="share">Поделиться/);
+  assert.match(app, /window\.RecipeDetail\.actions\(r\)/);
   assert.match(app, /shared-recipe-images\\\/\[A-Za-z0-9_-\]\{32\}/);
   assert.match(app, /detail-management[^`]*\$\{editButton\}/);
   assert.doesNotMatch(app, /detail-heading-tools/);
