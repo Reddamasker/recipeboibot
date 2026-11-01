@@ -213,29 +213,29 @@
     finally { if(!signal.aborted) $('#cards').setAttribute('aria-busy','false'); }
   }
   function renderRecipe(recipe,p) {
-    document.title=recipe.title+' — Твои рецепты';
-    $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← К подборке рецептов</a><div class="recipe-heading"><div><p class="eyebrow">ИЗ КОЛЛЕКЦИИ «ТВОИ РЕЦЕПТЫ»</p><h1>${escape(recipe.title)}</h1><p class="lead">${escape(recipe.description)}</p><div class="recipe-meta">${recipe.cuisineLabel?`<span>${escape(recipe.cuisineLabel)}</span>`:""}<span>${recipe.minutes} минут</span><span>${recipe.ingredients.length} ингредиентов</span><span>Базовый рецепт: ${recipe.servings} порц.</span></div><div class="recipe-actions"><button class="primary" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}">${favoriteText(recipe.id)}</button><button id="share-recipe">Скопировать ссылку</button><button id="print-recipe">Распечатать</button></div></div>${recipe.image?`<div><img class="recipe-photo" src="${escape(recipe.image)}" alt="${escape(recipe.title)}"><p class="photo-note">${recipe.imageGenerated?'Изображение создано с помощью ИИ. Подача готового блюда может отличаться.':''}</p></div>`:'<div><img class="recipe-photo" src="/assets/catalog-photo-pending.svg" alt="Фотография блюда пока не добавлена"><p class="photo-note">Фотография блюда пока не добавлена.</p></div>'}</div><div class="recipe-body"><section><h2>Ингредиенты</h2><label class="servings-control">Количество порций<input id="servings" type="number" min="1" max="20" step="1" value="${recipe.servings}"></label><ul id="ingredients" class="ingredients"></ul><div id="nutrition" class="nutrition"></div></section><section><h2>Как приготовить</h2><p class="step-note">Количества в шагах указаны для базовых ${recipe.servings} порций. При пересчёте ориентируйтесь на список ингредиентов; время приготовления может измениться.</p><ol class="steps">${recipe.steps.map(step=>`<li><p>${escape(step)}</p></li>`).join('')}</ol></section></div>`;
-    renderIngredients(recipe.servings);
+    const extras = window.CatalogRecipe.render($('#recipe-view'),recipe,{
+      backUrl:searchUrl(p),favoriteText:favoriteText(recipe.id),favorite:favorites.has(recipe.id),notify:notice,
+      action:name=>journey('action',name),detail:analyticsDetail
+    });
     const saveSection=document.createElement('section');
-    $('#recipe-view .recipe-body').after(saveSection);
+    extras.append(saveSection);
     window.CatalogHandoff?.mount(saveSection,recipe);
+    const saveTrigger=saveSection.querySelector('[data-handoff-open]');
+    if(saveTrigger) {
+      const actions=$('#recipe-view .detail-actions');
+      actions.classList.remove('shared-actions');
+      const shortcut=document.createElement('button');
+      shortcut.type='button';shortcut.className='primary';shortcut.dataset.recipeSave='';shortcut.textContent='Сохранить в боте';
+      shortcut.addEventListener('click',()=>{saveSection.scrollIntoView({block:'center'});saveTrigger.click();});
+      actions.append(shortcut);
+    }
     if(!adEntry) {
       const invitation=document.createElement('div');
       invitation.className='benefits-reopen';
       invitation.innerHTML='<p>Каждый день — по вашему вкусу.</p><button type="button" id="show-benefits">Возможности бота</button>';
-      $('#recipe-view .recipe-body').before(invitation);
+      extras.append(invitation);
       $('#show-benefits').addEventListener('click',()=>window.CatalogBenefits?.open(recipe));
     }
-    const n=recipe.nutrition;
-    $('#nutrition').innerHTML=n?`<strong>Пищевая ценность на порцию</strong>${Math.round(n.calories)} ккал · Белки ${escape(n.protein)} г<br>Жиры ${escape(n.fat)} г · Углеводы ${escape(n.carbs)} г<br><span>Расчётные значения, зависят от продуктов.</span>`:'Пищевая ценность пока не рассчитана.';
-    $('#servings').addEventListener('input',event=>{ const value=Number(event.target.value); if(Number.isInteger(value)&&value>=1&&value<=20) renderIngredients(value); });
-    $('#servings').addEventListener('change',event=>{journey('action','servings_change');const value=Math.max(1,Math.min(20,Math.round(Number(event.target.value)||currentRecipe.servings)));event.target.value=value;renderIngredients(value);});
-    $('#share-recipe').addEventListener('click',async()=>{journey('action','share');const url=location.origin+routeBase+'/'+recipe.id;try{await navigator.clipboard.writeText(url);notice('Ссылка на рецепт скопирована');window.RecipeAnalytics?.event('catalog_share','catalog',analyticsDetail());}catch{notice('Скопируйте адрес рецепта из строки браузера');}});
-    $('#print-recipe').addEventListener('click',()=>{journey('action','print');window.RecipeAnalytics?.event('catalog_print','catalog',analyticsDetail());window.print();});
-  }
-  function renderIngredients(servings) {
-    const checked=new Set([...document.querySelectorAll('#ingredients input:checked')].map(input=>input.value));
-    $('#ingredients').innerHTML=currentRecipe.ingredients.map((item,i)=>`<li><label><input type="checkbox" value="${i}" ${checked.has(String(i))?'checked':''}><span>${escape(item.name)}</span></label><span class="amount">${new Intl.NumberFormat('ru',{maximumFractionDigits:1}).format(item.quantity*servings/currentRecipe.servings)} ${escape(item.unit)}</span></li>`).join('');
   }
   function applyFilters(event) {
     event.preventDefault();const p=params();p.delete('page');
@@ -252,7 +252,7 @@
   $('#saved-toggle').addEventListener('click',()=>{const p=new URLSearchParams();if(params().get('favorites')!=='1')p.set('favorites','1');navigate(searchUrl(p),{scroll:true,navigation:'favorites'});});
   document.addEventListener('click',event=>{
     const target=event.target.closest('button,a'); if(!target)return;
-    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();const isCard=target.classList.contains('card-link'),isBack=target.classList.contains('back');if(isCard)journey('action','card_open',{position:[...document.querySelectorAll('#cards .card-link')].indexOf(target)+1});else if(isBack)journey('action','back_to_list');navigate(target.getAttribute('href'),{scroll:true,benefits:isCard,navigation:isBack?'back':'link'});}
+    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();const isCard=target.classList.contains('card-link'),isBack=target.matches('.back,.detail-back');if(isCard)journey('action','card_open',{position:[...document.querySelectorAll('#cards .card-link')].indexOf(target)+1});else if(isBack)journey('action','back_to_list');navigate(target.getAttribute('href'),{scroll:true,benefits:isCard,navigation:isBack?'back':'link'});}
     else if(target.dataset.save) saveFavorite(target.dataset.save);
     else if(target.hasAttribute('data-reset')) {journey('action','filter_reset');navigate(resetUrl(),{navigation:'reset'});}
     else if(target.hasAttribute('data-retry')) {journey('action','retry');load({navigation:'retry'});}

@@ -148,19 +148,9 @@
     finally { if(!signal.aborted) $('#cards').setAttribute('aria-busy','false'); }
   }
   function renderRecipe(recipe,p) {
-    document.title=recipe.title+' — Твои рецепты';
-    $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← К подборке рецептов</a><div class="recipe-heading"><div><p class="eyebrow">ИЗ КОЛЛЕКЦИИ «ТВОИ РЕЦЕПТЫ»</p><h1>${escape(recipe.title)}</h1><p class="lead">${escape(recipe.description)}</p><div class="recipe-meta">${recipe.cuisineLabel?`<span>${escape(recipe.cuisineLabel)}</span>`:""}<span>${recipe.minutes} минут</span><span>${recipe.ingredients.length} ингредиентов</span><span>Базовый рецепт: ${recipe.servings} порц.</span></div><div class="recipe-actions"><button class="primary" data-save="${escape(recipe.id)}" aria-pressed="${favorites.has(recipe.id)}">${favoriteText(recipe.id)}</button><button id="share-recipe">Скопировать ссылку</button><button id="print-recipe">Распечатать</button></div></div>${recipe.image?`<div><img class="recipe-photo" src="${escape(recipe.image)}" alt="${escape(recipe.title)}"><p class="photo-note">${recipe.imageGenerated?'Изображение создано с помощью ИИ. Подача готового блюда может отличаться.':''}</p></div>`:'<div><img class="recipe-photo" src="/assets/catalog-photo-pending.svg" alt="Фотография блюда пока не добавлена"><p class="photo-note">Фотография блюда пока не добавлена.</p></div>'}</div><div class="recipe-body"><section><h2>Ингредиенты</h2><label class="servings-control">Количество порций<input id="servings" type="number" min="1" max="20" step="1" value="${recipe.servings}"></label><ul id="ingredients" class="ingredients"></ul><div id="nutrition" class="nutrition"></div></section><section><h2>Как приготовить</h2><p class="step-note">Количества в шагах указаны для базовых ${recipe.servings} порций. При пересчёте ориентируйтесь на список ингредиентов; время приготовления может измениться.</p><ol class="steps">${recipe.steps.map(step=>`<li><p>${escape(step)}</p></li>`).join('')}</ol></section></div>`;
-    renderIngredients(recipe.servings);
-    const n=recipe.nutrition;
-    $('#nutrition').innerHTML=n?`<strong>Пищевая ценность на порцию</strong>${Math.round(n.calories)} ккал · Белки ${escape(n.protein)} г<br>Жиры ${escape(n.fat)} г · Углеводы ${escape(n.carbs)} г<br><span>Расчётные значения, зависят от продуктов.</span>`:'Пищевая ценность пока не рассчитана.';
-    $('#servings').addEventListener('input',event=>{ const value=Number(event.target.value); if(Number.isInteger(value)&&value>=1&&value<=20) renderIngredients(value); });
-    $('#servings').addEventListener('change',event=>{const value=Math.max(1,Math.min(20,Math.round(Number(event.target.value)||currentRecipe.servings)));event.target.value=value;renderIngredients(value);});
-    $('#share-recipe').addEventListener('click',async()=>{const url=location.origin+'/recipes/'+recipe.id;try{await navigator.clipboard.writeText(url);notice('Ссылка на рецепт скопирована');window.RecipeAnalytics?.event('catalog_share','catalog');}catch{notice('Скопируйте адрес рецепта из строки браузера');}});
-    $('#print-recipe').addEventListener('click',()=>{window.RecipeAnalytics?.event('catalog_print','catalog');window.print();});
-  }
-  function renderIngredients(servings) {
-    const checked=new Set([...document.querySelectorAll('#ingredients input:checked')].map(input=>input.value));
-    $('#ingredients').innerHTML=currentRecipe.ingredients.map((item,i)=>`<li><label><input type="checkbox" value="${i}" ${checked.has(String(i))?'checked':''}><span>${escape(item.name)}</span></label><span class="amount">${new Intl.NumberFormat('ru',{maximumFractionDigits:1}).format(item.quantity*servings/currentRecipe.servings)} ${escape(item.unit)}</span></li>`).join('');
+    const extras = window.CatalogRecipe.render($('#recipe-view'),recipe,{
+      backUrl:searchUrl(p),favoriteText:favoriteText(recipe.id),favorite:favorites.has(recipe.id),notify:notice
+    });
   }
   function applyFilters(event) {
     event.preventDefault();const p=params();p.delete('page');

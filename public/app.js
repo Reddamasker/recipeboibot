@@ -1318,28 +1318,6 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
   const shopping = missing.length ? `<aside class="detail-shopping"><strong>Докупить</strong><p>${esc(missing.join(', '))}</p></aside>` : '';
   const image = safeImage(r.thumbnailUrl);
   const imagePending = Boolean(suggestion && !image);
-  const hasSource = /^https?:\/\//i.test(r.sourceUrl || '');
-  const sourceName = r.origin === 'generated' ? 'Создано в «Рецептах»' : r.sourceName || (hasSource ? 'Открыть источник' : 'Личный рецепт');
-  const sourceChip = hasSource
-    ? `<a class="source-chip" data-source-link href="${esc(r.sourceUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Открыть источник: ${esc(sourceName)}"><span class="source-chip-icon">▶</span><span>${esc(sourceName)}</span><span class="source-chip-arrow">↗</span></a>`
-    : `<span class="source-chip source-chip-static"><span class="source-chip-icon">•</span><span>${esc(sourceName)}</span></span>`;
-  const n = r.nutrition;
-  const nutritionNumber = value => Number.isFinite(value) ? new Intl.NumberFormat('ru', { maximumFractionDigits: 1 }).format(value) : '—';
-  const nutritionStat = n ? `<div class="detail-stat detail-nutrition" aria-label="КБЖУ на порцию"><strong>${nutritionNumber(n.calories)} <small>ккал</small></strong><div class="detail-macros"><span>Б ${nutritionNumber(n.protein)}</span><span>Ж ${nutritionNumber(n.fat)}</span><span>У ${nutritionNumber(n.carbs)} <small>г</small></span></div></div>` : '<div class="detail-stat detail-nutrition"><span>Расчёт КБЖУ</span></div>';
-  const stats = [nutritionStat,
-    `<div class="detail-stat"><strong>${Number.isFinite(r.totalMinutes) || [r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? totalTime(r) : '—'}</strong><span>${Number.isFinite(r.totalMinutes) || [r.prepMinutes, r.cookMinutes].every(Number.isFinite) ? 'минут' : 'полное время не указано'}</span></div>`,
-    `<div class="detail-stat"><strong>${r.ingredients?.length || 0}</strong><span>ингредиентов</span></div>`
-  ].join('');
-  const nutritionNote = n ? `<details class="nutrition-note"><summary>${n.source === 'recipe' ? 'Из исходного рецепта' : 'Примерный расчёт'}</summary><p>Значения на одну порцию.${n.source === 'calculated' ? ' Рассчитано по ингредиентам, включая масло и соусы.' : ''}${n.assumptions?.length ? ' ' + n.assumptions.map(esc).join(' ') : ''}${n.servings && !r.servings ? ' Число порций для расчёта: ' + esc(n.servings) + '.' : ''}</p></details>` : '';
-  const tags = (r.tags || []).map((tag) => shared || catalog ? `<span class="recipe-tag">${esc(tag)}</span>` : `<button class="recipe-tag" type="button" data-tag="${esc(tag)}">${esc(tag)}</button>`).join('');
-  const warnings = (r.warnings || []).map((item) => `<li>${esc(item)}</li>`).join('');
-  const warningCount = (r.warnings || []).length;
-  const ingredients = (r.ingredients || []).map((item) => {
-    const amount = [item.quantity, item.unit].filter((value) => value != null && value !== '').join(' ');
-    const unspecified = /(?:^|\s)по\s+вкусу(?:\s|[.,;:]|$)/iu.test([item.raw, item.comment].filter(Boolean).join(' ')) ? 'по вкусу' : 'количество не указано';
-    return `<div class="ingredient-row"><div><strong>${esc(item.name || item.raw)}</strong>${item.comment ? `<small>${esc(item.comment)}</small>` : ''}</div>${amount ? `<span>${esc(amount)}</span>` : `<span class="amount-empty">${unspecified}</span>`}</div>`;
-  }).join('') || '<p class="detail-empty">Ингредиенты не извлечены</p>';
-  const steps = (r.steps || []).map((item, index) => `<div class="step-card"><span class="step-number">${index + 1}</span><p>${esc(item.text)}</p></div>`).join('') || '<p class="detail-empty">Шаги не извлечены</p>';
   const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
   const backButton = shared ? '' : '<button class="detail-back" type="button" data-close aria-label="Назад"><span aria-hidden="true">←</span> Назад</button>';
   const editButton = requestMode
@@ -1350,7 +1328,14 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
     : shared
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
-  const el = overlay(`${sharedIntro}<div class="detail-media ${image ? 'has-preview' : imagePending ? 'pending-preview' : 'no-preview'}">${image ? `<img src="${image}" alt="" referrerpolicy="no-referrer">` : imagePending ? '<div class="recipe-image-wait"><span aria-hidden="true">✦</span><p>Готовлю изображение блюда…</p></div>' : ''}${backButton}<div class="detail-media-source">${sourceChip}</div></div><div class="detail-content"><div class="detail-heading"><h1>${esc(r.title)}</h1>${stats ? `<div class="detail-stats">${stats}</div>${nutritionNote}` : ''}${r.description ? `<p class="detail-lead">${esc(r.description)}</p>` : ''}${tags ? `<div class="recipe-tags">${tags}</div>` : ''}</div>${shopping}${warnings ? `<details class="quality-card"><summary><span><b>Что стоит проверить</b><small>${suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение'} · ${warningCount}</small></span><span class="quality-toggle">＋</span></summary><ul>${warnings}</ul></details>` : ''}<section class="recipe-panel ingredients-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Список продуктов</span><h2>Ингредиенты</h2></div><span>${r.ingredients?.length || 0}</span></div><div class="ingredient-list">${ingredients}</div></section><section class="recipe-panel steps-panel"><div class="recipe-panel-head"><div><span class="section-kicker">По порядку</span><h2>Как готовить</h2></div><span>${r.steps?.length || 0}</span></div><div class="step-list">${steps}</div></section>${r.notes ? `<section class="recipe-panel note-panel"><div class="recipe-panel-head"><div><span class="section-kicker">Личное</span><h2>Заметки</h2></div></div><p>${esc(r.notes)}</p></section>` : ''}${!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : ''}${editButton ? `<div class="detail-management">${editButton}</div>` : ''}</div>${actions}`, `recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  const el = overlay(window.RecipeDetail.render(r, {
+    imagePending, interactiveTags: !shared && !catalog,
+    warningLabel: suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение',
+    slots: {
+      intro: sharedIntro, back: backButton, beforePanels: shopping, actions,
+      contentEnd: (!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : '') + (editButton ? `<div class="detail-management">${editButton}</div>` : '')
+    }
+  }), `recipe-detail recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
   if (!shared) observeEngagement(el.querySelector('.recipe-detail-sheet'), r.recipeViewToken, engagement, true);
   if (imagePending) void waitForSuggestionImage(suggestion.id, el);

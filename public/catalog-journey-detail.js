@@ -124,10 +124,10 @@
       watch('results',all('#catalog-view .results'));
       current.cards=all('#cards .card-link').slice(0,24);
     }else{
-      watch('recipe_header',all('#recipe-view .recipe-heading'));
-      watch('ingredients',all('#recipe-view .recipe-body section:first-child'));
-      watch('steps',all('#recipe-view .recipe-body section:nth-child(2)'));
-      watch('save_cta',all('#recipe-view [data-handoff-open]'));
+      watch('recipe_header',all('#recipe-view [data-recipe-section="header"]'));
+      watch('ingredients',all('#recipe-view [data-recipe-section="ingredients"]'));
+      watch('steps',all('#recipe-view [data-recipe-section="steps"]'));
+      watch('save_cta',all('#recipe-view [data-handoff-open],#recipe-view [data-recipe-save]'));
     }
     watch('footer',all('body > footer'));recheck();
   }

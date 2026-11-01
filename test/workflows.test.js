@@ -1124,11 +1124,12 @@ test('mobile collection is fixed to two columns with an honest preview fallback'
 
 test('recipe detail keeps the source first with a Telegram-native link', () => {
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
-  const css = fs.readFileSync(path.resolve('public/refinements.css'), 'utf8');
+  const detail = fs.readFileSync(path.resolve('public/recipe-detail.js'), 'utf8');
+  const css = fs.readFileSync(path.resolve('public/recipe-detail.css'), 'utf8');
   const index = fs.readFileSync(path.resolve('public/index.html'), 'utf8');
-  assert.match(app, /<a class="source-chip" data-source-link href=/);
+  assert.match(detail, /<a class="source-chip" data-source-link href=/);
   assert.match(app, /tg\.openLink\(r\.sourceUrl\)/);
-  assert.match(app, /detail-media-source">\$\{sourceChip\}/);
+  assert.match(detail, /detail-media-source">\$\{source\}/);
   assert.match(app, /class="detail-back"[^>]*data-close[^>]*>.*Назад/);
   assert.doesNotMatch(app, /detail-toolbar/);
   assert.match(app, /recipe-detail-sheet/);
@@ -1142,7 +1143,7 @@ test('recipe detail keeps the source first with a Telegram-native link', () => {
 
 test('recipe detail exposes sharing to the owner and a read-only public view', () => {
   const app = fs.readFileSync(path.resolve('public/app.js'), 'utf8');
-  const css = fs.readFileSync(path.resolve('public/refinements.css'), 'utf8');
+  const css = fs.readFileSync(path.resolve('public/recipe-detail.css'), 'utf8');
   assert.match(app, /id="share">Поделиться/);
   assert.match(app, /shared-recipe-images\\\/\[A-Za-z0-9_-\]\{32\}/);
   assert.match(app, /detail-management[^`]*\$\{editButton\}/);

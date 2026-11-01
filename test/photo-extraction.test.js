@@ -108,10 +108,9 @@ test('stated total survives saving, sharing and note editing and participates in
 });
 
 test('ingredient UI distinguishes missing amounts, literal to taste, numeric zero and known quantity', () => {
-  const source = fs.readFileSync('public/app.js', 'utf8');
-  const start = source.indexOf('  const ingredients = (r.ingredients || []).map');
-  const code = source.slice(start, source.indexOf('\n  const steps =', start));
-  const render = item => vm.runInNewContext(code + '\ningredients', { r: { ingredients: [item] }, esc: String });
+  const sandbox = {};
+  vm.runInNewContext(fs.readFileSync('public/recipe-detail.js', 'utf8'), sandbox);
+  const render = item => sandbox.RecipeDetail.ingredients({ ingredients: [item] });
   assert.match(render({ name: 'Баклажан', quantity: null, unit: null }), /количество не указано/);
   assert.doesNotMatch(render({ name: 'Баклажан' }), /undefined|по вкусу/);
   assert.match(render({ name: 'Соль', raw: 'Соль — по вкусу' }), /amount-empty">по вкусу/);

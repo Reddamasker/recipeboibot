@@ -79,11 +79,28 @@ test('first heartbeat is at five seconds, then fifteen; hidden time and duplicat
   assert.equal(b.events.at(-1).reason,'heartbeat');
 });
 
+test('shared recipe sections and either save button count once only when visible; portions and favorites do not reopen recipe',()=>{
+  const b=browser(),header=b.node(),ingredients=b.node(false),steps=b.node(false),save=b.node(false),shortcut=b.node();
+  b.selectors.set('#recipe-view [data-recipe-section="header"]',[header]);
+  b.selectors.set('#recipe-view [data-recipe-section="ingredients"]',[ingredients]);
+  b.selectors.set('#recipe-view [data-recipe-section="steps"]',[steps]);
+  b.selectors.set('#recipe-view [data-handoff-open],#recipe-view [data-recipe-save]',[save,shortcut]);
+  b.api.begin('recipe');b.api.mount();b.frames();
+  assert.deepEqual(b.events.filter(e=>e.event==='catalog_section_visible').map(e=>e.section),['recipe_header','save_cta']);
+  ingredients.visible=true;steps.visible=true;save.visible=true;b.api.recheck();b.frames();
+  b.api.action('servings_change');b.api.action('favorite_add');b.api.mount();b.frames();
+  assert.equal(b.events.filter(e=>e.event==='catalog_page_started').length,1);
+  assert.equal(b.events.filter(e=>e.event==='catalog_section_visible').length,4);
+  assert.deepEqual(b.events.filter(e=>e.event==='catalog_action').map(e=>e.action),['servings_change','favorite_add']);
+  b.hide();b.api.action('servings_change');b.frames();
+  assert.equal(b.events.filter(e=>e.event==='catalog_action').length,2);
+});
+
 test('a slow loading placeholder cannot mark the later long recipe as fully scrolled',()=>{
   const b=browser();b.document.documentElement.scrollHeight=500;b.document.body.scrollHeight=500;
   b.api.begin('recipe');b.advance(5000);assert.equal(b.events.at(-1).scrollDepth,0);
   b.document.documentElement.scrollHeight=5000;b.document.body.scrollHeight=5000;
-  b.selectors.set('#recipe-view .recipe-heading',[b.node()]);b.api.mount();b.frames();b.advance(15000);
+  b.selectors.set('#recipe-view [data-recipe-section="header"]',[b.node()]);b.api.mount();b.frames();b.advance(15000);
   assert.equal(b.events.at(-1).scrollDepth,10);assert.equal(b.events.at(-1).cardsSeen,0);
 });
 

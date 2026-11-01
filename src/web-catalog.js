@@ -49,7 +49,8 @@ const entries = SEED_RECIPES.map(recipe => {
   minutes: recipe.prepMinutes + recipe.cookMinutes, servings: recipe.servings,
   categories: [...new Set(assigned)], cuisineId, cuisineLabel: cuisineChoices.find(([id])=>id===cuisineId)?.[1] || null,
   image: recipe.thumbnailUrl, imageGenerated: recipe.imageGenerated,
-  ingredients: recipe.ingredients.map(({name,quantity,unit})=>({name,quantity,unit})),
+  tags: recipe.tags,
+  ingredients: recipe.ingredients.map(({name,quantity,unit,comment})=>({name,quantity,unit,...(comment ? {comment} : {})})),
   steps: recipe.steps.map(step=>step.text), nutrition: recipe.nutrition
 }; });
 export function catalogRecipe(id) { return entries.find(recipe=>recipe.id === id) || null; }
