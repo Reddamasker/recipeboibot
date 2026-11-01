@@ -214,7 +214,7 @@
   }
   function renderRecipe(recipe,p) {
     const extras = window.CatalogRecipe.render($('#recipe-view'),recipe,{
-      backUrl:searchUrl(p),favoriteText:favoriteText(recipe.id),favorite:favorites.has(recipe.id),notify:notice,
+      backUrl:searchUrl(p),notify:notice,
       action:name=>journey('action',name),detail:analyticsDetail
     });
     const saveSection=document.createElement('section');

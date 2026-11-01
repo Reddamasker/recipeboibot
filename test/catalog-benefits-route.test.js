@@ -58,7 +58,7 @@ test('catalog invitation resolves the correct bot in all contours without accept
         assert.ok(html.includes('href="/open/recipe-bot/telegram"'));assert.ok(html.includes('href="/open/recipe-bot/max"'));
         assert.ok(!html.includes('/catalog-legacy.js'));
       }else{
-        assert.ok(html.includes('/catalog-legacy.js?v=shared-recipe-1'));
+        assert.ok(html.includes('/catalog-legacy.js?v=shared-recipe-2'));
         assert.ok(html.includes('/recipe-detail.js?v=1'));
         assert.ok(!html.includes('catalog-benefits'));assert.ok(!html.includes('catalog-handoff'));
       }
