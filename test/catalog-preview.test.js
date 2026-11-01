@@ -14,7 +14,7 @@ function browser(search='?benefits=preview&cuisine=italian', {failFirst=false,pa
   const location={pathname,search,hash:'#recipe',origin:'https://catalog.example'};
   const history={state:{preserved:true},replaceState(state,unused,url){replaces.push(url);this.state=state;const parsed=new URL(url,location.origin);location.pathname=parsed.pathname;location.search=parsed.search;location.hash=parsed.hash;}};
   const document={body:element(),querySelector:node,querySelectorAll:()=>[],createElement:element,addEventListener:(name,fn)=>{listeners['document:'+name]=fn;}};
-  const window={CatalogRecipe:{render:()=>element()},RecipeAnalytics:{observe:(...args)=>observations.push(args)},CatalogBenefits:{close(){},open(recipe,options){opens.push({recipe,options});return true;}},addEventListener:(name,fn)=>{listeners[name]=fn;}};
+  const window={CatalogRecipe:{render:()=>element(),dispose(){}},RecipeAnalytics:{observe:(...args)=>observations.push(args)},CatalogBenefits:{close(){},open(recipe,options){opens.push({recipe,options});return true;}},addEventListener:(name,fn)=>{listeners[name]=fn;}};
   const sandbox={document,window,location,history,URL,URLSearchParams,AbortController,Intl,Set,FormData,localStorage:{getItem:()=>null},matchMedia:()=>({matches:false,addEventListener(){}}),
     fetch:async url=>{requests.push(url);if(failFirst&&requests.length===1)throw new Error('offline');return {ok:true,json:async()=>({id:'pasta',title:'Паста',description:'Рецепт',minutes:15,servings:2,ingredients:[],steps:[]})};}};
   vm.runInNewContext(catalogSource,sandbox);
