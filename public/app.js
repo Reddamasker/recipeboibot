@@ -1319,7 +1319,7 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
   const image = safeImage(r.thumbnailUrl);
   const imagePending = Boolean(suggestion && !image);
   const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
-  const backButton = shared ? '' : '<button class="detail-back" type="button" data-close aria-label="Назад"><span aria-hidden="true">←</span> Назад</button>';
+  const backButton = shared ? '' : window.RecipeDetail.back();
   const editButton = requestMode
     ? '<button class="detail-edit" id="request-refine" type="button">Уточнить пожелание</button>'
     : shared || catalog ? '' : '<button class="detail-edit" id="edit" type="button">Изменить</button>';
@@ -1327,15 +1327,15 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
     ? '<div class="detail-actions"><button class="primary accent" id="save-suggestion" type="button">Добавить в мои рецепты</button><button class="secondary" id="cook" type="button">Начать готовить</button></div>'
     : shared
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
-    : `<div class="detail-actions"><button class="secondary share-button" id="share">Поделиться</button><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`;
+    : window.RecipeDetail.actions(r);
+  const context = shopping + (!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : '') + (editButton ? `<div class="detail-management">${editButton}</div>` : '');
   const el = overlay(window.RecipeDetail.render(r, {
     imagePending, interactiveTags: !shared && !catalog,
     warningLabel: suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение',
     slots: {
-      intro: sharedIntro, back: backButton, beforePanels: shopping, actions,
-      contentEnd: (!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : '') + (editButton ? `<div class="detail-management">${editButton}</div>` : '')
+      intro: sharedIntro, back: backButton, actions
     }
-  }), `recipe-detail recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
+  }) + `<div class="recipe-context">${context}</div>`, `recipe-detail recipe-detail-sheet${shared ? ' shared-recipe-sheet' : ''}`, !shared);
   if (suggestion) el.querySelector('.recipe-detail-sheet').dataset.suggestionId = suggestion.id;
   if (!shared) observeEngagement(el.querySelector('.recipe-detail-sheet'), r.recipeViewToken, engagement, true);
   if (imagePending) void waitForSuggestionImage(suggestion.id, el);
@@ -1343,7 +1343,7 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
   if (!shared && offerBanner()) {
     const banner = document.createElement('div');
     banner.innerHTML = offerBanner();
-    el.querySelector('.detail-content')?.append(banner);
+    el.querySelector('.recipe-context')?.append(banner);
     banner.querySelector('[data-open-offer]')?.addEventListener('click', openOffer);
     banner.querySelector('[data-open-benefits]')?.addEventListener('click', openBenefits);
     bindTrialButtons(banner);
@@ -1442,25 +1442,7 @@ async function removeRecipeFromList(id, button) {
 function cookMode(r, onComplete = null) {
   if (!r.steps?.length) return;
   recipeOpenRevision++;
-  state.cookStep = 0;
-  const el = document.createElement('div'); el.className = 'cook';
-  el.setAttribute('aria-label', `Готовим: ${r.title}`);
-  el.innerHTML = '<div class="cook-top"><span id="cook-progress"></span><button class="icon-btn" id="cook-close" aria-label="Закрыть режим готовки">✕</button></div><div class="cook-step" tabindex="-1" aria-live="polite" aria-atomic="true" aria-describedby="cook-progress"></div><div class="cook-nav"><button class="secondary" id="prev">← Назад</button><button class="primary accent" id="next"></button></div>';
-  const step = el.querySelector('.cook-step'), previous = el.querySelector('#prev'), next = el.querySelector('#next');
-  const draw = () => {
-    el.querySelector('#cook-progress').textContent = `Шаг ${state.cookStep + 1} из ${r.steps.length}`;
-    step.textContent = r.steps[state.cookStep].text;
-    previous.disabled = state.cookStep === 0;
-    next.textContent = state.cookStep === r.steps.length - 1 ? 'Готово ✓' : 'Дальше →';
-    // Keep focus on a usable control when Back becomes disabled at the first step.
-    if (previous.disabled && document.activeElement === previous) next.focus();
-  };
-  const close = () => unmountModal(el);
-  el.querySelector('#cook-close').onclick = close;
-  previous.onclick = () => { state.cookStep--; draw(); };
-  next.onclick = () => { if (state.cookStep === r.steps.length - 1) { close(); onComplete?.(); } else { state.cookStep++; draw(); } };
-  draw();
-  mountModal(el, el, close, step);
+  return window.RecipeCooking.open(r, { mount: mountModal, unmount: unmountModal, onComplete, onStep: index => { state.cookStep = index; } });
 }
 function settingsSheet() {
   const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему аккаунту ${globalThis.window?.RecipePlatform?.label || 'Telegram'} и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="secondary" id="promo-settings">Ввести промокод</button><button class="ghost" id="delete-account">Удалить мои данные</button>`);

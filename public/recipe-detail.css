@@ -7,6 +7,8 @@
 .recipe-detail h1, .recipe-detail h2 { font-family: Georgia, "Times New Roman", serif; }
 .recipe-detail h1 { font-weight: 700; overflow-wrap: anywhere; }
 .recipe-detail h2 { margin: 0; }
+.recipe-detail [data-modal-heading]:focus { outline: none; text-decoration: underline; text-decoration-color: var(--berry); text-decoration-thickness: 2px; text-underline-offset: 6px; }
+@media (forced-colors: active) { .recipe-detail [data-modal-heading]:focus { outline: 2px solid Highlight; outline-offset: 4px; } }
 .recipe-detail .section-kicker { display: block; color: var(--berry); font-size: 10px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
 .recipe-detail button, .recipe-detail input { font-family: inherit; }
 .recipe-detail .primary, .recipe-detail .secondary { border: 0; padding: 14px 18px; font-size: 13px; font-weight: 800; cursor: pointer; }
@@ -182,24 +184,12 @@ span.recipe-tag { cursor: default; }
 /* Public page host. The recipe's visual rules above are shared with Mini App. */
 .catalog-recipe { width: min(100%,760px); margin: 0 auto; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) #content { width: 100%; }
-.catalog-recipe-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 24px; }
-.catalog-recipe-tools button { border-radius: 14px; min-height: 44px; }
-.catalog-recipe-tools [aria-pressed=true] { background: var(--berry); color: white; }
-.detail-servings { display: flex; gap: 16px; align-items: center; margin: 0 0 12px; font-size: 14px; }
-.detail-servings input { width: 76px; min-height: 44px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); }
-.ingredient-check { display: flex; align-items: flex-start; gap: 10px; min-height: 30px; cursor: pointer; }
-.ingredient-check input { width: 20px; height: 20px; flex: 0 0 20px; margin: 0; accent-color: var(--berry); }
-.ingredient-check input:checked + .ingredient-name { opacity: .6; text-decoration: line-through; }
 .ingredient-name { min-width: 0; overflow-wrap: anywhere; }
-.detail-photo-note { margin: 8px 18px 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
-.detail-step-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 10px; }
-.catalog-recipe .catalog-save-bot { margin: 8px 0 24px; padding: 22px; }
-.catalog-recipe .catalog-save-bot h2 { font-size: 25px; }
-.catalog-recipe .benefits-reopen { margin: 24px 0; }
+.catalog-page-actions { width: min(100%,760px); margin: 0 auto; padding: 0 18px 84px; }
 @media (min-width: 620px) { .catalog-recipe { padding-bottom: 0; } }
 @media print {
-  body:has(.catalog-recipe) .header, body:has(.catalog-recipe) > footer,
-  .catalog-recipe :is(.detail-actions,.detail-back,.catalog-recipe-tools,.catalog-save-bot,.benefits-reopen) { display: none !important; }
+  body:has(.catalog-recipe) .header, body:has(.catalog-recipe) > footer, .catalog-page-actions,
+  .catalog-recipe :is(.detail-actions,.detail-back) { display: none !important; }
   .catalog-recipe { width: 100%; padding: 0; color: #000; background: #fff; }
   .catalog-recipe .detail-media { height: 200px; }
   .catalog-recipe .detail-content { padding: 16px 0; }
@@ -207,3 +197,30 @@ body:has(.catalog-recipe):not(:has(#recipe-view[hidden])) #content { width: 100%
   .catalog-recipe .recipe-panel { break-inside: auto; }
   .catalog-recipe .step-card, .catalog-recipe .ingredient-row { break-inside: avoid; }
 }
+
+/* The same cooking screen in the catalogue and Mini App. */
+.cook {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: calc(24px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));
+  background: var(--ink);
+  color: #fff;
+}
+.cook-top { display: flex; align-items: center; justify-content: space-between; color: var(--lilac); }
+.cook .icon-btn { background: #fff; color: var(--ink); }
+.cook-step { flex: 1; width: min(100%,680px); min-height: 0; margin: auto; padding: 30px 0; overflow-y: auto; display: flex; align-items: center; font: 28px/1.35 Georgia, serif; }
+.cook-nav { display: flex; gap: 9px; }
+.cook-nav button { flex: 1; }
+.cook .secondary { background: var(--lilac); }
+
+.cook .icon-btn { border: 0; border-radius: 50%; width: 44px; height: 44px; min-height: 44px; padding: 0; font-size: 20px; cursor: pointer; }
+.cook-nav button { min-height: 48px; border-radius: 17px; }
+.cook button:disabled { opacity: .45; cursor: default; }
+
+.catalog-page-actions .catalog-save-bot { margin-top: 8px; }
+
+.recipe-context { padding: 0 18px 24px; }
+.recipe-context:empty { display: none; }

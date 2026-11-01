@@ -118,6 +118,8 @@ test('cooking keeps navigation focus across live step updates and only completes
   const document = { activeElement: null, createElement: () => element };
   let closes = 0, completed = 0, dismiss;
   const sandbox = { document, state: {}, recipeOpenRevision: 0, mountModal(el, dialog, onDismiss, initialFocus) { assert.equal(el, dialog); dismiss = onDismiss; initialFocus.focus(); }, unmountModal() { closes++; } };
+  vm.runInNewContext(fs.readFileSync('public/recipe-cooking.js', 'utf8'), sandbox);
+  sandbox.window = { RecipeCooking: sandbox.RecipeCooking };
   vm.runInNewContext(handler, sandbox);
   sandbox.cookMode({ title: 'Ужин', steps: [{ text: 'Нарежьте овощи' }, { text: 'Потушите овощи' }] }, () => { completed++; });
   assert.equal(sandbox.recipeOpenRevision, 1);

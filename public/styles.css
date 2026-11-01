@@ -440,22 +440,6 @@ button:disabled { cursor: wait; opacity: .5; }
 .actions > * { flex: 1; }
 .warning { margin: 10px 0; border-radius: 17px; padding: 12px 14px; background: var(--lime-soft); font-size: 12px; line-height: 1.45; }
 
-.cook {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  padding: calc(24px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));
-  background: var(--ink);
-  color: #fff;
-}
-.cook-top { display: flex; align-items: center; justify-content: space-between; color: var(--lilac); }
-.cook .icon-btn { background: #fff; color: var(--ink); }
-.cook-step { flex: 1; width: min(100%,680px); min-height: 0; margin: auto; padding: 30px 0; overflow-y: auto; display: flex; align-items: center; font: 28px/1.35 Georgia, serif; }
-.cook-nav { display: flex; gap: 9px; }
-.cook-nav button { flex: 1; }
-.cook .secondary { background: var(--lilac); }
 .toast {
   position: fixed;
   left: 50%;

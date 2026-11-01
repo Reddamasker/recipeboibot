@@ -3,6 +3,9 @@
   const $ = selector => document.querySelector(selector);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const key = 'recipe-catalog-favorites-v1';
+  const journey = (method,...args) => {try{return window.CatalogDetail?.[method]?.(...args);}catch{}};
+  const analyticsDetail = () => ({...window.CatalogHandoff?.detail(),...journey('detail')});
+  let firstLoad = true;
   let favorites = new Set(), controller, currentRecipe, noticeTimer;
   try { const stored = JSON.parse(localStorage.getItem(key)||'[]'); if(Array.isArray(stored)) favorites = new Set(stored.filter(id=>typeof id==='string' && /^[a-z0-9-]+$/.test(id)).slice(0,250)); } catch {}
   const filterNames = ['cuisine','category','time','include','exclude'];
@@ -81,7 +84,7 @@
   function searchUrl(p) { if(visualMode)p.set('filters','visual');return '/recipes'+(p.size?'?'+p.toString():''); }
   async function request(url, signal) {
     const response=await fetch(url,{signal});
-    if(!response.ok) throw new Error(response.status===404?'Рецепт не найден':response.status===429?'Слишком много запросов. Попробуйте через минуту.':'Не удалось загрузить рецепты. Проверьте соединение и повторите.');
+    if(!response.ok) throw Object.assign(new Error(response.status===404?'Рецепт не найден':response.status===429?'Слишком много запросов. Попробуйте через минуту.':'Не удалось загрузить рецепты. Проверьте соединение и повторите.'),{code:'http'});
     return response.json();
   }
   function options(name, values, selected) {
@@ -110,15 +113,17 @@
     }).join('');
   }
   async function load() {
+    window.CatalogRecipe?.dispose();
     controller?.abort(); controller=new AbortController(); const signal=controller.signal;
     const p=params(), id=location.pathname.match(/^\/recipes\/([a-z0-9-]+)$/)?.[1];
+    journey('begin',id?'recipe':'list',firstLoad?'initial':'link'); firstLoad=false;
     currentRecipe=null;
     $('#catalog-view').hidden=Boolean(id); $('#recipe-view').hidden=!id;
     $('#saved-toggle').setAttribute('aria-pressed',String(p.get('favorites')==='1'));
     if(id) {
       $('#recipe-view').innerHTML='<p role="status">Загружаем рецепт…</p>';
-      try { const recipe=await request('/api/catalog/'+id,signal); currentRecipe=recipe; renderRecipe(recipe,p); window.RecipeAnalytics?.observe($('#recipe-view'),'catalog_open','catalog'); }
-      catch(error) { if(error.name!=='AbortError') $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← В каталог</a><div class="empty"><h1>${escape(error.message)}</h1><button data-retry>Повторить</button></div>`; }
+      try { const recipe=await request('/api/catalog/'+id,signal); if(signal.aborted)return; currentRecipe=recipe; renderRecipe(recipe,p); window.RecipeAnalytics?.observe($('#recipe-view'),'catalog_open','catalog',analyticsDetail()); journey('mount'); }
+      catch(error) { if(error.name!=='AbortError') { try{window.RecipeAnalytics?.event('client_error','catalog',{...analyticsDetail(),code:error.code==='http'?'http':'network'});}catch{} $('#recipe-view').innerHTML=`<a class="back" data-route href="${escape(searchUrl(p))}">← В каталог</a><div class="empty"><h1>${escape(error.message)}</h1><button data-retry>Повторить</button></div>`; } }
       return;
     }
     document.title='Выбрать рецепт — Твои рецепты';
@@ -130,6 +135,7 @@
     if(p.get('favorites')==='1') apiParams.set('saved',[...favorites].join(',')); else apiParams.delete('saved');
     try {
       const result=await request('/api/catalog?'+apiParams.toString(),signal);
+      if(signal.aborted)return;
       options('cuisine',result.cuisineChoices||result.cuisines,p.get('cuisine')); options('category',result.categories,p.get('category'));
       renderVisualFilters(p,result);
       $('#catalog-total').textContent=result.catalogTotal;
@@ -137,20 +143,21 @@
       $('#results-title').textContent=p.get('favorites')==='1'?'Избранное':'Рецепты для вас';
       $('#result-count').textContent=`Найдено: ${result.total}${p.get('favorites')==='1'?' · Сохранено в этом браузере':''}`;
       activeFilters(p,result);
-      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog',{results:result.recipes.length});
-      if(p.get('q'))window.RecipeAnalytics?.event('catalog_search','catalog',{results:result.recipes.length});
-      if(!result.recipes.length)window.RecipeAnalytics?.event('catalog_empty','catalog');
+      window.RecipeAnalytics?.observe($('#cards'),'catalog_list','catalog', {...analyticsDetail(),results:result.recipes.length,resultsTotal:result.total});
+      if(p.get('q'))window.RecipeAnalytics?.event('catalog_search','catalog',{...analyticsDetail(),results:result.recipes.length,resultsTotal:result.total});
+      if(!result.recipes.length)window.RecipeAnalytics?.event('catalog_empty','catalog',{...analyticsDetail(),resultsTotal:0});
       const filters=filterNames.filter(k=>p.get(k)).length;
-      if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{filters});
+      if(filters)window.RecipeAnalytics?.event('catalog_filter','catalog',{...analyticsDetail(),filters,resultsTotal:result.total});
       $('#cards').innerHTML=result.recipes.length?result.recipes.map(card).join(''):`<div class="empty"><h3>${p.get('favorites')==='1'&&!favorites.size?'Здесь будут любимые рецепты':'Подходящих рецептов пока нет'}</h3><p>${p.get('favorites')==='1'&&!favorites.size?'Нажмите «В избранное» на понравившейся карточке.':'Попробуйте убрать часть фильтров или увеличить время приготовления.'}</p><button data-reset>Показать все рецепты</button></div>`;
       $('#pagination').innerHTML=result.pages>1?`<button data-page="${result.page-1}" ${result.page===1?'disabled':''}>Назад</button><span>${result.page} из ${result.pages}</span><button data-page="${result.page+1}" ${result.page===result.pages?'disabled':''}>Далее</button>`:'';
-    } catch(error) { if(error.name!=='AbortError') { $('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`; } }
-    finally { if(!signal.aborted) $('#cards').setAttribute('aria-busy','false'); }
+    } catch(error) { if(error.name!=='AbortError') { try{window.RecipeAnalytics?.event('client_error','catalog',{...analyticsDetail(),code:error.code==='http'?'http':'network'});}catch{} $('#result-count').textContent='Каталог недоступен'; $('#pagination').innerHTML=''; $('#cards').innerHTML=`<div class="empty"><p>${escape(error.message)}</p><button data-retry>Повторить</button></div>`; } }
+    finally { if(!signal.aborted) { $('#cards').setAttribute('aria-busy','false'); journey('mount'); } }
   }
   function renderRecipe(recipe,p) {
     const extras = window.CatalogRecipe.render($('#recipe-view'),recipe,{
-      backUrl:searchUrl(p),notify:notice
+      backUrl:searchUrl(p),notify:notice,action:name=>journey('action',name),detail:analyticsDetail
     });
+    const saveSection=document.createElement('section'); extras.append(saveSection); window.CatalogHandoff?.mount(saveSection,recipe);
   }
   function applyFilters(event) {
     event.preventDefault();const p=params();p.delete('page');
@@ -165,7 +172,7 @@
   $('#saved-toggle').addEventListener('click',()=>{const p=new URLSearchParams();if(params().get('favorites')!=='1')p.set('favorites','1');navigate(searchUrl(p),{scroll:true});});
   document.addEventListener('click',event=>{
     const target=event.target.closest('button,a'); if(!target)return;
-    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();navigate(target.getAttribute('href'),{scroll:true});}
+    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();if(target.matches('.detail-back'))journey('action','back_to_list');navigate(target.dataset.backUrl || target.getAttribute('href'),{scroll:true});}
     else if(target.dataset.save) saveFavorite(target.dataset.save);
     else if(target.hasAttribute('data-reset')) navigate('/recipes');
     else if(target.hasAttribute('data-retry')) load();

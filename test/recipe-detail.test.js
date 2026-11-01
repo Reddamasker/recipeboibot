@@ -22,20 +22,21 @@ test('catalogue and Mini App preserve the same ingredient details, steps and nut
     assert.equal(steps(web), steps(mini), seed.id);
     assert.deepEqual(recipe.nutrition, seed.nutrition);
     assert.deepEqual(recipe.tags, seed.tags);
+    assert.equal(web, mini, seed.id + ' full card');
     assert.ok(web.includes(`>${recipe.ingredients.length}</strong><span>ингредиентов`));
   }
 });
 
-test('portion scaling keeps unknown quantities unknown, retains zero and checkbox selection without changing recipe data', () => {
+test('one plain ingredient list keeps unknown quantities unknown and retains zero without changing recipe data', () => {
   const view = component();
   const recipe = { servings: 2, ingredients: [{ name: 'Мука', quantity: 125, unit: 'г' }, { name: 'Масло', quantity: 0, unit: 'г' }, { name: 'Соль', comment: 'по вкусу' }, { name: 'Вода' }] };
   const before = JSON.stringify(recipe);
-  const html = view.ingredients(recipe, { servings: 3, checkable: true, checked: new Set(['0']) });
-  assert.match(html, /187,5 г/);
+  const html = view.ingredients(recipe);
+  assert.match(html, /125 г/);
   assert.match(html, />0 г</);
   assert.match(html, /amount-empty">по вкусу/);
   assert.match(html, /количество не указано/);
-  assert.match(html, /value="0" checked/);
+  assert.doesNotMatch(html, /checkbox|input|checked/);
   assert.doesNotMatch(html, /NaN|undefined|null/);
   assert.equal(JSON.stringify(recipe), before);
 });
@@ -55,5 +56,6 @@ test('all three entry documents load the shared renderer before their host and u
     const html = fs.readFileSync(`public/${name}.html`, 'utf8');
     assert.ok(html.indexOf('/recipe-detail.js?') < html.indexOf(`/${host}.js?`));
     assert.match(html, /href="\/recipe-detail\.css\?/);
+    assert.ok(html.indexOf('/recipe-cooking.js?') < html.indexOf(`/${host}.js?`));
   }
 });

@@ -1,0 +1,18 @@
+.catalog-save-bot{margin-top:40px;padding:28px;border:1px solid var(--line);border-radius:16px;background:var(--surface);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px}
+.catalog-save-bot>div:first-child{flex:1;min-width:210px;max-width:620px}
+.catalog-save-bot h2{font:28px/1.2 Georgia,serif;margin:0 0 10px}
+.catalog-save-bot p{font-size:14px;line-height:1.6;margin:0;color:var(--muted)}
+.catalog-save-bot>.primary{flex-shrink:0;min-height:48px}
+.handoff-platforms{flex-basis:100%;border-top:1px solid var(--line);padding-top:20px}
+.handoff-platform-buttons{display:flex;gap:12px;margin:12px 0;flex-wrap:wrap}
+.handoff-platform-buttons button{display:flex;gap:10px;align-items:center;justify-content:center;min-width:150px;background:var(--ink);border-color:var(--ink);color:var(--on-accent);min-height:48px}
+.handoff-platform-buttons button:disabled{opacity:.6;cursor:wait}
+.handoff-platform-buttons button:hover{background:var(--purple)}
+.handoff-continue{display:inline-block;font-weight:bold;padding:12px 0;margin-right:18px}
+.handoff-cancel{border:0;text-decoration:underline;font-size:13px}
+.handoff-status:empty{display:none}
+
+@media(max-width:760px){.catalog-save-bot{padding:20px;gap:16px}.catalog-save-bot h2{font-size:25px}.catalog-save-bot>.primary{width:100%}.catalog-save-bot p{font-size:13px}.handoff-platform-buttons{gap:8px}.handoff-platform-buttons button{min-width:0;flex:1}}
+@media print{.catalog-save-bot{display:none!important}}
+@media(max-width:760px){.catalog-save-bot{padding:20px;gap:16px}.catalog-save-bot h2{font-size:25px}.catalog-save-bot>.primary{width:100%}.catalog-save-bot p{font-size:13px}.handoff-platform-buttons{gap:8px}.handoff-platform-buttons button{min-width:0;flex:1}}
+@media print{.catalog-save-bot{display:none!important}}

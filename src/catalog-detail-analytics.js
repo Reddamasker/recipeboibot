@@ -9,7 +9,7 @@ const navigations = ['initial','link','back','filter','search','pagination','res
 const viewports = ['compact','medium','wide'];
 const sections = ['intro','products','cuisines','filters','results','recipe_header','ingredients','steps','save_cta','footer'];
 const reasons = ['heartbeat','hidden','pagehide','navigation'];
-const actions = ['filter_change','filter_reset','search_submit','card_open','back_to_list','pagination','sort_change','favorite_add','favorite_remove','share','print','servings_change','results_jump','more_cuisines','filters_expand','save_open','platform_telegram','platform_max','cancel_save','open_bot','retry'];
+const actions = ['filter_change','filter_reset','search_submit','card_open','back_to_list','pagination','sort_change','favorite_add','favorite_remove','share','print','servings_change','results_jump','more_cuisines','filters_expand','save_open','platform_telegram','platform_max','cancel_save','open_bot','retry','cook_start','cook_next','cook_previous','cook_complete','cook_close','share_cancel','share_error'];
 const controls = ['cuisine','category','time','include','exclude'];
 const codes = ['script','promise','network','http','timeout','storage','queue','auth','expired'];
 const legacyEvents = ['catalog_list','catalog_open','catalog_search','catalog_empty','catalog_filter','catalog_favorite_add','catalog_favorite_remove','catalog_share','catalog_print','catalog_save_intent','catalog_platform_selected','catalog_handoff_ready','catalog_handoff_error','client_error'];
@@ -53,7 +53,7 @@ export function catalogDetailEventFields(row) {
     if (row.control !== undefined && (!controls.includes(row.control) || row.action !== 'filter_change')) return fail();
     if (row.position !== undefined && (!integer(row.position, 1, 24) || !['card_open','favorite_add','favorite_remove'].includes(row.action))) return fail();
     const listOnly = ['filter_change','filter_reset','search_submit','card_open','pagination','sort_change','results_jump','more_cuisines','filters_expand'];
-    const recipeOnly = ['back_to_list','share','print','servings_change','save_open','platform_telegram','platform_max','cancel_save','open_bot'];
+    const recipeOnly = ['back_to_list','share','print','servings_change','save_open','platform_telegram','platform_max','cancel_save','open_bot','cook_start','cook_next','cook_previous','cook_complete','cook_close','share_cancel','share_error'];
     if (row.screen !== 'list' && listOnly.includes(row.action) || row.screen !== 'recipe' && recipeOnly.includes(row.action)) return fail();
     detail.action = row.action;
     if (row.control !== undefined) detail.control = row.control;

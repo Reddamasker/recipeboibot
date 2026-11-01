@@ -144,6 +144,7 @@
     }
   }
   async function load({benefits=false,navigation='initial'}={}) {
+    window.CatalogRecipe?.dispose();
     const startedAt=Date.now();
     window.CatalogBenefits?.close({restoreFocus:false, observeRecipe:false});
     controller?.abort(); controller=new AbortController(); const signal=controller.signal;
@@ -220,22 +221,7 @@
     const saveSection=document.createElement('section');
     extras.append(saveSection);
     window.CatalogHandoff?.mount(saveSection,recipe);
-    const saveTrigger=saveSection.querySelector('[data-handoff-open]');
-    if(saveTrigger) {
-      const actions=$('#recipe-view .detail-actions');
-      actions.classList.remove('shared-actions');
-      const shortcut=document.createElement('button');
-      shortcut.type='button';shortcut.className='primary';shortcut.dataset.recipeSave='';shortcut.textContent='Сохранить в боте';
-      shortcut.addEventListener('click',()=>{saveSection.scrollIntoView({block:'center'});saveTrigger.click();});
-      actions.append(shortcut);
-    }
-    if(!adEntry) {
-      const invitation=document.createElement('div');
-      invitation.className='benefits-reopen';
-      invitation.innerHTML='<p>Каждый день — по вашему вкусу.</p><button type="button" id="show-benefits">Возможности бота</button>';
-      extras.append(invitation);
-      $('#show-benefits').addEventListener('click',()=>window.CatalogBenefits?.open(recipe));
-    }
+
   }
   function applyFilters(event) {
     event.preventDefault();const p=params();p.delete('page');
@@ -252,7 +238,7 @@
   $('#saved-toggle').addEventListener('click',()=>{const p=new URLSearchParams();if(params().get('favorites')!=='1')p.set('favorites','1');navigate(searchUrl(p),{scroll:true,navigation:'favorites'});});
   document.addEventListener('click',event=>{
     const target=event.target.closest('button,a'); if(!target)return;
-    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();const isCard=target.classList.contains('card-link'),isBack=target.matches('.back,.detail-back');if(isCard)journey('action','card_open',{position:[...document.querySelectorAll('#cards .card-link')].indexOf(target)+1});else if(isBack)journey('action','back_to_list');navigate(target.getAttribute('href'),{scroll:true,benefits:isCard,navigation:isBack?'back':'link'});}
+    if(target.matches('[data-route]')&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&event.button===0){event.preventDefault();const isCard=target.classList.contains('card-link'),isBack=target.matches('.back,.detail-back');if(isCard)journey('action','card_open',{position:[...document.querySelectorAll('#cards .card-link')].indexOf(target)+1});else if(isBack)journey('action','back_to_list');navigate(target.dataset.backUrl || target.getAttribute('href'),{scroll:true,benefits:isCard,navigation:isBack?'back':'link'});}
     else if(target.dataset.save) saveFavorite(target.dataset.save);
     else if(target.hasAttribute('data-reset')) {journey('action','filter_reset');navigate(resetUrl(),{navigation:'reset'});}
     else if(target.hasAttribute('data-retry')) {journey('action','retry');load({navigation:'retry'});}

@@ -49,7 +49,7 @@ const entries = SEED_RECIPES.map(recipe => {
   minutes: recipe.prepMinutes + recipe.cookMinutes, servings: recipe.servings,
   categories: [...new Set(assigned)], cuisineId, cuisineLabel: cuisineChoices.find(([id])=>id===cuisineId)?.[1] || null,
   image: recipe.thumbnailUrl, imageGenerated: recipe.imageGenerated,
-  tags: recipe.tags,
+  tags: recipe.tags, sourceName: recipe.sourceName, sourceUrl: recipe.sourceUrl, origin: recipe.origin, notes: recipe.notes, warnings: recipe.warnings,
   ingredients: recipe.ingredients.map(({name,quantity,unit,comment})=>({name,quantity,unit,...(comment ? {comment} : {})})),
   steps: recipe.steps.map(step=>step.text), nutrition: recipe.nutrition
 }; });

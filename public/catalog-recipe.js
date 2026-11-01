@@ -1,36 +1,33 @@
 (() => {
   'use strict';
-  const { escape } = window.RecipeDetail;
+  let cooking = null;
+  const dispose = () => { cooking?.close(); cooking = null; };
+  function normalize(recipe) { return { ...recipe, thumbnailUrl: recipe.image, totalMinutes: recipe.minutes }; }
   function render(element, recipe, { backUrl, notify, action = () => {}, detail = () => ({}) }) {
-    document.title = recipe.title + ' — Твои рецепты';
-    const normalized = { ...recipe, thumbnailUrl: recipe.image, totalMinutes: recipe.minutes, sourceName: 'Твои рецепты', tags: recipe.tags || [recipe.cuisineLabel].filter(Boolean) };
-    const record = name => { try { window.RecipeAnalytics?.event(name, 'catalog', detail()); } catch {} };
-    const canScale = Number.isFinite(recipe.servings) && recipe.servings > 0;
-    element.innerHTML = `<article class="recipe-detail catalog-recipe">${window.RecipeDetail.render(normalized, {
-      photoNote: recipe.imageGenerated ? 'Изображение создано с помощью ИИ. Подача готового блюда может отличаться.' : '',
-      stepNote: canScale ? `Количества в шагах указаны для базовых ${recipe.servings} порций. При пересчёте ориентируйтесь на список ингредиентов; время приготовления может измениться.` : '',
-      slots: {
-        back: `<a class="detail-back" data-route href="${escape(backUrl)}"><span aria-hidden="true">←</span> Назад</a>`,
-        headingEnd: '<div class="catalog-recipe-tools"><button class="secondary" type="button" id="print-recipe">Распечатать</button></div>',
-        ingredientControls: canScale ? `<label class="detail-servings">Количество порций<input id="servings" type="number" min="1" max="20" step="1" value="${recipe.servings}"></label>` : '',
-        contentEnd: '<div data-catalog-extras></div>',
-        actions: '<div class="detail-actions shared-actions"><button class="secondary share-button" type="button" id="share-recipe">Скопировать ссылку</button></div>'
-      }
-    })}</article>`;
-    const list = element.querySelector('[data-recipe-ingredients]');
-    const update = servings => {
-      list.innerHTML = window.RecipeDetail.ingredients(normalized, { servings });
-    };
-    const servings = element.querySelector('#servings');
-    servings?.addEventListener('input', event => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 1 && value <= 20) update(value); });
-    servings?.addEventListener('change', event => { action('servings_change'); const value = Math.max(1, Math.min(20, Math.round(Number(event.target.value) || recipe.servings))); event.target.value = value; update(value); });
-    element.querySelector('#share-recipe').addEventListener('click', async () => {
-      action('share');
-      try { await navigator.clipboard.writeText(location.origin + location.pathname); notify('Ссылка на рецепт скопирована'); record('catalog_share'); }
-      catch { notify('Скопируйте адрес рецепта из строки браузера'); }
+    dispose(); document.title = recipe.title + ' — Твои рецепты';
+    const normalized = normalize(recipe);
+    const emit = (name, extra = {}) => { try { window.RecipeAnalytics?.event(name, 'catalog', { ...detail(), ...extra }); } catch {} };
+    element.innerHTML = `<section class="recipe-detail catalog-recipe">${window.RecipeDetail.render(normalized)}</section><div class="catalog-page-actions" data-catalog-extras></div>`;
+    const back = element.querySelector('.detail-back'); back.dataset.route = ''; back.dataset.backUrl = backUrl;
+    element.querySelector('#recipe-title').focus({ preventScroll: true });
+    element.querySelector('#share').addEventListener('click', async event => {
+      const button = event.currentTarget; if (button.disabled) return;
+      const page = detail().pageId, started = Date.now(), current = () => element.contains(button) && page === detail().pageId;
+      action('share'); button.disabled = true; button.textContent = 'Готовлю ссылку…';
+      try {
+        const url = location.origin + location.pathname, text = `Смотри рецепт «${recipe.title}»`;
+        if (navigator.share) await navigator.share({ title: recipe.title, text, url });
+        else { await navigator.clipboard.writeText(url); if (current()) notify('Ссылка скопирована'); }
+        if (current()) emit('catalog_share', { durationMs: Math.min(86400000,Date.now() - started) });
+      } catch (error) {
+        if (current()) { action(error?.name === 'AbortError' ? 'share_cancel' : 'share_error'); if (error?.name !== 'AbortError') notify('Не удалось поделиться рецептом. Попробуйте ещё раз.'); }
+      } finally { button.disabled = false; button.textContent = 'Поделиться'; }
     });
-    element.querySelector('#print-recipe').addEventListener('click', () => { action('print'); record('catalog_print'); window.print(); });
+    element.querySelector('#cook').addEventListener('click', () => {
+      if (cooking?.element.isConnected) return;
+      cooking = window.RecipeCooking.open(normalized, { onAction: action });
+    });
     return element.querySelector('[data-catalog-extras]');
   }
-  window.CatalogRecipe = Object.freeze({ render });
+  window.CatalogRecipe = Object.freeze({ render, normalize, dispose });
 })();

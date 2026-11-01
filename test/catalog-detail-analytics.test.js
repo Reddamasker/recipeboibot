@@ -27,6 +27,16 @@ function event(v,name,detail={},time=iso){
 const start=(v,screen='list',time=iso)=>{const pageId=randomUUID();event(v,'catalog_page_started',{pageId,screen,navigation:'initial',viewport:'compact',pageNumber:1},time);return pageId;};
 const report=(campaign,options={})=>catalogDetailReport({campaign,...options},{at:'2026-10-02T12:00:00.000Z'});
 
+test('cooking and sharing outcomes survive ingestion and retry once in the protected MAX-compatible timeline',()=>{
+ const v=visit('unified-recipe-actions'),pageId=randomUUID(),base={step:'catalog',flowId:v.flowId,journey:'recipe-first-v1',campaign:v.campaign,pageId,screen:'recipe'};
+ const names=['cook_start','cook_next','cook_previous','cook_complete','cook_close','share_cancel','share_error'];
+ const rows=[{id:randomUUID(),...base,event:'catalog_page_started',navigation:'initial',viewport:'compact',pageNumber:1},...names.map(action=>({id:randomUUID(),...base,event:'catalog_action',action}))];
+ acceptProductEvents(null,{visitor:v.sessionId,events:rows});acceptProductEvents(null,{visitor:v.sessionId,events:rows});
+ const r=catalogDetailReport({campaign:v.campaign});assert.equal(validCatalogDetailReport(r),true);assert.equal(r.summary.visits,1);
+ assert.deepEqual(r.visits[0].events.filter(e=>e.event==='catalog_action').map(e=>e.action).sort(),[...names].sort());
+ assert.throws(()=>acceptProductEvents(null,{visitor:v.sessionId,events:[{...rows[1],id:randomUUID(),screen:'list'}]}));
+});
+
 test('selection snapshots survive retries, join empty and successful results by page, and distinguish legacy or internal visits',()=>{
   const v=visit('selection-history'),pageId=randomUUID();
   const selection={version:1,products:['картофель','курица'],cuisine:'japanese',query:'ужин',minutes:30,category:null,excludedCount:1};

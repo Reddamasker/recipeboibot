@@ -36,6 +36,15 @@ function browser({hidden=false,pathname='/dinner',search='?campaign=detail-campa
   };
 }
 
+test('shared cooking and share outcomes are recipe actions on both routes and stay silent when hidden',()=>{
+ for(const pathname of ['/dinner/pasta-tomato','/recipes/pasta-tomato']){
+  const b=browser({pathname});b.api.begin('list');b.api.action('cook_start');assert.equal(b.events.filter(e=>e.event==='catalog_action').length,0);
+  b.api.begin('recipe');const names=['cook_start','cook_next','cook_previous','cook_complete','cook_close','share_cancel','share_error'];
+  names.forEach(name=>b.api.action(name));assert.deepEqual(b.events.filter(e=>e.event==='catalog_action').map(e=>e.action),names);
+  b.hide();names.forEach(name=>b.api.action(name));assert.equal(b.events.filter(e=>e.event==='catalog_action').length,names.length);
+ }
+});
+
 test('each list navigation captures submitted selection once, bounds free text and leaves excluded names out',()=>{
   const search=new URLSearchParams({include:'картофель,курица',cuisine:'japanese',q:'курица с картофелем',time:'30',exclude:'private-allergy',campaign:'detail-campaign'}).toString();
   const b=browser({search:'?'+search,hidden:true});b.api.begin('list');
@@ -143,8 +152,8 @@ test('actions retain only bounded enums and position and final progress enters k
   assert.ok(b.document.listeners.get('visibilitychange')[0].capture);assert.ok(b.window.listeners.get('pagehide')[0].capture);
 });
 
-test('preview and the legacy catalogue are inert without IDs, timers or lifecycle hooks; tracker failure is non-blocking',()=>{
-  for(const options of [{search:'?benefits=preview&campaign=detail-campaign'},{pathname:'/recipes'}]){
+test('preview and unrelated pages are inert without IDs, timers or lifecycle hooks; tracker failure is non-blocking',()=>{
+  for(const options of [{search:'?benefits=preview&campaign=detail-campaign'},{pathname:'/about'}]){
     const b=browser(options);b.api.begin('list');b.api.action('search_submit');b.api.mount();b.hide();b.advance(60000);
     assert.equal(b.uuidCount(),0);assert.equal(b.events.length,0);assert.equal(b.timers.size,0);assert.equal(b.document.listeners.size,0);
     assert.deepEqual(JSON.parse(JSON.stringify(b.api.detail())),{});

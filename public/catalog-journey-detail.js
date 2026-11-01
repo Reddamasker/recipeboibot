@@ -2,16 +2,16 @@
   'use strict';
   const noop = () => {};
   const empty = {begin:noop,detail:()=>({}),action:noop,watch:noop,mount:noop,recheck:noop};
-  if (!/^\/dinner(?:\/|$)/.test(location.pathname) || new URLSearchParams(location.search).get('benefits') === 'preview') {
+  if (!/^\/(?:dinner|recipes)(?:\/|$)/.test(location.pathname) || new URLSearchParams(location.search).get('benefits') === 'preview') {
     window.CatalogDetail = empty;
     return;
   }
   const navigations = new Set(['initial','link','back','filter','search','pagination','reset','sort','favorites','retry']);
-  const actions = new Set(['filter_change','filter_reset','search_submit','card_open','back_to_list','pagination','sort_change','favorite_add','favorite_remove','share','print','servings_change','results_jump','more_cuisines','filters_expand','save_open','platform_telegram','platform_max','cancel_save','open_bot','retry']);
+  const actions = new Set(['filter_change','filter_reset','search_submit','card_open','back_to_list','pagination','sort_change','favorite_add','favorite_remove','share','print','servings_change','results_jump','more_cuisines','filters_expand','save_open','platform_telegram','platform_max','cancel_save','open_bot','retry','cook_start','cook_next','cook_previous','cook_complete','cook_close','share_cancel','share_error']);
   const controls = new Set(['cuisine','category','time','include','exclude']);
   const sections = new Set(['intro','products','cuisines','filters','results','recipe_header','ingredients','steps','save_cta','footer']);
   const listActions = new Set(['filter_change','filter_reset','search_submit','card_open','pagination','sort_change','results_jump','more_cuisines','filters_expand']);
-  const recipeActions = new Set(['back_to_list','share','print','servings_change','save_open','platform_telegram','platform_max','cancel_save','open_bot']);
+  const recipeActions = new Set(['back_to_list','share','print','servings_change','save_open','platform_telegram','platform_max','cancel_save','open_bot','cook_start','cook_next','cook_previous','cook_complete','cook_close','share_cancel','share_error']);
   const ceiling = 86400000;
   function selection() {
     const p=new URLSearchParams(location.search);
