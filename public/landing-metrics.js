@@ -5,7 +5,6 @@
   const dinner = params.get('campaign') === 'ya-dinner-landing-202610' || params.get('utm_campaign') === 'ya_dinner_landing_search_202610';
   if (dinner && !window.__miniLaunch && !window.Telegram?.WebApp?.initData) {
     const replace = (selector, text) => { const element = root.querySelector(selector); if (element) element.textContent = text; };
-    const primaryAction = root.querySelector('.lp-hero > .lp-button');
     replace('#lp-title', 'Что приготовить на ужин?');
     replace('.lp-end h2', 'Подберите ужин на сегодня');
     replace('.lp-end p', 'Ваши вкусы и ограничения сохранятся — в следующий раз подбирать будет проще.');
@@ -13,7 +12,7 @@
       const url = new URL(link.href, location.origin);
       if (url.hostname === 't.me' && url.searchParams.get('start') === 'save') {
         url.searchParams.set('start', 'dinner'); link.href = url.href;
-        if (link !== primaryAction) link.textContent = 'Подобрать ужин в Telegram';
+        if (!link.dataset?.landingPlatform) link.textContent = 'Подобрать ужин в Telegram';
       }
     }
   }
@@ -32,7 +31,8 @@
       if (!/^\/landing\/go\/[a-f0-9]{32}$/.test(data.href || '')) return;
       for (const link of root.querySelectorAll('a[href]')) {
         const url = new URL(link.href, location.origin);
-        if (url.hostname === 't.me' && ['save', 'dinner'].includes(url.searchParams.get('start'))) link.href = data.href;
+        if (link.dataset?.landingPlatform === 'max') link.href = `${data.href}?platform=max`;
+        else if (window.__recipePlatform?.name !== 'max' && url.hostname === 't.me' && ['save', 'dinner'].includes(url.searchParams.get('start'))) link.href = data.href;
       }
     } catch { /* Analytics must never block the existing Telegram link. */ }
   };

@@ -1,6 +1,7 @@
 import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { db } from './db.js';
 import { config } from './config.js';
+import { log } from './log.js';
 import { advertisingRedirect, createCampaign, isAdvertisingProbe } from './funnel.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS landing_html_loads (
@@ -15,7 +16,11 @@ CREATE INDEX IF NOT EXISTS landing_visits_campaign ON landing_visits(campaign);`
 if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'intent')) {
   db.exec("ALTER TABLE landing_visits ADD COLUMN intent TEXT NOT NULL DEFAULT 'save'");
 }
+if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'max_clicked_at')) {
+  db.exec('ALTER TABLE landing_visits ADD COLUMN max_clicked_at TEXT');
+}
 db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_tracking_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_max_tracking_since',?)").run(new Date().toISOString());
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const tagsFrom = query => {
   const params = new URLSearchParams(query), tags = {};
@@ -45,10 +50,19 @@ export function recordLandingView(input, options = {}) {
   return { href: `/landing/go/${input.visitId}` };
 }
 export function landingRedirect(id, options = {}) {
+  const platform = options.platform ?? 'telegram';
+  if (!['telegram', 'max'].includes(platform)) throw fail('Неизвестная платформа');
   const visit = db.prepare('SELECT * FROM landing_visits WHERE id=?').get(id);
   if (!visit) throw fail('Переход с лендинга не найден', 404);
   const username = config.testContour ? config.testBotUsername : 'Recipeboibot';
   if (!['GET', 'HEAD'].includes(options.method || 'GET')) throw fail('Метод не поддерживается', 405);
+  if (platform === 'max') {
+    if (!isAdvertisingProbe(options)) {
+      try { db.prepare('UPDATE landing_visits SET max_clicked_at=COALESCE(max_clicked_at,?) WHERE id=?').run(new Date().toISOString(), id); }
+      catch { log('warn', 'landing_max_click_failed'); }
+    }
+    return '/open/recipe-bot/max';
+  }
   if (isAdvertisingProbe(options)) return `https://t.me/${username}?start=${visit.intent}`;
   if (visit.click_token) return `https://t.me/${username}?start=lp_${visit.click_token}`;
   db.exec('BEGIN IMMEDIATE');
@@ -69,14 +83,15 @@ export function landingStartIntent(text) {
 export function landingReport(slug = 'all') {
   const scope = slug === 'all' ? '' : slug === 'site-landing' ? 'WHERE v.campaign IS NULL' : 'WHERE v.campaign=?';
   const params = slug === 'all' || slug === 'site-landing' ? [] : [slug];
-  const counts = db.prepare(`SELECT COUNT(*) AS views,COUNT(telegram_clicked_at) AS telegramClicks FROM landing_visits v ${scope}`).get(...params);
+  const counts = db.prepare(`SELECT COUNT(*) AS views,COUNT(telegram_clicked_at) AS telegramClicks,COUNT(max_clicked_at) AS maxClicks FROM landing_visits v ${scope}`).get(...params);
   const starts = db.prepare(`SELECT COUNT(DISTINCT s.user_id) AS n FROM landing_visits v
     JOIN acquisition_starts s ON s.click_token=v.click_token JOIN users u ON u.id=s.user_id
     WHERE s.is_returning=0 AND ${analyticsUserCondition}
     ${slug === 'all' ? '' : slug === 'site-landing' ? 'AND v.campaign IS NULL' : 'AND v.campaign=?'}`).get(...analyticsExcludedIds, ...params).n;
   return { trackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_tracking_since'").get().value,
+    maxTrackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_max_tracking_since'").get().value,
     totalViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits').get().n,
     taggedViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits WHERE campaign IS NOT NULL').get().n,
     htmlLoads: db.prepare('SELECT COUNT(*) AS n FROM landing_html_loads').get().n,
-    views: counts.views, telegramClicks: counts.telegramClicks, starts };
+    views: counts.views, telegramClicks: counts.telegramClicks, maxClicks: counts.maxClicks, starts };
 }

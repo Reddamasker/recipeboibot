@@ -20,7 +20,14 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-header-cta span { margin-left: 12px; }
 .lp-nav a:hover, .lp-header-cta:hover { color: var(--lp-olive); }
 .lp-hero { display: grid; grid-template-columns: minmax(0,1fr); max-width: 650px; gap: 28px; padding-block: 56px 26px; }
-.lp-hero > .lp-button { justify-self: start; }
+.lp-platforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+/* Reuse the established catalog platform buttons and brand assets. */
+.landing .benefits-cta { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; background: #087bb5; color: #fff; text-decoration: none; border: 1px solid transparent; border-radius: 10px; font-size: 15px; font-weight: bold; padding: 12px 10px; }
+.landing .benefits-cta:hover { background: #066b9e; color: #fff; }
+.landing .benefits-cta-max { background: linear-gradient(110deg,#471aff,#6e1aff 58%,#9500ff); }
+.landing .benefits-cta-max:hover { background: linear-gradient(110deg,#3d16dc,#5e16dc 58%,#8000dc); }
+.landing .benefits-cta img { display: block; width: 24px; height: 24px; flex-shrink: 0; object-fit: contain; }
+@media (max-width: 560px) { .lp-platforms { grid-template-columns: minmax(0,1fr); } }
 .landing h1 { font-size: clamp(50px, 5.4vw, 76px); line-height: 1.07; letter-spacing: -.05em; }
 .landing .lp-button { min-height: 56px; display: inline-flex; align-items: center; justify-content: space-between; gap: 35px; padding: 15px 24px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 15px; transition: background .2s; }
 .landing .lp-button:hover { background: #48513f; }

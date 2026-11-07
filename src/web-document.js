@@ -11,7 +11,7 @@ export function buildWebDocument(publicDir, { telegramSdk, botUsername, botPlatf
   const deferred = [];
   const read = (url) => {
     const source = fs.readFileSync(path.join(publicDir, url.split('?')[0]), 'utf8').replace(/\r\n?/g, '\n');
-    if (isMax && url.split('?')[0] === 'index.html') return source.replaceAll('https://t.me/Recipeboibot', `https://max.ru/${encodeURIComponent(botUsername || '')}`).replaceAll('Telegram', 'MAX').replaceAll('нажмите Start', 'нажмите «Начать»');
+    if (isMax && url.split('?')[0] === 'index.html') return source.split(/(<div class="lp-platforms"[\s\S]*?<\/div>)/g).map((part, index) => index % 2 ? part : part.replaceAll('https://t.me/Recipeboibot', `https://max.ru/${encodeURIComponent(botUsername || '')}`).replaceAll('Telegram', 'MAX').replaceAll('нажмите Start', 'нажмите «Начать»')).join('');
     return !isMax && botUsername ? source.replaceAll('https://t.me/Recipeboibot', `https://t.me/${botUsername}`) : source;
   };
   const script = (source) => {
@@ -35,7 +35,7 @@ export function buildWebDocument(publicDir, { telegramSdk, botUsername, botPlatf
   });
   html = html.replace('</body>', `${deferred.join('\n')}\n</body>`);
   const bytes = Buffer.from(html);
-  return { bytes, gzip: gzipSync(bytes), scriptHashes: hashes.join(' ') };
+  return { bytes, gzip: gzipSync(bytes, { level: 9 }), scriptHashes: hashes.join(' ') };
 }
 
 export function acceptsGzip(header = '') {

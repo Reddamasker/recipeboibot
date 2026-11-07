@@ -98,9 +98,10 @@ function renderLandingStats(data) {
   const stats = data.landingStats;
   $('#landing-panel').hidden = !stats;
   if (!stats) return;
-  const metrics = [['Открытия лендинга', stats.totalViews, 'Видимая страница в браузере'], [data.campaign ? 'Из этого размещения' : 'С рекламными метками', data.campaign ? stats.views : stats.taggedViews, 'По меткам страницы'], ['Переходы в Telegram', stats.telegramClicks, 'С лендинга, по выбранному фильтру'], ['Запустили бота', stats.starts, 'После перехода с лендинга']];
+  const metrics = [['Открытия лендинга', stats.totalViews, 'Видимая страница в браузере'], [data.campaign ? 'Из этого размещения' : 'С рекламными метками', data.campaign ? stats.views : stats.taggedViews, 'По меткам страницы'], ['Переходы в Telegram', stats.telegramClicks, 'С лендинга, по выбранному фильтру'], ['Переходы в MAX', stats.maxClicks ?? null, 'Нажатия с лендинга; запуск MAX не подтверждён'], ['Запустили Telegram-бота', stats.starts, 'Подтверждённый новый запуск после перехода']];
   $('#landing-metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'); card.append(node('p', 'metric-label', label), node('p', 'metric-number', number(value)), node('p', 'metric-note', note)); return card; }));
   $('#landing-status').textContent = `Учёт начат ${new Date(stats.trackingSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК. Предыдущие открытия неизвестны. Повторное открытие страницы считается отдельно. Mini App не считается открытием лендинга.`;
+  if (stats.maxTrackingSince) $('#landing-status').textContent += ` Переходы в MAX считаются с ${new Date(stats.maxTrackingSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК, прежние переходы неизвестны. Одно посещение может перейти в обе платформы; их счётчики не складываются в уникальных посетителей.`;
   $('#landing-html-loads').textContent = `Серверных загрузок HTML: ${number(stats.htmlLoads)}. Они могут включать Mini App и не подтверждают просмотр лендинга. Просмотр засчитывается, когда видимая страница отправила событие из браузера; при выключенном JavaScript событие не поступит. Известные проверки ссылок исключены.`;
 }
 function renderDirectStats(stats) {

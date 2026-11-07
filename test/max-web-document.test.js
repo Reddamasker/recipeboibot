@@ -20,7 +20,12 @@ test('MAX document loads its SDK before app, with platform bootstrap before boot
   const document = buildWebDocument(path.resolve('public'), { botPlatform: 'max', botUsername: 'recipe_max_bot' });
   const html = document.bytes.toString();
   assert.match(html, /<script src="https:\/\/st.max.ru\/js\/max-web-app.js"><\/script>/);
-  assert.doesNotMatch(html, /TelegramWebviewProxy=function|href="https:\/\/t\.me\/Recipeboibot\?start=/);
+  const choices = html.match(/<div class="lp-platforms"[\s\S]*?<\/div>/)[0];
+  assert.match(choices, /Попробовать в Telegram/);
+  assert.match(choices, /Попробовать в MAX/);
+  assert.match(choices, /href="https:\/\/t\.me\/Recipeboibot\?start=save"/);
+  assert.match(choices, /href="\/open\/recipe-bot\/max"/);
+  assert.doesNotMatch(html.replace(choices, ''), /TelegramWebviewProxy=function|href="https:\/\/t\.me\/Recipeboibot\?start=/);
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
   assert.ok(inline[0][1].indexOf('window.__recipePlatform=') < inline[0][1].indexOf("report('boot-script')"));
   assert.ok(html.indexOf('https://st.max.ru/js/max-web-app.js') < html.indexOf("window.miniProbe?.('app-script')"));

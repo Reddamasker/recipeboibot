@@ -604,7 +604,7 @@ async function handleRequest(request, response) {
         return response.end(request.method === 'HEAD' ? undefined : document);
       }
       if (url.pathname.startsWith('/landing/go/')) {
-        const location = landingRedirect(url.pathname.slice(12), { method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
+        const location = landingRedirect(url.pathname.slice(12), { platform: url.searchParams.get('platform') || 'telegram', method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
         securityHeaders(response); response.writeHead(302, { location, 'cache-control': 'no-store' });
         return response.end();
       }

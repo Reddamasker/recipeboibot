@@ -12,13 +12,13 @@
   <link rel="icon" href="/assets/recipe-bot-avatar-v3.webp" type="image/webp">
   <link rel="stylesheet" href="/styles.css?v=8.23">
   <link rel="stylesheet" href="/refinements.css?v=shared-recipe-1">
-  <link rel="stylesheet" href="/landing.css?v=29">
+  <link rel="stylesheet" href="/landing.css?v=30">
   <script defer src="/vendor/telegram-web-app.js?v=20260714"></script>
   <link rel="stylesheet" href="/taste-editor.css?v=1">
   <link rel="stylesheet" href="/recipe-detail.css?v=4">
   <script defer src="/recipe-detail.js?v=3"></script><script defer src="/recipe-cooking.js?v=1"></script>
   <script defer src="/app.js?v=dinner-10.85"></script>
-  <script defer src="/landing-metrics.js?v=3"></script>
+  <script defer src="/landing-metrics.js?v=4"></script>
   <script defer src="/landing.js?v=entry-8.5"></script>
 </head>
 <body>
@@ -45,7 +45,10 @@
           <button class="lp-flow-replay" id="lp-flow-replay" type="button" aria-label="Повторить анимацию сохранения рецептов">Повторить ↺</button>
         </div>
       </div>
-      <a class="lp-button" href="https://t.me/Recipeboibot?start=save">Попробовать бесплатно <span aria-hidden="true">↗</span></a>
+      <div class="lp-platforms" role="group" aria-label="Выберите, где попробовать">
+        <a class="benefits-cta" data-landing-platform="telegram" href="https://t.me/Recipeboibot?start=save"><img src="/brand/telegram.svg" width="24" height="24" alt="" aria-hidden="true"><span>Попробовать в Telegram</span></a>
+        <a class="benefits-cta benefits-cta-max" data-landing-platform="max" href="/open/recipe-bot/max"><img src="/brand/max-white.svg" width="24" height="24" alt="" aria-hidden="true"><span>Попробовать в MAX</span></a>
+      </div>
     </section>
     <section class="lp-product" id="collection" aria-labelledby="lp-product-title"><div class="lp-wrap">
       <h2 class="lp-product-title" id="lp-product-title">Отправьте сообщение.<br>Получите <em>готовую карточку рецепта.</em></h2>
