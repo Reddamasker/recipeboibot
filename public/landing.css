@@ -184,9 +184,7 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-header-cta span { margin-left: 5px; }
   .lp-hero { padding-block: 28px 18px; gap: 24px; }
   .landing h1 { font-size: clamp(45px, 10.5vw, 70px); }
-  /* Show the saved result before the decorative sources on a small screen. */
   .lp-showcase { max-width: 510px; display: flex; flex-direction: column; gap: 24px; }
-  .lp-conversion { order: -1; }
   .lp-artifacts { width: min(100%, 510px); margin-inline: auto; height: 385px; }
   .lp-paper { left: 8px; top: 8px; }
   .lp-chat-scrap { top: 32px; right: 3px; }
@@ -201,9 +199,6 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-flow-list-heading span { font-size: 10px; }
   .lp-flow-row { display: block; padding-block: 6px; line-height: 1.35; font-size: 13px; }
   .lp-flow-row small { display: block; margin-top: 2px; font-size: 11px; }
-  .lp-showcase.is-ready:not(.is-complete) .lp-flow-row { opacity: 1; }
-  .lp-showcase.is-playing .lp-artifacts > *, .lp-showcase.is-playing .lp-flow-bot img, .lp-showcase.is-playing .lp-flow-row { animation: none; }
-  .lp-flow-replay { display: none; }
   .lp-product { padding-block: 16px 32px; }
   .lp-product-title { margin-bottom: 25px; text-align: left; font-size: clamp(26px, 6.7vw, 36px); }
   .lp-product-title em { white-space: normal; }
@@ -252,4 +247,4 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-footer-owner { font-size: 11px; }
   .lp-footer-links { max-width: 155px; justify-content: flex-start; gap: 7px 15px; font-size: 11px; }
 }
-@media (prefers-reduced-motion: reduce) { html:has(.landing:not([hidden])) { scroll-behavior: auto; } .lp-showcase.is-playing .lp-artifacts > *, .lp-showcase.is-playing .lp-flow-bot img, .lp-showcase.is-playing .lp-flow-row { animation: none; } }
+@media (prefers-reduced-motion: reduce) { html:has(.landing:not([hidden])) { scroll-behavior: auto; } .lp-showcase .lp-artifacts > *, .lp-showcase .lp-flow-bot img, .lp-showcase .lp-flow-row { animation: none !important; } .lp-showcase.is-ready:not(.is-complete) .lp-flow-row { opacity: 1; } }

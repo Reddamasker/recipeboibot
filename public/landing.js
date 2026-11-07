@@ -14,14 +14,18 @@
   const showcase = root.querySelector('.lp-showcase');
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   const replay = el('lp-flow-replay');
-  // Mobile shows the result first, with no animation hiding its contents.
-  if (motionPreference.matches || window.matchMedia('(max-width: 760px)').matches) replay.hidden = true;
-  else {
+  {
     const sources = [...showcase.querySelectorAll('.lp-artifacts > *')];
     const lastRow = showcase.querySelector('.lp-flow-row:last-child');
-    showcase.classList.add('is-ready');
     let hasPlayed = false;
+    let targetVisible = false;
+    const finishFlow = () => {
+      showcase.classList.remove('is-playing');
+      showcase.classList.add('is-complete');
+    };
     const playFlow = () => {
+      if (motionPreference.matches || document.visibilityState !== 'visible' || root.hidden || !root.getClientRects().length) return;
+      hasPlayed = true;
       showcase.classList.remove('is-playing', 'is-complete');
       const target = el('lp-flow-bot').getBoundingClientRect();
       const centerX = target.left + target.width / 2;
@@ -37,17 +41,27 @@
     };
     lastRow.addEventListener('animationend', (event) => {
       if (event.animationName !== 'lp-row-appear') return;
-      showcase.classList.remove('is-playing');
-      showcase.classList.add('is-complete');
+      finishFlow();
     });
     replay.addEventListener('click', playFlow);
-    const observer = new IntersectionObserver((entries) => {
-      if (!hasPlayed && entries.some((entry) => entry.isIntersecting)) {
-        hasPlayed = true;
-        playFlow();
-        observer.disconnect();
+    const playWhenVisible = () => { if (!hasPlayed && targetVisible) playFlow(); };
+    const syncMotionPreference = () => {
+      replay.hidden = motionPreference.matches;
+      if (motionPreference.matches) finishFlow();
+      else if (!hasPlayed) {
+        showcase.classList.remove('is-complete');
+        showcase.classList.add('is-ready');
+        playWhenVisible();
       }
-    }, { threshold: .55 });
-    observer.observe(showcase);
+    };
+    motionPreference.addEventListener('change', syncMotionPreference);
+    document.addEventListener('visibilitychange', playWhenVisible);
+    syncMotionPreference();
+    const observer = new IntersectionObserver((entries) => {
+      targetVisible = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 1);
+      playWhenVisible();
+    }, { threshold: 1, rootMargin: '-100px 0px -16px 0px' });
+    // Wait until the receiving bot is visible, including on a short phone screen.
+    observer.observe(el('lp-flow-bot'));
   }
 })();
