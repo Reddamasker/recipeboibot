@@ -19,13 +19,12 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-header-cta { min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; border-bottom: 1px solid var(--lp-olive); padding: 9px 0; white-space: nowrap; }
 .lp-header-cta span { margin-left: 12px; }
 .lp-nav a:hover, .lp-header-cta:hover { color: var(--lp-olive); }
-.lp-hero { display: grid; grid-template-columns: minmax(0,.88fr) minmax(0,1.12fr); gap: 46px; align-items: center; padding-block: 56px 26px; }
+.lp-hero { display: grid; grid-template-columns: minmax(0,1fr); max-width: 650px; gap: 28px; padding-block: 56px 26px; }
+.lp-hero > .lp-button { justify-self: start; }
 .landing h1 { font-size: clamp(50px, 5.4vw, 76px); line-height: 1.07; letter-spacing: -.05em; }
-.lp-lead { max-width: 470px; margin: 27px 0 29px; color: var(--muted); font-size: 18px; line-height: 1.75; }
 .landing .lp-button { min-height: 56px; display: inline-flex; align-items: center; justify-content: space-between; gap: 35px; padding: 15px 24px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 15px; transition: background .2s; }
 .landing .lp-button:hover { background: #48513f; }
 .lp-button span { font-size: 23px; line-height: 1; }
-.lp-caption { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
 .lp-showcase { width: 100%; max-width: 650px; margin-left: auto; }
 .lp-artifacts { position: relative; height: 380px; isolation: isolate; }
 .lp-paper { position: absolute; top: 8px; left: 0; width: 235px; aspect-ratio: 1; transform: rotate(-7deg); background: url('/assets/recipe-paper-v1.webp') center / contain no-repeat; filter: drop-shadow(2px 8px 5px #34291d24); }
@@ -162,7 +161,6 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
 .lp-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (max-width: 1100px) {
   .lp-wrap { width: calc(100% - 64px); }
-  .lp-hero { gap: 35px; }
   .lp-artifacts { height: 385px; }
   .lp-paper { width: 208px; left: 0; }
   .lp-paper-writing { inset: 26px 23px 22px 56px; }
@@ -174,7 +172,6 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-note-scrap { top: 260px; width: 155px; }
 }
 @media (max-width: 950px) {
-  .lp-hero { grid-template-columns: 1fr; }
   .lp-showcase { margin-inline: auto; }
 }
 @media (max-width: 760px) {
@@ -185,9 +182,8 @@ html:has(.landing:not([hidden])) { scroll-padding-top: 110px; }
   .lp-nav { display: none; }
   .lp-header-cta { font-size: 12px; }
   .lp-header-cta span { margin-left: 5px; }
-  .lp-hero { grid-template-columns: 1fr; padding-block: 28px 18px; gap: 24px; }
+  .lp-hero { padding-block: 28px 18px; gap: 24px; }
   .landing h1 { font-size: clamp(45px, 10.5vw, 70px); }
-  .lp-lead { font-size: 16px; max-width: 480px; margin-block: 23px; }
   /* Show the saved result before the decorative sources on a small screen. */
   .lp-showcase { max-width: 510px; display: flex; flex-direction: column; gap: 24px; }
   .lp-conversion { order: -1; }

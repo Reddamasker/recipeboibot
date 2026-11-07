@@ -101,9 +101,9 @@ test('untagged visits stay separate; returning users and owner do not inflate ne
 });
 
 async function browserFixture({ hidden = false, mini = false, background = false, fails = false, dinner = false } = {}) {
-  const link = { href: 'https://t.me/Recipeboibot?start=save' }, calls = [], events = {};
+  const link = { href: 'https://t.me/Recipeboibot?start=save', textContent: 'Попробовать бесплатно' }, calls = [], events = {};
   const title = {};
-  const root = { hidden, getClientRects: () => [{}], querySelector: selector => selector === '#lp-title' ? title : null, querySelectorAll: () => [link] };
+  const root = { hidden, getClientRects: () => [{}], querySelector: selector => selector === '#lp-title' ? title : selector === '.lp-hero > .lp-button' ? link : null, querySelectorAll: () => [link] };
   const document = { visibilityState: background ? 'hidden' : 'visible', readyState: 'complete', getElementById: () => root, addEventListener: (name, fn) => { events[name] = fn; } };
   vm.runInNewContext(fs.readFileSync('public/landing-metrics.js', 'utf8'), {
     document, window: { __miniLaunch: mini }, location: { origin: 'https://site.example', search: dinner ? '?campaign=ya-dinner-landing-202610&secret=private' : '?utm_campaign=ya_dinner_search_202610&secret=private' },
@@ -153,6 +153,7 @@ test('paid landing opens the dinner onboarding with its own attribution and stab
   assert.ok(!messages.some(message => message.text?.startsWith('<b>Сохранить рецепт</b>')));
   const page = await browserFixture({ dinner: true });
   assert.equal(page.title.textContent, 'Что приготовить на ужин?');
+  assert.equal(page.link.textContent, 'Попробовать бесплатно');
   assert.match(page.link.href, /^\/landing\/go\//);
   const offline = await browserFixture({ dinner: true, fails: true });
   assert.equal(startFrom(offline.link.href), 'dinner');
