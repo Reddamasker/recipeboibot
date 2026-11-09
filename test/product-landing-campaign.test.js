@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 const file = path.resolve('data', `product-campaign-${randomUUID()}.sqlite`);
 process.env.DATABASE_PATH = file;
 process.env.TELEGRAM_POLLING = 'false';
-process.env.APP_URL = 'https://dishfinder.ru';
+process.env.APP_URL = 'https://service-host.example';
 process.env.YANDEX_DIRECT_TOKEN = 'private-test-token';
 process.env.YANDEX_DIRECT_PRODUCT_CAMPAIGN_ID = '715100099';
 const slug = 'ya-product-landing-202611';
@@ -39,5 +39,5 @@ test('product campaign imports its own spend and keeps landing visits and platfo
   const report = dashboardFunnelReport(slug);
   assert.equal(report.directStats.campaignId, '715100099');
   assert.equal(report.directStats.costRub, 16.47); assert.equal(report.clicks, 3);
-  assert.ok(report.campaigns.find(c => c.slug === slug).link.endsWith('/?campaign=' + slug));
+  assert.equal(report.campaigns.find(c => c.slug === slug).link, 'https://dishfinder.ru/?campaign=' + slug);
 });
