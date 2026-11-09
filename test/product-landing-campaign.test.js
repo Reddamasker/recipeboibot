@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+const file = path.resolve('data', `product-campaign-${randomUUID()}.sqlite`);
+process.env.DATABASE_PATH = file;
+process.env.TELEGRAM_POLLING = 'false';
+process.env.APP_URL = 'https://dishfinder.ru';
+process.env.YANDEX_DIRECT_TOKEN = 'private-test-token';
+process.env.YANDEX_DIRECT_PRODUCT_CAMPAIGN_ID = '715100099';
+const slug = 'ya-product-landing-202611';
+const { db } = await import('../src/db.js');
+const { syncDirectCampaigns, directImportSettings, dashboardFunnelReport } = await import('../src/yandex-direct.js');
+const { recordLandingView, landingRedirect, landingReport } = await import('../src/landing-funnel.js');
+test.after(() => { db.close(); for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(file + suffix); } catch {} } });
+
+test('product campaign imports its own spend and keeps landing visits and platform clicks separate', async () => {
+  const seen = [];
+  await syncDirectCampaigns('all', { transport: async (_url, request) => {
+    const id = JSON.parse(request.body).params.SelectionCriteria.Filter[0].Values[0]; seen.push(id);
+    assert.equal(JSON.parse(request.body).params.IncludeVAT, 'YES');
+    return new Response(`CampaignId\tImpressions\tClicks\tCost\n${id}\t100\t3\t16.47\n`);
+  } });
+  assert.ok(seen.includes('715100099'));
+  assert.equal(directImportSettings(slug).campaignId, '715100099');
+  const visitId = randomUUID().replaceAll('-', '');
+  const input = { visitId, query: '?campaign=' + slug + '&utm_source=ya&campaign_id=715100099' };
+  recordLandingView(input); recordLandingView(input);
+  const row = db.prepare('SELECT campaign,intent FROM landing_visits WHERE id=?').get(visitId);
+  assert.equal(row.campaign, slug); assert.equal(row.intent, 'save');
+  const tg = landingRedirect(visitId);
+  assert.match(tg, /start=lp_[A-Za-z0-9_-]{24}$/);
+  assert.equal(landingRedirect(visitId), tg);
+  assert.equal(landingRedirect(visitId, { platform: 'max' }), '/open/recipe-bot/max');
+  landingRedirect(visitId, { platform: 'max' });
+  const landing = landingReport(slug);
+  assert.equal(landing.views, 1); assert.equal(landing.telegramClicks, 1); assert.equal(landing.maxClicks, 1);
+  const report = dashboardFunnelReport(slug);
+  assert.equal(report.directStats.campaignId, '715100099');
+  assert.equal(report.directStats.costRub, 16.47); assert.equal(report.clicks, 3);
+  assert.ok(report.campaigns.find(c => c.slug === slug).link.endsWith('/?campaign=' + slug));
+});
