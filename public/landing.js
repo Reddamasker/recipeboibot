@@ -1,16 +1,19 @@
 (() => {
   const root = document.getElementById('landing');
   if (!root) return;
-  if (!root.hidden && !window.__miniLaunch) import('/landing-features.js?v=2').catch(() => {});
   const el = (id) => document.getElementById(id);
-  el('lp-demo-share').addEventListener('click', async (event) => {
-    try {
-      await navigator.clipboard.writeText(`${location.origin}${location.pathname}#lp-recipe-preview`);
-      const button = event.currentTarget;
-      button.textContent = 'Ссылка на пример скопирована';
-      window.setTimeout(() => { button.textContent = 'Поделиться'; }, 2500);
-    } catch { event.currentTarget.textContent = 'Не удалось скопировать'; }
-  });
+  const menu = el('lp-menu-toggle');
+  const navigation = el('lp-navigation');
+  if (menu && navigation) {
+    const closeMenu = () => { menu.setAttribute('aria-expanded', 'false'); navigation.classList.remove('is-open'); };
+    menu.addEventListener('click', () => {
+      const open = menu.getAttribute('aria-expanded') !== 'true';
+      menu.setAttribute('aria-expanded', String(open));
+      navigation.classList.toggle('is-open', open);
+    });
+    navigation.addEventListener('click', (event) => { if (event.target.closest('a')) closeMenu(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && menu.getAttribute('aria-expanded') === 'true') { closeMenu(); menu.focus(); } });
+  }
   const showcase = root.querySelector('.lp-showcase');
   const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   const replay = el('lp-flow-replay');
@@ -32,7 +35,7 @@
       const centerY = target.top + target.height / 2;
       sources.forEach((source, index) => {
         const box = source.getBoundingClientRect();
-        source.style.setProperty('--delay', `${index * .22}s`);
+        source.style.setProperty('--delay', `${.7 + index * .22}s`);
         source.style.setProperty('--travel-x', `${centerX - box.left - box.width / 2}px`);
         source.style.setProperty('--travel-y', `${centerY - box.top - box.height / 2}px`);
       });
