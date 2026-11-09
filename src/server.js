@@ -15,7 +15,7 @@ import { callbackDestination, jwsRoutingParameters } from './payment-routing.js'
 import { enqueueMaxUpdate } from './max-events.js';
 import { log } from './log.js';
 import { ensureRecipeImage, ensureSuggestionImage } from './recipe-images.js';
-import { transcribeAudio } from './openai.js';
+import { transcribeAudio, answerRecipeQuestion } from './openai.js';
 import { getDinnerContext, getFoodProfile, getDinnerOptionImage, addDinnerEvent } from './dinner-store.js';
 import { pantryCoverage, SEED_RECIPES } from './dinner.js';
 import { getTasteCatalog } from './taste-profile.js';
@@ -47,13 +47,20 @@ import { createCatalogHandoff, catalogHandoffPublicKey, verifyCatalogEnvelope, c
 import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
 import { acceptProductEvents, apiStep, identifyProductUser, productOperation, recordProduct } from './product-analytics.js';
 import { createRecipeWorkspace } from './recipe-workspace.js';
+import { createRecipeCardStore } from './recipe-card.js';
 import { workspaceFeature } from './workspace-analytics.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
 const rate = new Map();
 let webDocument;
+const recipeCards = createRecipeCardStore(db, {
+  getRecipe(userId, id) { assertFirstRecipeReadable(userId, { recipeId: id }); return getRecipe(userId, id); },
+  authorizeAsk(userId) { requireRecipeEntry(userId); rateLimit(`ai:${userId}`, 8, 60_000); },
+  answer: input => answerRecipeQuestion({ ...input, profile: getFoodProfile(input.userId) })
+});
 const recipeWorkspace = createRecipeWorkspace(db, {
+  cardStore: recipeCards,
   saveCatalogRecipe: saveCatalogRecipeForUser,
   getRecipe(userId, id) {
     assertFirstRecipeReadable(userId, { recipeId: id });
@@ -159,7 +166,7 @@ async function api(request, response, url) {
   if (url.pathname === '/api/workspace') {
     if (request.method === 'GET') return json(response, 200, recipeWorkspace.read(user.id));
     if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
-    const input = await bodyJson(request, 64000);
+    const input = await bodyJson(request, 1_400_000);
     try {
       const started = Date.now();
       const result = recipeWorkspace.mutate(user.id, input);
@@ -170,13 +177,43 @@ async function api(request, response, url) {
       }
       return json(response, 200, result);
     } catch (error) {
-      if ([400, 404, 409, 413, 422].includes(error.status)) return json(response, error.status, {
+      if ([400, 404, 409, 413, 415, 422].includes(error.status)) return json(response, error.status, {
         error: error.message,
         ...(/^[A-Z_]{1,50}$/.test(error.code || '') ? { code: error.code } : {}),
         ...(Number.isSafeInteger(error.currentVersion) ? { currentVersion: error.currentVersion } : {})
       });
       throw error;
     }
+  }
+  const cardRoute = url.pathname.match(/^\/api\/recipes\/([^/]+)\/card(?:\/(ask))?$/);
+  if (cardRoute) {
+    const id = decodeURIComponent(cardRoute[1]);
+    if (!cardRoute[2] && request.method === 'GET') return json(response, 200, { ...recipeCards.read(user.id, id), workspaceVersion: recipeWorkspace.read(user.id).version });
+    if (cardRoute[2] === 'ask' && request.method === 'POST') {
+      const input = await bodyJson(request, 8000), started = Date.now();
+      try {
+        const result = await recipeCards.ask(user.id, id, input);
+        if (result.status === 'completed' && !result.replayed) recordProduct(user.id, 'workspace_saved', {
+          id: `workspace-${input.operationId}`, step: 'collection', flowId: input.operationId, durationMs: Date.now() - started,
+          detail: { feature: 'collections', action: 'collections.askRecipe' }
+        });
+        return json(response, result.status === 'pending' ? 202 : 200, result);
+      } catch (error) {
+        // Only a known rejection with no durable attempt may unlock a new
+        // question. A lost/proxy 5xx or an existing UUID remains ambiguous.
+        const notStarted = [400, 402, 404, 429].includes(error.status)
+          && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input?.operationId || '')
+          && !recipeCards.hasQuestionOperation(user.id, input.operationId);
+        if (Number.isInteger(error.status) && error.status >= 400 && error.status <= 599) return json(response, error.status, {
+          error: error.message, ...(/^[A-Z_]{1,50}$/.test(error.code || '') ? { code: error.code } : {}),
+          ...(error.operationId ? { operationId: error.operationId, replayed: Boolean(error.replayed) } : {}),
+          ...(notStarted ? { operationId: input.operationId, started: false } : {}),
+          ...(error.offerPath ? { offerPath: error.offerPath } : {})
+        });
+        throw error;
+      }
+    }
+    return json(response, 405, { error: 'Метод не поддерживается' });
   }
   if (request.method === 'POST' && url.pathname === '/api/feedback') {
     const input = await bodyJson(request, 16000);

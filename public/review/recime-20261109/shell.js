@@ -3,7 +3,7 @@
   'use strict';
   const base='/review/recime-20261109/';
   const oldRender=render, oldCollection=collection, oldHome=home;
-  const ui={section:'collection',tab:'books',folded:false,book:null,query:'',list:false,sort:false,week:0,catalog:null,catalogQuery:'',catalogFilter:null,catalogBusy:false,catalogError:'',catalogRevision:0,detailRevision:0};
+  const ui={section:'collection',tab:'books',folded:false,introPlayed:false,book:null,query:'',list:false,sort:false,week:0,catalog:null,catalogQuery:'',catalogFilter:null,catalogBusy:false,catalogError:'',catalogRevision:0,detailRevision:0};
   Object.assign(ui,{workspace:null,workspaceError:'',workspaceLoading:null,saving:false,uncertain:null,navigation:null,visibleOutcomes:[],toastObservation:null,dialog:null});
   const meals={breakfast:'Завтрак',lunch:'Обед',dinner:'Ужин',snack:'Перекус'};
   const featureFor=action=>action.startsWith('collections.')?'collections':action.startsWith('plan.')?'meal_plan':'groceries';
@@ -120,7 +120,7 @@
     const dialog=document.createElement('dialog');dialog.className='r-review-dialog r-workspace-dialog';dialog.dataset.wsDialog=action;
     const id='ws-title-'+crypto.randomUUID();dialog.setAttribute('aria-labelledby',id);
     dialog.innerHTML=`<form data-ws-form><div class="r-dialog-head"><h2 id="${id}">${esc(heading)}</h2><button type="button" class="r-dialog-close" data-ws-close aria-label="Закрыть">${ico('plus')}</button></div><div class="r-dialog-body">${body}</div><p class="r-form-error" data-ws-error role="alert" tabindex="-1" hidden></p><div class="r-dialog-footer"><button type="button" class="r-secondary" data-ws-close>Отмена</button><button type="submit" data-ws-submit>${esc(submit)}</button></div></form>`;
-    let flow=flowFor(action),busy=false;const opener=document.activeElement;ui.dialog=dialog;document.body.append(dialog);
+    let flow=flowFor(action),busy=false;const opener=document.activeElement,cardReturn=ui.cardReturn;ui.dialog=dialog;document.body.append(dialog);
     const form=dialog.querySelector('form'),errorBox=dialog.querySelector('[data-ws-error]'),submitButton=dialog.querySelector('[data-ws-submit]');
     const lock=locked=>{for(const input of form.querySelectorAll('input,select,textarea'))input.disabled=locked||input.dataset.wsFixed==='true';};
     dialog.querySelectorAll('[data-ws-close]').forEach(button=>button.onclick=()=>{if(!busy)dialog.close();});
@@ -131,7 +131,7 @@
       if(flow.failed){flow=flowFor(action);flow.failed=false;}
       let fields;try{fields=flow.payload?null:read(form);}catch(error){errorBox.textContent=error.message;errorBox.hidden=false;errorBox.focus();return;}
       busy=true;form.setAttribute('aria-busy','true');submitButton.disabled=true;submitButton.textContent=flow.payload?'Повторяем…':'Сохраняем…';errorBox.hidden=true;lock(true);
-      try{await mutate(flow,fields);dialog.close();after?.();}
+      try{flow.inlineConfirmation=Boolean(cardReturn);await mutate(flow,fields);if(cardReturn)cardReturn.savedFlow=flow;dialog.close();after?.();}
       catch(error){errorBox.textContent=error.message;errorBox.hidden=false;errorBox.focus();}
       finally{busy=false;form.setAttribute('aria-busy','false');submitButton.disabled=Boolean(flow.conflict);submitButton.textContent=flow.conflict?'Открой форму заново':ui.uncertain?.id===flow.id?'Повторить сохранение':submit;lock(Boolean(flow.conflict)||ui.uncertain?.id===flow.id);}
     };
@@ -250,7 +250,7 @@
   const button=(action,label,name,cls='r-action',extra='')=>`<button type="button" class="${cls}" data-review="${action}" ${extra}>${name?ico(name):''}<span>${esc(label)}</span>${cls.includes('r-action')?ico('chevron'):''}</button>`;
   function dayList(){const now=new Date(),date=new Date(Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()));const weekday=(date.getUTCDay()+6)%7;date.setUTCDate(date.getUTCDate()-weekday+ui.week*7);return Array.from({length:7},(_,i)=>new Date(date.getTime()+i*86400000));}
   function navigation(){return `<nav class="r-nav" aria-label="Разделы приложения">${[['collection','Рецепты','bookmark'],['meal-plan','Меню','calendar'],['groceries','Покупки','basket'],['discover','Подобрать','compass']].map(([v,t,i])=>`<button type="button" data-review-view="${v}" aria-current="${ui.section===v?'page':'false'}">${ico(i)}<span>${t}</span></button>`).join('')}</nav>`;}
-  function setMarkup(content,step='other'){root.classList.add('review-shell');root.dataset.analyticsStep=step;root.innerHTML=content+navigation();window.__miniRendered=true;}
+  function setMarkup(content,step='other'){ui.disposeIntro?.();ui.disposeIntro=null;root.classList.add('review-shell');root.dataset.analyticsStep=step;root.innerHTML=content+navigation();window.__miniRendered=true;}
   function title(text,action=null,cls=''){return `<header class="r-header ${cls}"><h1>${text}</h1>${action?button(action,'Настройки','settings','r-round','aria-label="Настройки"'):''}</header>`;}
   function searchField(id,value,placeholder){return `<label class="r-search">${ico('search')}<input id="${id}" type="search" value="${esc(value)}" placeholder="${placeholder}" aria-label="${placeholder}" autocomplete="off"></label>`;}
   function books(){
@@ -270,11 +270,13 @@
     if(ui.book)all=books().find(book=>book.key===ui.book)?.recipes||[];
     all=all.filter(recipe=>(recipe.title+' '+(recipe.tags||[]).join(' ')+' '+(recipe.ingredients||[]).map(item=>item.name||item.raw||'').join(' ')).toLocaleLowerCase('ru').includes(query));
     if(ui.sort)all=all.slice().sort((a,b)=>a.title.localeCompare(b.title,'ru'));
+    all=all.slice().sort((a,b)=>Number(Boolean(ui.workspace?.recipeCards?.[b.id]?.pinned))-Number(Boolean(ui.workspace?.recipeCards?.[a.id]?.pinned)));
     return all.map(recipe=>'<article class="r-recipe-tile"><button class="r-book" data-review="recipe" data-recipe-id="'+esc(recipe.id)+'">'+(safeImage(recipe.thumbnailUrl)?'<img class="r-recipe-cover" src="'+safeImage(recipe.thumbnailUrl)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'<span class="r-recipe-cover"></span>')+'<span><strong>'+esc(recipe.title)+'</strong><small>'+esc(recipe.status==='draft'?'Черновик':cookingTimeLabel(recipe))+'</small></span></button><button type="button" class="r-card-more" data-review="recipe-actions" data-recipe-id="'+esc(recipe.id)+'" aria-label="Действия с рецептом '+esc(recipe.title)+'">'+ico('settings')+'</button></article>').join('')||'<p class="r-empty-library">'+(query?'Ничего не найдено':'В этой подборке пока нет рецептов')+'</p>';
   }
   function recipesPage(){
     ui.section='collection';const book=books().find(item=>item.key===ui.book);
-    setMarkup('<header class="r-header"><button class="r-logo" data-review-view="collection" aria-label="Твои рецепты">Рецепты</button>'+button('profile','Профиль','user','r-round r-profile','aria-label="Профиль"')+'</header><section class="r-welcome '+(ui.folded?'is-folded':'')+'"><button class="r-plain r-fold" data-review="fold" aria-label="'+(ui.folded?'Развернуть':'Свернуть')+' подсказки" aria-expanded="'+!ui.folded+'">'+ico(ui.folded?'down':'up')+'</button>'+(ui.folded?'<h2>Давай готовить!</h2>':'<p class="r-script">Добро пожаловать</p><h2>Давай готовить!</h2><div class="r-tasks"><button class="r-task '+(state.recipes.length?'r-done':'')+'" data-review="import"><span class="r-task-icon">'+ico(state.recipes.length?'check':'plus')+'</span><span>Добавить первый рецепт</span></button><button class="r-task" data-review="quick"><span class="r-task-icon">'+ico('clock')+'</span><span>Добавляй рецепты быстрее</span>'+ico('chevron')+'</button><button class="r-task '+(ui.workspace?.collections.length?'r-done':'')+'" data-review="new-book"><span class="r-task-icon">'+ico(ui.workspace?.collections.length?'check':'book')+'</span><span>Создай свою подборку</span>'+ico('chevron')+'</button></div>')+'</section><div class="r-librarytabs" role="tablist" aria-label="Личная коллекция"><button role="tab" aria-selected="'+(ui.tab==='books')+'" data-review="tab" data-tab="books">Подборки</button><button role="tab" aria-selected="'+(ui.tab==='all')+'" data-review="tab" data-tab="all">Все рецепты</button></div><main class="r-library">'+workspaceNotice()+(ui.book?'<div class="r-breadcrumb"><button class="r-plain" data-review="all-books" aria-label="Все подборки">'+ico('left')+'</button><span>'+esc(book?.name||'Подборка недоступна')+'</span>'+(book?.id?'<button class="r-plain" data-review="manage-book" aria-label="Изменить подборку">'+ico('settings')+'</button>':'')+'</div>':'')+'<div class="r-searchbar">'+searchField('r-library-search',ui.query,'Найти рецепт')+'<div class="r-search-tools"><button class="r-plain" data-review="sort" aria-label="Сортировать по названию" aria-pressed="'+ui.sort+'">'+ico('sort')+'</button><button class="r-plain" data-review="layout" aria-label="'+(ui.list?'Показать плиткой':'Показать списком')+'">'+ico(ui.list?'grid':'list')+'</button></div></div>'+(state.jobs.length?'<div class="r-job">'+num(state.jobs.length,['рецепт обрабатывается','рецепта обрабатываются','рецептов обрабатываются'])+'</div>':'')+'<div id="r-library-items" class="'+(ui.list?'r-list':'r-grid')+'">'+libraryItems()+'</div></main><button class="r-fab" data-review="import" aria-label="Добавить рецепт">'+ico('plus')+'</button>','collection');
+    setMarkup('<header class="r-header"><button class="r-logo" data-review-view="collection" aria-label="Твои рецепты">Рецепты</button>'+button('profile','Профиль','user','r-round r-profile','aria-label="Профиль"')+'</header><section class="r-welcome r-collection-intro '+(ui.folded?'is-folded':'')+'"><button class="r-plain r-fold" data-review="fold" aria-label="'+(ui.folded?'Развернуть':'Свернуть')+' пример сохранения" aria-expanded="'+!ui.folded+'">'+ico(ui.folded?'down':'up')+'</button><h2>Рецепты в одном месте</h2>'+(ui.folded?'':window.RecipeCollectionIntro.markup()+button('import','Добавить рецепт','plus','r-intro-add'))+'</section><div class="r-librarytabs" role="tablist" aria-label="Личная коллекция"><button role="tab" aria-selected="'+(ui.tab==='books')+'" data-review="tab" data-tab="books">Подборки</button><button role="tab" aria-selected="'+(ui.tab==='all')+'" data-review="tab" data-tab="all">Все рецепты</button></div><main class="r-library">'+workspaceNotice()+(ui.book?'<div class="r-breadcrumb"><button class="r-plain" data-review="all-books" aria-label="Все подборки">'+ico('left')+'</button><span>'+esc(book?.name||'Подборка недоступна')+'</span>'+(book?.id?'<button class="r-plain" data-review="manage-book" aria-label="Изменить подборку">'+ico('settings')+'</button>':'')+'</div>':'')+'<div class="r-searchbar">'+searchField('r-library-search',ui.query,'Найти рецепт')+'<div class="r-search-tools"><button class="r-plain" data-review="sort" aria-label="Сортировать по названию" aria-pressed="'+ui.sort+'">'+ico('sort')+'</button><button class="r-plain" data-review="layout" aria-label="'+(ui.list?'Показать плиткой':'Показать списком')+'">'+ico(ui.list?'grid':'list')+'</button></div></div>'+(state.jobs.length?'<div class="r-job">'+num(state.jobs.length,['рецепт обрабатывается','рецепта обрабатываются','рецептов обрабатываются'])+'</div>':'')+'<div id="r-library-items" class="'+(ui.list?'r-list':'r-grid')+'">'+libraryItems()+'</div></main><button class="r-fab" data-review="import" aria-label="Добавить рецепт">'+ico('plus')+'</button>','collection');
+    ui.disposeIntro=window.RecipeCollectionIntro.mount(root,{played:ui.introPlayed||!ui.workspace,onPlay:()=>{ui.introPlayed=true;}});
     workspaceStarted();
   }
   function planner(){
@@ -296,10 +298,134 @@
   function discover(){ui.section='discover';setMarkup(`${title('Подобрать',null,'r-discover-header')}<main class="r-panel r-discover">${workspaceNotice()}<form id="r-catalog-form">${searchField('r-catalog-search',ui.catalogQuery,'Что хочешь приготовить?')}</form><section class="r-popular"><p>Популярные запросы</p><div class="r-chip-scroller">${[chips.slice(0,4),chips.slice(4)].map(row=>`<div class="r-chip-row">${row.map(([name],i)=>`<button class="r-chip" data-review="chip" data-chip="${esc(name)}" aria-pressed="${ui.catalogFilter===name}">${name}</button>`).join('')}</div>`).join('')}</div></section><div id="r-catalog-content">${catalogContent()}</div></main>`);if(!ui.catalog&&!ui.catalogBusy&&!ui.catalogError)void loadCatalog(false);}
   async function loadCatalog(observed){const rev=++ui.catalogRevision;ui.catalogBusy=true;ui.catalogError='';const params=new URLSearchParams();if(ui.catalogQuery)params.set('q',ui.catalogQuery);const c=chips.find(x=>x[0]===ui.catalogFilter);if(c)params.set(c[1],c[2]);const flow=observed?crypto.randomUUID():null;if(flow){RecipeAnalytics?.event('step_submit','other',{flowId:flow});RecipeAnalytics?.requestStarted(flow,'other');}try{const response=await api('/api/catalog?'+params,{signal:AbortSignal.timeout(12000)});if(rev!==ui.catalogRevision)return;ui.catalog=response;ui.catalogBusy=false;if(ui.section==='discover'){const el=document.querySelector('#r-catalog-content');if(el){el.innerHTML=catalogContent();if(flow)RecipeAnalytics?.requestVisible(el,flow,false,'full');}}}catch(error){if(rev!==ui.catalogRevision)return;ui.catalogError=error.message;ui.catalogBusy=false;if(ui.section==='discover')discover();}}
   function note(titleText,text,action=null){const dialog=document.createElement('dialog');dialog.className='r-review-dialog';dialog.innerHTML=`<h2>${esc(titleText)}</h2><p>${esc(text)}</p>${action?`<a href="${esc(action.href)}">${esc(action.label)}</a>`:''}<button type="button">Понятно</button>`;document.body.append(dialog);dialog.querySelector('button').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{dialog.remove();RecipeAnalytics?.step(root.dataset.analyticsStep||'other')},{once:true});dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});dialog.showModal();RecipeAnalytics?.observe(dialog,'screen_view','other');}
-  async function showCatalog(id){const rev=++ui.detailRevision;try{const raw=await api('/api/catalog/'+encodeURIComponent(id),{signal:AbortSignal.timeout(12000)});if(rev!==ui.detailRevision||ui.section!=='discover')return;const recipe={...raw,thumbnailUrl:raw.image,totalMinutes:raw.minutes,warnings:raw.warnings||[],tags:raw.tags||[]};closeOverlay();const el=overlay(RecipeDetail.render(recipe,{slots:{intro:'',back:RecipeDetail.back(),actions:'<div class="detail-actions"><button class="secondary" data-catalog-save>Сохранить рецепт</button><button class="primary accent" data-catalog-cook>Начать готовить</button></div>'}}),'recipe-detail review-catalog-sheet');el.querySelector('[data-close]').onclick=()=>{closeOverlay();RecipeAnalytics?.step('other')};el.querySelector('[data-catalog-cook]').onclick=()=>RecipeCooking.open(recipe);el.querySelector('[data-catalog-save]').onclick=event=>void saveCatalogHere(id,event.currentTarget);RecipeAnalytics?.step('recipe');RecipeAnalytics?.observe(el.querySelector('.review-catalog-sheet')||el,'screen_view','recipe');}catch(error){if(rev===ui.detailRevision)toast(error.message);}}
+  async function showCatalog(id){const rev=++ui.detailRevision;try{const raw=await api('/api/catalog/'+encodeURIComponent(id),{signal:AbortSignal.timeout(12000)});if(rev!==ui.detailRevision||ui.section!=='discover')return;const recipe={...raw,thumbnailUrl:raw.image,totalMinutes:raw.minutes,warnings:raw.warnings||[],tags:raw.tags||[]};closeOverlay();showReferenceCard(recipe,{catalogId:id});}catch(error){if(rev===ui.detailRevision)toast(error.message);}}
   function openCatalogSite(id){const url=new URL('/dinner/'+encodeURIComponent(id),location.origin).href;if(tg?.openLink)tg.openLink(url);else location.assign(url);}
   collection=function(recipes,titleText,suggestion){if(suggestion||new URLSearchParams(location.search).get('view')==='results'){root.classList.remove('review-shell');return oldCollection(recipes,titleText,suggestion)}recipesPage();};
   home=function(){recipesPage()};
+  function cardSavedNotice(flow,target,message='Изменения сохранены'){
+    if(!target?.isConnected)return;
+    const confirmation=document.createElement('div');confirmation.className='rc-save-feedback';confirmation.setAttribute('role','status');confirmation.textContent=message;target.append(confirmation);
+    RecipeAnalytics?.observe(confirmation,'workspace_action',analyticsStep(flow.feature),{feature:flow.feature,action:flow.action,outcome:'success',flowId:flow.id,_started:flow.startedWall});setTimeout(()=>confirmation.remove(),3500);
+  }
+  function cardSheet(heading,body){
+    const confirmations=[...document.querySelectorAll('.rc-save-feedback')];
+    const element=overlay(`<div class="sheet-head"><h2>${esc(heading)}</h2><button type="button" class="icon-btn" data-close aria-label="Закрыть">${ico('plus')}</button></div>${body}`,'rc-card-dialog');
+    element.querySelector('.sheet').append(...confirmations);
+    element.querySelector('[data-close]').onclick=()=>unmountModal(element);return element;
+  }
+  function cardWorkspaceForm(recipe,open){
+    const routeRecipe=new URLSearchParams(location.search).get('recipe'),confirmations=[...document.querySelectorAll('.rc-save-feedback')],context={};ui.cardReturn=context;closeOverlay();open();
+    document.querySelector('dialog[open]')?.append(...confirmations);
+    const watch=new MutationObserver(()=>{
+      if(document.querySelector('dialog[open]'))return;watch.disconnect();if(ui.cardReturn===context)ui.cardReturn=null;
+      if(document.querySelector('.overlay')||new URLSearchParams(location.search).get('recipe')!==routeRecipe)return;
+      void openRecipe(recipe.id,false).then(()=>{if(context.savedFlow)cardSavedNotice(context.savedFlow,document.querySelector('.rr-card-sheet'));});
+    });
+    if(document.querySelector('dialog[open]'))watch.observe(document.body,{childList:true});
+  }
+  async function prepareCardPhoto(file){
+    if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>6*1024*1024)throw new Error('Выбери JPEG, PNG или WEBP размером до 6 МБ.');
+    const image=await createImageBitmap(file);try{
+      if(image.width*image.height>40000000)throw new Error('Выбери фото меньшего разрешения.');
+      const scale=Math.min(1,1600/Math.max(image.width,image.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+      for(const quality of [.86,.7,.5]){const data=canvas.toDataURL('image/webp',quality),value=data.split(',')[1];if(value.length<=Math.floor(1024*1024*4/3))return {mime:'image/webp',value};}
+      throw new Error('Фото слишком большое. Выбери изображение меньшего размера.');
+    }finally{image.close();}
+  }
+  function showReferenceCard(recipe,{catalogId=null,engagement=null}={}){
+    const image=safeImage(recipe.thumbnailUrl),source=/^https?:\/\//i.test(recipe.sourceUrl||'')?esc(recipe.sourceUrl):'';
+    const initial=ui.workspace?.recipeCards?.[recipe.id]||{};
+    const element=overlay(RecipeReferenceCard.render(recipe,{metadata:initial,imageUrl:image,sourceUrl:source,catalog:Boolean(catalogId)}),'recipe-detail recipe-detail-sheet rr-card-sheet');
+    const sheet=element.querySelector('.rr-card-sheet');
+    const active=()=>{if(!element.isConnected)throw new DOMException('Карточка закрыта','AbortError');};
+    const confirmCard=(flow,message='Изменения сохранены')=>cardSavedNotice(flow,sheet,message);
+    element.querySelector('[data-close]').onclick=()=>{if(catalogId){closeOverlay();RecipeAnalytics?.step('other');}else closeDetailRoute();};
+    element.querySelector('[data-source-link]')?.addEventListener('click',event=>{if(tg?.openLink){event.preventDefault();tg.openLink(recipe.sourceUrl);}});
+    const own=async()=>{
+      active();if(!catalogId)return recipe;
+      const flow=flowFor('collections.saveCatalog');flow.inlineConfirmation=true;const result=await mutate(flow,{catalogId});
+      active();confirmCard(flow,'Рецепт сохранён');const saved=await api('/api/recipes/'+encodeURIComponent(result.operation.result.recipeId));active();Object.assign(recipe,saved);catalogId=null;await refresh();active();
+      const params=Object.fromEntries(new URLSearchParams(location.search));params.recipe=recipe.id;setRoute(params,{historyState:{recipeOverlay:true,scrollY:state.scrollY}});
+      element.querySelector('[data-close]').onclick=closeDetailRoute;
+      return recipe;
+    };
+    let cardLoadRevision=0,cardDetails={...initial};
+    const loadCard=async()=>{const revision=++cardLoadRevision,value=await api('/api/recipes/'+encodeURIComponent(recipe.id)+'/card');if(element.isConnected&&revision===cardLoadRevision&&value.workspaceVersion>=(ui.workspace?.version||0)){cardDetails={...value,hasPhoto:Boolean(value.photo)};controller.sync(value);}return value;};
+    const change=async(fields,action='collections.updateCard')=>{
+      await own();if(!await canEdit())throw new Error('Сначала заверши текущее сохранение.');active();
+      const flow=flowFor(action);flow.inlineConfirmation=true;await mutate(flow,{recipeId:recipe.id,...fields});
+      const details={...(ui.workspace?.recipeCards?.[recipe.id]||{}),notes:fields.notes??recipe.notes,tags:fields.tags??recipe.tags,...(action==='collections.setPhoto'?{photo:{dataUrl:`data:${fields.mime};base64,${fields.value}`}}:action==='collections.removePhoto'?{photo:null}:{})};
+      cardDetails={...cardDetails,...details};
+      if(Object.hasOwn(fields,'notes'))recipe.notes=fields.notes;if(Object.hasOwn(fields,'tags'))recipe.tags=fields.tags;
+      if(element.isConnected){
+        controller.sync(details);confirmCard(flow);
+        void loadCard().catch(()=>{});
+      }
+      return details;
+    };
+    const fieldsForm=(heading,field,value)=>{
+      const modal=cardSheet(heading,`<form class="form-stack" data-card-field><label><span class="label">${field==='tags'?'Теги через запятую':'Моя заметка'}</span><textarea class="field" maxlength="${field==='tags'?1000:3000}" name="value">${esc(value)}</textarea></label><p data-card-error role="alert" hidden></p><button type="submit" class="primary accent">Сохранить</button></form>`);
+      modal.querySelector('form').onsubmit=async event=>{event.preventDefault();const button=modal.querySelector('[type=submit]'),error=modal.querySelector('[data-card-error]');button.disabled=true;error.hidden=true;try{const text=modal.querySelector('textarea').value;await change({[field]:field==='tags'?text.split(',').map(s=>s.trim()).filter(Boolean):text});unmountModal(modal);if(field==='tags')element.querySelector('.rc-tag-list').innerHTML=recipe.tags.map(tag=>`<span>${esc(tag)}</span>`).join('');}catch(e){error.textContent=e.message;error.hidden=false;}finally{button.disabled=false;}};
+    };
+    const controller=RecipeReferenceCard.mount(element,recipe,{
+      toast,saveMetadata:fields=>change(fields),saveNotes:notes=>change({notes}),
+      collection:async()=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>recipeMemberships(recipe));}},
+      plan:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>{const dialog=planForm(null,recipe.id);if(servings)dialog.querySelector('#ws-servings').value=servings;});}},
+      groceries:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>{groceriesFromRecipe(recipe.id);if(servings)ui.dialog.querySelector('#ws-servings').value=servings;});}},
+      edit:async()=>{await own();closeOverlay();editRecipe(recipe);},
+      tags:async()=>{await own();fieldsForm('Теги рецепта','tags',(recipe.tags||[]).join(', '));},
+      more:async()=>{await own();await loadCard();active();const modal=cardSheet('Действия с рецептом',`<div class="form-stack"><button class="secondary" data-more="edit">Изменить рецепт</button><button class="secondary" data-more="tags">Изменить теги</button><button class="secondary" data-more="photo" ${cardDetails.hasPhoto?'':'disabled'}>Вернуть исходное фото</button><p data-card-error role="alert" hidden></p></div>`);
+        modal.querySelector('[data-more=edit]').onclick=()=>{closeOverlay();editRecipe(recipe);};
+        modal.querySelector('[data-more=tags]').onclick=()=>{unmountModal(modal);fieldsForm('Теги рецепта','tags',(recipe.tags||[]).join(', '));};
+        modal.querySelector('[data-more=photo]').onclick=async event=>{const button=event.currentTarget;button.disabled=true;try{await change({},'collections.removePhoto');if(modal.isConnected)unmountModal(modal);}catch(error){const notice=modal.querySelector('[data-card-error]');notice.textContent=error.message;notice.hidden=false;}finally{if(button.isConnected)button.disabled=false;}};
+      },
+      share:async({button})=>{await own();active();const markup=button.innerHTML;try{await shareRecipe(recipe,button);}finally{if(button.isConnected)button.innerHTML=markup;}},
+      cook:()=>{if(catalogId){closeOverlay();RecipeCooking.open(recipe);}else void cookFromDinnerDetail(recipe);},
+      photo:async file=>{const photo=await prepareCardPhoto(file),details=await change(photo,'collections.setPhoto');return details.photo?.dataUrl;},
+      nutrition:async()=>{await own();const updated=await api('/api/recipes/'+encodeURIComponent(recipe.id));if(!updated.nutrition)throw new Error('Пока не удалось рассчитать КБЖУ. Повтори попытку позже.');controller.setNutrition(updated.nutrition);},
+      ask:async()=>{await own();showRecipeQuestion(recipe);}
+    },initial);
+    element.onDispose=()=>controller.dispose();
+    if(recipe.recipeViewToken)observeEngagement(sheet,recipe.recipeViewToken,engagement,true);
+    RecipeAnalytics?.step('recipe');RecipeAnalytics?.observe(sheet,'screen_view','recipe');
+    if(!catalogId)void loadCard().catch(error=>{if(element.isConnected)toast(error.message);});
+    return element;
+  }
+  function showRecipeQuestion(recipe){
+    ui.recipeQuestions??=new Map();let current=ui.recipeQuestions.get(recipe.id);
+    const element=cardSheet('Спросить о рецепте',`<p class="help">${esc(recipe.title)}</p><form class="form-stack"><label><span class="label">Твой вопрос</span><textarea class="field" maxlength="1500" required placeholder="Например, можно ли приготовить в духовке?">${esc(current?.question||'')}</textarea></label><div class="rc-chat-answer" aria-live="polite" ${current?.answer?'':'hidden'}>${esc(current?.answer||'')}</div><p data-card-error role="alert" hidden></p><button class="primary accent" type="submit">${current?.pending?'Повторить запрос':'Спросить'}</button></form>`);
+    const form=element.querySelector('form'),input=form.querySelector('textarea'),button=form.querySelector('button'),answer=form.querySelector('.rc-chat-answer'),errorBox=form.querySelector('[data-card-error]');
+    if(current?.pending)input.disabled=true;
+    if(current?.answer&&current.flow?.done)RecipeAnalytics?.observe(answer,'workspace_action','collection',{feature:'collections',action:'collections.askRecipe',outcome:'success',flowId:current.flow.id,_started:current.flow.startedWall});
+    form.onsubmit=async event=>{
+      event.preventDefault();if(button.disabled)return;const question=input.value.trim();if(!question)return;
+      if(!current?.pending){const flow=flowFor('collections.askRecipe');flow.inlineConfirmation=true;flow.started=performance.now();flow.startedWall=Date.now();current={question,flow,pending:true,answer:null};ui.recipeQuestions.set(recipe.id,current);actionEvent(flow,'started');}
+      button.disabled=true;input.disabled=true;errorBox.hidden=true;answer.hidden=false;answer.textContent='Готовлю ответ…';
+      try{
+        let response;
+        for(let attempt=0;attempt<20;attempt++){
+          const request=await fetch('/api/recipes/'+encodeURIComponent(recipe.id)+'/card/ask',{method:'POST',headers:{authorization:window.RecipePlatform?.authHeader()||`tma ${tg?.initData||''}`,'content-type':'application/json'},body:JSON.stringify({operationId:current.flow.id,question:current.question}),signal:AbortSignal.timeout(30000)});
+          response=await request.json().catch(()=>null);
+          if(!request.ok)throw Object.assign(new Error(response?.error||'Связь прервалась. Повтори запрос.'),{confirmed:response?.operationId===current.flow.id&&(typeof response?.replayed==='boolean'||response?.started===false),status:request.status});
+          if(!response||response.operationId!==current.flow.id)throw new Error('Ответ не подтверждён. Повтори запрос.');
+          if(response.status==='completed')break;
+          if(response.status!=='pending')throw new Error('Сервер не подтвердил результат. Повтори запрос.');
+          if(!element.isConnected)return;await new Promise(resolve=>setTimeout(resolve,Math.max(1000,Math.min(2500,response.retryAfterMs||1500))));
+        }
+        if(response?.status!=='completed')throw new Error('Ответ ещё готовится. Повтори запрос.');
+        current.pending=false;current.answer=response.answer;current.flow.done=true;
+        if(element.isConnected){answer.textContent=response.answer;RecipeAnalytics?.observe(answer,'workspace_action','collection',{feature:'collections',action:'collections.askRecipe',outcome:'success',flowId:current.flow.id,_started:current.flow.startedWall});}
+      }catch(error){actionEvent(current.flow,'error');if(error.confirmed)current.pending=false;if(element.isConnected){answer.hidden=true;errorBox.textContent=error.message;errorBox.hidden=false;}}
+      finally{if(element.isConnected){button.disabled=false;input.disabled=current.pending;button.textContent=current.pending?'Повторить запрос':'Спросить';}}
+    };
+  }
+  const previousRecipeDetail=recipeDetail;
+  recipeDetail=function(recipe,options={}){
+    const view=new URLSearchParams(location.search).get('view');
+    if(options.shared||options.suggestion||view==='request'||recipe.previewOnly||state.payment?.firstRecipe?.awaitingTrial&&!state.payment.active&&!(recipe.publicCatalogSaved&&publicCatalogRecipeReadable(recipe.id)))return previousRecipeDetail(recipe,options);
+    if(/^(seed|dinner):/.test(recipe.id))return previousRecipeDetail(recipe,options);
+    return showReferenceCard(recipe,options);
+  };
   render=async function(){const view=new URLSearchParams(location.search).get('view');ui.detailRevision++;if(['meal-plan','groceries','discover'].includes(view)){({ 'meal-plan':planner,groceries,discover })[view]();const recipeId=new URLSearchParams(location.search).get('recipe');if(recipeId)await openRecipe(recipeId,false);return;}if(['collection',null,''].includes(view)){await oldRender();return;}root.classList.remove('review-shell');await oldRender();};
   root.addEventListener('click',async event=>{const el=event.target.closest('button');if(!el||!root.contains(el)||!root.classList.contains('review-shell'))return;if(el.dataset.reviewView){ui.book=null;ui.query='';ui.detailRevision++;ui.navigation=null;setRoute({view:el.dataset.reviewView});await render();resetPageScroll();if(el.dataset.reviewView!=='discover'&&!ui.saving&&!ui.uncertain)void ensureWorkspace(true).catch(()=>{});return}const a=el.dataset.review;if(!a)return;try{switch(a){
     case 'fold':ui.folded=!ui.folded;recipesPage();break;
@@ -337,7 +463,7 @@
   }}catch(error){toast(error.message||'Не удалось выполнить действие.');}});
   root.addEventListener('input',event=>{if(event.target.id==='r-library-search'){ui.query=event.target.value;const list=root.querySelector('#r-library-items');if(list)list.innerHTML=libraryItems();}});
   root.addEventListener('submit',event=>{if(event.target.id==='r-catalog-form'){event.preventDefault();ui.catalogQuery=root.querySelector('#r-catalog-search').value.trim();ui.catalogFilter=null;ui.catalog=null;void loadCatalog(true);}});
-  window.RecipeReview={version:'workspace-3',resetView:()=>{ui.tab='books';ui.book=null;ui.query='';ui.folded=false;setRoute({view:'collection'});return render();}};
+  window.RecipeReview={version:'workspace-4',resetView:()=>{ui.tab='books';ui.book=null;ui.query='';ui.folded=false;setRoute({view:'collection'});return render();}};
   // A direct browser opening provides the same honest entry error as the regular Mini App.
   if(!tg?.initData){const landing=document.querySelector('#landing');if(landing)landing.hidden=true;root.hidden=false;root.innerHTML='<main class="outside"><div class="brand-mark">Р</div><h1>Открой в тестовом боте</h1><p>Новый интерфейс доступен через кнопку «Меню» в Telegram.</p><a class="primary accent" href="https://t.me/recipeboi_test_bot">Открыть тестового бота</a></main>';window.__miniRendered=true;}
 })();

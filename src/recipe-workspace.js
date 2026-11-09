@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 // Private operational state. Ingredient names and recipe contents belong here,
-// never in product analytics. No source recipe is modified by this module.
+// never in product analytics. Ingredient/step/serving data is never modified.
 export const WORKSPACE_ACTIONS = Object.freeze([
   'collections.create', 'collections.rename', 'collections.delete', 'collections.setRecipes', 'collections.saveCatalog',
+  'collections.updateCard', 'collections.setPhoto', 'collections.removePhoto',
   'plan.add', 'plan.update', 'plan.delete', 'plan.apply',
   'groceries.addManual', 'groceries.updateManual', 'groceries.fromRecipe', 'groceries.fromPlan',
   'groceries.setChecked', 'groceries.removeItem', 'groceries.removeSource', 'groceries.clearChecked'
@@ -14,6 +15,8 @@ const fields = {
   'collections.create': ['name', 'recipeIds'], 'collections.rename': ['collectionId', 'name'],
   'collections.delete': ['collectionId'], 'collections.setRecipes': ['collectionId', 'recipeIds'],
   'collections.saveCatalog': ['catalogId'],
+  'collections.updateCard': ['recipeId', 'pinned', 'cooked', 'rating', 'notes', 'tags'],
+  'collections.setPhoto': ['recipeId', 'mime', 'value'], 'collections.removePhoto': ['recipeId'],
   'plan.add': ['recipeId', 'date', 'meal', 'servings'], 'plan.update': ['entryId', 'recipeId', 'date', 'meal', 'servings'],
   'plan.delete': ['entryId'], 'plan.apply': ['entries'],
   'groceries.addManual': ['name', 'quantity', 'unit', 'amountText'],
@@ -96,7 +99,7 @@ function recipeIngredients(recipe, servings) {
   });
 }
 
-export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe = null, now = () => new Date().toISOString(), newId = randomUUID } = {}) {
+export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe = null, cardStore = null, now = () => new Date().toISOString(), newId = randomUUID } = {}) {
   db.exec(`CREATE TABLE IF NOT EXISTS recipe_workspaces (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     version INTEGER NOT NULL DEFAULT 0 CHECK(version>=0), data_json TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -158,7 +161,7 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
   function snapshot(userId, record) {
     const { state, version, updatedAt } = record, cached = new Map();
     const recipeSummary = id => { if (!cached.has(id)) cached.set(id, summary(userId, id)); return cached.get(id); };
-    return { version, updatedAt,
+    return { version, updatedAt, recipeCards: cardStore?.list(userId) || {},
       collections: state.collections.map(row => ({ ...row, recipeIds: row.recipeIds.filter(id => recipeSummary(id)) })),
       plan: state.plan.map(row => ({ ...row, recipe: recipeSummary(row.recipeId), recipeAvailable: Boolean(recipeSummary(row.recipeId)) })).sort((a, b) => a.date.localeCompare(b.date) || [...meals].indexOf(a.meal) - [...meals].indexOf(b.meal) || a.createdAt.localeCompare(b.createdAt)),
       groceries: { items: shoppingItems(state).map(({ signature, ...item }) => item),
@@ -215,6 +218,13 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
   function execute(state, userId, input, timestamp) {
     const action = input.action;
     if (own(input, 'restoreExcluded') && typeof input.restoreExcluded !== 'boolean') throw fail('Проверьте восстановление исключённых продуктов.');
+    if (['collections.updateCard', 'collections.setPhoto', 'collections.removePhoto'].includes(action)) {
+      personalRecipe(userId, input.recipeId);
+      if (!cardStore) throw fail('Настройки карточки недоступны.', 422, 'CARD_UNAVAILABLE');
+      if (action === 'collections.setPhoto') return cardStore.setPhoto(userId, input.recipeId, { mime: input.mime, value: input.value });
+      if (action === 'collections.removePhoto') return cardStore.removePhoto(userId, input.recipeId);
+      return cardStore.update(userId, input.recipeId, Object.fromEntries(['pinned', 'cooked', 'rating', 'notes', 'tags'].filter(key => own(input, key)).map(key => [key, input[key]])));
+    }
     if (action === 'collections.saveCatalog') {
       if (typeof input.catalogId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,99}$/.test(input.catalogId)) throw fail('Проверьте рецепт каталога.');
       if (typeof saveCatalogRecipe !== 'function') throw fail('Сохранение из каталога недоступно.', 422, 'CATALOG_UNAVAILABLE');
@@ -315,10 +325,11 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     if (typeof input.operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.operationId)) throw fail('Нужен UUID действия.');
     if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) throw fail('Нужна текущая версия данных.');
     const allowed = new Set(['action', 'operationId', 'expectedVersion', ...fields[input.action]]);
-    if (Object.keys(input).some(key => !allowed.has(key)) || Buffer.byteLength(JSON.stringify(input)) > 64000) throw fail('Проверьте параметры действия.');
+    if (Object.keys(input).some(key => !allowed.has(key)) || Buffer.byteLength(JSON.stringify(input)) > (input.action === 'collections.setPhoto' ? 1_400_000 : 64000)) throw fail('Проверьте параметры действия.');
     const requestHash = hash(canonical(input));
     db.exec('BEGIN IMMEDIATE');
     try {
+      if (cardStore?.hasQuestionOperation(userId, input.operationId)) throw fail('Идентификатор уже использован для вопроса.', 409, 'OPERATION_MISMATCH');
       const record = load(userId), prior = db.prepare('SELECT * FROM recipe_workspace_operations WHERE user_id=? AND operation_id=?').get(userId, input.operationId);
       if (prior) {
         if (prior.request_hash !== requestHash) throw fail('Идентификатор уже использован для другого действия.', 409, 'OPERATION_MISMATCH', { currentVersion: record.version });

@@ -1,0 +1,101 @@
+.overlay:has(.rr-card-sheet){padding:0;background:var(--review-bg);align-items:stretch;overflow:hidden}
+.overlay .sheet.rr-card-sheet{width:min(100%,590px);max-width:590px;height:100dvh;max-height:100dvh;margin:0 auto;padding:0;border:0;border-radius:0;background:var(--review-paper);color:var(--review-ink);overflow-y:auto;overflow-x:hidden;scrollbar-width:none;overscroll-behavior:contain;font:400 15px/1.45 ReviewInter,Arial,sans-serif}
+.rr-card-sheet::-webkit-scrollbar{display:none}
+.rr-card-sheet>.sheet-handle{display:none}
+.rc-card{--rc-soft:var(--review-highlight);--rc-accent:var(--review-accent);position:relative;width:100%;padding:0 0 calc(85px + env(safe-area-inset-bottom));background:var(--review-paper);color:var(--review-ink)}
+.rc-card *{box-sizing:border-box}
+.rc-card :where(h1,h2,h3,p,ul,ol){margin:0}
+.rc-card :where(button,input,textarea,select){font:inherit;color:inherit}
+.rc-card button{cursor:pointer;touch-action:manipulation;appearance:none}
+.rc-card button:disabled{opacity:.45;cursor:default}
+.rc-card button:focus-visible,.rc-card a:focus-visible,.rc-card textarea:focus-visible{outline:2px solid var(--rc-accent);outline-offset:3px}
+.rc-icon{width:22px;height:22px;display:block;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.rc-toolbar{position:sticky;top:0;z-index:5;height:76px;margin-bottom:-76px;padding:14px 18px;display:flex;align-items:flex-start;justify-content:space-between;pointer-events:none;transition:background .15s,border-color .15s;border-bottom:1px solid transparent}
+.rc-toolbar button{pointer-events:auto;border:0;background:none;min-height:42px}
+.rc-toolbar .rc-back,.rc-edit-tools{background:#ffffffe0;border:1px solid #ffffffb3;box-shadow:0 4px 24px #3025370a;backdrop-filter:blur(12px);border-radius:30px}
+.rc-toolbar .rc-back{width:42px;height:42px;display:grid;place-items:center;padding:9px}
+.rc-back .rc-icon{width:25px;height:25px;stroke-width:2}
+.rc-edit-tools{display:flex;align-items:center;min-height:42px;padding:0 7px;gap:0}
+.rc-edit-tools button{font-size:14px;padding:8px 5px}
+.rc-edit-tools button:last-child{display:grid;place-items:center;min-width:34px}
+.rc-scrolled .rc-toolbar{background:#fffffff5;border-bottom-color:var(--review-line);backdrop-filter:blur(12px)}
+.rc-hero{height:270px;position:relative;background:var(--review-soft)}
+.rc-hero>img{width:100%;height:100%;display:block;object-fit:cover;object-position:center}
+.rc-hero.rc-without-photo{display:flex;align-items:center;justify-content:center;color:var(--review-muted)}
+.rc-card .rc-camera{position:absolute;right:15px;bottom:38px;width:44px;height:44px;border:1px solid #ffffffb3;border-radius:50%;display:grid;place-items:center;background:#ffffffe0;backdrop-filter:blur(12px)}
+.rc-camera .rc-icon{width:23px;height:23px}
+.rc-content{position:relative;z-index:1;margin-top:-20px;border-radius:23px 23px 0 0;background:var(--review-paper);overflow:hidden}
+.rc-heading{text-align:center;padding:28px 15px 21px;border-bottom:1px solid var(--review-line)}
+.rc-heading h1{font:400 24px/1.35 ReviewBitter,Georgia,serif;letter-spacing:-.45px;margin:0 auto 17px;max-width:520px;text-wrap:initial}
+.recipe-detail.rr-card-sheet [data-modal-heading]:focus{text-decoration:none}
+.rc-pill{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--review-line);border-radius:30px;background:transparent;min-height:41px;padding:8px 14px;font-size:14px;line-height:1.25;text-align:center}
+.rc-heading>.rc-pill{min-height:33px;padding:5px 11px;font-size:13px}
+.rc-heading>.rc-pill .rc-icon{width:18px;height:18px}
+.rc-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:22px}
+.rc-actions>button{border:0;background:transparent;display:flex;flex-direction:column;align-items:center;gap:7px;padding:0;font-size:12px;line-height:1.3;color:var(--review-muted)}
+.rc-action-icon{width:52px;height:52px;display:grid;place-items:center;border-radius:50%;background:var(--review-soft);color:var(--review-ink)}
+.rc-action-icon .rc-icon{width:25px;height:25px}
+.rc-actions>button[aria-pressed=true] .rc-action-icon{color:var(--rc-accent)}
+.rc-actions>button[aria-pressed=true] .rc-action-icon .rc-icon{fill:var(--rc-accent);stroke:var(--rc-accent)}
+.rc-personal{padding:23px 15px 22px;border-bottom:1px solid var(--review-line)}
+.rc-source{display:flex;align-items:center;gap:8px;color:var(--review-muted);font-size:13px;line-height:1.5}
+.rc-source strong{color:var(--review-ink);font-weight:600;overflow-wrap:anywhere}
+.rc-source-avatar{flex-shrink:0;display:grid;place-items:center;border-radius:50%;width:22px;height:22px;background:var(--review-soft);color:var(--rc-accent);font-size:11px}
+.rc-source-link{display:flex;align-items:center;gap:5px;width:fit-content;margin:12px 0 0;color:var(--review-muted);text-decoration:none;font-size:13px;min-height:28px}
+.rc-source-link .rc-icon{width:13px;height:13px}
+.rc-feedback{margin-top:20px;background:var(--rc-soft);padding:14px;border-radius:16px}
+.rc-feedback>.rc-pill{display:flex;width:100%;font-size:14px;min-height:40px}
+.rc-feedback>.rc-pill[aria-pressed=true]{color:var(--rc-accent);border-color:var(--rc-accent)}
+.rc-rating{display:flex;gap:0;margin:8px 0 5px;width:fit-content}
+.rc-rating button{width:28px;height:32px;display:grid;place-items:center;padding:3px 1px;background:none;border:0;color:var(--review-line)}
+.rc-rating .rc-icon{width:21px;height:21px;fill:currentColor;stroke:currentColor}
+.rc-rating button[aria-pressed=true]{color:var(--rc-accent)}
+.rc-note-form textarea{width:100%;display:block;min-height:42px;max-height:180px;resize:vertical;padding:10px 11px;border:0;border-radius:9px;background:var(--review-paper);font-size:14px;line-height:1.5;box-shadow:none}
+.rc-note-form textarea::placeholder{color:var(--review-muted);opacity:1}
+.rc-note-save{display:block;width:100%;border:0;border-radius:9px;background:var(--rc-accent);color:var(--review-paper)!important;padding:10px;margin-top:8px;min-height:42px}
+.rc-note-save[hidden]{display:none}
+.rc-section{padding:25px 15px 22px;border-bottom:1px solid var(--review-line)}
+.rc-section h2{font:400 21px/1.3 ReviewBitter,Georgia,serif;letter-spacing:-.25px;margin:0 0 17px}
+.rc-section>.rc-pill{width:100%}
+.rc-ingredient-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:20px}
+.rc-serving-control{display:flex;align-items:center;gap:5px;flex-shrink:0;font-size:13px}
+.rc-stepper{display:flex;align-items:center;padding:3px;border:1px solid var(--review-line);border-radius:28px;gap:4px}
+.rc-stepper button{height:33px;width:33px;display:grid;place-items:center;border:0;background:var(--review-soft);border-radius:50%;padding:6px}
+.rc-stepper output{font-weight:600;min-width:27px;text-align:center;font-size:15px}
+.rc-ingredient-tools>.rc-pill{padding:8px 11px;font-size:13px}
+.rc-ingredient-list{list-style:none;padding:0;margin:35px 0 26px;display:grid;gap:15px}
+.rc-ingredient{font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.rc-ingredient strong{font-weight:600}
+.rc-ingredient-group{text-transform:uppercase;font-size:13px;font-weight:600;margin:7px 0 0}
+.rc-serving-note{margin-top:10px!important}
+.rc-unit-options{display:grid;gap:4px;margin-top:10px;padding:6px;background:var(--rc-soft);border-radius:12px}
+.rc-unit-options button{border:0;border-radius:8px;text-align:left;background:transparent;min-height:40px;padding:8px 10px;font-size:13px}
+.rc-unit-options button[aria-pressed=true]{background:var(--review-soft);color:var(--rc-accent)}
+.rc-step-list{list-style:none;padding:0;display:grid;gap:10px;margin:32px 0 4px}
+.rc-step-list>li{display:flex;align-items:flex-start;gap:10px;font-size:15px;line-height:1.5}
+.rc-step-number{width:13px;flex-shrink:0;color:var(--review-muted);font-weight:500}
+.rc-step-list p{min-width:0;overflow-wrap:anywhere}
+.rc-highlight{color:var(--rc-accent)}
+.rc-muted{color:var(--review-muted);font-size:12px}
+.rc-nutrition h2{margin-bottom:5px}
+.rc-nutrition [data-rc-nutrition]{margin-top:15px}
+.rc-nutrition [data-rc-nutrition]>.rc-pill{width:100%}
+.rc-nutrition-values{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.rc-nutrition-values>span{display:flex;flex-direction:column;gap:3px}
+.rc-nutrition-values strong{font-size:20px;font-weight:500}
+.rc-nutrition-values small{color:var(--review-muted);font-size:11px}
+.rc-nutrition-note{margin-top:14px;font-size:12px;color:var(--review-muted)}
+.rc-nutrition-note p{margin-top:7px}
+.rc-tag-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.rc-tag-list>span{border:1px solid var(--review-line);border-radius:18px;padding:5px 10px;font-size:12px}
+.rc-card .rc-ask{position:fixed;right:max(16px,calc((100vw - 590px)/2 + 16px));bottom:calc(16px + env(safe-area-inset-bottom));z-index:6;display:flex;align-items:center;gap:9px;min-width:44px;min-height:44px;border:0;border-radius:30px;background:var(--review-paper);color:var(--rc-accent);padding:12px 15px;box-shadow:0 3px 25px #3025371a;font-size:14px;font-weight:500}
+.rc-ask .rc-icon{width:23px;height:23px}
+.rc-scrolled .rc-ask span{display:none}
+.rc-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.rc-warnings{padding:14px 15px;border-bottom:1px solid var(--review-line);font-size:13px}
+.rc-warnings ul{padding:10px 0 0 18px}
+.rc-chat-answer{white-space:pre-wrap;line-height:1.6;max-height:45dvh;overflow:auto;margin:14px 0;padding:14px;background:var(--review-highlight);border-radius:12px}
+.rc-save-feedback{position:fixed;z-index:8;left:max(16px,calc((100vw - 590px)/2 + 16px));right:max(85px,calc((100vw - 590px)/2 + 85px));bottom:calc(16px + env(safe-area-inset-bottom));border-radius:12px;padding:12px;background:var(--review-ink);color:var(--review-paper);font:400 13px/1.4 ReviewInter,Arial,sans-serif;box-shadow:0 4px 16px #3025371a;text-align:center}
+.rc-save-feedback+.rc-save-feedback{bottom:calc(72px + env(safe-area-inset-bottom))}
+@media(min-width:520px){.rc-hero{height:340px}.rc-heading{padding-top:30px}.rc-heading h1{font-size:30px}.rc-section,.rc-personal{padding-inline:22px}.rc-ingredient,.rc-step-list>li{font-size:17px}}
+@media(prefers-reduced-motion:reduce){.rc-toolbar{transition:none}}

@@ -95,7 +95,11 @@ test('workspace aggregates match the same account and operation, deduplicate ret
       'collections.rename':{started:0,cancelled:1,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
       'collections.delete':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
       'collections.setRecipes':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
-      'collections.saveCatalog':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0}
+      'collections.saveCatalog':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
+      'collections.updateCard':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
+      'collections.setPhoto':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
+      'collections.removePhoto':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
+      'collections.askRecipe':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0}
     }
   });
   assert.equal(r.workspace.features.meal_plan.serverConfirmed, 0);
@@ -165,11 +169,16 @@ test('MAX bridge retains verified workspace metrics and represents old versions 
   assert.equal(result.remoteFunnel.status, 'ready');
   assert.equal(result.productAnalytics.platforms.find(p => p.platform === 'max').workspace, null);
   const olderWorkspace = structuredClone(snapshot);
-  for (const scope of ['campaign', 'all']) delete olderWorkspace[scope].productAnalytics.platforms[0].workspace.features.collections.actions['collections.saveCatalog'];
+  for (const scope of ['campaign', 'all']) for (const action of ['collections.saveCatalog','collections.updateCard','collections.setPhoto','collections.removePhoto','collections.askRecipe'])
+    delete olderWorkspace[scope].productAnalytics.platforms[0].workspace.features.collections.actions[action];
   result = await merge(olderWorkspace);
   assert.equal(result.remoteFunnel.status, 'ready');
   assert.equal(Object.hasOwn(result.productAnalytics.platforms.find(p => p.platform === 'max').workspace.features.collections.actions, 'collections.saveCatalog'), false,
     'older workspace keeps unavailable catalog action absent rather than inventing zeros');
+  const catalogWorkspace = structuredClone(snapshot);
+  for (const scope of ['campaign', 'all']) for (const action of ['collections.updateCard','collections.setPhoto','collections.removePhoto','collections.askRecipe'])
+    delete catalogWorkspace[scope].productAnalytics.platforms[0].workspace.features.collections.actions[action];
+  assert.equal((await merge(catalogWorkspace)).remoteFunnel.status, 'ready');
   const invalid = structuredClone(snapshot);
   invalid.all.productAnalytics.platforms[0].workspace.features.groceries.actions['groceries.addManual'].started = 1;
   assert.equal((await merge(invalid)).remoteFunnel.status, 'error');
@@ -185,6 +194,21 @@ test('catalog saving has closed private analytics and matched visible confirmati
   assert.equal(summary.features.collections.actions['collections.saveCatalog'].visibleConfirmed, 1);
   assert.equal(validWorkspaceReport(summary), true);
   assert.throws(() => accept(u.id, batch(event({ action: 'collections.saveCatalog', catalogId: 'pasta-tomato' }))), { status: 400 });
+});
+
+test('personal card actions reuse private workspace events without notes, ratings, photos or question contents', () => {
+  const u = user();
+  for (const name of ['collections.updateCard', 'collections.setPhoto', 'collections.removePhoto', 'collections.askRecipe']) {
+    const flowId = randomUUID();
+    assert.equal(accept(u.id, batch(event({ action: name, flowId }))).accepted.length, 1);
+    assert.equal(save(u, name, flowId, { detail: { feature: 'collections', action: name, notes: 'private', question: 'private', value: 'private', rating: 5 } }), true);
+    action(u, name, 'success', flowId);
+    for (const field of ['notes', 'question', 'answer', 'value', 'rating', 'recipeId'])
+      assert.throws(() => accept(u.id, batch(event({ action: name, [field]: 'private' }))), { status: 400 });
+  }
+  const summary = report([u]).workspace;
+  assert.equal(summary.features.collections.visibleConfirmed, 4); assert.equal(validWorkspaceReport(summary), true);
+  assert.ok(db.prepare('SELECT detail_json FROM product_events WHERE user_id=?').all(u.id).every(row => !row.detail_json.includes('private')));
 });
 
 test('actual client observer waits for visible content and retries the same event and navigation ID', async () => {
