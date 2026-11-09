@@ -132,7 +132,7 @@
       // gesture; picking it up must continue from its visible position.
       const start = surface.getBoundingClientRect().left-row.getBoundingClientRect().left;
       pointer = {id:event.pointerId,row,x:event.clientX,y:event.clientY,lastX:event.clientX,start,value:start,
-        side:open === row ? Math.sign(offset(row)) : 0,
+        side:Math.abs(start) > 2 ? Math.sign(start) : open === row ? Math.sign(offset(row)) : 0,
         min:-lane(row,-1).getBoundingClientRect().width,max:lane(row,1).getBoundingClientRect().width,
         horizontal:false,moved:false,samples:[]};
       sample(pointer,event);suppressed = null;suppressUntil = 0;

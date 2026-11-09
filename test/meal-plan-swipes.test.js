@@ -112,6 +112,25 @@ test('a short reverse drag closes an open lane without traversing its full width
   }
 });
 
+test('a reverse drag picked up during the closing animation finishes closing instead of reopening', () => {
+  const f = fixture(), row = f.rows[0];
+  f.send('keydown', {target: row.opener, key: 'ArrowLeft'});
+  assert.equal(f.exposed(row), -1);
+  f.send('pointerdown', {target: f.view, at: 2000});
+  assert.equal(f.exposed(row), 0, 'the outside tap starts closing the action lane');
+  // The DOM state is closed, but CSS is still painting the sliding surface
+  // partway back from -192px. Pick up that visible position after 20ms.
+  const bounds = row.surface.getBoundingClientRect;
+  row.surface.getBoundingClientRect = function() {return {...bounds.call(this), left: -137, right: 223};};
+  try {f.send('pointerdown', {target: row.opener, at: 2020});}
+  finally {row.surface.getBoundingClientRect = bounds;}
+  f.send('pointermove', {target: row.opener, clientX: 220, at: 2420});
+  f.send('pointerup', {target: row.opener, clientX: 220, at: 2620});
+  assert.equal(f.exposed(row), 0, 'the 40px closing gesture must not reopen the wide left lane');
+  assert.equal(row.surface.getBoundingClientRect().left, 0);
+  f.click(row.opener); assert.equal(f.result.recipeClicks, 0);
+});
+
 test('a short flick uses recent speed even after holding the recipe still', () => {
   for (const side of [-1, 1]) {
     const f = fixture(); f.send('pointerdown', {at: 1000});
