@@ -1,10 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 160" fill="none">
-<path d="M74 33 67 116c-2 18-2 28-9 36 24-10 39-5 62-5h58l27-18-49-16-10-81Z" fill="#f4f0e8"/>
-<path d="M73 30c-5 41-8 76-5 98 1 10 4 19 10 26M82 35c-9 52-11 93-4 115" stroke="#ddd9d0" stroke-width="2"/>
-<path d="M79 26h115l-5 31H73z" fill="#ff7900"/>
-<path d="m74 50-5 58c-2 33 15 45 31 45h82c-16-6-24-15-28-25-8-19-2-52 1-78Z" fill="#fff"/>
-<path d="M94 26c-1-18 22-20 22-5 0 8-4 15-12 17m25-12c-1-18 22-20 22-5 0 8-4 15-12 17m25-12c-1-18 22-20 22-5 0 8-4 15-12 17" stroke="#595950" stroke-width="1.4"/>
-<path d="M147 128h116c-6 16-20 25-39 25H97c20 0 33-7 40-25Z" fill="#eeebe3"/>
-<path d="M9 129c33-31 74-55 104-45 23 8 19 30-5 34-31 5-13-24 33-29" stroke="#a4415c" stroke-width="1.5"/>
-<g transform="rotate(60 209 64)"><path d="M201 10h16v99h-16z" fill="#ffc20b"/><path d="M201 10h16V1c0-4-16-4-16 0Z" fill="#efa4bf"/><path d="M201 10h16v7h-16z" fill="#a4415c"/><path d="m201 109 8 22 8-22z" fill="#f1e4cb"/><path d="m205 120 4 11 4-11z" fill="#31332d"/></g>
+  <title>Календарь домашнего меню</title>
+  <ellipse cx="139" cy="143" rx="98" ry="7" fill="#E7DEF0" opacity=".6"/>
+  <g transform="rotate(-6 127 82)">
+    <rect x="47" y="28" width="160" height="109" rx="15" fill="#DED5E5"/>
+    <rect x="43" y="23" width="160" height="109" rx="15" fill="#FFFFFF" stroke="#B9A8C7" stroke-width="2.5"/>
+    <path d="M58 23h130a15 15 0 0 1 15 15v14H43V38a15 15 0 0 1 15-15Z" fill="#E7DEF0"/>
+    <path d="M43 52h160" stroke="#B9A8C7" stroke-width="2.5"/>
+    <path d="M76 16v17m94-17v17" stroke="#A4415C" stroke-width="6" stroke-linecap="round"/>
+    <g fill="#B9A8C7">
+      <circle cx="62" cy="63" r="2"/><circle cx="82" cy="63" r="2"/>
+      <circle cx="102" cy="63" r="2"/><circle cx="122" cy="63" r="2"/>
+      <circle cx="142" cy="63" r="2"/><circle cx="162" cy="63" r="2"/>
+      <circle cx="182" cy="63" r="2"/>
+    </g>
+    <g fill="#F3F0F7">
+      <rect x="55" y="74" width="14" height="14" rx="4"/>
+      <rect x="75" y="74" width="14" height="14" rx="4"/>
+      <rect x="115" y="74" width="14" height="14" rx="4"/>
+      <rect x="135" y="74" width="14" height="14" rx="4"/>
+      <rect x="155" y="74" width="14" height="14" rx="4"/>
+      <rect x="175" y="74" width="14" height="14" rx="4"/>
+      <rect x="55" y="98" width="14" height="14" rx="4"/>
+      <rect x="75" y="98" width="14" height="14" rx="4"/>
+      <rect x="95" y="98" width="14" height="14" rx="4"/>
+      <rect x="115" y="98" width="14" height="14" rx="4"/>
+      <rect x="155" y="98" width="14" height="14" rx="4"/>
+      <rect x="175" y="98" width="14" height="14" rx="4"/>
+    </g>
+    <rect x="92" y="71" width="20" height="20" rx="6" fill="#A4415C"/>
+    <path d="m97 81 3 3 6-7" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="135" y="98" width="14" height="14" rx="4" fill="#E6BDCA"/>
+  </g>
+  <circle cx="207" cy="115" r="29" fill="#E7DEF0"/>
+  <circle cx="205" cy="111" r="29" fill="#FFFFFF" stroke="#B9A8C7" stroke-width="2.5"/>
+  <circle cx="205" cy="111" r="20" fill="#F8F5FA" stroke="#DED5E5" stroke-width="2"/>
+  <path d="M197 117c-7-14 0-23 13-22 3 12-1 20-13 22Z" fill="#A4415C"/>
+  <path d="M198 117c-1-9 5-16 12-17 8 10 3 20-9 20" fill="#C9B5D8"/>
+  <path d="m195 124 12-17" stroke="#786487" stroke-width="2" stroke-linecap="round"/>
+  <path d="M27 76h10m-5-5v10m203-28h8m-4-4v8" stroke="#C9B5D8" stroke-width="2.5" stroke-linecap="round"/>
 </svg>
