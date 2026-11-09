@@ -62,8 +62,10 @@ const recipeCards = createRecipeCardStore(db, {
 const recipeWorkspace = createRecipeWorkspace(db, {
   cardStore: recipeCards,
   saveCatalogRecipe: saveCatalogRecipeForUser,
-  getRecipe(userId, id) {
-    assertFirstRecipeReadable(userId, { recipeId: id });
+  getRecipe(userId, id, { readOnly = false } = {}) {
+    // Active access is already sufficient; preview must not persist the
+    // incidental first-recipe unlock performed by the normal read gate.
+    if (!readOnly || !getSubscriptionAccess(userId).active) assertFirstRecipeReadable(userId, { recipeId: id });
     return getRecipe(userId, id);
   }
 });
@@ -126,14 +128,18 @@ export function clientIp(request, trustProxy = config.trustProxy) {
   if (net.isIP(forwarded)) return forwarded;
   return remote || 'unknown';
 }
-function authenticate(request) {
+function authenticate(request, { readOnly = false } = {}) {
   const header = request.headers.authorization || '';
   const scheme = config.botPlatform === 'max' ? 'mxa ' : 'tma ';
   if (!header.startsWith(scheme)) throw Object.assign(new Error(`Откройте приложение из ${config.botPlatform === 'max' ? 'MAX' : 'Telegram'}`), { status: 401 });
   const telegramUser = config.botPlatform === 'max' ? validateMaxInitData(header.slice(4), config.maxToken) : validateTelegramInitData(header.slice(4), config.telegramToken);
   request.telegramUser = telegramUser;
-  const user = resolvePrivateTelegramUser(telegramUser);
-  if (!user.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
+  let user;
+  if (readOnly) {
+    const owner = db.prepare('SELECT * FROM users WHERE telegram_id=?').get(String(telegramUser.id));
+    user = owner && (db.prepare('SELECT u.* FROM private_test_profiles p JOIN users u ON u.id=p.test_user_id WHERE p.owner_user_id=?').get(owner.id) || owner);
+  } else user = resolvePrivateTelegramUser(telegramUser);
+  if (!user?.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
   rateLimit(`user:${user.id}`);
   return user;
 }
@@ -154,8 +160,23 @@ function detectedImageMime(buffer) {
 }
 
 async function api(request, response, url) {
-  const user = authenticate(request);
+  const previewGroceries = url.pathname === '/api/workspace/groceries-preview';
+  const user = authenticate(request, { readOnly: previewGroceries });
   identifyProductUser(user.id);
+  if (previewGroceries) {
+    if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
+    try {
+      // Every source has passed ownership and the recipe read gate in the
+      // store. This is a shopping DTO, not a recipe/engagement receipt.
+      return json(response, 200, recipeWorkspace.groceriesPreview(user.id, await bodyJson(request, 16000)));
+    } catch (error) {
+      if ([400, 402, 404, 409, 413, 422].includes(error.status)) return json(response, error.status, {
+        error: error.message, ...(/^[A-Z_]{1,50}$/.test(error.code || '') ? { code: error.code } : {}),
+        ...(error.offerPath ? { offerPath: error.offerPath } : {})
+      });
+      throw error;
+    }
+  }
   response.recipeGateUserId=user.id;
   if (request.method === 'POST' && url.pathname === '/api/analytics') {
     return json(response, 200, acceptProductEvents(user.id, await bodyJson(request, 16000)));
@@ -166,7 +187,7 @@ async function api(request, response, url) {
   if (url.pathname === '/api/workspace') {
     if (request.method === 'GET') return json(response, 200, recipeWorkspace.read(user.id));
     if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
-    const input = await bodyJson(request, 1_400_000);
+    const input = await bodyJson(request, 1_800_000);
     try {
       const started = Date.now();
       const result = recipeWorkspace.mutate(user.id, input);

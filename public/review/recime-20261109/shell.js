@@ -225,14 +225,85 @@
     const dialog=formDialog({title:item?'Изменить продукт':'Добавить продукт',action:item?'groceries.updateManual':'groceries.addManual',body:'<label class="r-field-label" for="ws-item-name">Продукт</label><input id="ws-item-name" name="name" required maxlength="120" value="'+esc(item?.name||'')+'" placeholder="Например, молоко"><div class="r-field-pair"><div><label class="r-field-label" for="ws-item-quantity">Количество</label><input id="ws-item-quantity" name="quantity" type="number" min="0.01" max="100000" step="any" value="'+(item?.quantity??'')+'" placeholder="Не обязательно"></div><div><label class="r-field-label" for="ws-item-unit">Единица</label><input id="ws-item-unit" name="unit" maxlength="30" value="'+esc(item?.unit||'')+'" placeholder="л, г, шт."></div></div><label class="r-field-label" for="ws-item-note">Количество словами, если нет числа</label><input id="ws-item-note" name="amountText" maxlength="100" value="'+esc(item?.amountText||'')+'" placeholder="Например, одна упаковка" '+(item?.quantity!=null?'disabled data-ws-fixed="true"':'')+'>',read:form=>{const numeric=form.querySelector('[name=quantity]').value;return {...(item?{itemId:item.id}:{}),name:form.querySelector('[name=name]').value.trim(),quantity:numeric?Number(numeric):null,unit:form.querySelector('[name=unit]').value.trim(),amountText:numeric?'':form.querySelector('[name=amountText]').value.trim()};}});
     dialog.querySelector('[name=quantity]').oninput=event=>{const text=dialog.querySelector('[name=amountText]');text.disabled=Boolean(event.target.value);text.dataset.wsFixed=text.disabled?'true':'false';};
   }
-  function groceriesFromRecipe(selected=null){const recipes=readyRecipes();if(!recipes.length)return catalogPicker('groceries');const recipe=recipes.find(recipe=>recipe.id===selected)||recipes[0];const dialog=formDialog({title:'Продукты для рецепта',action:'groceries.fromRecipe',submit:'Добавить продукты',body:`<label class="r-field-label" for="ws-shopping-recipe">Рецепт</label><select id="ws-shopping-recipe" name="recipeId">${recipeOptions(recipe.id)}</select>${servingInput(recipe)}<p class="r-field-hint">Повторное добавление обновит продукты этого рецепта, не создавая второй экземпляр.</p>`,read:form=>({recipeId:form.querySelector('[name=recipeId]').value,servings:readServings(form)})});bindRecipeServings(dialog);}
-  function groceriesFromPlan(){const entries=plannedEntries().filter(entry=>entry.kind!=='note');if(!entries.length){choiceDialog('Сначала выбери блюдо',[{label:'Добавить продукты из каталога',run:()=>catalogPicker('groceries')},{label:'Добавить блюдо в меню',run:()=>{setRoute({view:'meal-plan'});planner();choosePlanRecipe();}}]);return;}formDialog({title:'Продукты из меню',action:'groceries.fromPlan',submit:'Добавить продукты',body:`<p class="r-field-hint">Выбери блюда выбранной недели. Ручные позиции в покупках сохранятся.</p><div class="r-recipe-checklist">${entries.map(entry=>`<label class="r-check-row"><input type="checkbox" name="entryIds" value="${esc(entry.id)}" ${entry.recipeAvailable?'checked':'disabled data-ws-fixed="true"'}><span>${esc(entry.date)} · ${esc(meals[entry.meal]||'Без типа')}<strong>${esc(entry.recipe?.title||'Рецепт недоступен')}</strong></span></label>`).join('')}</div>`,read:form=>{const entryIds=[...form.querySelectorAll('[name=entryIds]:checked')].map(input=>input.value);if(!entryIds.length)throw new Error('Выбери хотя бы одно доступное блюдо.');return {entryIds};}});}
+  function showGroceryResult(){ui.navigation=null;setRoute({view:'groceries'});groceries();resetPageScroll();}
+  function groceryInteraction(kind){const flow={kind,id:crypto.randomUUID(),started:Date.now(),pending:true};groceryInteractionEvent(flow,'started');return flow;}
+  function groceryInteractionEvent(flow,outcome,element=null){
+    if(!flow)return;const detail={kind:flow.kind,outcome,flowId:flow.id};
+    if(outcome!=='started')flow.pending=false;
+    if(element)RecipeAnalytics?.observe(element,'workspace_interaction','other',{...detail,_started:flow.started});
+    else RecipeAnalytics?.event('workspace_interaction','other',{...detail,durationMs:Math.min(86400000,Math.max(0,Date.now()-flow.started))});
+  }
+  function groceryEditor({entries,recipeId=null,servings,skipChoose=false}){
+    ui.dialog?.close();const action=recipeId?'groceries.fromRecipe':'groceries.fromPlan',cardReturn=ui.cardReturn;
+    let flow=flowFor(action),previewVersion=null,previewVisit=null,controller=null,closed=false;
+    const dialog=GroceriesEditor.open({entries,skipChoose,
+      loadIngredients:async entryIds=>{
+        if(previewVisit?.pending)groceryInteractionEvent(previewVisit,'cancelled');
+        controller?.abort();controller=new AbortController();const current=controller;
+        const timer=setTimeout(()=>current.abort(),15000),visit=groceryInteraction('groceries_preview');previewVisit=visit;
+        try{
+          const response=await fetch('/api/workspace/groceries-preview',{method:'POST',headers:{authorization:window.RecipePlatform?.authHeader()||`tma ${tg?.initData||''}`,'content-type':'application/json'},body:JSON.stringify(recipeId?{recipeId,...(servings!==undefined?{servings}:{})}:{entryIds}),signal:current.signal,cache:'no-store'});
+          const value=await response.json().catch(()=>({}));
+          if(!response.ok)throw Object.assign(new Error(value.error||'Не удалось загрузить ингредиенты.'),{status:response.status,code:value.code});
+          if(!Number.isSafeInteger(value.version)||!Array.isArray(value.entries))throw new Error('Не удалось прочитать ингредиенты. Повтори загрузку.');
+          if(current===controller&&!closed)previewVersion=value.version;
+          return value;
+        }catch(error){if(!closed&&current===controller){groceryInteractionEvent(visit,'error');RecipeAnalytics?.event('client_error','other',{flowId:visit.id,code:error.status===401?'auth':error.status?'http':error.name==='AbortError'?'timeout':'network'});}throw error;}
+        finally{clearTimeout(timer);}
+      },
+      onIngredientsVisible:element=>{if(element&&previewVisit?.pending&&!closed)groceryInteractionEvent(previewVisit,'visible',element);},
+      onSave:async selection=>{
+        try{
+          if(flow.failed)flow=flowFor(action);
+          const chosen=selection.selections[0],fields=recipeId?{recipeId,servings:chosen.servings,ingredientKeys:chosen.ingredientKeys,recipeRevision:chosen.recipeRevision}:selection;
+          if(!flow.payload)flow.payload={operationId:flow.id,expectedVersion:previewVersion,action,...fields};
+          flow.inlineConfirmation=Boolean(cardReturn);flow.groceryCompletion=true;
+          await mutate(flow,null);
+          if(cardReturn)cardReturn.savedFlow=flow;else showGroceryResult();
+        }catch(error){if(error.code==='WORKSPACE_LIMIT')error.message='Список слишком большой. Выбери меньше блюд или убери ненужные рецепты из покупок.';error.locked=Boolean(flow.conflict);error.uncertain=ui.uncertain?.id===flow.id;throw error;}
+      },
+      onClose:()=>{closed=true;controller?.abort();if(previewVisit?.pending)groceryInteractionEvent(previewVisit,'cancelled');if(!flow.done&&ui.uncertain?.id!==flow.id)actionEvent(flow,'cancelled');if(ui.dialog===dialog)ui.dialog=null;observeWorkspace();}
+    });ui.dialog=dialog;return dialog;
+  }
+  function groceriesFromRecipe(selected=null,options={}){
+    const recipes=readyRecipes();if(!recipes.length)return catalogPicker('groceries');
+    if(!selected)return choiceDialog('Выбери рецепт',recipes.map(recipe=>({label:recipe.title,run:()=>groceriesFromRecipe(recipe.id)})));
+    const recipe=recipes.find(recipe=>recipe.id===selected);if(!recipe){toast('Рецепт недоступен. Обнови коллекцию.');return;}
+    return groceryEditor({entries:[{id:null,recipeId:recipe.id,recipe,recipeAvailable:true}],recipeId:recipe.id,servings:options.servings,skipChoose:true});
+  }
+  function groceriesFromPlan(selectedIds=null){
+    const entries=(selectedIds?ui.workspace.plan.filter(entry=>selectedIds.includes(entry.id)):plannedEntries()).filter(entry=>entry.kind!=='note');
+    if(!entries.length){choiceDialog('Сначала выбери блюдо',[{label:'Добавить блюдо в меню',run:()=>{setRoute({view:'meal-plan'});planner();choosePlanRecipe();}},{label:'Добавить продукты из каталога',run:()=>catalogPicker('groceries')}]);return;}
+    return groceryEditor({entries,skipChoose:Boolean(selectedIds)});
+  }
   function shoppingChoices(){choiceDialog('Добавить продукты',[{label:'Ввести вручную',run:()=>manualGrocery()},{label:'Из сохранённого рецепта',run:()=>groceriesFromRecipe()},{label:'Из каталога',run:()=>catalogPicker('groceries')},{label:'Из меню на эту неделю',run:()=>groceriesFromPlan()}]);}
   function recipeChoices(recipe){choiceDialog(recipe.title,[{label:'Открыть рецепт',run:()=>openRecipe(recipe.id,true)},{label:'Подборки рецепта',disabled:recipe.status!=='ready'||recipe.previewOnly===true,run:()=>recipeMemberships(recipe)},{label:'Добавить в меню',disabled:recipe.status!=='ready'||recipe.previewOnly===true,run:()=>planForm(null,recipe.id)},{label:'Добавить продукты в покупки',disabled:recipe.status!=='ready'||recipe.previewOnly===true,run:()=>groceriesFromRecipe(recipe.id)}]);}
-  function sourceChoices(){
+  function removeGrocerySource(source){return formDialog({title:'Убрать продукты блюда?',action:'groceries.removeSource',submit:'Убрать продукты',body:`<p>${esc(source.title)}</p><p class="r-field-hint">Продукты других блюд и ручные записи сохранятся.</p>`,read:()=>({sourceId:source.id})});}
+  function sourceChoices(sourceId=null){
     const sources=ui.workspace?.groceries.sources||[];
     if(!sources.length){note('Источники продуктов','Сейчас в списке только продукты, добавленные вручную.');return;}
-    choiceDialog('Источники продуктов',sources.map(source=>({label:source.title+(source.stale?' — рецепт изменён':'')+(source.excludedCount?' · есть исключённые продукты':''),run:()=>choiceDialog(source.title,[...(source.excludedCount&&source.recipeAvailable?[{label:'Вернуть убранные продукты',run:()=>formDialog({title:'Вернуть убранные продукты?',action:source.kind==='plan'?'groceries.fromPlan':'groceries.fromRecipe',submit:'Вернуть продукты',body:'<p>Ингредиенты этого блюда снова появятся в покупках с текущими количествами. Ручные позиции и другие блюда сохранятся.</p>',read:()=>source.kind==='plan'?{entryIds:[source.planEntryId],restoreExcluded:true}:{recipeId:source.recipeId,servings:source.servings,restoreExcluded:true}})}]:[]),{label:source.stale?'Обновить изменившийся рецепт':'Обновить продукты',disabled:!source.recipeAvailable,run:()=>formDialog({title:'Обновить продукты?',action:source.kind==='plan'?'groceries.fromPlan':'groceries.fromRecipe',submit:'Обновить',body:'<p>Количество продуктов будет пересчитано. Изменившиеся позиции потребуется отметить купленными заново. Ручные строки сохранятся.</p>',read:()=>source.kind==='plan'?{entryIds:[source.planEntryId]}:{recipeId:source.recipeId,servings:source.servings}})},{label:'Убрать продукты этого блюда',run:()=>formDialog({title:'Убрать источник?',action:'groceries.removeSource',submit:'Убрать продукты',body:`<p>${esc(source.title)}</p><p class="r-field-hint">Продукты других блюд и ручные строки сохранятся.</p>`,read:()=>({sourceId:source.id})})}])})));
+    if(!sourceId)return choiceDialog('Рецепты в покупках',sources.map(source=>({label:source.title+(source.stale?' — рецепт изменён':'')+(source.excludedCount?' · есть исключённые продукты':''),run:()=>sourceChoices(source.id)})));
+    const source=sources.find(item=>item.id===sourceId);if(!source)return;
+    return choiceDialog(source.title,[
+      {label:source.stale?'Проверить обновлённые ингредиенты':'Изменить ингредиенты и порции',disabled:!source.recipeAvailable,run:()=>source.kind==='plan'?groceriesFromPlan([source.planEntryId]):groceriesFromRecipe(source.recipeId,{servings:source.servings})},
+      {label:'Открыть рецепт',disabled:!source.recipeAvailable,run:()=>openRecipe(source.recipeId,true)},
+      {label:'Убрать продукты этого блюда',run:()=>removeGrocerySource(source)}
+    ]);
+  }
+  function clearBought(){return formDialog({title:'Убрать купленное?',action:'groceries.clearChecked',submit:'Убрать купленное',body:'<p>Отмеченные продукты исчезнут из списка покупок. Остальные позиции сохранятся.</p>',read:()=>({})});}
+  function shoppingMore(){choiceDialog('Список покупок',[
+    {label:'Добавить продукты',run:shoppingChoices},
+    {label:'Рецепты в покупках',disabled:!ui.workspace?.groceries.sources.length,run:()=>sourceChoices()},
+    {label:'Убрать купленное',disabled:!ui.workspace?.groceries.items.some(item=>item.checked),run:clearBought}
+  ]);}
+  function shoppingSort(){choiceDialog('Порядок продуктов',[['aisle','По категориям'],['name','По названию'],['recipe','По рецептам']].map(([mode,label])=>({label,run:()=>{ui.grocerySort=mode;groceries();}})));}
+  function groceryShareText(){const items=ui.workspace?.groceries.items||[],sources=ui.workspace?.groceries.sources||[];return 'Список покупок\n\n'+GroceriesReference.groupItems(items,sources,ui.grocerySort||'aisle').map(group=>(group.title?group.title+'\n':'')+group.items.map(item=>`${item.checked?'[x]':'[ ]'} ${item.name}${item.comment?' ('+item.comment+')':''} — ${GroceriesReference.formatAmount(item)}`).join('\n')).join('\n\n');}
+  async function shareGroceries(){
+    if(!ui.workspace?.groceries.items.length)return;
+    const text=groceryShareText(),flow=groceryInteraction('groceries_share');
+    if(navigator.share){try{await navigator.share({title:'Список покупок',text});groceryInteractionEvent(flow,'handed_off');return;}catch(error){if(error.name==='AbortError'){groceryInteractionEvent(flow,'cancelled');return;}}}
+    try{await navigator.clipboard.writeText(text);const message='Список скопирован';toast(message);const until=Date.now()+3500;const observe=()=>{if(workspaceToastVisible(message))groceryInteractionEvent(flow,'copied');else if(Date.now()<until&&toastEl.textContent===message)setTimeout(()=>requestAnimationFrame(observe),50);};requestAnimationFrame(observe);}
+    catch{try{const dialog=choiceDialog('Поделиться списком',[]),area=document.createElement('textarea');area.className='field';area.readOnly=true;area.rows=12;area.value=text;area.setAttribute('aria-label','Список для копирования');dialog.querySelector('.r-choice-list').append(area);const hint=document.createElement('p');hint.className='r-field-hint';hint.textContent='Выдели и скопируй список, затем отправь его в нужный чат.';area.after(hint);area.focus();area.select();groceryInteractionEvent(flow,'manual_copy_shown',area);}catch(error){groceryInteractionEvent(flow,'error');throw error;}}
   }
   function itemChoices(item){choiceDialog(item.name,[...(item.manual?[{label:'Изменить продукт',run:()=>manualGrocery(item)}]:[]),{label:'Убрать из списка',run:()=>formDialog({title:'Убрать продукт?',action:'groceries.removeItem',submit:'Убрать',body:`<p>${esc(item.name)}</p>${item.manual?'':'<p class="r-field-hint">Продукт будет исключён из текущих источников списка.</p>'}`,read:()=>({itemId:item.id})})}]);}
   const paths={
@@ -294,11 +365,8 @@
     setMarkup(content.replace('<p class="mp-sr-only"',workspaceNotice()+'<p class="mp-sr-only"'));ui.disposePlanner=MealPlanReference.mount(root);workspaceStarted();
   }
   function groceries(){
-    ui.section='groceries';const items=ui.workspace?.groceries.items||[],checked=items.filter(item=>item.checked).length;
-    const amount=item=>item.quantity!==null&&item.quantity!==undefined?[Number(item.quantity).toLocaleString('ru-RU',{maximumFractionDigits:3}),item.unit].filter(Boolean).join(' '):[item.amountText||'Количество не указано',item.unit].filter(Boolean).join(' ');
-    const toolbar=(items.length||ui.workspace?.groceries.sources.length)?'<div class="r-shopping-tools"><button type="button" data-review="shopping-sources">Источники продуктов</button>'+(checked?'<button type="button" data-review="clear-checked">Убрать купленное</button>':'')+'</div>':'';
-    const content=!ui.workspace?'<div class="r-shop-empty"><p class="r-field-hint">Загружаем список…</p></div>':items.length?'<div class="r-shopping-list">'+items.map(item=>'<article class="r-shopping-item '+(item.checked?'is-checked':'')+'" data-ws-item="'+esc(item.id)+'"><button type="button" class="r-item-check" role="checkbox" aria-checked="'+Boolean(item.checked)+'" aria-label="'+(item.checked?'Снять отметку: ':'Куплено: ')+esc(item.name)+'" data-review="check-item" data-item-id="'+esc(item.id)+'">'+(item.checked?ico('check'):'')+'</button><div><strong>'+esc(item.name)+'</strong>'+(item.comment?'<span class="r-item-comment">'+esc(item.comment)+'</span>':'')+'<small>'+esc(amount(item))+'</small><span class="r-item-source">'+(item.manual?'Добавлено вручную':esc([...new Set((item.provenance||[]).map(source=>source.title).filter(Boolean))].join(', ')||'Из рецепта'))+'</span></div><button type="button" class="r-plain" data-review="item-actions" data-item-id="'+esc(item.id)+'" aria-label="Изменить '+esc(item.name)+'">'+ico('settings')+'</button></article>').join('')+'</div>':'<div class="r-shop-empty"><img class="r-shop-art" src="'+base+'groceries.svg?v=original-1" alt=""><h2 class="r-empty-title">Пока нет продуктов</h2><p class="r-empty-hint">Нажми «+», чтобы добавить продукты</p></div><img class="r-arrow" src="'+base+'arrow.svg" alt="">';
-    setMarkup(title('Список покупок',null,'r-grocery-header')+'<p class="r-count">'+(ui.workspace?num(items.length,['продукт','продукта','продуктов']):'Загружаем…')+'</p><main class="r-panel r-groceries">'+workspaceNotice()+toolbar+content+'</main><button class="r-fab" data-review="shopping-add" aria-label="Добавить продукты">'+ico('plus')+'</button>');
+    ui.section='groceries';
+    setMarkup(GroceriesReference.render({items:ui.workspace?.groceries.items||[],sources:ui.workspace?.groceries.sources||[],loading:!ui.workspace,noticeHtml:workspaceNotice(),recipesCollapsed:Boolean(ui.groceryCollapsed),sortMode:ui.grocerySort||'aisle'}));
     workspaceStarted();
   }
   const chips=[['Быстрый ужин','time','30'],['Овощи','include','овощи'],['Салаты','category','salad'],['Итальянское','cuisine','italian'],['С рисом','category','rice'],['Японское','cuisine','japanese'],['Курица','category','chicken'],['Завтрак','category','breakfast']];
@@ -379,7 +447,7 @@
       toast,saveMetadata:fields=>change(fields),saveNotes:notes=>change({notes}),
       collection:async()=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>recipeMemberships(recipe));}},
       plan:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>planForm(null,recipe.id,{servings}));}},
-      groceries:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>{groceriesFromRecipe(recipe.id);if(servings)ui.dialog.querySelector('#ws-servings').value=servings;});}},
+      groceries:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>groceriesFromRecipe(recipe.id,{servings}));}},
       edit:async()=>{await own();closeOverlay();editRecipe(recipe);},
       tags:async()=>{await own();fieldsForm('Теги рецепта','tags',(recipe.tags||[]).join(', '));},
       more:async()=>{await own();await loadCard();active();const modal=cardSheet('Действия с рецептом',`<div class="form-stack"><button class="secondary" data-more="edit">Изменить рецепт</button><button class="secondary" data-more="tags">Изменить теги</button><button class="secondary" data-more="photo" ${cardDetails.hasPhoto?'':'disabled'}>Вернуть исходное фото</button><p data-card-error role="alert" hidden></p></div>`);
@@ -455,17 +523,23 @@
     case 'plan-tip-dismiss':ui.planTipDismissed=true;try{localStorage.setItem('recipe-menu-swipe-tip:'+state.me.id,'hidden');}catch{}planner();break;
     case 'plan-type':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)planForm(entry,null,{mode:entry.kind==='note'||!entry.recipeAvailable?'type':undefined});}break;
     case 'plan-cooked':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry&&entry.kind!=='note')await mutate(flowFor('plan.update'),{entryId:entry.id,cooked:!entry.cooked});}break;
-    case 'plan-grocery':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry?.recipeAvailable&&entry.kind!=='note')await mutate(flowFor('groceries.fromPlan'),{entryIds:[entry.id]});}break;
+    case 'plan-grocery':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry?.recipeAvailable&&entry.kind!=='note')groceriesFromPlan([entry.id]);}break;
     case 'plan-open':{const entry=ui.workspace?.plan.find(item=>item.id===el.dataset.entryId);if(entry?.recipeAvailable)await openRecipe(entry.recipeId,true);break;}
     case 'edit-plan':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)planForm(entry);}break;
     case 'remove-plan':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)formDialog({title:'Убрать запись из меню?',action:'plan.delete',submit:'Убрать запись',body:`<p>${esc(entry.kind==='note'?entry.note:entry.recipe?.title||'Недоступный рецепт')}</p><p class="r-field-hint">${esc(entry.date)} · ${esc(meals[entry.meal]||'Без типа')}. Связанные продукты в покупках будут обновлены.</p>`,read:()=>({entryId:entry.id})});}break;
     case 'shopping-add':if(await canEdit())shoppingChoices();break;
     case 'shopping-sources':if(await canEdit())sourceChoices();break;
+    case 'shopping-source':if(await canEdit())sourceChoices(el.dataset.sourceId);break;
+    case 'shopping-remove-source':if(await canEdit()){const source=ui.workspace.groceries.sources.find(item=>item.id===el.dataset.sourceId);if(source)removeGrocerySource(source);}break;
+    case 'shopping-collapse':ui.groceryCollapsed=!ui.groceryCollapsed;groceries();break;
+    case 'shopping-sort':shoppingSort();break;
+    case 'shopping-share':await shareGroceries();break;
+    case 'shopping-more':if(await canEdit())shoppingMore();break;
     case 'item-actions':if(await canEdit()){const item=ui.workspace.groceries.items.find(row=>row.id===el.dataset.itemId);if(item)itemChoices(item);}break;
     case 'check-item':if(await canEdit()){const item=ui.workspace.groceries.items.find(row=>row.id===el.dataset.itemId);if(item)await mutate(flowFor('groceries.setChecked'),{itemId:item.id,checked:!item.checked});}break;
-    case 'clear-checked':if(await canEdit())formDialog({title:'Убрать купленное?',action:'groceries.clearChecked',submit:'Убрать купленное',body:'<p>Отмеченные продукты исчезнут из списка покупок. Остальные позиции сохранятся.</p>',read:()=>({})});break;
+    case 'clear-checked':if(await canEdit())clearBought();break;
     case 'reload-workspace':await ensureWorkspace(true);break;
-    case 'retry-workspace-operation':if(ui.uncertain&&!ui.saving){const flow=ui.uncertain;await mutate(flow,null);if(flow.action==='collections.saveCatalog'){await refresh();flow.inlineConfirmation=false;redrawWorkspace();actionEvent(flow,'success');}}break;
+    case 'retry-workspace-operation':if(ui.uncertain&&!ui.saving){const flow=ui.uncertain;await mutate(flow,null);if(flow.action==='collections.saveCatalog'){await refresh();flow.inlineConfirmation=false;redrawWorkspace();actionEvent(flow,'success');}else if(flow.groceryCompletion){closeOverlay();ui.cardReturn=null;flow.inlineConfirmation=false;showGroceryResult();actionEvent(flow,'success');}}break;
     case 'chip':ui.catalogFilter=ui.catalogFilter===el.dataset.chip?null:el.dataset.chip;ui.catalogQuery='';ui.catalog=null;ui.catalogBusy=true;discover();void loadCatalog(true);break;
     case 'retry-catalog':ui.catalogError='';ui.catalog=null;void loadCatalog(true);break;
     case 'catalog-recipe':await showCatalog(el.dataset.recipeId);break;

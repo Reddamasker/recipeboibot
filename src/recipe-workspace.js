@@ -22,7 +22,8 @@ const fields = {
   'plan.delete': ['entryId'], 'plan.apply': ['entries'],
   'groceries.addManual': ['name', 'quantity', 'unit', 'amountText'],
   'groceries.updateManual': ['itemId', 'name', 'quantity', 'unit', 'amountText'],
-  'groceries.fromRecipe': ['recipeId', 'servings', 'restoreExcluded'], 'groceries.fromPlan': ['entryIds', 'restoreExcluded'],
+  'groceries.fromRecipe': ['recipeId', 'servings', 'restoreExcluded', 'ingredientKeys', 'recipeRevision'],
+  'groceries.fromPlan': ['entryIds', 'restoreExcluded', 'selections'],
   'groceries.setChecked': ['itemId', 'checked'], 'groceries.removeItem': ['itemId'],
   'groceries.removeSource': ['sourceId'], 'groceries.clearChecked': []
 };
@@ -69,6 +70,11 @@ function portions(value) {
 }
 const empty = () => ({ collections: [], plan: [], groceries: { manual: [], sources: [], checks: {} } });
 const rounded = number => Math.round((number + Number.EPSILON) * 1e6) / 1e6;
+const baseServings = recipe => typeof recipe.servings === 'number' && Number.isFinite(recipe.servings) && recipe.servings > 0 ? recipe.servings : null;
+// Source portions participate in the revision; the user's shopping portions do
+// not. A preview can be scaled without changing the source or trusting the UI.
+const recipeRevision = recipe => hash(canonical([1, recipe.id, recipe.title, recipe.description ?? null,
+  baseServings(recipe), recipe.ingredients, recipe.steps ?? []]));
 function numericIngredient(value) {
   if (typeof value === 'number') return Number.isFinite(value) && value >= 0 && value <= 1_000_000 ? value : null;
   if (typeof value !== 'string') return null;
@@ -92,7 +98,7 @@ function unit(value) {
   return { key: 'unit:' + key, unit: String(value || '').trim(), factor: 1 };
 }
 function recipeIngredients(recipe, servings) {
-  const base = typeof recipe.servings === 'number' && Number.isFinite(recipe.servings) && recipe.servings > 0 ? recipe.servings : null;
+  const base = baseServings(recipe);
   if (servings != null && base == null) throw fail('В исходном рецепте не указано число порций. Добавьте ингредиенты без пересчёта.', 422, 'SERVINGS_UNKNOWN');
   const ratio = servings == null || base == null ? 1 : servings / base;
   if (!Array.isArray(recipe.ingredients) || !recipe.ingredients.length) throw fail('В рецепте нет списка ингредиентов.', 422, 'INGREDIENTS_MISSING');
@@ -129,14 +135,14 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     const row = db.prepare('SELECT * FROM recipe_workspaces WHERE user_id=?').get(userId);
     return row ? { version: row.version, state: JSON.parse(row.data_json), updatedAt: row.updated_at } : { version: 0, state: empty(), updatedAt: null };
   }
-  function personalRecipe(userId, recipeId) {
+  function personalRecipe(userId, recipeId, options = {}) {
     identifier(recipeId, 'рецепт');
     const row = db.prepare("SELECT * FROM recipes WHERE id=? AND user_id=? AND status='ready'").get(recipeId, userId);
     if (!row) throw fail('Рецепт не найден в вашей коллекции.', 404, 'RECIPE_NOT_FOUND');
-    const supplied = getRecipe?.(userId, recipeId);
+    const supplied = getRecipe?.(userId, recipeId, options);
     if (supplied && typeof supplied.then === 'function') throw new Error('Workspace getRecipe must be synchronous');
     if (getRecipe && !supplied) throw fail('Рецепт недоступен.', 404, 'RECIPE_NOT_FOUND');
-    return supplied || { ...row, ingredients: JSON.parse(row.ingredients_json), updatedAt: row.updated_at, thumbnailUrl: row.thumbnail_url || null };
+    return supplied || { ...row, ingredients: JSON.parse(row.ingredients_json), steps: JSON.parse(row.steps_json || '[]'), updatedAt: row.updated_at, thumbnailUrl: row.thumbnail_url || null };
   }
   function summary(userId, recipeId) {
     const row = db.prepare('SELECT * FROM recipes WHERE id=? AND user_id=?').get(recipeId, userId);
@@ -180,11 +186,50 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
       groceries: { items: shoppingItems(state).map(({ signature, ...item }) => item),
         sources: state.groceries.sources.map(({ ingredients, excluded, ...source }) => {
           const recipe = recipeSummary(source.recipeId);
-          return { ...source, excludedCount: excluded.length, recipeAvailable: Boolean(recipe), stale: Boolean(recipe && recipe.updatedAt !== source.recipeUpdatedAt) };
+          return { ...source, thumbnailUrl: recipe?.thumbnailUrl || source.thumbnailUrl || null,
+            excludedCount: excluded.length, recipeAvailable: Boolean(recipe), stale: Boolean(recipe && recipe.updatedAt !== source.recipeUpdatedAt) };
         }) }
     };
   }
   function read(userId) { requireUser(userId); return snapshot(userId, load(userId)); }
+  function strictEntryIds(value) {
+    if (!Array.isArray(value) || !value.length || value.length > 60) throw fail('Выберите от 1 до 60 записей меню.');
+    value.forEach(id => identifier(id, 'запись меню'));
+    if (new Set(value).size !== value.length) throw fail('Запись меню выбрана несколько раз.');
+    return value;
+  }
+  function previewEntry(userId, state, recipeId, entry, input) {
+    const recipe = personalRecipe(userId, recipeId, { readOnly: true }), sourceId = (entry ? 'plan:' + entry.id : 'recipe:' + recipeId);
+    const existing = state.groceries.sources.find(source => source.id === sourceId && source.recipeId === recipeId);
+    const base = baseServings(recipe);
+    // A null shopping target means unchanged source amounts. Once the source
+    // has a known base, those same amounts can safely be shown as base portions.
+    const requested = own(input, 'servings') ? input.servings : base == null ? null : existing ? existing.servings : entry ? entry.servings : base;
+    const target = portions(requested ?? base);
+    const ingredients = recipeIngredients(recipe, target);
+    const included = existing && new Set(existing.ingredients.filter(item => !existing.excluded.includes(item.exclusionKey)).map(item => item.exclusionKey));
+    return { entryId: entry?.id || null, recipeId, title: recipe.title, thumbnailUrl: recipe.thumbnailUrl || null,
+      date: entry?.date || null, meal: entry?.meal || null, servings: target, baseServings: base, recipeRevision: recipeRevision(recipe),
+      ingredients: ingredients.map(item => ({ key: item.exclusionKey, name: item.name, quantity: item.quantity, unit: item.unit, amountText: item.amountText, comment: item.comment })),
+      selectedIngredientKeys: ingredients.filter(item => !included || included.has(item.exclusionKey)).map(item => item.exclusionKey) };
+  }
+  function groceriesPreview(userId, input) {
+    requireUser(userId);
+    if (!plain(input) || Buffer.byteLength(JSON.stringify(input)) > 16000) throw fail('Проверьте параметры списка продуктов.');
+    const fromPlan = own(input, 'entryIds'), allowed = fromPlan ? ['entryIds'] : ['recipeId', 'servings'];
+    if (Object.keys(input).some(key => !allowed.includes(key)) || !fromPlan && !own(input, 'recipeId')) throw fail('Выберите записи меню или один рецепт.');
+    db.exec('BEGIN');
+    try {
+      const { version, state } = load(userId);
+      let entries;
+      if (fromPlan) {
+        const selected = strictEntryIds(input.entryIds).map(id => found(state.plan, id, 'Запись меню')).filter(entry => entry.kind !== 'note');
+        if (!selected.length) throw fail('В заметках нет ингредиентов. Выберите хотя бы один рецепт меню.', 422, 'PLAN_RECIPES_REQUIRED');
+        entries = selected.map(entry => previewEntry(userId, state, entry.recipeId, entry, {}));
+      } else entries = [previewEntry(userId, state, input.recipeId, null, input)];
+      db.exec('COMMIT'); return { version, entries };
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
   function memberRecipes(userId, value) {
     if (!Array.isArray(value) || value.length > limit.members) throw fail('Проверьте список рецептов подборки.');
     const ids = [...new Set(value.map(id => identifier(id, 'рецепт')))];
@@ -226,12 +271,21 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     if (!plain(input) || Object.keys(input).some(key => !planFields.includes(key))) throw fail('Проверьте запись меню.');
     return { id: newId(), ...planValues(userId, input), createdAt: timestamp, updatedAt: timestamp };
   }
-  function putSource(state, userId, recipeId, servings, kind, entry, timestamp, restoreExcluded = false) {
-    const recipe = personalRecipe(userId, recipeId), target = portions(servings ?? recipe.servings), id = kind + ':' + (entry?.id || recipeId);
+  function putSource(state, userId, recipeId, servings, kind, entry, timestamp, restoreExcluded = false, selection = null) {
+    const recipe = personalRecipe(userId, recipeId), target = portions(selection ? servings === undefined ? baseServings(recipe) : servings : servings ?? recipe.servings), id = kind + ':' + (entry?.id || recipeId);
+    if (selection && (typeof selection.recipeRevision !== 'string' || !/^[0-9a-f]{64}$/.test(selection.recipeRevision))) throw fail('Нужна версия рецепта из предварительного списка.');
+    if (selection && selection.recipeRevision !== recipeRevision(recipe)) throw fail('Рецепт изменился. Обновите список ингредиентов и подтвердите выбор снова.', 409, 'RECIPE_CHANGED');
     const ingredients = recipeIngredients(recipe, target), existing = state.groceries.sources.find(source => source.id === id);
-    const source = { id, kind, recipeId, planEntryId: entry?.id || null, title: recipe.title,
+    let excluded = !restoreExcluded && existing?.recipeId === recipeId ? existing.excluded : [];
+    if (selection) {
+      const keys = selection.ingredientKeys, available = new Set(ingredients.map(item => item.exclusionKey));
+      if (!Array.isArray(keys) || !keys.length || keys.length > limit.ingredients || new Set(keys).size !== keys.length
+        || keys.some(key => typeof key !== 'string' || !available.has(key))) throw fail('Выберите хотя бы один ингредиент из предварительного списка.', 400, 'INVALID_INGREDIENT_SELECTION');
+      const picked = new Set(keys); excluded = ingredients.filter(item => !picked.has(item.exclusionKey)).map(item => item.exclusionKey);
+    }
+    const source = { id, kind, recipeId, planEntryId: entry?.id || null, title: recipe.title, thumbnailUrl: recipe.thumbnailUrl || null,
       servings: target, baseServings: recipe.servings || null, recipeUpdatedAt: recipe.updatedAt || recipe.updated_at || null,
-      ingredients, excluded: !restoreExcluded && existing?.recipeId === recipeId ? existing.excluded : [], updatedAt: timestamp };
+      ingredients, excluded, updatedAt: timestamp };
     if (existing) Object.assign(existing, source); else state.groceries.sources.push(source);
     return source;
   }
@@ -318,8 +372,29 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
       if (Object.keys(next).some(key => next[key] !== row[key])) Object.assign(row, next, { updatedAt: timestamp });
       return 1;
     }
-    if (action === 'groceries.fromRecipe') { putSource(state, userId, input.recipeId, input.servings, 'recipe', null, timestamp, input.restoreExcluded); return 1; }
+    if (action === 'groceries.fromRecipe') {
+      const selection = own(input, 'ingredientKeys') || own(input, 'recipeRevision');
+      if (selection && (!own(input, 'ingredientKeys') || !own(input, 'recipeRevision') || own(input, 'restoreExcluded'))) throw fail('Передайте выбор ингредиентов и версию рецепта без параметра восстановления.');
+      putSource(state, userId, input.recipeId, input.servings, 'recipe', null, timestamp, input.restoreExcluded, selection ? input : null); return 1;
+    }
     if (action === 'groceries.fromPlan') {
+      if (own(input, 'selections')) {
+        const ids = strictEntryIds(input.entryIds), selections = input.selections;
+        if (own(input, 'restoreExcluded') || !Array.isArray(selections) || selections.length !== ids.length) throw fail('Передайте выбор ингредиентов для каждой записи меню без параметра восстановления.');
+        const selected = new Map();
+        for (const item of selections) {
+          if (!plain(item) || Object.keys(item).length !== 4 || !['entryId', 'servings', 'ingredientKeys', 'recipeRevision'].every(key => own(item, key))
+            || item.servings === undefined || !ids.includes(item.entryId) || selected.has(item.entryId)) throw fail('Выбор должен содержать каждую запись меню ровно один раз.');
+          selected.set(item.entryId, item);
+        }
+        for (const id of ids) {
+          const entry = found(state.plan, id, 'Запись меню');
+          if (entry.kind === 'note') throw fail('В заметках нет ингредиентов. Выберите рецепты меню.', 422, 'PLAN_RECIPES_REQUIRED');
+          const selection = selected.get(id);
+          putSource(state, userId, entry.recipeId, selection.servings, 'plan', entry, timestamp, false, selection);
+        }
+        return ids.length;
+      }
       if (input.entryIds !== undefined && (!Array.isArray(input.entryIds) || input.entryIds.length > 60)) throw fail('Выберите не более 60 записей меню.');
       const selected = input.entryIds === undefined ? state.plan : [...new Set(input.entryIds)].map(id => found(state.plan, id, 'Запись меню'));
       if (selected.length > 60) throw fail('Выберите не более 60 записей меню.');
@@ -349,7 +424,8 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     if (typeof input.operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.operationId)) throw fail('Нужен UUID действия.');
     if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0) throw fail('Нужна текущая версия данных.');
     const allowed = new Set(['action', 'operationId', 'expectedVersion', ...fields[input.action]]);
-    if (Object.keys(input).some(key => !allowed.has(key)) || Buffer.byteLength(JSON.stringify(input)) > (input.action === 'collections.setPhoto' ? 1_400_000 : 64000)) throw fail('Проверьте параметры действия.');
+    const maxBytes = input.action === 'collections.setPhoto' ? 1_400_000 : input.action === 'groceries.fromPlan' && own(input, 'selections') ? 1_800_000 : 64000;
+    if (Object.keys(input).some(key => !allowed.has(key)) || Buffer.byteLength(JSON.stringify(input)) > maxBytes) throw fail('Проверьте параметры действия.');
     const requestHash = hash(canonical(input));
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -382,5 +458,5 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
       db.exec('COMMIT'); return response;
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
-  return Object.freeze({ read, mutate });
+  return Object.freeze({ read, mutate, groceriesPreview });
 }

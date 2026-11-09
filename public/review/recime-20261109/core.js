@@ -3568,6 +3568,13 @@ window.__recipePlatform={name:'telegram',botUsername:'recipeboi_test_bot'};
   }
   function schedule(delay = 300) { clearTimeout(timer); timer = setTimeout(flush, delay); }
   function enqueue(event, step = activeStep, extra = {}) {
+    if (event === 'workspace_interaction') {
+      const kinds = {groceries_preview:['started','visible','cancelled','error'],groceries_share:['started','copied','handed_off','manual_copy_shown','cancelled','error']};
+      const duration = value=>Number.isSafeInteger(value)&&value>=0&&value<=86400000;
+      if(publicMode||step!=='other'||Object.keys(extra).some(key=>!['kind','outcome','flowId','durationMs'].includes(key))
+        ||!Object.hasOwn(kinds,extra.kind)||!kinds[extra.kind].includes(extra.outcome)||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(extra.flowId||'')
+        ||(extra.outcome==='started'?extra.durationMs!=null&&!duration(extra.durationMs):!duration(extra.durationMs)))return;
+    }
     if (!publicMode && !user && !['client_error','screen_view','telemetry_health'].includes(event)) return;
     if (queue.length >= 80) { queue.shift(); dropped++; }
     queue.push({ id:crypto.randomUUID(), event, step, version, session:visitor, ...extra, queuedAt:Date.now(), attempts:0 });

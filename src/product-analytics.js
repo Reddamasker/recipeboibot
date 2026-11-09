@@ -26,8 +26,10 @@ db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_ben
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_latency_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('photo_imports_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_since',?)").run(new Date().toISOString());
+if (config.testContour) db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_interactions_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
 export const workspaceTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_since'").get().value;
+export const workspaceInteractionsTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_interactions_since'").get()?.value || null;
 let writeFailures = 0;
 export function recordProduct(userId, event, { id = randomUUID(), visitor = null, step = 'other', flowId = null, durationMs = null, detail = {}, at = new Date().toISOString() } = {}) {
   try {
@@ -372,7 +374,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
   }
-  return { platform: config.botPlatform, trackingSince: productTrackingSince(), workspace:workspaceReport(events, workspaceTrackingSince()), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
+  return { platform: config.botPlatform, trackingSince: productTrackingSince(), workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
     imports:groupStatuses(imports),photoImports,notifications:groupStatuses(notifications), trialReminders:config.botPlatform === 'max' ? null : trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
     catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),

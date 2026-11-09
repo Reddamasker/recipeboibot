@@ -110,6 +110,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     for (const product of remote.productAnalytics.platforms) {
       product.latency ??= null;
       product.workspace ??= null;
+      if (product.workspace) product.workspace.interactions ??= null;
       // Website-origin flows already include authenticated remote receipts.
       // Keep origins separate; adding the target's confirmations doubles them.
       product.catalogJourney ??= null;

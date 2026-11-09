@@ -1,7 +1,11 @@
 // Workspace telemetry contains only closed enums, random operation IDs and time.
 // Recipe names, ingredient text and planned dates belong to operational storage.
 export const workspaceFeatures = Object.freeze(['collections', 'meal_plan', 'groceries']);
-export const workspaceClientEvents = Object.freeze(['workspace_view', 'workspace_action']);
+export const workspaceClientEvents = Object.freeze(['workspace_view', 'workspace_action', 'workspace_interaction']);
+export const workspaceInteractionOutcomes = Object.freeze({
+  groceries_preview: Object.freeze(['started', 'visible', 'cancelled', 'error']),
+  groceries_share: Object.freeze(['started', 'copied', 'handed_off', 'manual_copy_shown', 'cancelled', 'error'])
+});
 export const workspaceActions = Object.freeze({
   collections: Object.freeze(['collections.create', 'collections.rename', 'collections.delete', 'collections.setRecipes', 'collections.saveCatalog',
     'collections.updateCard', 'collections.setPhoto', 'collections.removePhoto', 'collections.askRecipe']),
@@ -17,14 +21,22 @@ const stepFor = feature => feature === 'collections' ? 'collection' : 'other';
 const invalid = () => { throw Object.assign(new Error('Неверное событие рабочего пространства'), { status: 400 }); };
 const clientFields = new Set(['id', 'event', 'step', 'flowId', 'durationMs', 'feature', 'action', 'outcome',
   'version', 'session', 'ageMs', 'attempts', 'code']);
+const interactionFields = new Set(['id', 'event', 'step', 'flowId', 'durationMs', 'kind', 'outcome', 'version', 'session', 'ageMs', 'attempts']);
 
 export function workspaceFeature(action) {
   return workspaceFeatures.find(feature => workspaceActions[feature].includes(action)) || null;
 }
 
 export function workspaceEventFields(row) {
+  if (row.event === 'workspace_interaction') {
+    if (Object.keys(row).some(key => !interactionFields.has(key)) || !Object.hasOwn(workspaceInteractionOutcomes, row.kind)
+      || !workspaceInteractionOutcomes[row.kind].includes(row.outcome) || row.step !== 'other'
+      || typeof row.flowId !== 'string' || !uuid.test(row.flowId)
+      || (row.outcome === 'started' ? row.durationMs != null && !duration(row.durationMs) : !duration(row.durationMs))) return invalid();
+    return { kind: row.kind, outcome: row.outcome };
+  }
   if (!workspaceClientEvents.includes(row.event)) {
-    if (row.feature !== undefined || row.outcome !== undefined) return invalid();
+    if (row.feature !== undefined || row.outcome !== undefined || row.kind !== undefined) return invalid();
     return {};
   }
   if (Object.keys(row).some(key => !clientFields.has(key)) || !workspaceFeatures.includes(row.feature)
@@ -56,7 +68,7 @@ function timing(values) {
 }
 
 // events are already filtered by the parent product report's account/source cohort.
-export function workspaceReport(events, trackingSince) {
+export function workspaceReport(events, trackingSince, interactionsSince = null) {
   const features = Object.fromEntries(workspaceFeatures.map(feature => [feature, {
     ...Object.fromEntries(counters.map(key => [key, 0])),
     visibleTiming: timing([]),
@@ -118,15 +130,61 @@ export function workspaceReport(events, trackingSince) {
     report.unobserved = report.serverConfirmed - report.visibleConfirmed;
     report.visibleTiming = timing(visibleDurations.get(feature));
   }
-  return { trackingSince, features };
+  return { trackingSince, features, interactions: interactionsSince ? workspaceInteractionReport(events, interactionsSince) : null };
+}
+
+export function workspaceInteractionReport(events, trackingSince) {
+  const kinds = {
+    groceries_preview: { started: 0, visible: 0, matchedVisible: 0, cancelled: 0, errors: 0, unmatchedOutcomes: 0, visibleTiming: timing([]) },
+    groceries_share: { started: 0, copied: 0, handedOff: 0, manualCopyShown: 0, cancelled: 0, errors: 0, unmatchedOutcomes: 0 }
+  }, flows = new Map(), durations = [];
+  for (const row of events) {
+    if (row.event !== 'workspace_interaction' || !row.user_id || row.created_at < trackingSince) continue;
+    let detail;
+    try {
+      detail = workspaceEventFields({ ...JSON.parse(row.detail_json), event: row.event, step: row.step, flowId: row.flow_id, durationMs: row.duration_ms });
+    } catch { continue; }
+    const key = JSON.stringify([row.user_id, detail.kind, row.flow_id]);
+    if (!flows.has(key)) flows.set(key, { kind: detail.kind });
+    const flow = flows.get(key);
+    if (!flow[detail.outcome]) flow[detail.outcome] = row;
+  }
+  const counter = { started: 'started', visible: 'visible', copied: 'copied', handed_off: 'handedOff', manual_copy_shown: 'manualCopyShown', cancelled: 'cancelled', error: 'errors' };
+  for (const flow of flows.values()) {
+    const report = kinds[flow.kind];
+    for (const outcome of workspaceInteractionOutcomes[flow.kind]) if (flow[outcome]) {
+      report[counter[outcome]]++;
+      if (outcome !== 'started' && !flow.started) report.unmatchedOutcomes++;
+    }
+    if (flow.kind === 'groceries_preview' && flow.started && flow.visible) {
+      report.matchedVisible++;durations.push(flow.visible.duration_ms);
+    }
+  }
+  kinds.groceries_preview.visibleTiming = timing(durations);
+  return { trackingSince, kinds };
 }
 
 const exact = (object, keys) => object && typeof object === 'object' && !Array.isArray(object)
   && Object.keys(object).length === keys.length && keys.every(key => Object.hasOwn(object, key));
+export function validWorkspaceInteractions(value) {
+  if (!exact(value, ['trackingSince', 'kinds']) || typeof value.trackingSince !== 'string'
+    || value.trackingSince.length > 40 || !Number.isFinite(Date.parse(value.trackingSince))
+    || !exact(value.kinds, ['groceries_preview', 'groceries_share'])) return false;
+  const p = value.kinds.groceries_preview, s = value.kinds.groceries_share;
+  const previewCounters = ['started', 'visible', 'matchedVisible', 'cancelled', 'errors', 'unmatchedOutcomes'];
+  const shareCounters = ['started', 'copied', 'handedOff', 'manualCopyShown', 'cancelled', 'errors', 'unmatchedOutcomes'];
+  if (!exact(p, [...previewCounters, 'visibleTiming']) || !previewCounters.every(key => count(p[key]))
+    || p.matchedVisible > Math.min(p.started, p.visible) || p.unmatchedOutcomes > p.visible + p.cancelled + p.errors
+    || !exact(s, shareCounters) || !shareCounters.every(key => count(s[key]))
+    || s.unmatchedOutcomes > s.copied + s.handedOff + s.manualCopyShown + s.cancelled + s.errors) return false;
+  const t = p.visibleTiming;
+  return exact(t, ['samples', 'p50', 'p95']) && t.samples === p.matchedVisible
+    && (t.samples === 0 ? t.p50 === null && t.p95 === null : duration(t.p50) && duration(t.p95) && t.p50 <= t.p95);
+}
 export function validWorkspaceReport(value) {
-  if (!exact(value, ['trackingSince', 'features']) || typeof value.trackingSince !== 'string'
+  if (!(exact(value, ['trackingSince', 'features']) || exact(value, ['trackingSince', 'features', 'interactions'])) || typeof value.trackingSince !== 'string'
     || !Number.isFinite(Date.parse(value.trackingSince)) || value.trackingSince.length > 40
-    || !exact(value.features, workspaceFeatures)) return false;
+    || !exact(value.features, workspaceFeatures) || value.interactions != null && !validWorkspaceInteractions(value.interactions)) return false;
   for (const feature of workspaceFeatures) {
     const r = value.features[feature];
     if (!exact(r, [...counters, 'visibleTiming', 'actions']) || !counters.every(key => count(r[key]))
