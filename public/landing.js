@@ -1,7 +1,7 @@
 (() => {
   const root = document.getElementById('landing');
   if (!root) return;
-  if (!root.hidden && !window.__miniLaunch) import('/landing-features.js?v=1').catch(() => {});
+  if (!root.hidden && !window.__miniLaunch) import('/landing-features.js?v=2').catch(() => {});
   const el = (id) => document.getElementById(id);
   el('lp-demo-share').addEventListener('click', async (event) => {
     try {
