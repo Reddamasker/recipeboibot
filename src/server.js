@@ -507,7 +507,12 @@ async function api(request, response, url) {
 }
 
 function serveStatic(request, response, pathname) {
-  const requested = pathname === '/' ? '/index.html' : pathname;
+  // Previously sent chat buttons still point at /?recipe=... or /index.html.
+  // Serve the same test shell at those addresses without redirecting away from
+  // Telegram's launch query/hash. Public share/catalog pages keep their routes.
+  const entryPath = new URL(request.url, 'http://localhost').pathname;
+  const testEntry = config.testContour && config.botPlatform === 'telegram' && ['/', '/index.html'].includes(entryPath);
+  const requested = testEntry ? '/review/recime-20261109/index.html' : pathname === '/' ? '/index.html' : pathname;
   if (requested === '/index.html') {
     webDocument ??= buildWebDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : undefined });
     const compressed = acceptsGzip(request.headers['accept-encoding']);

@@ -14,7 +14,7 @@ allowUser(upsertTelegramUser(user).id);
 const handler = createServer().listeners('request')[0];
 const port = Number(process.env.UI_TEST_PORT || 3090);
 http.createServer((req, res) => {
-  if (new URL(req.url, 'http://127.0.0.1').pathname === '/') {
+  if (new URL(req.url, 'http://127.0.0.1').pathname === '/' && !config.testContour) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     const telegramSdk = `window.Telegram={WebApp:{initData:${JSON.stringify(makeTelegramInitData(user, config.telegramToken))},ready(){},expand(){},setHeaderColor(){},setBackgroundColor(){},openLink(url){window.__lastOpenLink=url}}};`;
     res.end(buildWebDocument(path.resolve('public'), { telegramSdk }).bytes);

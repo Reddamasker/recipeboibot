@@ -487,20 +487,15 @@ function usageMessage(userId) {
 export function webAppUrl(params = {}) {
   if (!config.appUrl?.startsWith('https://')) return null;
   const url = new URL(config.appUrl);
+  if (config.testContour && config.botPlatform === 'telegram') url.pathname = '/review/recime-20261109/index.html';
   for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
   return url.toString();
 }
 
 export async function configureTelegramMenuButton() {
   if (config.botPlatform === 'max') return;
-  let url = webAppUrl({ view: 'menu' });
+  const url = webAppUrl(config.testContour ? { view: 'collection', v: 'entry-1' } : { view: 'menu' });
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
-  if (config.testContour) {
-    const review = new URL('/review/recime-20261109/index.html', url);
-    review.searchParams.set('view', 'collection');
-    review.searchParams.set('v', 'workspace-4');
-    url = review.toString();
-  }
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Меню', web_app: { url } } });
   await telegram('setMyCommands', { commands: [
     { command: 'dinner', description: 'Что на сегодня' }, { command: 'collection', description: 'Мои рецепты' },

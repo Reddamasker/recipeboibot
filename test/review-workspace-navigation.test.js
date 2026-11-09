@@ -253,3 +253,12 @@ test('direct custom-tab recipe links restore on reload and close without leaving
     await h.render(); assert.equal(h.details.length, 1, 'closed detail must not reappear on render');
   }
 });
+
+test('legacy menu link is replaced by collection while retaining recipe and query, without another history entry',async()=>{
+  const h=routeHarness('menu',true);
+  await h.render();
+  const params=new URL(h.location.href).searchParams;
+  assert.equal(params.get('view'),'collection');assert.equal(params.get('recipe'),'pasta');assert.equal(params.get('v'),'workspace-3');
+  assert.equal(h.entries.length,1);assert.equal(h.screens.at(-1),'core');
+  h.closeDetailRoute();assert.equal(new URL(h.location.href).searchParams.get('view'),'collection');
+});
