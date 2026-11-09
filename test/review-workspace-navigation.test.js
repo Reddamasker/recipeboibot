@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { randomUUID } from 'node:crypto';
 
 const shell = fs.readFileSync(new URL('../public/review/recime-20261109/shell.js', import.meta.url), 'utf8');
 const core = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+const groceriesView = fs.readFileSync(new URL('../public/review/recime-20261109/groceries-view.js', import.meta.url), 'utf8');
 function section(source, start, end) {
   const from = source.indexOf(start), to = source.indexOf(end, from + start.length);
   assert.ok(from >= 0 && to > from, `Executable source section missing: ${start}`);
@@ -31,9 +33,12 @@ function contentHarness() {
     { id: 'draft', title: 'Черновик', status: 'draft', tags: [], ingredients: [] },
   ] };
   const ui = { tab: 'books', book: null, query: '', sort: false,
-    workspace: { collections: [], groceries: { items: [], sources: [] } } };
-  const forms = [], choices = [], notices = [], markup = [];
+    workspace: { collections: [], plan: [], groceries: { items: [], sources: [] } } };
+  const forms = [], choices = [], notices = [], markup = [], editors = [], mutations = [], openedRecipes = [];
+  const preview = { response: null, requests: [] };
   const sandbox = { state, ui, esc, base: '/review/recime-20261109/',
+    URL, location: { origin: 'https://fixture.test' }, AbortController, setTimeout, clearTimeout,
+    crypto: { randomUUID }, tg: { initData: 'fixture' }, RecipeAnalytics: null,
     readyRecipes: () => state.recipes.filter(recipe => recipe.status === 'ready'),
     safeImage: () => '', ico: () => '', cookingTimeLabel: () => '20 мин',
     num: (n, forms) => `${n} ${forms[0]}`, title: text => `<h1>${text}</h1>`,
@@ -42,15 +47,25 @@ function contentHarness() {
     note: (...args) => notices.push(args),
     formDialog: form => { forms.push(form); return form; },
     choiceDialog: (title, items) => choices.push({ title, items }),
+    GroceriesEditor: { open: options => { const dialog = { close() {} }; editors.push({ options, dialog }); return dialog; } },
+    flowFor: action => ({ id: randomUUID(), action }),
+    mutate: async flow => { mutations.push(plain(flow.payload)); flow.done = true; },
+    fetch: async (url, options) => { preview.requests.push({ url, body: JSON.parse(options.body) }); assert.ok(preview.response, 'Preview response must be supplied'); return { ok: true, json: async () => preview.response }; },
+    actionEvent() {}, observeWorkspace() {}, showGroceryResult() {},
+    openRecipe: (...args) => openedRecipes.push(args),
+    toast: message => assert.fail(`Unexpected workspace error: ${message}`),
   };
+  sandbox.window = sandbox;
   vm.createContext(sandbox);
+  vm.runInContext(groceriesView, sandbox, { filename: 'groceries-view.js' });
   for (const code of [
     section(shell, '  function recipeChecklist(', '  function planForm('),
-    section(shell, '  function sourceChoices(', '  function itemChoices('),
+    section(shell, '  function groceryInteraction(', '  function shoppingChoices('),
+    section(shell, '  function removeGrocerySource(', '  function itemChoices('),
     section(shell, '  function books(', '  function recipesPage('),
     section(shell, '  function groceries(){', '  const chips='),
   ]) vm.runInContext(code, sandbox);
-  return { ...sandbox, forms, choices, notices, markup, state, ui };
+  return { ...sandbox, forms, choices, notices, markup, editors, mutations, openedRecipes, preview, state, ui };
 }
 
 test('search from the books tab finds personal recipe titles, ingredients and tags, with a real empty result', () => {
@@ -108,35 +123,71 @@ test('membership changes preserve other recipes, and renaming never submits repl
 
 test('empty groceries retain accessible source management, while an entirely new list has no orphan controls', () => {
   const h = contentHarness();
-  h.ui.workspace.groceries.sources = [{ id: 'recipe:pasta', title: 'Паста', excludedCount: 3 }];
+  h.ui.workspace.groceries.sources = [{ id: 'recipe:pasta', title: 'Паста', excludedCount: 3, recipeAvailable: true }];
   h.groceries();
-  assert.match(h.markup.at(-1), /Пока нет продуктов/);
-  assert.match(h.markup.at(-1), /data-review="shopping-sources"/);
-  assert.doesNotMatch(h.markup.at(-1), /data-review="clear-checked"/);
+  let html = h.markup.at(-1);
+  assert.match(html, /Пока нет продуктов/);
+  assert.match(html, /groceries\.svg\?v=original-1/);
+  assert.match(html, /data-review="shopping-collapse"[^>]*aria-expanded="true"/);
+  assert.match(html, /data-review="shopping-source" data-source-id="recipe:pasta"/);
+  assert.match(html, /data-review="shopping-remove-source" data-source-id="recipe:pasta"/);
+  assert.match(html, /data-review="shopping-share"[^>]*disabled/);
+  assert.doesNotMatch(html, /data-review="(?:check-item|clear-checked)"/);
+  h.sourceChoices('recipe:pasta');
+  h.choices.at(-1).items.find(item => item.label === 'Убрать продукты этого блюда').run();
+  assert.equal(h.forms.at(-1).action, 'groceries.removeSource');
+  assert.deepEqual(plain(h.forms.at(-1).read()), { sourceId: 'recipe:pasta' });
   h.ui.workspace.groceries.sources = []; h.groceries();
-  assert.doesNotMatch(h.markup.at(-1), /data-review="shopping-sources"/);
-  assert.match(h.markup.at(-1), /data-review="shopping-add"/);
+  html = h.markup.at(-1);
+  assert.doesNotMatch(html, /data-review="shopping-(?:sources|source|remove-source|collapse)"/);
+  assert.match(html, /data-review="shopping-add"/);
 });
 
-test('source restore submits an explicit scoped flag, ordinary refresh keeps exclusions, and unavailable recipes cannot restore', () => {
+test('editing an existing source previews only that source and saves chosen ingredients only after Add', async () => {
+  for (const kind of ['recipe', 'plan']) for (const servings of [7, null]) {
+    const h = contentHarness(), source = { id: `${kind}:source`, kind, title: 'Паста', recipeId: 'pasta', planEntryId: 'entry',
+      servings, excludedCount: 2, recipeAvailable: true, stale: true };
+    h.ui.workspace.groceries.sources = [source, { id: 'recipe:soup', recipeId: 'soup', title: 'Суп', recipeAvailable: true }];
+    h.ui.workspace.plan = [{ id: 'entry', recipeId: 'pasta', servings: 2 }, { id: 'other-entry', recipeId: 'soup', servings: 3 }];
+    const entryId = kind === 'plan' ? 'entry' : null;
+    h.preview.response = { version: 12, entries: [{ entryId, recipeId: 'pasta', servings, baseServings: servings === null ? null : 2,
+      recipeRevision: 'a'.repeat(64), ingredients: [{ key: 'rice', name: 'Рис' }, { key: 'salt', name: 'Соль' }], selectedIngredientKeys: ['rice'] }] };
+    h.sourceChoices(); h.choices.at(-1).items[0].run();
+    const menu = h.choices.at(-1), edit = menu.items.find(item => item.label === 'Проверить обновлённые ингредиенты');
+    assert.equal(edit.disabled, false); edit.run();
+    assert.equal(h.editors.length, 1); assert.equal(h.forms.length, 0, 'Editing opens the ingredient selector, not an immediate mutation form');
+    const editor = h.editors[0].options;
+    assert.equal(editor.skipChoose, true);
+    assert.deepEqual(plain(editor.entries.map(entry => entry.id)), [entryId]);
+    assert.deepEqual(h.mutations, []);
+    const loaded = await editor.loadIngredients(entryId ? [entryId] : []);
+    assert.deepEqual(h.preview.requests, [{ url: '/api/workspace/groceries-preview', body: kind === 'plan' ? { entryIds: ['entry'] } : { recipeId: 'pasta', servings } }]);
+    assert.equal(loaded.entries[0].servings, servings, 'The saved source portions come from the scoped preview, not the current plan portions');
+    assert.deepEqual(loaded.entries[0].selectedIngredientKeys, ['rice']);
+    assert.deepEqual(h.mutations, [], 'Opening and loading the selector must not change purchases');
+    const choice = { entryId, servings, ingredientKeys: ['rice', 'salt'], recipeRevision: loaded.entries[0].recipeRevision };
+    await editor.onSave({ entryIds: entryId ? [entryId] : [], selections: [choice] });
+    assert.equal(h.mutations.length, 1);
+    const { operationId, ...saved } = h.mutations[0];
+    assert.match(operationId, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(saved, { expectedVersion: 12, action: kind === 'plan' ? 'groceries.fromPlan' : 'groceries.fromRecipe',
+      ...(kind === 'plan' ? { entryIds: ['entry'], selections: [choice] } : { recipeId: 'pasta', servings, ingredientKeys: ['rice', 'salt'], recipeRevision: choice.recipeRevision }) });
+  }
+});
+
+test('unavailable source recipes disable editing and opening but retain scoped removal', () => {
   for (const kind of ['recipe', 'plan']) {
     const h = contentHarness(), source = { id: `${kind}:source`, kind, title: 'Паста', recipeId: 'pasta', planEntryId: 'entry',
-      servings: null, excludedCount: 2, recipeAvailable: true };
+      servings: null, excludedCount: 2, recipeAvailable: false };
     h.ui.workspace.groceries.sources = [source];
-    h.sourceChoices(); h.choices.at(-1).items[0].run();
-    let menu = h.choices.at(-1);
-    menu.items.find(item => item.label === 'Вернуть убранные продукты').run();
-    const form = h.forms.at(-1), fields = kind === 'plan' ? { entryIds: ['entry'] } : { recipeId: 'pasta', servings: null };
-    assert.equal(form.action, kind === 'plan' ? 'groceries.fromPlan' : 'groceries.fromRecipe');
-    assert.deepEqual(plain(form.read()), { ...fields, restoreExcluded: true });
-    menu.items.find(item => item.label === 'Обновить продукты').run();
-    assert.deepEqual(plain(h.forms.at(-1).read()), fields);
-    source.recipeAvailable = false;
-    h.sourceChoices(); h.choices.at(-1).items[0].run(); menu = h.choices.at(-1);
-    assert.equal(menu.items.some(item => item.label === 'Вернуть убранные продукты'), false);
-    assert.equal(menu.items.find(item => item.label === 'Обновить продукты').disabled, true);
-    menu.items.find(item => item.label === 'Убрать продукты этого блюда').run();
+    h.sourceChoices(source.id); const menu = h.choices.at(-1);
+    assert.equal(menu.items.find(item => item.label === 'Изменить ингредиенты и порции').disabled, true);
+    assert.equal(menu.items.find(item => item.label === 'Открыть рецепт').disabled, true);
+    const remove = menu.items.find(item => item.label === 'Убрать продукты этого блюда');
+    assert.notEqual(remove.disabled, true); remove.run();
+    assert.equal(h.forms.at(-1).action, 'groceries.removeSource');
     assert.deepEqual(plain(h.forms.at(-1).read()), { sourceId: source.id });
+    assert.deepEqual(h.editors, []); assert.deepEqual(h.mutations, []); assert.deepEqual(h.openedRecipes, []);
   }
 });
 
