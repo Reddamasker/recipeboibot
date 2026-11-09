@@ -18,7 +18,7 @@ const fields = {
   'plan.delete': ['entryId'], 'plan.apply': ['entries'],
   'groceries.addManual': ['name', 'quantity', 'unit', 'amountText'],
   'groceries.updateManual': ['itemId', 'name', 'quantity', 'unit', 'amountText'],
-  'groceries.fromRecipe': ['recipeId', 'servings'], 'groceries.fromPlan': ['entryIds'],
+  'groceries.fromRecipe': ['recipeId', 'servings', 'restoreExcluded'], 'groceries.fromPlan': ['entryIds', 'restoreExcluded'],
   'groceries.setChecked': ['itemId', 'checked'], 'groceries.removeItem': ['itemId'],
   'groceries.removeSource': ['sourceId'], 'groceries.clearChecked': []
 };
@@ -189,12 +189,12 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     if (servings != null && !(Number.isFinite(recipe.servings) && recipe.servings > 0)) throw fail('В исходном рецепте не указано число порций.', 422, 'SERVINGS_UNKNOWN');
     return { id: newId(), recipeId: input.recipeId, date: date(input.date), meal: meal(input.meal), servings, createdAt: timestamp, updatedAt: timestamp };
   }
-  function putSource(state, userId, recipeId, servings, kind, entry, timestamp) {
+  function putSource(state, userId, recipeId, servings, kind, entry, timestamp, restoreExcluded = false) {
     const recipe = personalRecipe(userId, recipeId), target = portions(servings ?? recipe.servings), id = kind + ':' + (entry?.id || recipeId);
     const ingredients = recipeIngredients(recipe, target), existing = state.groceries.sources.find(source => source.id === id);
     const source = { id, kind, recipeId, planEntryId: entry?.id || null, title: recipe.title,
       servings: target, baseServings: recipe.servings || null, recipeUpdatedAt: recipe.updatedAt || recipe.updated_at || null,
-      ingredients, excluded: existing?.recipeId === recipeId ? existing.excluded : [], updatedAt: timestamp };
+      ingredients, excluded: !restoreExcluded && existing?.recipeId === recipeId ? existing.excluded : [], updatedAt: timestamp };
     if (existing) Object.assign(existing, source); else state.groceries.sources.push(source);
     return source;
   }
@@ -214,6 +214,7 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
   }
   function execute(state, userId, input, timestamp) {
     const action = input.action;
+    if (own(input, 'restoreExcluded') && typeof input.restoreExcluded !== 'boolean') throw fail('Проверьте восстановление исключённых продуктов.');
     if (action === 'collections.saveCatalog') {
       if (typeof input.catalogId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,99}$/.test(input.catalogId)) throw fail('Проверьте рецепт каталога.');
       if (typeof saveCatalogRecipe !== 'function') throw fail('Сохранение из каталога недоступно.', 422, 'CATALOG_UNAVAILABLE');
@@ -285,12 +286,12 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
       if (Object.keys(next).some(key => next[key] !== row[key])) Object.assign(row, next, { updatedAt: timestamp });
       return 1;
     }
-    if (action === 'groceries.fromRecipe') { putSource(state, userId, input.recipeId, input.servings, 'recipe', null, timestamp); return 1; }
+    if (action === 'groceries.fromRecipe') { putSource(state, userId, input.recipeId, input.servings, 'recipe', null, timestamp, input.restoreExcluded); return 1; }
     if (action === 'groceries.fromPlan') {
       if (input.entryIds !== undefined && (!Array.isArray(input.entryIds) || input.entryIds.length > 60)) throw fail('Выберите не более 60 блюд меню.');
       const entries = input.entryIds === undefined ? state.plan : [...new Set(input.entryIds)].map(id => found(state.plan, id, 'Рецепт в меню'));
       if (entries.length > 60) throw fail('Выберите не более 60 блюд меню.');
-      for (const entry of entries) putSource(state, userId, entry.recipeId, entry.servings, 'plan', entry, timestamp);
+      for (const entry of entries) putSource(state, userId, entry.recipeId, entry.servings, 'plan', entry, timestamp, input.restoreExcluded);
       return entries.length;
     }
     if (action === 'groceries.removeSource') {

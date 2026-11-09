@@ -235,6 +235,77 @@ test('unknown original servings allow unscaled planning and shopping, refuse inv
   assert.deepEqual(f.store.read(f.user), before);
 });
 
+test('explicit recipe restore recovers excluded products with current quantities and preserves unrelated purchases', t => {
+  const f = fixture(t), a = f.add(), b = f.add({ ingredients: [{ name: 'Рис', quantity: 100, unit: 'г' }] });
+  f.command('groceries.fromRecipe', { recipeId: a });
+  let s = f.command('groceries.fromRecipe', { recipeId: b });
+  s = f.command('groceries.removeItem', { itemId: s.groceries.items[0].id });
+  assert.equal(s.groceries.items.length, 0);
+  assert.ok(s.groceries.sources.every(source => source.excludedCount === 1));
+  s = f.command('groceries.addManual', { name: 'Хлеб', quantity: 1, unit: 'шт' });
+  const manual = s.groceries.items[0].id;
+  f.command('groceries.setChecked', { itemId: manual, checked: true });
+  f.editIngredients(a, [{ name: 'Рис', quantity: 250, unit: 'г' }]);
+  s = f.command('groceries.fromRecipe', { recipeId: a, servings: 4, restoreExcluded: false });
+  assert.equal(s.groceries.items.filter(item => !item.manual).length, 0);
+  const command = { action: 'groceries.fromRecipe', recipeId: a, servings: 4, restoreExcluded: true, expectedVersion: s.version, operationId: randomUUID() };
+  s = f.store.mutate(f.user, command);
+  const rice = s.groceries.items.find(item => !item.manual);
+  assert.equal(rice.quantity, 500); assert.equal(rice.checked, false);
+  assert.deepEqual(rice.provenance.map(source => source.recipeId), [a]);
+  assert.equal(s.groceries.items.find(item => item.id === manual).checked, true);
+  assert.equal(s.groceries.sources.find(source => source.recipeId === b).excludedCount, 1);
+  assert.equal(s.groceries.sources.find(source => source.recipeId === a).excludedCount, 0);
+  assert.equal(JSON.parse(f.db.prepare('SELECT ingredients_json FROM recipes WHERE id=?').get(a).ingredients_json)[0].quantity, 250);
+  const replay = f.store.mutate(f.user, command);
+  assert.equal(replay.version, s.version); assert.equal(replay.operation.replayed, true);
+  assert.deepEqual(replay.groceries, s.groceries);
+});
+
+test('plan restore scopes selected sources and resets checked only when aggregate quantity changes', t => {
+  const f = fixture(t), recipeId = f.add();
+  let s = f.command('plan.add', { recipeId, date: '2026-11-12', meal: 'dinner' });
+  const first = s.plan[0].id;
+  s = f.command('plan.add', { recipeId, date: '2026-11-13', meal: 'dinner', servings: 4 });
+  const second = s.plan[1].id;
+  s = f.command('groceries.fromPlan', { entryIds: [first, second] });
+  const riceId = s.groceries.items[0].id;
+  f.command('groceries.setChecked', { itemId: riceId, checked: true });
+  s = f.command('groceries.clearChecked');
+  assert.equal(s.groceries.items.length, 0);
+  s = f.command('groceries.fromPlan', { entryIds: [first], restoreExcluded: true });
+  assert.equal(s.groceries.items[0].quantity, 200);
+  assert.deepEqual(s.groceries.items[0].provenance.map(source => source.planEntryId), [first]);
+  assert.equal(s.groceries.sources.find(source => source.planEntryId === second).excludedCount, 1);
+  f.command('groceries.setChecked', { itemId: riceId, checked: true });
+  s = f.command('groceries.fromPlan', { entryIds: [first], restoreExcluded: true });
+  assert.equal(s.groceries.items[0].checked, true, 'unchanged visible quantity retains purchase');
+  s = f.command('groceries.fromPlan', { entryIds: [second], restoreExcluded: true });
+  assert.equal(s.groceries.items[0].quantity, 600); assert.equal(s.groceries.items[0].checked, false);
+  assert.ok(s.groceries.sources.every(source => source.excludedCount === 0));
+});
+
+test('restore flag is strictly boolean and recipe or access failures roll back all selected restores', t => {
+  const f = fixture(t), a = f.add(), b = f.add();
+  f.command('plan.add', { recipeId: a, date: '2026-11-12', meal: 'dinner' });
+  let s = f.command('plan.add', { recipeId: b, date: '2026-11-13', meal: 'dinner' });
+  const entryIds = s.plan.map(entry => entry.id);
+  s = f.command('groceries.fromPlan', { entryIds });
+  f.command('groceries.removeItem', { itemId: s.groceries.items[0].id });
+  const before = f.store.read(f.user);
+  for (const restoreExcluded of [null, 0, 1, 'true', {}, []]) {
+    assert.throws(() => f.command('groceries.fromPlan', { entryIds, restoreExcluded }), { status: 400 });
+    assert.throws(() => f.command('groceries.fromRecipe', { recipeId: a, restoreExcluded }), { status: 400 });
+  }
+  assert.deepEqual(f.store.read(f.user), before);
+  assert.throws(() => f.command('groceries.fromPlan', { entryIds, restoreExcluded: true }, f.stranger), { status: 404 });
+  assert.equal(f.store.read(f.stranger).version, 0);
+  f.db.prepare("UPDATE recipes SET status='archived' WHERE id=?").run(b);
+  const archived = f.store.read(f.user);
+  assert.throws(() => f.command('groceries.fromPlan', { entryIds, restoreExcluded: true }), { code: 'RECIPE_NOT_FOUND' });
+  assert.deepEqual(f.store.read(f.user), archived);
+});
+
 test('archiving a recipe retains plan provenance and shopping snapshots; account deletion cascades workspace state', t => {
   const f = fixture(t), recipeId = f.add();
   f.command('collections.create', { name: 'Сохранённое', recipeIds: [recipeId] });

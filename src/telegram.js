@@ -498,7 +498,7 @@ export async function configureTelegramMenuButton() {
   if (config.testContour) {
     const review = new URL('/review/recime-20261109/index.html', url);
     review.searchParams.set('view', 'collection');
-    review.searchParams.set('v', 'workspace-2');
+    review.searchParams.set('v', 'workspace-3');
     url = review.toString();
   }
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Меню', web_app: { url } } });
