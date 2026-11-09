@@ -51,6 +51,19 @@ test('anonymous browser gets catalog and full house recipe; private API still re
   assert.equal((await fetch(base+'/api/dinner/recipes/seed:pasta-tomato')).status,401);
   assert.equal((await fetch(base+'/api/catalog',{method:'POST'})).status,405);
 });
+test('daily catalog API is uncached, read-only and resolves to an existing public recipe',async()=>{
+  const response = await fetch(base+'/api/catalog/daily');
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  const value=await response.json();
+  assert.equal(value.timeZone,'Europe/Moscow');
+  assert.equal(value.recipe.title,catalogRecipe(value.recipe.id).title);
+  assert.ok(Date.parse(value.nextChangeAt)>Date.parse(value.serverTime));
+  assert.ok(Date.parse(value.nextChangeAt)-Date.parse(value.serverTime)<=86400000);
+  const again=await (await fetch(base+'/api/catalog/daily?q=unknown&page=999')).json();
+  if(again.date===value.date)assert.equal(again.recipe.id,value.recipe.id);
+  assert.equal((await fetch(base+'/api/catalog/daily',{method:'POST'})).status,405);
+});
 test('catalog and direct recipe URLs work without messenger SDK and unknown recipes return 404',async()=>{
   for(const route of ['/recipes','/recipes/','/recipes/pasta-tomato']) {
     const response=await fetch(base+route),html=await response.text();assert.equal(response.status,200);assert.match(html,/catalog(?:-legacy)?\.js/);assert.doesNotMatch(html,/telegram-web-app|platform-bridge/);

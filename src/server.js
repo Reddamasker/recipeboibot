@@ -41,7 +41,7 @@ import { openDashboardSession, closeDashboardSession, dashboardSessionValid } fr
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 import { telegramOpenDocument } from './telegram-open.js';
-import { catalogSearch, catalogRecipe } from './web-catalog.js';
+import { catalogSearch, catalogRecipe, catalogDaily } from './web-catalog.js';
 import { isPublicCatalogRecipe, saveCatalogRecipeForUser } from './catalog-handoff.js';
 import { createCatalogHandoff, catalogHandoffPublicKey, verifyCatalogEnvelope, catalogHandoffResolveForTarget, acceptCatalogHandoffOutcome, registerCatalogAcquisitionVisit } from './catalog-handoff-transport.js';
 import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
@@ -603,6 +603,7 @@ async function handleRequest(request, response) {
       if (url.pathname === '/api/catalog' || url.pathname.startsWith('/api/catalog/')) {
         if (request.method !== 'GET') return json(response, 405, { error: 'Метод не поддерживается' });
         rateLimit(`catalog:${clientIp(request)}`, 180);
+        if (url.pathname === '/api/catalog/daily') return json(response, 200, catalogDaily());
         if (url.pathname === '/api/catalog') return json(response, 200, catalogSearch(url.searchParams));
         const recipe = catalogRecipe(url.pathname.slice('/api/catalog/'.length));
         return json(response, recipe ? 200 : 404, recipe || { error: 'Рецепт не найден' });

@@ -370,9 +370,49 @@
     workspaceStarted();
   }
   const chips=[['Быстрый ужин','time','30'],['Овощи','include','овощи'],['Салаты','category','salad'],['Итальянское','cuisine','italian'],['С рисом','category','rice'],['Японское','cuisine','japanese'],['Курица','category','chicken'],['Завтрак','category','breakfast']];
-  function catalogContent(){if(ui.catalogError)return `<div class="r-error"><p>${esc(ui.catalogError)}</p>${button('retry-catalog','Попробовать ещё раз','plus')}</div>`;if(ui.catalogBusy&&!ui.catalog)return '<p class="r-empty-library">Загружаем рецепты…</p>';const list=ui.catalog?.recipes||[];if(!list.length)return '<p class="r-empty-library">Рецепты не найдены</p>';if(ui.catalogQuery||ui.catalogFilter)return `<div class="r-grid">${list.map(r=>`<button class="r-book" data-review="catalog-recipe" data-recipe-id="${esc(r.id)}"><img class="r-recipe-cover" src="${safeImage(r.image)}" alt="" loading="lazy"><span><strong>${esc(r.title)}</strong><small>${r.minutes} мин</small></span></button>`).join('')}</div>`;const r=list.find(r=>r.id==='pizza-margherita-family')||list[0];return `<article class="r-feature"><p class="r-script">Рецепт дня</p><h2>${esc(r.title)}</h2><p class="r-feature-meta"><span>Твои рецепты</span><span>·</span><span>${r.minutes} мин</span><span>·</span><span>${num(r.servings||2,['порция','порции','порций'])}</span></p><p class="r-feature-description">${esc(r.description||'Простой рецепт из нашей коллекции. Сохрани и приготовь, когда захочется.')}</p><div class="r-feature-photo"><button data-review="catalog-recipe" data-recipe-id="${esc(r.id)}" aria-label="Открыть ${esc(r.title)}"><img src="${safeImage(r.image)}" alt="${esc(r.title)}"></button><div class="r-feature-actions">${button('catalog-share','Поделиться','share','r-round',`data-recipe-id="${esc(r.id)}" aria-label="Поделиться рецептом"`)}${button('catalog-save','Сохранить','bookmark','r-round',`data-recipe-id="${esc(r.id)}" aria-label="Сохранить рецепт"`)}</div></div></article>`;}
-  function discover(){ui.section='discover';setMarkup(`${title('Подобрать',null,'r-discover-header')}<main class="r-panel r-discover">${workspaceNotice()}<form id="r-catalog-form">${searchField('r-catalog-search',ui.catalogQuery,'Что хочешь приготовить?')}</form><section class="r-popular"><p>Популярные запросы</p><div class="r-chip-scroller">${[chips.slice(0,4),chips.slice(4)].map(row=>`<div class="r-chip-row">${row.map(([name],i)=>`<button class="r-chip" data-review="chip" data-chip="${esc(name)}" aria-pressed="${ui.catalogFilter===name}">${name}</button>`).join('')}</div>`).join('')}</div></section><div id="r-catalog-content">${catalogContent()}</div></main>`);if(!ui.catalog&&!ui.catalogBusy&&!ui.catalogError)void loadCatalog(false);}
-  async function loadCatalog(observed){const rev=++ui.catalogRevision;ui.catalogBusy=true;ui.catalogError='';const params=new URLSearchParams();if(ui.catalogQuery)params.set('q',ui.catalogQuery);const c=chips.find(x=>x[0]===ui.catalogFilter);if(c)params.set(c[1],c[2]);const flow=observed?crypto.randomUUID():null;if(flow){RecipeAnalytics?.event('step_submit','other',{flowId:flow});RecipeAnalytics?.requestStarted(flow,'other');}try{const response=await api('/api/catalog?'+params,{signal:AbortSignal.timeout(12000)});if(rev!==ui.catalogRevision)return;ui.catalog=response;ui.catalogBusy=false;if(ui.section==='discover'){const el=document.querySelector('#r-catalog-content');if(el){el.innerHTML=catalogContent();if(flow)RecipeAnalytics?.requestVisible(el,flow,false,'full');}}}catch(error){if(rev!==ui.catalogRevision)return;ui.catalogError=error.message;ui.catalogBusy=false;if(ui.section==='discover')discover();}}
+  function scheduleDailyCatalog(){
+    clearTimeout(ui.catalogTimer);
+    if(ui.section!=='discover'||ui.catalogQuery||ui.catalogFilter||document.hidden)return;
+    // Recheck on a bounded timer as well as resume; the server defines Moscow
+    // midnight, so a viewer's timezone or incorrectly set clock cannot pick a dish.
+    ui.catalogTimer=setTimeout(refreshDailyCatalog,Math.max(50,Math.min(1800000,(ui.catalogExpiresAt||Date.now())-Date.now()+50)));
+  }
+  function refreshDailyCatalog(){
+    if(ui.section!=='discover'||ui.catalogQuery||ui.catalogFilter||document.hidden||!document.querySelector('#r-catalog-content'))return;
+    if(!ui.catalogBusy&&Date.now()>=(ui.catalogExpiresAt||0))void loadCatalog(false);
+    else if(!ui.catalogBusy)scheduleDailyCatalog();
+  }
+  document.addEventListener('visibilitychange',refreshDailyCatalog);
+  window.addEventListener('focus',refreshDailyCatalog);
+  window.addEventListener('pageshow',refreshDailyCatalog);
+  function catalogContent(){if(ui.catalogError)return `<div class="r-error"><p>${esc(ui.catalogError)}</p>${button('retry-catalog','Попробовать ещё раз','plus')}</div>`;if(ui.catalogBusy&&!ui.catalog)return '<p class="r-empty-library">Загружаем рецепты…</p>';const list=ui.catalog?.recipes||[];if(!list.length)return '<p class="r-empty-library">Рецепты не найдены</p>';if(ui.catalogQuery||ui.catalogFilter)return `<div class="r-grid">${list.map(r=>`<button class="r-book" data-review="catalog-recipe" data-recipe-id="${esc(r.id)}"><img class="r-recipe-cover" src="${safeImage(r.image)}" alt="" loading="lazy"><span><strong>${esc(r.title)}</strong><small>${r.minutes} мин</small></span></button>`).join('')}</div>`;const r=ui.catalog.daily?.recipe;if(!r)return '<p class="r-empty-library">Рецепт дня пока недоступен</p>';return `<article class="r-feature"><p class="r-script">Рецепт дня</p><h2>${esc(r.title)}</h2><p class="r-feature-meta"><span>Твои рецепты</span><span>·</span><span>${r.minutes} мин</span><span>·</span><span>${num(r.servings||2,['порция','порции','порций'])}</span></p><p class="r-feature-description">${esc(r.description||'Простой рецепт из нашей коллекции. Сохрани и приготовь, когда захочется.')}</p><div class="r-feature-photo"><button data-review="catalog-recipe" data-recipe-id="${esc(r.id)}" aria-label="Открыть ${esc(r.title)}"><img src="${safeImage(r.image)}" alt="${esc(r.title)}"></button><div class="r-feature-actions">${button('catalog-share','Поделиться','share','r-round',`data-recipe-id="${esc(r.id)}" aria-label="Поделиться рецептом"`)}${button('catalog-save','Сохранить','bookmark','r-round',`data-recipe-id="${esc(r.id)}" aria-label="Сохранить рецепт"`)}</div></div></article>`;}
+  function discover(){ui.section='discover';setMarkup(`${title('Подобрать',null,'r-discover-header')}<main class="r-panel r-discover">${workspaceNotice()}<form id="r-catalog-form">${searchField('r-catalog-search',ui.catalogQuery,'Что хочешь приготовить?')}</form><section class="r-popular"><p>Популярные запросы</p><div class="r-chip-scroller">${[chips.slice(0,4),chips.slice(4)].map(row=>`<div class="r-chip-row">${row.map(([name],i)=>`<button class="r-chip" data-review="chip" data-chip="${esc(name)}" aria-pressed="${ui.catalogFilter===name}">${name}</button>`).join('')}</div>`).join('')}</div></section><div id="r-catalog-content">${catalogContent()}</div></main>`);if(!ui.catalog&&!ui.catalogBusy&&!ui.catalogError)void loadCatalog(false);else if(!ui.catalogQuery&&!ui.catalogFilter)refreshDailyCatalog();}
+  async function loadCatalog(observed){
+    const rev=++ui.catalogRevision,daily=!ui.catalogQuery&&!ui.catalogFilter,started=Date.now();
+    clearTimeout(ui.catalogTimer);ui.catalogBusy=true;ui.catalogError='';
+    const params=new URLSearchParams();if(ui.catalogQuery)params.set('q',ui.catalogQuery);
+    const c=chips.find(x=>x[0]===ui.catalogFilter);if(c)params.set(c[1],c[2]);
+    // Automatic spotlight refresh is not a user request for a full recipe.
+    const flow=observed&&!daily?crypto.randomUUID():null;
+    if(observed)RecipeAnalytics?.event('step_submit','other',flow?{flowId:flow}:{});
+    if(flow)RecipeAnalytics?.requestStarted(flow,'other');
+    try{
+      const response=await api(daily?'/api/catalog/daily':'/api/catalog?'+params,{signal:AbortSignal.timeout(12000)});
+      if(rev!==ui.catalogRevision)return;
+      ui.catalog=daily?{recipes:response.recipe?[response.recipe]:[],daily:response}:response;ui.catalogBusy=false;
+      if(daily)ui.catalogExpiresAt=started+Math.max(0,Date.parse(response.nextChangeAt)-Date.parse(response.serverTime));
+      if(ui.section==='discover'){
+        const el=document.querySelector('#r-catalog-content');
+        if(el){el.innerHTML=catalogContent();if(flow)RecipeAnalytics?.requestVisible(el,flow,false,'full');}
+      }
+      if(daily)scheduleDailyCatalog();
+    }catch(error){
+      if(rev!==ui.catalogRevision)return;
+      ui.catalogError=error.message;ui.catalogBusy=false;
+      if(daily)ui.catalogExpiresAt=Date.now()+60000;
+      if(ui.section==='discover')discover();
+    }
+  }
   function note(titleText,text,action=null){const dialog=document.createElement('dialog');dialog.className='r-review-dialog';dialog.innerHTML=`<h2>${esc(titleText)}</h2><p>${esc(text)}</p>${action?`<a href="${esc(action.href)}">${esc(action.label)}</a>`:''}<button type="button">Понятно</button>`;document.body.append(dialog);dialog.querySelector('button').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{dialog.remove();RecipeAnalytics?.step(root.dataset.analyticsStep||'other')},{once:true});dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});dialog.showModal();RecipeAnalytics?.observe(dialog,'screen_view','other');}
   async function showCatalog(id){const rev=++ui.detailRevision;try{const raw=await api('/api/catalog/'+encodeURIComponent(id),{signal:AbortSignal.timeout(12000)});if(rev!==ui.detailRevision||ui.section!=='discover')return;const recipe={...raw,thumbnailUrl:raw.image,totalMinutes:raw.minutes,warnings:raw.warnings||[],tags:raw.tags||[]};closeOverlay();showReferenceCard(recipe,{catalogId:id});}catch(error){if(rev===ui.detailRevision)toast(error.message);}}
   function openCatalogSite(id){const url=new URL('/dinner/'+encodeURIComponent(id),location.origin).href;if(tg?.openLink)tg.openLink(url);else location.assign(url);}

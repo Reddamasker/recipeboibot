@@ -54,6 +54,21 @@ const entries = SEED_RECIPES.map(recipe => {
   steps: recipe.steps.map(step=>step.text), nutrition: recipe.nutrition
 }; });
 export function catalogRecipe(id) { return entries.find(recipe=>recipe.id === id) || null; }
+// A stable cycle through the whole public catalog, independent of search pages,
+// viewer timezone, process restarts and the order of recipes in the source file.
+const dailyEntries = [...entries].sort((a,b)=>a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+export function catalogDaily(now = new Date()) {
+  const timestamp = now.getTime(), dayMs = 86400000, moscowOffset = 3 * 3600000;
+  if (!Number.isFinite(timestamp)) throw new RangeError('Invalid catalog date');
+  const day = Math.floor((timestamp + moscowOffset) / dayMs);
+  const selected = dailyEntries[((day % dailyEntries.length) + dailyEntries.length) % dailyEntries.length];
+  const {ingredients,steps,nutrition,...summary} = selected || {};
+  return {
+    date: new Date(day * dayMs).toISOString().slice(0,10), timeZone: 'Europe/Moscow',
+    serverTime: now.toISOString(), nextChangeAt: new Date((day + 1) * dayMs - moscowOffset).toISOString(),
+    recipe: selected ? {...summary,ingredientCount:ingredients.length} : null,
+  };
+}
 export function catalogSearch(params = new URLSearchParams()) {
   const words = normalize(params.get('q')).slice(0,160).split(/\s+/).filter(Boolean);
   const split = key => String(params.get(key)||'').slice(0,250).split(',').map(s=>s.trim()).filter(Boolean).slice(0,12);
