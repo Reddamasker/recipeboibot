@@ -493,8 +493,14 @@ export function webAppUrl(params = {}) {
 
 export async function configureTelegramMenuButton() {
   if (config.botPlatform === 'max') return;
-  const url = webAppUrl({ view: 'menu' });
+  let url = webAppUrl({ view: 'menu' });
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
+  if (config.testContour) {
+    const review = new URL('/review/recime-20261109/index.html', url);
+    review.searchParams.set('view', 'collection');
+    review.searchParams.set('v', 'workspace-1');
+    url = review.toString();
+  }
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Меню', web_app: { url } } });
   await telegram('setMyCommands', { commands: [
     { command: 'dinner', description: 'Что на сегодня' }, { command: 'collection', description: 'Мои рецепты' },

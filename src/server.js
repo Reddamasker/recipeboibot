@@ -46,11 +46,19 @@ import { isPublicCatalogRecipe } from './catalog-handoff.js';
 import { createCatalogHandoff, catalogHandoffPublicKey, verifyCatalogEnvelope, catalogHandoffResolveForTarget, acceptCatalogHandoffOutcome, registerCatalogAcquisitionVisit } from './catalog-handoff-transport.js';
 import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
 import { acceptProductEvents, apiStep, identifyProductUser, productOperation, recordProduct } from './product-analytics.js';
+import { createRecipeWorkspace } from './recipe-workspace.js';
+import { workspaceFeature } from './workspace-analytics.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
 const rate = new Map();
 let webDocument;
+const recipeWorkspace = createRecipeWorkspace(db, {
+  getRecipe(userId, id) {
+    assertFirstRecipeReadable(userId, { recipeId: id });
+    return getRecipe(userId, id);
+  }
+});
 
 function securityHeaders(response, scriptHashes = '') {
   response.setHeader('x-content-type-options', 'nosniff');
@@ -146,6 +154,28 @@ async function api(request, response, url) {
   }
   if (request.method === 'POST' && url.pathname === '/api/engagement') {
     return json(response, 200, { recorded: acknowledgeEngagement(user.id, await bodyJson(request, 2000)) });
+  }
+  if (url.pathname === '/api/workspace') {
+    if (request.method === 'GET') return json(response, 200, recipeWorkspace.read(user.id));
+    if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
+    const input = await bodyJson(request, 64000);
+    try {
+      const started = Date.now();
+      const result = recipeWorkspace.mutate(user.id, input);
+      if (!result.operation?.replayed) {
+        const feature = workspaceFeature(input.action);
+        recordProduct(user.id, 'workspace_saved', { id: `workspace-${input.operationId}`, step: feature === 'collections' ? 'collection' : 'other',
+          flowId: input.operationId, durationMs: Date.now() - started, detail: { feature, action: input.action } });
+      }
+      return json(response, 200, result);
+    } catch (error) {
+      if ([400, 404, 409, 413, 422].includes(error.status)) return json(response, error.status, {
+        error: error.message,
+        ...(/^[A-Z_]{1,50}$/.test(error.code || '') ? { code: error.code } : {}),
+        ...(Number.isSafeInteger(error.currentVersion) ? { currentVersion: error.currentVersion } : {})
+      });
+      throw error;
+    }
   }
   if (request.method === 'POST' && url.pathname === '/api/feedback') {
     const input = await bodyJson(request, 16000);
@@ -431,7 +461,7 @@ function serveStatic(request, response, pathname) {
   }
   const file = path.resolve(publicDir, `.${requested}`);
   if (!file.startsWith(publicDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
-  if (['/catalog.html','/catalog-legacy.html'].includes(requested)) {
+  if (['/catalog.html','/catalog-legacy.html', '/review/recime-20261109/index.html'].includes(requested)) {
     const document = fs.readFileSync(file, 'utf8');
     securityHeaders(response); response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? undefined : document); return true;
   }

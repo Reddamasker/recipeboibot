@@ -144,3 +144,65 @@ body:has(.review-shell){background:var(--review-bg)}
 .review-shell .r-feature-meta{margin-bottom:9px}
 .review-shell .r-discover-header{min-height:57px;padding-bottom:12px}
 .review-shell .r-count{margin:0;padding:0 15px 26px}
+
+/* Persisted workspace controls keep the accepted four-screen geometry. */
+.review-shell :is(button,input,select):focus-visible,.r-workspace-dialog :is(button,input,select):focus-visible{outline:2px solid var(--review-accent);outline-offset:3px}
+.review-shell .r-recipe-tile{position:relative;min-width:0}
+.review-shell .r-recipe-tile>.r-book{width:100%;display:block}
+.review-shell .r-card-more{position:absolute;right:7px;top:7px;width:34px;height:34px;border:1px solid var(--review-line);border-radius:50%;padding:7px;background:var(--review-paper);color:var(--review-ink);box-shadow:0 2px 6px #30253710}
+.review-shell .r-card-more .r-icon{width:18px;height:18px}
+.review-shell .r-list .r-recipe-tile{border-bottom:1px solid var(--review-line)}
+.review-shell .r-list .r-recipe-tile>.r-book{display:flex;border:0;padding-right:40px}
+.review-shell .r-list .r-card-more{top:50%;transform:translateY(-50%);right:0}
+.review-shell .r-breadcrumb>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.review-shell .r-workspace-notice{font-size:13px;line-height:1.5;color:var(--review-ink);background:var(--review-highlight);border:1px solid var(--review-line);padding:12px;border-radius:12px;margin:0 0 14px}
+.review-shell .r-workspace-notice button{display:block;border:0;background:var(--review-soft);padding:9px 12px;border-radius:9px;margin-top:9px;color:var(--review-ink);font-weight:500;min-height:40px}
+.review-shell .r-week-plan{margin:22px 0 20px;display:grid;gap:22px}
+.review-shell .r-plan-day h2{font:400 17px/1.3 ReviewBitter,Georgia,serif;text-transform:capitalize;margin:0 0 10px;color:var(--review-ink)}
+.review-shell .r-plan-entry{padding:13px;border:1px solid var(--review-line);border-radius:14px;background:var(--review-highlight);margin:8px 0 0}
+.review-shell .r-meal-label{display:block;font-size:11px;color:var(--review-muted);margin-bottom:5px}
+.review-shell .r-plan-recipe{background:none;border:0;padding:0;text-align:left;font-weight:500;font-size:14px;line-height:1.4;width:100%;min-height:28px}
+.review-shell .r-plan-entry>small{display:block;color:var(--review-muted);font-size:12px;margin-top:5px}
+.review-shell .r-inline-actions{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+.review-shell .r-inline-actions button,.review-shell .r-shopping-tools button{font:inherit;font-size:12px;border:1px solid var(--review-line);background:var(--review-paper);border-radius:9px;padding:8px 11px;min-height:36px}
+.review-shell .r-shopping-tools{display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
+.review-shell .r-shopping-list{padding:0 0 65px}
+.review-shell .r-shopping-item{display:grid;grid-template-columns:28px minmax(0,1fr) 32px;gap:10px;align-items:center;padding:14px 0;border-bottom:1px solid var(--review-line)}
+.review-shell .r-item-check{height:25px;width:25px;padding:3px;background:var(--review-paper);border:1px solid var(--review-line);border-radius:7px;align-self:start;margin-top:2px}
+.review-shell .r-item-check[aria-checked=true]{background:var(--review-accent);border-color:var(--review-accent);color:var(--review-paper)}
+.review-shell .r-item-check .r-icon{width:17px;height:17px;stroke-width:2}
+.review-shell .r-shopping-item strong{display:block;font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.review-shell .r-shopping-item small{display:block;font-size:13px;margin-top:3px;color:var(--review-muted);overflow-wrap:anywhere}
+.review-shell .r-item-source,.review-shell .r-item-comment{display:block;font-size:11px;color:var(--review-muted);line-height:1.4;margin-top:4px;overflow-wrap:anywhere}
+.review-shell .r-item-comment{font-size:12px;color:var(--review-ink)}
+.review-shell .r-shopping-item.is-checked strong{text-decoration:line-through;color:var(--review-muted)}
+.review-shell .r-shopping-item.is-checked small{opacity:.65}
+.r-workspace-dialog{max-height:calc(100dvh - 28px);overflow:auto;padding:20px;margin:auto;color:var(--review-ink);background:var(--review-paper);overscroll-behavior:contain}
+.r-workspace-dialog form{margin:0;display:block}
+.r-workspace-dialog .r-icon{display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.r-workspace-dialog .r-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:17px}
+.r-workspace-dialog .r-dialog-head h2{margin:2px 0 0;overflow-wrap:anywhere}
+.r-workspace-dialog .r-dialog-close{width:34px;height:34px;min-width:34px;border:0;padding:6px;display:grid;place-items:center;background:var(--review-highlight);color:var(--review-ink);border-radius:50%}
+.r-workspace-dialog .r-dialog-close .r-icon{transform:rotate(45deg)}
+.r-workspace-dialog .r-field-label{font-size:13px;font-weight:500;display:block;margin:14px 0 6px}
+.r-workspace-dialog :is(input:not([type=checkbox]),select,textarea){display:block;width:100%;min-width:0;min-height:44px;border:1px solid var(--review-line);border-radius:11px;padding:10px 12px;background:var(--review-paper);color:var(--review-ink);font:inherit;line-height:1.35;box-sizing:border-box}
+.r-workspace-dialog select{padding-right:24px}
+.r-workspace-dialog :is(input,select):disabled{background:var(--review-highlight);color:var(--review-muted);opacity:1}
+.r-workspace-dialog .r-field-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.r-workspace-dialog .r-field-hint,.review-shell .r-field-hint{display:block;font-size:12px;line-height:1.5;color:var(--review-muted);margin:8px 0 0}
+.r-workspace-dialog .r-recipe-checklist{display:grid;gap:0;margin-top:10px;max-height:310px;overflow:auto;border:1px solid var(--review-line);border-radius:12px;padding:0 11px}
+.r-workspace-dialog .r-check-row{display:flex;align-items:center;gap:10px;min-height:45px;padding:10px 0;line-height:1.4;font-size:13px;text-align:left;border-bottom:1px solid var(--review-line)}
+.r-workspace-dialog .r-check-row:last-child{border-bottom:0}
+.r-workspace-dialog .r-check-row input{width:19px;height:19px;min-width:19px;margin:0;accent-color:var(--review-accent)}
+.r-workspace-dialog .r-check-row strong{display:block;font-weight:500;overflow-wrap:anywhere}
+.r-workspace-dialog .r-dialog-footer{display:flex;gap:10px;position:sticky;bottom:-20px;background:var(--review-paper);padding:17px 0 3px;margin-top:15px;border-top:1px solid var(--review-line)}
+.r-workspace-dialog .r-dialog-footer button{width:auto;flex:1;min-height:44px;padding:10px 12px;font-size:13px;margin:0;background:var(--review-accent)}
+.r-workspace-dialog .r-dialog-footer .r-secondary{background:var(--review-soft);color:var(--review-ink);flex:0 0 auto}
+.r-workspace-dialog button:disabled{opacity:.5;cursor:default}
+.r-workspace-dialog .r-form-error{background:var(--review-highlight);border:1px solid var(--review-line);border-radius:10px;padding:11px;font-size:13px;line-height:1.5;color:var(--review-ink);margin:14px 0 0}
+.r-workspace-dialog .r-form-error[hidden]{display:none}
+.r-workspace-dialog .r-choice-list{display:grid;gap:9px}
+.r-workspace-dialog .r-choice-list button{background:var(--review-highlight);color:var(--review-ink);border:1px solid var(--review-line);text-align:left;font-size:14px;line-height:1.4;min-height:46px}
+.r-workspace-dialog .r-auto-plan{display:grid;gap:16px;margin-top:16px}
+.r-workspace-dialog .r-auto-entry{border:1px solid var(--review-line);border-radius:13px;padding:0 12px 13px;background:var(--review-highlight)}
+@media(max-width:350px){.r-workspace-dialog{padding:17px;width:calc(100% - 20px)}.r-workspace-dialog .r-field-pair{gap:8px}.r-workspace-dialog .r-dialog-footer{bottom:-17px}.review-shell .r-shopping-item{gap:8px}.review-shell .r-shopping-tools button{font-size:11px}}

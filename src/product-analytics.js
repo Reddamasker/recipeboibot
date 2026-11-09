@@ -6,9 +6,10 @@ import { trialReminderReport } from './trial-reminders.js';
 import { trialDigestReport } from './trial-digest-store.js';
 import { catalogJourney, catalogJourneyPublicEvents, recordCatalogJourneyPublic, catalogJourneyReport, validCatalogJourneyReport } from './catalog-journey-analytics.js';
 import { catalogDetailPublicEvents, catalogDetailEventFields } from './catalog-detail-analytics.js';
+import { workspaceClientEvents, workspaceEventFields, workspaceSavedFields, workspaceReport, validWorkspaceReport } from './workspace-analytics.js';
 
 // No message text, queries, URLs, credentials, or provider payloads belong here.
-export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt'];
+export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt', ...workspaceClientEvents];
 const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
 export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, ...catalogJourneyPublicEvents, ...catalogDetailPublicEvents, 'client_error', 'telemetry_health'];
 export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
@@ -24,10 +25,16 @@ db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('tracking_si
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_benefits_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_latency_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('photo_imports_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
+export const workspaceTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_since'").get().value;
 let writeFailures = 0;
 export function recordProduct(userId, event, { id = randomUUID(), visitor = null, step = 'other', flowId = null, durationMs = null, detail = {}, at = new Date().toISOString() } = {}) {
   try {
+    if (event === 'workspace_saved') {
+      if (!userId) return false;
+      detail = workspaceSavedFields({ step, flowId, durationMs, detail });
+    }
     return Boolean(db.prepare('INSERT OR IGNORE INTO product_events VALUES(?,?,?,?,?,?,?,?,?)')
       .run(id, userId ? 'u:' + userId : 'v:' + visitor, userId || null, event, step, flowId, durationMs, JSON.stringify(detail), at).changes);
   } catch { writeFailures++; return false; } // Analytics must not break the product.
@@ -42,7 +49,7 @@ export function acceptProductEvents(userId, input) {
       || !steps.includes(row.step) || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
     if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
-    const detail = catalogDetailEventFields(row);
+    const detail = { ...catalogDetailEventFields(row), ...workspaceEventFields(row) };
     if (catalogJourneyPublicEvents.includes(row.event) && row.journey !== catalogJourney) return invalid();
     if (row.journey !== undefined) {
       if (userId || row.journey !== catalogJourney || row.step !== 'catalog' || !idPattern.test(row.flowId || '')) return invalid();
@@ -138,6 +145,7 @@ export function validProductReport(value, { legacy = false } = {}) {
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (value.latency != null && !validLatencyReport(value.latency)) return false;
+  if (value.workspace != null && !validWorkspaceReport(value.workspace)) return false;
   if (value.catalogJourney != null && !validCatalogJourneyReport(value.catalogJourney)) return false;
   if (value.photoImports != null) {
     const r = value.photoImports, t = r.assemblyTiming;
@@ -364,7 +372,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
   }
-  return { platform: config.botPlatform, trackingSince: productTrackingSince(), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
+  return { platform: config.botPlatform, trackingSince: productTrackingSince(), workspace:workspaceReport(events, workspaceTrackingSince()), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
     imports:groupStatuses(imports),photoImports,notifications:groupStatuses(notifications), trialReminders:config.botPlatform === 'max' ? null : trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
     catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),
