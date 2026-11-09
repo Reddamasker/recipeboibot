@@ -67,7 +67,7 @@ export function dashboardFunnelReport(slug = 'all') {
   report.campaigns = report.campaigns.map(campaign => ({ ...campaign, statsSource: imported.get(campaign.slug) ? 'direct' : 'manual',
     ...(campaign.slug === MAX_AD_PLACEMENT ? { link: maxAdvertisingLink(), platform: 'max' } : {}),
     ...(campaign.slug === RECIPE_FIRST_PLACEMENT ? { link: recipeFirstAdvertisingLink() } : {}),
-    ...(campaign.slug === 'ya-product-landing-202611' ? { link: new URL('/?campaign=ya-product-landing-202611', config.appUrl).href } : {}) }));
+    ...(campaign.slug === 'ya-product-landing-202611' ? { link: 'https://dishfinder.ru/?campaign=ya-product-landing-202611' } : {}) }));
   const scope = report.campaign ? [report.campaign] : report.campaigns;
   const hasDirect = scope.some(campaign => imported.get(campaign.slug));
   report.clickSource = hasDirect ? 'direct' : 'link';
