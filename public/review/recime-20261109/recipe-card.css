@@ -95,6 +95,8 @@
 .rc-warnings{padding:14px 15px;border-bottom:1px solid var(--review-line);font-size:13px}
 .rc-warnings ul{padding:10px 0 0 18px}
 .rc-chat-answer{white-space:pre-wrap;line-height:1.6;max-height:45dvh;overflow:auto;margin:14px 0;padding:14px;background:var(--review-highlight);border-radius:12px}
+.rc-card-dialog .sheet-head>[data-close]{display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;min-height:42px;padding:10px;border-radius:50%}
+.rc-card-dialog .sheet-head>[data-close] .r-icon{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;transform:rotate(45deg)}
 .rc-save-feedback{position:fixed;z-index:8;left:max(16px,calc((100vw - 590px)/2 + 16px));right:max(85px,calc((100vw - 590px)/2 + 85px));bottom:calc(16px + env(safe-area-inset-bottom));border-radius:12px;padding:12px;background:var(--review-ink);color:var(--review-paper);font:400 13px/1.4 ReviewInter,Arial,sans-serif;box-shadow:0 4px 16px #3025371a;text-align:center}
 .rc-save-feedback+.rc-save-feedback{bottom:calc(72px + env(safe-area-inset-bottom))}
 @media(min-width:520px){.rc-hero{height:340px}.rc-heading{padding-top:30px}.rc-heading h1{font-size:30px}.rc-section,.rc-personal{padding-inline:22px}.rc-ingredient,.rc-step-list>li{font-size:17px}}
