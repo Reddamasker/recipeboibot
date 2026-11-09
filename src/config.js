@@ -60,6 +60,8 @@ export const config = Object.freeze({
   yandexDirectPlacement: process.env.YANDEX_DIRECT_PLACEMENT || 'ya-dinner-202610',
   telegramPolling: botPlatform === 'telegram' && process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',
+  chatRecipeGenerationEnabled: process.env.CHAT_RECIPE_GENERATION_ENABLED
+    ? process.env.CHAT_RECIPE_GENERATION_ENABLED !== 'false' : process.env.TEST_CONTOUR !== 'true',
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
   testPriceVariants: csvIntegers('TEST_PRICE_VARIANTS', '129'),
   billingRequired: process.env.BILLING_REQUIRED === 'true',

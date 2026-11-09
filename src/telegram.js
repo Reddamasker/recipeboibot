@@ -57,6 +57,14 @@ async function telegram(method, body = {}) {
 
 const send = (chatId, text, extra = {}) => telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...(Number(chatId) > 0 ? { reply_markup: { remove_keyboard: true } } : {}), ...extra });
 
+async function sendChatGenerationDisabled(chatId, userId, { refused = true, groupMode = false } = {}) {
+  identifyProductUser(userId);
+  if (refused) { identifyProductStep('request'); productError(403); }
+  const url = groupMode ? null : webAppUrl({ view: 'collection' });
+  await send(chatId, 'ИИ-генерация рецептов по запросу в чате отключена. Можно открыть коллекцию или прислать ссылку, фото либо готовый текст рецепта для сохранения.', url
+    ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть коллекцию', web_app: { url } }]] } } : {});
+}
+
 const awaitingFirstRecipe = (userId) => Boolean(userId && isFirstRecipeAwaitingTrial(userId) && !getSubscriptionAccess(userId).active);
 function firstRecipeBenefitsMarkup() {
   const url = webAppUrl({ view: 'benefits' });
@@ -221,6 +229,7 @@ function currentDinnerIntake(userId) {
   return normalizeDinnerIntake({ ...profile, maxMinutes: profile.preferredMaxCookingTime, availableIngredients: getDinnerContext(userId), requestedCategories: getDinnerRequestCategories(userId), mealRequest: getDinnerMealRequest(userId) });
 }
 function prepareDinner(userId) {
+  if (!config.chatRecipeGenerationEnabled) return null;
   try {
     const session = startDinner(userId, { prefetchOnly: true });
     if (!session.needsOnboarding && getSubscriptionAccess(userId).active) prefetchDinner(userId, session.sessionId);
@@ -232,6 +241,7 @@ function prepareDinner(userId) {
 }
 async function sendDinnerEntry(chatId, userId, { skipOnboarding = false, firstStart = false } = {}) {
   if (hasCatalogFirstRecipe(userId)) { await sendCatalogContinuation(chatId, userId, latestPublicCatalogRecipe(userId)); return true; }
+  if (!config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, userId, { refused: false }); return true; }
   if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return true; }
   if (userId && !skipOnboarding && !getFoodProfile(userId).onboardingCompleted) {
     const pending = getPendingIntent(userId);
@@ -261,6 +271,7 @@ function dinnerUnavailableMarkup() {
   return { inline_keyboard: [[{ text: 'Рецепты пока не готовы', callback_data: 'dinner:unavailable' }]] };
 }
 export async function revealDinnerButton(chatId, messageId, userId, sessionId) {
+  if (!config.chatRecipeGenerationEnabled) return;
   if (!messageId || !sessionId) return;
   const finishAwaiting = async () => {
     await sendFirstRecipeBenefits(chatId, userId);
@@ -297,6 +308,7 @@ export async function sendDinnerProfilePrompt(chatId, userId) {
   await sendDinnerIntakePrompt(chatId, userId, { profileOnly: true });
 }
 async function sendDinnerIntakePrompt(chatId, userId, { profileOnly = false, firstStart = false } = {}) {
+  if (!config.chatRecipeGenerationEnabled && !profileOnly) { await sendChatGenerationDisabled(chatId, userId); return; }
   const pending = getPendingIntent(userId);
   const intake = pending?.intake || currentDinnerIntake(userId);
   setPendingIntent(userId, { kind: 'dinner-intake', intake, profileOnly, ingredientsFirst: firstStart || Boolean(pending?.ingredientsFirst) });
@@ -395,6 +407,7 @@ async function skipDinnerIntake(chatId, userId, pending) {
   else clearDinnerContext(userId);
   clearPendingIntent(userId);
   prepareDinner(userId);
+  if (!config.chatRecipeGenerationEnabled) await sendChatGenerationDisabled(chatId, userId);
 }
 
 export async function handleDinnerIntakeCallback(callback) {
@@ -446,6 +459,7 @@ export async function handleDinnerIntakeCallback(callback) {
   const dinnerSession = prepareDinner(user.id);
   clearPendingIntent(user.id);
   await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: 'Ответы сохранены' });
+  if (!config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, user.id); return true; }
   const replyMarkup = dinnerPreparingMarkup();
   let messageId = callback.message.message_id;
   try {
@@ -599,7 +613,7 @@ function dialogueButtons(userId, dialogue) {
   // Keep explicit save/skip semantics for generated proposals.
   if (dialogue.suggestionId && !dialogue.savedRecipeId && !dialogue.notSaved) rows.push([{ text: 'Сохранить', callback_data: `suggest:save:${dialogue.suggestionId}` }, { text: 'Не сохранять', callback_data: `suggest:skip:${dialogue.suggestionId}` }]);
   else if (!dialogue.suggestionId && !getRecipe(userId, dialogue.recipe.id)) rows.push([{ text: 'Сохранить', callback_data: `dialog:save:${dialogue.id}` }]);
-  if (!dialogue.retired) {
+  if (!dialogue.retired && config.chatRecipeGenerationEnabled) {
     rows.push([{ text: 'Не хочу', callback_data: `dialog:refuse:${dialogue.id}` }, { text: 'Другой вариант', callback_data: `dialog:other:${dialogue.id}` }]);
     rows.push([{ text: 'Изменить пожелания', callback_data: `dialog:edit:${dialogue.id}` }]);
   }
@@ -688,6 +702,7 @@ function captureDinnerDialogue(userId, recipe) {
 }
 
 async function sendSearchResults(chatId, user, query, { groupMode = false, sourceType = 'text', dialogue: previous = null, mealRequest = null, rejectedRecipes = [], feedbackText = null } = {}) {
+  if (!groupMode && !config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, user.id); return []; }
   const normalizedQuery = String(query).replace(/^\/?(?:find|search|найди|найти|покажи|подбери|подобрать|посоветуй)(?:\s+|$)/iu, '').trim();
   if (!normalizedQuery) { await send(chatId, 'Напишите, что хотите приготовить. Например: «Найди ужин с курицей».'); return []; }
   if (!groupMode) {
@@ -720,6 +735,7 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
   }
   const results = searchRecipes(user.id, normalizedQuery).filter((recipe) => recipe.status === 'ready').slice(0, 8);
   if (!results.length) {
+    if (!config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, user.id, { groupMode }); return []; }
     const offerId = createSearchOffer(user.id, normalizedQuery);
     await send(chatId, `В ${groupMode ? 'коллекции владельца группы' : 'вашей коллекции'} ничего подходящего для «<b>${escapeHtml(normalizedQuery)}</b>» нет. Создать новый рецепт по этому запросу или поискать ещё?${groupMode ? '\nВыбрать может только владелец коллекции.' : ''}`, { reply_markup: { inline_keyboard: [[{ text: 'Создать новый рецепт', callback_data: `offer:create:${offerId}` }], [{ text: 'Поищу ещё', callback_data: `offer:skip:${offerId}` }]] } });
     return [];
@@ -791,6 +807,7 @@ async function applyDialogueAction(chatId, user, dialogue, decision, text) {
   }
   if (decision.action === 'reset') {
     clearRecipeDialogue(user.id); clearPendingIntent(user.id);
+    if (!config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, user.id); return; }
     await send(chatId, 'Начнём новый подбор. Что хотите приготовить?'); return;
   }
   if (decision.action === 'new') {
@@ -824,6 +841,9 @@ async function applyDialogueAction(chatId, user, dialogue, decision, text) {
 
 async function handleRecipeDialogueText(chatId, user, text, dialogue) {
   let decision = localDialogueAction(text);
+  if (!config.chatRecipeGenerationEnabled && !['save', 'skip-save', 'reset', 'preference'].includes(decision?.action)) {
+    await sendChatGenerationDisabled(chatId, user.id); return;
+  }
   if (dialogue.awaitingEdit === 'missing' && !decision) decision = localDialogueAction(`без ${text}`);
   try {
     if (!decision) {
@@ -855,6 +875,10 @@ export async function handleRecipeDialogueCallback(callback) {
   }
   const active = getRecipeDialogue(user.id);
   const action = match[1], readOrSave = ['open', 'save'].includes(action);
+  if (!config.chatRecipeGenerationEnabled && !readOrSave && action !== 'cancel') {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+    await sendChatGenerationDisabled(chatId, user.id); return true;
+  }
   const reason = ['slow', 'missing', 'recent', 'dislike'].includes(action);
   const fromPrompt = dialogue.promptMessageId && callback.message.message_id === dialogue.promptMessageId;
   const staleCard = dialogue.messageId && callback.message.message_id !== dialogue.messageId && !fromPrompt;
@@ -903,6 +927,10 @@ export async function handleSuggestionCallback(callback) {
     return;
   }
   const userId = groupMode ? owner.owner_user_id : owner.id;
+  if (!config.chatRecipeGenerationEnabled && match[1] === 'offer' && match[2] === 'create') {
+    await telegram('answerCallbackQuery', { callback_query_id: callback.id });
+    await sendChatGenerationDisabled(chat.id, userId, { groupMode }); return;
+  }
   if (awaitingFirstRecipe(userId)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chat.id, userId); return; }
   const proposal = match[1] === 'offer' ? getSearchOffer(userId, match[3]) : getRecipeSuggestion(userId, match[3]);
   if (!proposal) {
@@ -1313,11 +1341,13 @@ export async function handleMessage(message) {
   if (saveEntry?.kind === 'recipe-save' && (text === '/dinner' || text === '/ingredients')) restoreAfterRecipeSave(user.id, saveEntry);
   if (text === '/ingredients') { await sendDinnerIntakePrompt(chatId, user.id); return; }
   if (text === '/dinner') {
+    if (!config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, user.id); return; }
     clearRecipeDialogue(user.id); clearPendingIntent(user.id);
     await send(chatId, 'Подборка из трёх рецептов с учётом ваших вкусов и ограничений.', { reply_markup: dinnerWebAppMarkup() });
     return;
   }
   if (text === '/find') {
+    if (!config.chatRecipeGenerationEnabled) { await sendChatGenerationDisabled(chatId, user.id); return; }
     clearRecipeDialogue(user.id); clearPendingIntent(user.id);
     await send(chatId, 'Надиктуйте голосовым сообщением, какое блюдо хотите приготовить. Можно написать название текстом.');
     return;
@@ -1330,6 +1360,9 @@ export async function handleMessage(message) {
     }
     clearPendingIntent(user.id); clearRecipeDialogue(user.id);
     await send(chatId, 'Подбор отменён. Можно начать новый через «Хочу конкретное блюдо».'); return;
+  }
+  if (text === '/help' && !config.chatRecipeGenerationEnabled) {
+    await send(chatId, 'ИИ-генерация по запросу в чате отключена. /collection — открыть коллекцию; /save — сохранить готовый рецепт из ссылки, фото, текста или голосового сообщения; /preferences — изменить предпочтения.'); return;
   }
   if (text === '/help') { await send(chatId, 'Выберите действие в меню: «Что на сегодня» — подборка из трёх рецептов, «Хочу конкретное блюдо» — назовите блюдо голосом или текстом, «Мои рецепты» — сохранённая коллекция. После предложения можно написать «другой вариант», «без риса», «быстрее», «на троих» или задать вопрос о рецепте. Условия подбора сохраняются. Ссылку, фото или подробный текст с ингредиентами и шагами сохраняю как рецепт. Можно явно написать «Сохрани рецепт: …» или «Найди …».'); return; }
   if (text === '/usage') { await send(chatId, usageMessage(user.id)); return; }
@@ -1345,6 +1378,7 @@ export async function handleMessage(message) {
 
   let content = { text, sourceType: 'text', sourceKey: undefined, url: extractSharedUrl(text) };
   if (message.voice || message.audio) {
+    if (!config.chatRecipeGenerationEnabled && !savingRecipe) { await sendChatGenerationDisabled(chatId, user.id); return; }
     try {
       await telegram('sendChatAction', { chat_id: chatId, action: 'typing' });
       content = { ...(await interpretVoice(message, user)), sourceType: 'audio', url: null };
