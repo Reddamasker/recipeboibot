@@ -206,8 +206,11 @@ def ensure_new(slug):
     run(['docker','exec','recipeboibot-test','node','-e',source,slug])
 
 def save_rollback(folder, old, new):
-    write_json(folder/'menu-before.json',old)
-    write_json(folder/'menu-review.json',new)
+    saved=((folder/'menu-before.json',old),(folder/'menu-review.json',new))
+    for file,value in saved:
+        if file.exists() and json.loads(file.read_text())!=value:raise RuntimeError('Stored rollback menu differs; refusing to overwrite')
+    for file,value in saved:
+        if not file.exists():write_json(file,value)
     # Both JSON objects are public UI settings. Credentials are read only inside the test container.
     rollback='''import json,pathlib,subprocess,sys
 folder=pathlib.Path(__file__).parent

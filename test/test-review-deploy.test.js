@@ -78,7 +78,7 @@ test('remote validator and saved rollback reject unsafe bundles and concurrent m
   const shell=fs.readFileSync('deploy/apply-test-review.sh','utf8').replace(/\r\n?/g,'\n');
   const source=shell.split("python3 - <<'PY'\n")[1].split('\nPY')[0];
   const check=String.raw`
-import contextlib,hashlib,io,json,pathlib,subprocess,sys,tarfile,tempfile,types
+import contextlib,hashlib,io,json,os,pathlib,subprocess,sys,tarfile,tempfile,types
 scope={'__name__':'validator_test'}
 exec(compile(sys.stdin.read(),'apply-test-review.sh','exec'),scope)
 slug='recime-20261109'; data=b'<html>review</html>'
@@ -112,6 +112,12 @@ with tempfile.TemporaryDirectory() as directory:
  old={'type':'web_app','text':'Menu','web_app':{'url':'https://test.invalid/old'}}
  new={'type':'web_app','text':'Menu','web_app':{'url':'https://test.invalid/review'}}
  scope['save_rollback'](folder,old,new)
+ for name in ['menu-before.json','menu-review.json']:os.utime(folder/name,ns=(1000000000,1000000000))
+ scope['save_rollback'](folder,old,new)
+ for name in ['menu-before.json','menu-review.json']:assert (folder/name).stat().st_mtime_ns==1000000000
+ try:scope['save_rollback'](folder,{'type':'commands'},new)
+ except RuntimeError:pass
+ else:raise AssertionError('Original menu backup was overwritten')
  current=[new];writes=[]
  previous_run=subprocess.run
  def fake_run(args,**kwargs):
