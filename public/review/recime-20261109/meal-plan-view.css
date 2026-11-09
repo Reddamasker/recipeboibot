@@ -29,9 +29,9 @@
 .review-shell .mp-day-add{display:grid;place-items:center;flex-shrink:0;width:34px;height:40px;padding:8px;border:0;background:transparent;margin-right:-6px}
 .review-shell .mp-day-add .mp-icon{width:21px;height:21px;stroke-width:1.5}
 .review-shell .mp-day-empty{min-height:86px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:var(--review-muted);padding:20px 15px}
-.review-shell .mp-entry{position:relative;isolation:isolate;overflow:hidden;min-height:var(--mp-row-height);background:var(--review-highlight);--mp-offset:0px}
+.review-shell .mp-entry{position:relative;isolation:isolate;overflow:hidden;min-height:var(--mp-row-height);background:var(--review-highlight);--mp-offset:0px;touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .review-shell .mp-entry+.mp-entry{border-top:1px solid var(--review-line)}
-.review-shell .mp-surface{position:relative;z-index:1;background:var(--review-paper);transform:translateX(var(--mp-offset));transition:transform .2s ease;touch-action:pan-y pinch-zoom;min-height:var(--mp-row-height);user-select:none;-webkit-user-select:none}
+.review-shell .mp-surface{position:relative;z-index:1;background:var(--review-paper);transform:translate3d(var(--mp-offset),0,0);transition:transform .18s ease-out;touch-action:pan-y pinch-zoom;min-height:var(--mp-row-height);user-select:none;-webkit-user-select:none}
 .review-shell .mp-entry.is-dragging .mp-surface{transition:none;cursor:grabbing}
 .review-shell .mp-entry-open{display:flex;align-items:flex-start;gap:12px;width:100%;min-height:var(--mp-row-height);padding:14px 15px;border:0;background:transparent;text-align:left;touch-action:pan-y pinch-zoom}
 .review-shell .mp-entry-open:disabled{opacity:1;color:var(--review-muted)}

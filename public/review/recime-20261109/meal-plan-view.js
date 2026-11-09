@@ -59,7 +59,7 @@
     mounts.get(root)?.();
     const view = root.matches?.('.mp-view') ? root : root.querySelector('.mp-view');
     if (!view) return () => {};
-    let open = null, pointer = null, suppressed = null, suppressUntil = 0, disposed = false;
+    let open = null, pointer = null, frame = null, suppressed = null, suppressUntil = 0, disposed = false;
     const lane = (row, side) => row.querySelector(side > 0 ? '.mp-actions--before' : '.mp-actions--after');
     const offset = row => Number(row.dataset.mpOffset || 0);
     function setPosition(row, value, dragging = false) {
@@ -86,54 +86,86 @@
       setPosition(row,side * width);access(row,side);row.classList.add('is-open');open = row;
       if (focus) lane(row,side).querySelector('button:not(:disabled)')?.focus({preventScroll:true});
     }
+    function sample(active, event) {
+      const time = Number.isFinite(event.timeStamp) ? event.timeStamp : performance.now();
+      active.samples.push({x:event.clientX,time});
+      active.samples = active.samples.filter(point => point.time >= time - 120).slice(-48);
+    }
+    function destination(active) {
+      const value = active.value, side = Math.sign(value), dx = active.lastX-active.x;
+      const first = active.samples[0], last = active.samples.at(-1);
+      const travel = last.x-first.x, elapsed = last.time-first.time;
+      const fast = elapsed > 0 && Math.abs(travel) >= 14 && Math.abs(travel/elapsed) >= .4;
+      const direction = Math.sign(fast ? travel : dx);
+      // Opening either lane takes the same movement, irrespective of how many
+      // buttons it contains. An intentional reverse swipe closes an open lane.
+      if (active.side) {
+        if (direction === -active.side && (Math.abs(dx) >= 32 || fast)) {
+          return side === -active.side && Math.abs(value) >= 32 ? side : 0;
+        }
+        return active.side;
+      }
+      if (fast && direction !== side) return 0;
+      return side && (Math.abs(value) >= 32 || fast && Math.abs(value) >= 18) ? side : 0;
+    }
+    function paint() {
+      frame = null;
+      if (pointer?.horizontal) setPosition(pointer.row,pointer.value,true);
+    }
     function release(cancel = false) {
       const active = pointer; pointer = null;
+      if (frame !== null) {cancelAnimationFrame(frame);frame = null;}
       if (!active) return;
+      if (active.moved) {suppressed = active.row;suppressUntil = performance.now() + 500;}
       if (active.horizontal) {
-        suppressed = active.row; suppressUntil = performance.now() + 500;
-        if (cancel) reveal(active.row,0);
-        else {
-          const value = offset(active.row), side = Math.sign(value), width = side ? lane(active.row,side).getBoundingClientRect().width : 0;
-          const fast = Math.abs(active.lastX-active.x) > 18 && Math.abs(active.lastX-active.x) / Math.max(1,performance.now()-active.at) > .45;
-          reveal(active.row,side && (Math.abs(value) > width*.35 || fast) ? side : 0);
-        }
+        reveal(active.row,cancel ? 0 : destination(active));
       }
-      if (active.surface.hasPointerCapture?.(active.id)) active.surface.releasePointerCapture(active.id);
+      if (active.row.hasPointerCapture?.(active.id)) active.row.releasePointerCapture(active.id);
     }
     function down(event) {
-      if (event.isPrimary === false || event.button !== 0 || event.target.closest('[data-mp-more]')) return;
-      const surface = event.target.closest('.mp-surface'), row = surface?.closest('.mp-entry');
+      if (event.isPrimary === false) {release(true);return;}
+      if (event.button !== 0 || event.target.closest('[data-mp-more]')) return;
+      const row = event.target.closest('.mp-entry'), surface = row?.querySelector('.mp-surface');
       if (!row || !view.contains(row)) return;
       release(true);if(open && open !== row)close();
-      pointer = {id:event.pointerId,surface,row,x:event.clientX,y:event.clientY,lastX:event.clientX,start:offset(row),at:performance.now(),horizontal:false};
+      // Read geometry once. The surface may still be animating from the last
+      // gesture; picking it up must continue from its visible position.
+      const start = surface.getBoundingClientRect().left-row.getBoundingClientRect().left;
+      pointer = {id:event.pointerId,row,x:event.clientX,y:event.clientY,lastX:event.clientX,start,value:start,
+        side:open === row ? Math.sign(offset(row)) : 0,
+        min:-lane(row,-1).getBoundingClientRect().width,max:lane(row,1).getBoundingClientRect().width,
+        horizontal:false,moved:false,samples:[]};
+      sample(pointer,event);suppressed = null;suppressUntil = 0;
     }
-    function move(event) {
+    function move(event, ending = false) {
       if (!pointer || event.pointerId !== pointer.id) return;
       const dx = event.clientX-pointer.x, dy = event.clientY-pointer.y;
+      sample(pointer,event);pointer.lastX = event.clientX;
+      if (Math.max(Math.abs(dx),Math.abs(dy)) >= 10) pointer.moved = true;
       if (!pointer.horizontal) {
-        if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {release(true);close();return;}
-        if (Math.abs(dx) < 9 || Math.abs(dx) < Math.abs(dy)*1.2) return;
-        pointer.horizontal = true;pointer.surface.setPointerCapture?.(event.pointerId);
+        if (Math.abs(dy) >= 12 && Math.abs(dy) > Math.abs(dx)*1.25) {release(true);close();return;}
+        if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)*1.15) return;
+        pointer.horizontal = true;
+        if (!ending) pointer.row.setPointerCapture?.(event.pointerId);
       }
-      if (event.cancelable) event.preventDefault();
-      pointer.lastX = event.clientX;
-      const min = -lane(pointer.row,-1).getBoundingClientRect().width, max = lane(pointer.row,1).getBoundingClientRect().width;
-      setPosition(pointer.row,Math.max(min,Math.min(max,pointer.start+dx)),true);
+      pointer.value = Math.max(pointer.min,Math.min(pointer.max,pointer.start+dx));
+      if (!ending && frame === null) frame = requestAnimationFrame(paint);
     }
-    function up(event) {if(pointer?.id === event.pointerId)release(false);}
+    function up(event) {if(pointer?.id === event.pointerId){move(event,true);release(false);}}
     function cancel(event) {if(pointer?.id === event.pointerId)release(true);}
     // Touch initially captures the hit element. Moving that capture to the
-    // sliding surface emits a loss on the old child, which is not cancellation.
-    function lostCapture(event) {if(pointer?.id === event.pointerId && event.target === pointer.surface)release(true);}
+    // fixed row emits a loss on the old child, which is not cancellation.
+    function lostCapture(event) {if(pointer?.id === event.pointerId && event.target === pointer.row)release(true);}
     function click(event) {
       const row = event.target.closest('.mp-entry');
       if (!row || !view.contains(row)) return;
       if (event.target.closest('[data-mp-more]')) {
         event.preventDefault();event.stopImmediatePropagation();reveal(row,open === row ? 0 : -1,true);return;
       }
-      if (event.target.closest('.mp-surface') && (row === suppressed && performance.now() < suppressUntil && event.detail !== 0 || open === row)) {
+      const dragged = row === suppressed && performance.now() < suppressUntil && (event.detail !== 0 || Boolean(event.pointerType));
+      if (dragged || event.target.closest('.mp-surface') && open === row) {
         event.preventDefault();event.stopImmediatePropagation();
-        if (!(row === suppressed && performance.now() < suppressUntil)) close();
+        if (!dragged) close();
         suppressed = null;return;
       }
       if (event.target.closest('.mp-swipe-action')) close();
@@ -146,7 +178,7 @@
     const outside = event => {if(open && !open.contains(event.target))close();};
     const reset = () => {release(true);close();};
     const hidden = () => {if(document.hidden)reset();};
-    const listeners = [[view,'pointerdown',down],[view,'pointermove',move,{passive:false}],[view,'pointerup',up],[view,'pointercancel',cancel],
+    const listeners = [[view,'pointerdown',down],[view,'pointermove',move,{passive:true}],[view,'pointerup',up],[view,'pointercancel',cancel],
       [view,'lostpointercapture',lostCapture],[view,'click',click,true],[view,'keydown',keyboard],[document,'pointerdown',outside,true],[window,'resize',reset],[document,'visibilitychange',hidden]];
     listeners.forEach(([target,type,fn,options]) => target.addEventListener(type,fn,options));
     const dispose = () => {if(disposed)return;disposed = true;reset();listeners.forEach(([target,type,fn,options]) => target.removeEventListener(type,fn,options));if(mounts.get(root) === dispose)mounts.delete(root);};
