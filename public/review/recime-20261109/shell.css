@@ -179,6 +179,19 @@ body:has(.review-shell){background:var(--review-bg)}
 .review-shell .r-shopping-item.is-checked small{opacity:.65}
 .r-workspace-dialog{max-height:calc(100dvh - 28px);overflow:auto;padding:20px;margin:auto;color:var(--review-ink);background:var(--review-paper);overscroll-behavior:contain}
 .r-workspace-dialog form{margin:0;display:block}
+.r-catalog-picker .r-picker-search{display:flex;gap:8px;margin-bottom:14px}
+.r-catalog-picker .r-picker-search input{flex:1;width:0}
+.r-catalog-picker .r-picker-search button{width:auto;margin:0;padding:10px 13px}
+.r-catalog-picker [data-picker-results]{display:grid;gap:0;max-height:40dvh;overflow:auto}
+.r-catalog-picker .r-picker-recipe{display:grid;grid-template-columns:19px 52px minmax(0,1fr);align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--review-line);font-size:13px;cursor:pointer}
+.r-catalog-picker .r-picker-recipe input{width:19px;min-height:19px;height:19px;margin:0;padding:0;accent-color:var(--review-accent)}
+.r-catalog-picker .r-picker-recipe img{width:52px;height:62px;object-fit:cover;border-radius:9px;background:var(--review-soft)}
+.r-catalog-picker .r-picker-recipe strong{font-weight:500;display:block;overflow-wrap:anywhere;line-height:1.4}
+.r-catalog-picker .r-picker-recipe small{display:block;color:var(--review-muted);margin-top:4px}
+.r-catalog-picker .r-picker-pages{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;font-size:12px}
+.r-catalog-picker .r-picker-pages button{width:auto;min-height:36px;margin:0;padding:7px 12px;background:var(--review-soft);color:var(--review-ink)}
+.r-catalog-picker .r-picker-confirmation{font-size:13px;line-height:1.5;background:var(--review-highlight);padding:10px;border-radius:9px;margin-top:9px}
+.r-catalog-picker [hidden]{display:none!important}
 .r-workspace-dialog .r-icon{display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .r-workspace-dialog .r-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:17px}
 .r-workspace-dialog .r-dialog-head h2{margin:2px 0 0;overflow-wrap:anywhere}

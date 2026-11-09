@@ -42,7 +42,7 @@ import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from '
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 import { telegramOpenDocument } from './telegram-open.js';
 import { catalogSearch, catalogRecipe } from './web-catalog.js';
-import { isPublicCatalogRecipe } from './catalog-handoff.js';
+import { isPublicCatalogRecipe, saveCatalogRecipeForUser } from './catalog-handoff.js';
 import { createCatalogHandoff, catalogHandoffPublicKey, verifyCatalogEnvelope, catalogHandoffResolveForTarget, acceptCatalogHandoffOutcome, registerCatalogAcquisitionVisit } from './catalog-handoff-transport.js';
 import { withEngagementReceipts, acknowledgeEngagement, recordEngagement } from './recipe-engagement.js';
 import { acceptProductEvents, apiStep, identifyProductUser, productOperation, recordProduct } from './product-analytics.js';
@@ -54,6 +54,7 @@ const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript
 const rate = new Map();
 let webDocument;
 const recipeWorkspace = createRecipeWorkspace(db, {
+  saveCatalogRecipe: saveCatalogRecipeForUser,
   getRecipe(userId, id) {
     assertFirstRecipeReadable(userId, { recipeId: id });
     return getRecipe(userId, id);

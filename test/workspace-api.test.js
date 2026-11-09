@@ -13,6 +13,8 @@ Object.assign(process.env, { DATABASE_PATH: file, BOT_PLATFORM: platform, TEST_C
 const { db, upsertTelegramUser, allowUser, createRecipe, getRecipe, deleteUserData } = await import('../src/db.js');
 const { createServer } = await import('../src/server.js');
 const { makeTelegramInitData } = await import('../src/security.js');
+const { getTrialStatus, requireDinnerEntry, stageFirstRecipe, getPendingFirstRecipe, isFirstRecipeAwaitingTrial } = await import('../src/subscriptions.js');
+const { isPublicCatalogRecipe } = await import('../src/catalog-handoff.js');
 let server, base, serial = 719300000;
 function account() {
   const telegram = { id: serial++, first_name: 'Workspace API fixture' };
@@ -73,6 +75,90 @@ test('workspace recipe use respects first-recipe lock and never alters originals
   assert.deepEqual(getRecipe(a.user.id, saved.id), original);
   deleteUserData(a.user.id);
   assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
+});
+
+test('an empty library can save a catalog recipe and use it for meals and groceries without trial or AI', async () => {
+  const a = account(), previousFetch = globalThis.fetch;
+  const providerRequests = db.prepare('SELECT COUNT(*) n FROM provider_requests').get().n;
+  const reservations = db.prepare('SELECT COUNT(*) n FROM ai_reservations').get().n;
+  globalThis.fetch = (url, options) => {
+    assert.equal(new URL(url).origin, base, 'catalog saving must make no external network or AI request');
+    return previousFetch(url, options);
+  };
+  try {
+    const save = command(0, 'collections.saveCatalog', { catalogId: 'pasta-tomato' });
+    const first = await request(a, save), id = first.operation.result.recipeId;
+    assert.ok(id); assert.equal(first.version, 1);
+    assert.deepEqual(first.operation.result, { changed: true, count: 1, recipeId: id });
+    assert.equal(isPublicCatalogRecipe(a.user.id, id), true);
+    const original = getRecipe(a.user.id, id);
+    assert.ok(original.ingredients.length && original.steps.length);
+    const replay = await request(a, save);
+    assert.equal(replay.operation.replayed, true); assert.equal(replay.operation.result.recipeId, id);
+    const repeated = await request(a, command(1, 'collections.saveCatalog', { catalogId: 'pasta-tomato' }));
+    assert.equal(repeated.version, 1); assert.equal(repeated.operation.result.changed, false);
+    assert.equal(repeated.operation.result.recipeId, id);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM recipes WHERE user_id=?').get(a.user.id).n, 1);
+    let snapshot = await request(a, command(1, 'plan.add', { recipeId: id, date: '2026-11-10', meal: 'dinner', servings: 4 }));
+    snapshot = await request(a, command(snapshot.version, 'groceries.fromPlan', { entryIds: [snapshot.plan[0].id] }));
+    assert.ok(snapshot.groceries.items.length); assert.equal(snapshot.groceries.sources[0].recipeId, id);
+    assert.deepEqual(getRecipe(a.user.id, id), original);
+    db.prepare("UPDATE recipes SET status='archived' WHERE id=?").run(id);
+    const restored = await request(a, command(snapshot.version, 'collections.saveCatalog', { catalogId: 'pasta-tomato' }));
+    assert.equal(restored.version, snapshot.version + 1); assert.equal(restored.operation.result.changed, true);
+    assert.equal(restored.operation.result.recipeId, id); assert.equal(getRecipe(a.user.id, id).status, 'ready');
+    assert.equal(getTrialStatus(a.user.id).used, false);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM provider_requests').get().n, providerRequests);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM ai_reservations').get().n, reservations);
+    const savedEvents = db.prepare("SELECT detail_json FROM product_events WHERE user_id=? AND event='workspace_saved' AND detail_json LIKE '%saveCatalog%'").all(a.user.id);
+    assert.equal(savedEvents.length, 3, 'replay adds no server analytics event');
+    assert.ok(savedEvents.every(row => row.detail_json === JSON.stringify({ feature: 'collections', action: 'collections.saveCatalog' })));
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('catalog grants leave a different first recipe locked and never cross user accounts', async () => {
+  const a = account(), b = account();
+  requireDinnerEntry(a.user.id);
+  const locked = recipe(a.user);
+  stageFirstRecipe(a.user.id, { recipe: locked, recipeId: locked.id, source: 'request' });
+  const pending = getPendingFirstRecipe(a.user.id);
+  const save = command(0, 'collections.saveCatalog', { catalogId: 'pasta-tomato' });
+  const first = await request(a, save), id = first.operation.result.recipeId;
+  assert.equal(isFirstRecipeAwaitingTrial(a.user.id), true);
+  assert.deepEqual(getPendingFirstRecipe(a.user.id), pending);
+  await request(a, command(first.version, 'plan.add', { recipeId: locked.id, date: '2026-11-10', meal: 'dinner' }), 402);
+  const groceries = await request(a, command(first.version, 'groceries.fromRecipe', { recipeId: id }));
+  assert.ok(groceries.groceries.items.length);
+  await request(b, command(0, 'groceries.fromRecipe', { recipeId: id }), 404);
+  const other = await request(b, save);
+  assert.notEqual(other.operation.result.recipeId, id); assert.equal(other.operation.replayed, false);
+  assert.equal(getRecipe(b.user.id, id), null); assert.equal(isPublicCatalogRecipe(b.user.id, id), false);
+  assert.equal(getTrialStatus(a.user.id).used, false); assert.equal(getTrialStatus(b.user.id).used, false);
+});
+
+test('catalog saving rejects unknown ids and client recipe contents before writing', async () => {
+  const a = account();
+  for (const catalogId of [null, 123, '../private', ' pasta-tomato', 'https://example.test/recipe'])
+    await request(a, command(0, 'collections.saveCatalog', { catalogId }), 400);
+  await request(a, command(0, 'collections.saveCatalog', { catalogId: 'missing-catalog-recipe' }), 404);
+  await request(a, command(0, 'collections.saveCatalog', { catalogId: 'pasta-tomato', recipe: { title: 'Client override' } }), 400);
+  await request(a, command(1, 'collections.saveCatalog', { catalogId: 'pasta-tomato' }), 409);
+  assert.equal((await request(a)).version, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM recipes WHERE user_id=?').get(a.user.id).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM recipe_workspace_operations WHERE user_id=?').get(a.user.id).n, 0);
+});
+
+test('catalog recipe, grant, version and operation roll back together on failed commit', async () => {
+  const a = account(), save = command(0, 'collections.saveCatalog', { catalogId: 'pasta-tomato' });
+  db.exec("CREATE TEMP TRIGGER reject_workspace_catalog BEFORE INSERT ON recipe_workspace_operations BEGIN SELECT RAISE(ABORT,'workspace catalog failure'); END");
+  try { await request(a, save, 500); } finally { db.exec('DROP TRIGGER reject_workspace_catalog'); }
+  assert.equal((await request(a)).version, 0);
+  for (const table of ['recipes', 'catalog_recipe_grants', 'catalog_onboarding', 'recipe_workspaces', 'recipe_workspace_operations'])
+    assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE user_id=?`).get(a.user.id).n, 0, table);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM product_events WHERE user_id=? AND event='workspace_saved'").get(a.user.id).n, 0);
+  const retry = await request(a, save);
+  assert.equal(retry.version, 1); assert.equal(retry.operation.replayed, false);
+  assert.ok(getRecipe(a.user.id, retry.operation.result.recipeId));
 });
 
 if (platform === 'telegram') test('test polling setup preserves the workspace entry after a future authorized release', async () => {

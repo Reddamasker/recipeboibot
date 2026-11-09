@@ -68,6 +68,17 @@ test('hidden workspace successes retain only latest flow and explicitly show it 
   assert.ok(h.events[0][2].durationMs > 10000);
 });
 
+test('catalog picker uses its visible inline confirmation instead of a hidden toast behind the dialog', () => {
+  const h = harness(), flow = h.flow();
+  flow.inlineConfirmation = true;
+  h.success(flow); h.advance(4000);
+  assert.equal(h.events.length, 0); assert.equal(h.shown.length, 0);
+  // A retry after the picker was closed returns to the ordinary visible toast.
+  flow.inlineConfirmation = false;
+  h.success(flow); h.advance(50);
+  assert.equal(h.events.length, 1);
+});
+
 test('hiding during toast transition defers observation and shows a fresh confirmation on return', () => {
   const h = harness(); h.style.opacity = '.2'; h.success(h.flow()); h.advance(20);
   h.visibility('hidden'); h.advance(5000);

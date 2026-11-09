@@ -3,7 +3,7 @@
 export const workspaceFeatures = Object.freeze(['collections', 'meal_plan', 'groceries']);
 export const workspaceClientEvents = Object.freeze(['workspace_view', 'workspace_action']);
 export const workspaceActions = Object.freeze({
-  collections: Object.freeze(['collections.create', 'collections.rename', 'collections.delete', 'collections.setRecipes']),
+  collections: Object.freeze(['collections.create', 'collections.rename', 'collections.delete', 'collections.setRecipes', 'collections.saveCatalog']),
   meal_plan: Object.freeze(['plan.add', 'plan.update', 'plan.delete', 'plan.apply']),
   groceries: Object.freeze(['groceries.addManual', 'groceries.updateManual', 'groceries.fromRecipe', 'groceries.fromPlan',
     'groceries.setChecked', 'groceries.removeItem', 'groceries.removeSource', 'groceries.clearChecked'])
@@ -133,7 +133,10 @@ export function validWorkspaceReport(value) {
       || r.visibleConfirmed > Math.min(r.started, r.clientSucceeded, r.serverConfirmed)
       || r.unobserved !== r.serverConfirmed - r.visibleConfirmed
       || r.unmatchedOutcomes > r.cancelled + r.errors + r.clientSucceeded
-      || !exact(r.actions, workspaceActions[feature])) return false;
+      // Accept the exact previous collection schema from an older contour.
+      // The missing catalog action stays absent, never a fabricated zero.
+      || !(exact(r.actions, workspaceActions[feature]) || feature === 'collections'
+        && exact(r.actions, workspaceActions.collections.filter(action => action !== 'collections.saveCatalog')))) return false;
     for (const action of Object.values(r.actions)) {
       if (!exact(action, actionCounters) || !actionCounters.every(key => count(action[key]))
         || action.visibleConfirmed > Math.min(action.started, action.clientSucceeded, action.serverConfirmed)) return false;

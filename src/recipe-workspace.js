@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 // Private operational state. Ingredient names and recipe contents belong here,
 // never in product analytics. No source recipe is modified by this module.
 export const WORKSPACE_ACTIONS = Object.freeze([
-  'collections.create', 'collections.rename', 'collections.delete', 'collections.setRecipes',
+  'collections.create', 'collections.rename', 'collections.delete', 'collections.setRecipes', 'collections.saveCatalog',
   'plan.add', 'plan.update', 'plan.delete', 'plan.apply',
   'groceries.addManual', 'groceries.updateManual', 'groceries.fromRecipe', 'groceries.fromPlan',
   'groceries.setChecked', 'groceries.removeItem', 'groceries.removeSource', 'groceries.clearChecked'
@@ -13,6 +13,7 @@ const limit = { collections: 100, members: 1000, plan: 2000, manual: 500, source
 const fields = {
   'collections.create': ['name', 'recipeIds'], 'collections.rename': ['collectionId', 'name'],
   'collections.delete': ['collectionId'], 'collections.setRecipes': ['collectionId', 'recipeIds'],
+  'collections.saveCatalog': ['catalogId'],
   'plan.add': ['recipeId', 'date', 'meal', 'servings'], 'plan.update': ['entryId', 'recipeId', 'date', 'meal', 'servings'],
   'plan.delete': ['entryId'], 'plan.apply': ['entries'],
   'groceries.addManual': ['name', 'quantity', 'unit', 'amountText'],
@@ -95,7 +96,7 @@ function recipeIngredients(recipe, servings) {
   });
 }
 
-export function createRecipeWorkspace(db, { getRecipe = null, now = () => new Date().toISOString(), newId = randomUUID } = {}) {
+export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe = null, now = () => new Date().toISOString(), newId = randomUUID } = {}) {
   db.exec(`CREATE TABLE IF NOT EXISTS recipe_workspaces (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     version INTEGER NOT NULL DEFAULT 0 CHECK(version>=0), data_json TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -213,6 +214,20 @@ export function createRecipeWorkspace(db, { getRecipe = null, now = () => new Da
   }
   function execute(state, userId, input, timestamp) {
     const action = input.action;
+    if (action === 'collections.saveCatalog') {
+      if (typeof input.catalogId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,99}$/.test(input.catalogId)) throw fail('Проверьте рецепт каталога.');
+      if (typeof saveCatalogRecipe !== 'function') throw fail('Сохранение из каталога недоступно.', 422, 'CATALOG_UNAVAILABLE');
+      // The trusted callback must use this same database synchronously. Its
+      // savepoint nests inside our transaction, so recipe/grant/idempotency
+      // writes commit together. No editable recipe fields grant access.
+      const before = db.prepare('SELECT total_changes() AS n').get().n;
+      const saved = saveCatalogRecipe(userId, input.catalogId, { flowId: input.operationId });
+      if (saved && typeof saved.then === 'function') throw new Error('Workspace saveCatalogRecipe must be synchronous');
+      const recipe = personalRecipe(userId, saved?.recipe?.id);
+      // Includes new catalog grants and restoring an archived copy, even when
+      // the callback reuses an existing recipe and state JSON stays unchanged.
+      return { count: 1, recipeId: recipe.id, changed: db.prepare('SELECT total_changes() AS n').get().n > before };
+    }
     if (action === 'collections.create') {
       const name = text(input.name, 'название подборки', 100); nameAvailable(state, name);
       state.collections.push({ id: newId(), name, recipeIds: memberRecipes(userId, input.recipeIds || []), createdAt: timestamp, updatedAt: timestamp }); return 1;
@@ -311,12 +326,14 @@ export function createRecipeWorkspace(db, { getRecipe = null, now = () => new Da
       }
       if (input.expectedVersion !== record.version) throw fail('Данные изменились в другом окне. Обновите экран и повторите действие.', 409, 'VERSION_CONFLICT', { currentVersion: record.version });
       const before = canonical(record.state), timestamp = clock();
-      const count = execute(record.state, userId, input, timestamp);
+      const outcome = execute(record.state, userId, input, timestamp);
+      const count = typeof outcome === 'number' ? outcome : outcome.count;
       const state = record.state;
       if (state.collections.length > limit.collections || state.collections.some(row => row.recipeIds.length > limit.members) || state.plan.length > limit.plan || state.groceries.manual.length > limit.manual || state.groceries.sources.length > limit.sources) throw fail('Достигнут предел размера коллекции, меню или списка покупок.', 413, 'WORKSPACE_LIMIT');
       const currentItems = shoppingItems(state);
       state.groceries.checks = Object.fromEntries(currentItems.map(item => [item.id, { checked: item.checked, signature: item.signature }]));
-      const changed = before !== canonical(state), result = { changed, count };
+      const changed = before !== canonical(state) || Boolean(outcome?.changed), result = { changed, count,
+        ...(outcome?.recipeId ? { recipeId: outcome.recipeId } : {}) };
       if (changed) {
         const serialized = JSON.stringify(state);
         if (Buffer.byteLength(serialized) > 2 * 1024 * 1024) throw fail('Рабочий список слишком велик.', 413, 'WORKSPACE_LIMIT');

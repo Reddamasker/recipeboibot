@@ -45,6 +45,23 @@ test('collections retain real recipes across rename, many memberships and deleti
   assert.deepEqual(reopened, f.store.read(f.user));
 });
 
+test('catalog callback is injected, synchronous, owner checked and rolled back with the workspace', t => {
+  const f = fixture(t), foreign = f.add({ owner: f.stranger });
+  assert.throws(() => f.command('collections.saveCatalog', { catalogId: 'pasta-tomato' }), { code: 'CATALOG_UNAVAILABLE' });
+  let calls = 0;
+  const store = createRecipeWorkspace(f.db, { saveCatalogRecipe(userId, catalogId, options) {
+    calls++; assert.equal(userId, f.user); assert.equal(catalogId, 'pasta-tomato'); assert.ok(options.flowId);
+    f.add(); return { recipe: { id: foreign } };
+  } });
+  const command = { operationId: randomUUID(), expectedVersion: 0, action: 'collections.saveCatalog', catalogId: 'pasta-tomato' };
+  assert.throws(() => store.mutate(f.user, command), { code: 'RECIPE_NOT_FOUND' });
+  assert.equal(calls, 1); assert.equal(f.db.prepare('SELECT COUNT(*) n FROM recipes WHERE user_id=?').get(f.user).n, 0);
+  assert.equal(store.read(f.user).version, 0);
+  const asyncStore = createRecipeWorkspace(f.db, { saveCatalogRecipe: () => Promise.resolve({ recipe: { id: foreign } }) });
+  assert.throws(() => asyncStore.mutate(f.user, command), /must be synchronous/);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM recipe_workspace_operations').get().n, 0);
+});
+
 test('operation replay is independent of current version and mismatched reuse cannot mutate', t => {
   const f = fixture(t), operation = { action: 'collections.create', name: 'Одна', operationId: randomUUID(), expectedVersion: 0 };
   const first = f.store.mutate(f.user, operation);

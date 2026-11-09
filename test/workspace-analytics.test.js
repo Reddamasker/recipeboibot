@@ -94,7 +94,8 @@ test('workspace aggregates match the same account and operation, deduplicate ret
       'collections.create':{started:1,cancelled:0,errors:1,clientSucceeded:2,serverConfirmed:2,visibleConfirmed:1},
       'collections.rename':{started:0,cancelled:1,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
       'collections.delete':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
-      'collections.setRecipes':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0}
+      'collections.setRecipes':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0},
+      'collections.saveCatalog':{started:0,cancelled:0,errors:0,clientSucceeded:0,serverConfirmed:0,visibleConfirmed:0}
     }
   });
   assert.equal(r.workspace.features.meal_plan.serverConfirmed, 0);
@@ -163,9 +164,27 @@ test('MAX bridge retains verified workspace metrics and represents old versions 
   result = await merge(old);
   assert.equal(result.remoteFunnel.status, 'ready');
   assert.equal(result.productAnalytics.platforms.find(p => p.platform === 'max').workspace, null);
+  const olderWorkspace = structuredClone(snapshot);
+  for (const scope of ['campaign', 'all']) delete olderWorkspace[scope].productAnalytics.platforms[0].workspace.features.collections.actions['collections.saveCatalog'];
+  result = await merge(olderWorkspace);
+  assert.equal(result.remoteFunnel.status, 'ready');
+  assert.equal(Object.hasOwn(result.productAnalytics.platforms.find(p => p.platform === 'max').workspace.features.collections.actions, 'collections.saveCatalog'), false,
+    'older workspace keeps unavailable catalog action absent rather than inventing zeros');
   const invalid = structuredClone(snapshot);
   invalid.all.productAnalytics.platforms[0].workspace.features.groceries.actions['groceries.addManual'].started = 1;
   assert.equal((await merge(invalid)).remoteFunnel.status, 'error');
+});
+
+test('catalog saving has closed private analytics and matched visible confirmations', () => {
+  const u = user(), flowId = randomUUID();
+  assert.equal(accept(u.id, batch(event({ action: 'collections.saveCatalog', flowId }))).accepted.length, 1);
+  assert.equal(save(u, 'collections.saveCatalog', flowId), true);
+  assert.equal(save(u, 'collections.saveCatalog', flowId), false);
+  action(u, 'collections.saveCatalog', 'success', flowId);
+  const summary = report([u]).workspace;
+  assert.equal(summary.features.collections.actions['collections.saveCatalog'].visibleConfirmed, 1);
+  assert.equal(validWorkspaceReport(summary), true);
+  assert.throws(() => accept(u.id, batch(event({ action: 'collections.saveCatalog', catalogId: 'pasta-tomato' }))), { status: 400 });
 });
 
 test('actual client observer waits for visible content and retries the same event and navigation ID', async () => {
