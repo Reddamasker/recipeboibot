@@ -35,14 +35,22 @@ def run(args, data=None):
 MENU_JS = r"""
 import fs from 'node:fs';
 import {config} from './src/config.js';
+let actual=null,writeAccepted=false;
+const observations=[];
+const safeMenu=value=>value&&typeof value==='object'?{
+  type:value.type,
+  ...(typeof value.text==='string'?{text:value.text}:{}),
+  ...(typeof value.web_app?.url==='string'?{web_app:{url:value.web_app.url}}:{})
+}:null;
+const finish=(ok,error=null)=>console.log(JSON.stringify({ok,error,menu:safeMenu(actual),writeAccepted,observations}));
 try {
   if (!config.testContour || config.botPlatform !== 'telegram' || config.testBotUsername !== 'recipeboi_test_bot') throw Error('Wrong contour');
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   const canonical=value=>JSON.stringify(value,(_,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item);
   const origin = (process.env.TELEGRAM_API_ORIGIN || 'https://api.telegram.org').replace(/\/+$/, '');
-  async function call(method, body={}) {
+  async function call(method, body={}, timeoutMs=10000) {
     let response;
-    try { response=await fetch(`${origin}/bot${config.telegramToken}/${method}`, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)}); }
+    try { response=await fetch(`${origin}/bot${config.telegramToken}/${method}`, {method:'POST',headers:{'content-type':'application/json','cache-control':'no-cache, no-store'},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)}); }
     catch { throw Error('Telegram transport unavailable'); }
     const payload=await response.json();
     if (!payload.ok) throw Error('Telegram request rejected');
@@ -51,16 +59,49 @@ try {
   const me=await call('getMe');
   if (me.username !== 'recipeboi_test_bot') throw Error('Unexpected bot');
   if (input.action === 'set') {
-    const current=await call('getChatMenuButton');
-    if (canonical(current)!==canonical(input.expected)) throw Error('Menu changed concurrently');
-    await call('setChatMenuButton',{menu_button:input.menu});
-  } else if (input.action !== 'get') throw Error('Unknown action');
-  console.log(JSON.stringify(await call('getChatMenuButton')));
-} catch { console.error('Test menu operation failed'); process.exitCode=1; }
+    actual=await call('getChatMenuButton');
+    observations.push({phase:'guard',menu:safeMenu(actual)});
+    if (canonical(actual)!==canonical(input.expected)) { finish(false,'menu_changed_concurrently'); }
+    else {
+      writeAccepted=(await call('setChatMenuButton',{menu_button:input.menu}))===true;
+      if (!writeAccepted) finish(false,'write_not_accepted');
+      else {
+        // Read-after-write can briefly return the preceding default menu. Never repeat the write.
+        const deadline=Date.now()+20000;
+        let verified=false;
+        for(let attempt=1;attempt<=10;attempt++) {
+          if(attempt>1) {
+            if(Date.now()+2000>=deadline)break;
+            await new Promise(resolve=>setTimeout(resolve,2000));
+          }
+          const remaining=deadline-Date.now();
+          if(remaining<=0)break;
+          try {
+            actual=await call('getChatMenuButton',{},Math.min(5000,remaining));
+            observations.push({phase:'verify',attempt,menu:safeMenu(actual)});
+            if(canonical(actual)===canonical(input.menu)){verified=true;break;}
+          } catch { observations.push({phase:'verify',attempt,error:'read_unavailable'}); }
+        }
+        finish(verified,verified?null:'verification_unconfirmed');
+      }
+    }
+  } else if (input.action === 'get') {
+    actual=await call('getChatMenuButton');observations.push({phase:'read',menu:safeMenu(actual)});finish(true);
+  } else finish(false,'unknown_action');
+} catch { finish(false,'test_menu_operation_failed'); }
 """
 
+MENU_HISTORY=[]
+class MenuOperationError(RuntimeError):
+    def __init__(self, details):
+        super().__init__('Test menu operation unconfirmed: '+str(details.get('error')))
+        self.details=details
+
 def menu(action='get', value=None, expected=None):
-    return json.loads(run(['docker','exec','-i','recipeboibot-test','node','--input-type=module','-e',MENU_JS], json.dumps({'action':action,'menu':value,'expected':expected}).encode()))
+    details=json.loads(run(['docker','exec','-i','recipeboibot-test','node','--input-type=module','-e',MENU_JS], json.dumps({'action':action,'menu':value,'expected':expected}).encode()))
+    MENU_HISTORY.append({'action':action,**details})
+    if not details.get('ok'):raise MenuOperationError(details)
+    return details['menu']
 
 TREE_JS = r"""
 const fs=require('node:fs'), path=require('node:path'), crypto=require('node:crypto');
@@ -174,12 +215,14 @@ helper=(folder/'menu-helper.mjs').read_text()
 def call(body):
  r=subprocess.run(['docker','exec','-i','recipeboibot-test','node','--input-type=module','-e',helper],input=json.dumps(body).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
  if r.returncode: raise SystemExit('Test menu rollback failed; no credentials logged')
- return json.loads(r.stdout)
+ result=json.loads(r.stdout)
+ if not result.get('ok'):print(json.dumps(result));raise SystemExit('Test menu rollback unconfirmed')
+ return result['menu']
 old=json.loads((folder/'menu-before.json').read_text()); expected=json.loads((folder/'menu-review.json').read_text())
 current=call({'action':'get'})
-if current==old: print('Menu already restored');sys.exit(0)
-if current!=expected: raise SystemExit('Menu changed after review; rollback refused')
-if call({'action':'set','menu':old,'expected':expected})!=old: raise SystemExit('Rollback verification failed')
+if current not in (old,expected): raise SystemExit('Menu changed after review; rollback refused')
+# Even an old-looking read can be stale. Confirm an explicit write and its subsequent reads.
+if call({'action':'set','menu':old,'expected':current})!=old: raise SystemExit('Rollback verification failed')
 print('Previous test menu restored')
 '''
     (folder/'menu-helper.mjs').write_text(MENU_JS)
@@ -241,19 +284,21 @@ def main():
         report['menuAfter']=actual
         after=snapshot(slug);unchanged(before,after)
         report['after']=after
+        report['menuOperations']=MENU_HISTORY
         report['ok']=True;report['status']='verified'
         report['note']='Static review only. Cached / and existing message buttons remain unchanged. A future polling startup can reset the menu.'
         write_json(folder/'report.json',report)
         print(json.dumps(report))
     except Exception as error:
         report['ok']=False;report['status']='failed';report['error']=str(error)
+        if isinstance(error,MenuOperationError):report['menuObserved']=error.details.get('menu')
         if attempted_menu:
             try:
                 current=menu()
-                if current==wanted:report['rollbackMenu']=menu('set',old,wanted)==old
-                elif current==old:report['rollbackMenu']=True
+                if current in (wanted,old):report['rollbackMenu']=menu('set',old,current)==old
                 else:report['rollbackMenu']=False
             except Exception:report['rollbackMenu']=False
+        report['menuOperations']=MENU_HISTORY
         report['partialArtifactRetained']=str(ROOT/'public'/'review'/slug)
         write_json(folder/'report.json',report)
         print(json.dumps(report));sys.exit(1)

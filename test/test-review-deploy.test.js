@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createReviewManifest, parseReviewArgs, reviewUrl, stageReview } from '../scripts/deploy-test-review.js';
+import { archiveReview, createReviewManifest, parseReviewArgs, resolveTarExecutable, reviewUrl, stageReview } from '../scripts/deploy-test-review.js';
 
 function fixture(t) {
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'test-review-fixture-'));
@@ -33,6 +33,19 @@ test('only manifest files enter the bundle; binary bytes and nested paths are pr
   assert.equal(fs.existsSync(path.join(stage,'.env.local')),false);
   assert.equal(fs.readFileSync(path.join(stage,'files/assets/inter-OFL.txt'),'utf8'),'OFL 1.1');
   assert.equal(manifest.totalBytes,fs.statSync(path.join(source,'index.html')).size+3+7);
+  const originalPath=process.env.PATH;
+  let packaged;
+  try {
+    if(process.platform==='win32') process.env.PATH='';
+    packaged=archiveReview(source,manifest,path.join(base,'package'));
+  } finally {
+    if(originalPath===undefined) delete process.env.PATH; else process.env.PATH=originalPath;
+  }
+  assert.match(packaged.archiveHash,/^[a-f0-9]{64}$/);
+  const listing=spawnSync(resolveTarExecutable(),['-tzf',packaged.archive],{encoding:'utf8'});
+  assert.equal(listing.status,0,listing.stderr);
+  assert.deepEqual(listing.stdout.trim().split(/\r?\n/).sort(),['manifest.json',...manifest.files.map(file=>'files/'+file.path)].sort());
+  assert.throws(()=>archiveReview(source,manifest,path.join(base,'package')),/fresh/);
 });
 
 test('secret-like files and traversal-like names cannot be packaged',t=>{
@@ -107,24 +120,56 @@ with tempfile.TemporaryDirectory() as directory:
   if body['action']=='set':
    assert body['expected']==current[0]
    writes.append(body['menu']);current[0]=body['menu']
-  return types.SimpleNamespace(returncode=0,stdout=json.dumps(current[0]).encode(),stderr=b'')
+  return types.SimpleNamespace(returncode=0,stdout=json.dumps({'ok':True,'menu':current[0]}).encode(),stderr=b'')
  subprocess.run=fake_run
  def rollback():
   with contextlib.redirect_stdout(io.StringIO()):
    exec(compile((folder/'rollback-menu.py').read_text(),'rollback-menu.py','exec'),{'__file__':str(folder/'rollback-menu.py')})
  try:
   rollback();assert current[0]==old and writes==[old]
-  try:rollback()
-  except SystemExit as error:assert error.code==0
-  assert writes==[old]
+  rollback()
+  assert writes==[old,old]
   current[0]={'type':'commands'}
   try:rollback()
   except SystemExit as error:assert 'changed after review' in str(error)
   else:raise AssertionError('Concurrent menu change was overwritten')
-  assert writes==[old]
+  assert writes==[old,old]
  finally:subprocess.run=previous_run
 print('remote-validator-ok')
 `;
   const result=spawnSync(python,['-c',check],{input:source,encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/remote-validator-ok/);
+  const menuSource=shell.split('MENU_JS = r"""')[1].split('"""')[0].replace(
+    "import {config} from './src/config.js';",
+    "const config={testContour:true,botPlatform:'telegram',testBotUsername:'recipeboi_test_bot',telegramToken:'fixture-only'};"
+  );
+  const old={type:'web_app',text:'Меню',web_app:{url:'https://test.invalid/old'}};
+  const wanted={type:'web_app',text:'Меню',web_app:{url:'https://test.invalid/review'}};
+  function verifyMenu(sequence,guard=old) {
+    const fixture=`
+const fixtureSequence=${JSON.stringify(sequence)}, fixtureGuard=${JSON.stringify(guard)};
+let fixtureWrites=0,fixtureReads=0;const fixtureDelays=[];
+globalThis.fetch=async(url,options)=>{
+ if(options.headers['cache-control']!=='no-cache, no-store')throw Error('Missing cache request policy');
+ const method=new URL(url).pathname.split('/').at(-1);let result;
+ if(method==='getMe')result={username:'recipeboi_test_bot'};
+ else if(method==='setChatMenuButton'){fixtureWrites++;result=true;}
+ else if(method==='getChatMenuButton')result=fixtureWrites?fixtureSequence[Math.min(fixtureReads++,fixtureSequence.length-1)]:fixtureGuard;
+ else throw Error('Unexpected API method');
+ return {json:async()=>({ok:true,result})};
+};
+globalThis.setTimeout=(callback,ms)=>{fixtureDelays.push(ms);queueMicrotask(callback);};
+`;
+    const execution=spawnSync(process.execPath,['--input-type=module','-e',fixture+menuSource+"\nconsole.log(JSON.stringify({writes:fixtureWrites,reads:fixtureReads,delays:fixtureDelays}));"],{input:JSON.stringify({action:'set',menu:wanted,expected:old}),encoding:'utf8'});
+    assert.equal(execution.status,0,execution.stderr);
+    return execution.stdout.trim().split(/\r?\n/).map(line=>JSON.parse(line));
+  }
+  const [eventual,counts]=verifyMenu([old,old,wanted]);
+  assert.equal(eventual.ok,true);assert.deepEqual(eventual.menu,wanted);
+  assert.equal(counts.writes,1);assert.equal(counts.reads,3);assert.deepEqual(counts.delays,[2000,2000]);
+  const [stale,limited]=verifyMenu([old]);
+  assert.equal(stale.ok,false);assert.equal(stale.error,'verification_unconfirmed');assert.equal(stale.writeAccepted,true);
+  assert.deepEqual(stale.menu,old);assert.equal(limited.writes,1);assert.equal(limited.reads,10);
+  const [conflict,untouched]=verifyMenu([wanted],{type:'commands'});
+  assert.equal(conflict.error,'menu_changed_concurrently');assert.equal(untouched.writes,0);
 });

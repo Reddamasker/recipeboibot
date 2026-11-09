@@ -67,6 +67,30 @@ export function stageReview(directory, manifest, destination) {
   }
 }
 
+export function resolveTarExecutable() {
+  if (process.platform !== 'win32') return 'tar';
+  const candidates = [
+    path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'),
+    path.win32.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'usr', 'bin', 'tar.exe')
+  ];
+  const executable = candidates.find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+  if (!executable) throw new Error('tar.exe not found in Windows System32 or Git for Windows');
+  return executable;
+}
+
+// Packaging only: also permits resuming a verified release after a local packaging failure.
+// It still rechecks every manifest byte and never performs tests, SSH or publication.
+export function archiveReview(directory, manifest, destination) {
+  const output = path.resolve(destination);
+  const stage = path.join(output, 'stage');
+  const archive = path.join(output, 'review.tgz');
+  if (fs.existsSync(stage) || fs.existsSync(archive)) throw new Error('Packaging destination must be fresh');
+  stageReview(directory, manifest, stage);
+  // Only explicitly enumerated manifest files, never a recursive repository archive.
+  run(resolveTarExecutable(), ['-czf', archive, '-C', stage, 'manifest.json', ...manifest.files.map(file => `files/${file.path}`)]);
+  return { archive, archiveHash: digest(fs.readFileSync(archive)), manifestFile: path.join(stage, 'manifest.json') };
+}
+
 function run(command, args, { capture = false, input } = {}) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...(input !== undefined ? { input } : {}), stdio: capture || input !== undefined ? 'pipe' : 'inherit' });
   if (result.error || result.status !== 0) {
@@ -95,13 +119,9 @@ async function main() {
   let archiveHash = '-';
   if (mode === '--apply') {
     run(process.execPath, ['--test', '--test-concurrency=1']);
-    const stage = path.join(local, 'stage');
-    stageReview(directory, manifest, stage);
-    const archive = path.join(local, 'review.tgz');
-    // Only explicitly enumerated manifest files, never a recursive repository archive.
-    run('tar', ['-czf', archive, '-C', stage, 'manifest.json', ...manifest.files.map(file => `files/${file.path}`)]);
-    archiveHash = digest(fs.readFileSync(archive));
-    run('scp', [...options, archive, `${HOST}:/root/recipeboibot-test-review-${archiveHash}.tgz`]);
+    const packaged = archiveReview(directory, manifest, local);
+    archiveHash = packaged.archiveHash;
+    run('scp', [...options, packaged.archive, `${HOST}:/root/recipeboibot-test-review-${archiveHash}.tgz`]);
   }
   const output = run('ssh', [...options, HOST, `bash -s -- ${mode} ${slug} ${archiveHash}`], { input: script });
   const report = JSON.parse(output);
