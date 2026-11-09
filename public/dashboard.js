@@ -241,7 +241,7 @@ function renderProductAnalytics(data) {
     const workspaceActionLabels={
       'collections.saveCatalog':'Сохранить из каталога','collections.create':'Создать подборку','collections.rename':'Переименовать подборку','collections.delete':'Удалить подборку','collections.setRecipes':'Изменить состав подборки',
       'collections.updateCard':'Изменить личную карточку','collections.setPhoto':'Добавить личное фото','collections.removePhoto':'Убрать личное фото','collections.askRecipe':'Получить ответ о рецепте',
-      'plan.add':'Добавить блюдо в меню','plan.update':'Изменить блюдо в меню','plan.delete':'Удалить блюдо из меню','plan.apply':'Применить план',
+      'plan.add':'Добавить запись в меню','plan.update':'Изменить запись в меню','plan.delete':'Удалить запись из меню','plan.apply':'Применить план',
       'groceries.addManual':'Добавить свой продукт','groceries.updateManual':'Изменить свой продукт','groceries.fromRecipe':'Добавить покупки из рецепта','groceries.fromPlan':'Добавить покупки из меню',
       'groceries.setChecked':'Изменить отметку покупки','groceries.removeItem':'Удалить позицию','groceries.removeSource':'Убрать источник покупок','groceries.clearChecked':'Убрать отмеченное'
     };

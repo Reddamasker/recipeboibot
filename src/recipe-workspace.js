@@ -10,6 +10,7 @@ export const WORKSPACE_ACTIONS = Object.freeze([
   'groceries.setChecked', 'groceries.removeItem', 'groceries.removeSource', 'groceries.clearChecked'
 ]);
 const meals = new Set(['breakfast', 'lunch', 'dinner', 'snack']);
+const planFields = ['kind', 'recipeId', 'note', 'date', 'meal', 'servings', 'cooked'];
 const limit = { collections: 100, members: 1000, plan: 2000, manual: 500, sources: 500, ingredients: 400 };
 const fields = {
   'collections.create': ['name', 'recipeIds'], 'collections.rename': ['collectionId', 'name'],
@@ -17,7 +18,7 @@ const fields = {
   'collections.saveCatalog': ['catalogId'],
   'collections.updateCard': ['recipeId', 'pinned', 'cooked', 'rating', 'notes', 'tags'],
   'collections.setPhoto': ['recipeId', 'mime', 'value'], 'collections.removePhoto': ['recipeId'],
-  'plan.add': ['recipeId', 'date', 'meal', 'servings'], 'plan.update': ['entryId', 'recipeId', 'date', 'meal', 'servings'],
+  'plan.add': planFields, 'plan.update': ['entryId', ...planFields],
   'plan.delete': ['entryId'], 'plan.apply': ['entries'],
   'groceries.addManual': ['name', 'quantity', 'unit', 'amountText'],
   'groceries.updateManual': ['itemId', 'name', 'quantity', 'unit', 'amountText'],
@@ -44,7 +45,18 @@ function date(value) {
   if (typeof value !== 'string' || !/^20\d{2}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value + 'T00:00:00Z')) || new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) !== value) throw fail('Укажите существующую дату в формате ГГГГ-ММ-ДД.');
   return value;
 }
-function meal(value) { if (!meals.has(value)) throw fail('Выберите приём пищи.'); return value; }
+function meal(value) { if (value == null) return null; if (!meals.has(value)) throw fail('Выберите приём пищи.'); return value; }
+function planNote(value) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 2000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)) throw fail('Введите заметку длиной от 1 до 2000 символов.');
+  return value.trim().replace(/\r\n?/g, '\n');
+}
+// Defaults are applied only to the read model. Old stored recipe entries and
+// their operation hashes remain intact until an actual edit is made.
+function planView(row) {
+  return { ...row, kind: row.kind ?? 'recipe', note: row.kind === 'note' ? row.note : null,
+    meal: row.meal ?? null, cooked: row.cooked === true,
+    ...(row.kind === 'note' ? { recipeId: null, servings: null } : {}) };
+}
 function quantity(value, optional = true) {
   if (value == null && optional) return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1_000_000) throw fail('Количество должно быть числом от 0 до 1000000.');
@@ -163,7 +175,8 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     const recipeSummary = id => { if (!cached.has(id)) cached.set(id, summary(userId, id)); return cached.get(id); };
     return { version, updatedAt, recipeCards: cardStore?.list(userId) || {},
       collections: state.collections.map(row => ({ ...row, recipeIds: row.recipeIds.filter(id => recipeSummary(id)) })),
-      plan: state.plan.map(row => ({ ...row, recipe: recipeSummary(row.recipeId), recipeAvailable: Boolean(recipeSummary(row.recipeId)) })).sort((a, b) => a.date.localeCompare(b.date) || [...meals].indexOf(a.meal) - [...meals].indexOf(b.meal) || a.createdAt.localeCompare(b.createdAt)),
+      plan: state.plan.map(row => { const entry = planView(row), recipe = entry.kind === 'recipe' ? recipeSummary(entry.recipeId) : null;
+        return { ...entry, recipe, recipeAvailable: Boolean(recipe) }; }).sort((a, b) => a.date.localeCompare(b.date) || [...meals].indexOf(a.meal) - [...meals].indexOf(b.meal) || a.createdAt.localeCompare(b.createdAt)),
       groceries: { items: shoppingItems(state).map(({ signature, ...item }) => item),
         sources: state.groceries.sources.map(({ ingredients, excluded, ...source }) => {
           const recipe = recipeSummary(source.recipeId);
@@ -186,11 +199,32 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
   function nameAvailable(state, name, except = null) {
     if (state.collections.some(row => row.id !== except && normalize(row.name) === normalize(name))) throw fail('Подборка с таким названием уже существует.', 409, 'COLLECTION_NAME_EXISTS');
   }
+  function planValues(userId, input, previous = null) {
+    const old = previous ? planView(previous) : null, kind = own(input, 'kind') ? input.kind : old?.kind || 'recipe';
+    if (!['recipe', 'note'].includes(kind)) throw fail('Выберите рецепт или заметку для меню.');
+    if (own(input, 'cooked') && typeof input.cooked !== 'boolean') throw fail('Проверьте отметку приготовления.');
+    const result = { kind, date: date(own(input, 'date') ? input.date : old?.date),
+      meal: meal(own(input, 'meal') ? input.meal : old?.meal), recipeId: null, note: null, servings: null };
+    if (kind === 'note') {
+      if (own(input, 'recipeId') && input.recipeId !== null || own(input, 'servings') && input.servings !== null) throw fail('У заметки нет рецепта и числа порций.');
+      result.note = planNote(own(input, 'note') ? input.note : old?.kind === 'note' ? old.note : undefined);
+    } else {
+      if (own(input, 'note') && input.note !== null) throw fail('Текст заметки доступен только записи типа «заметка».');
+      result.recipeId = identifier(own(input, 'recipeId') ? input.recipeId : old?.recipeId, 'рецепт');
+      const replaced = old?.kind !== 'recipe' || old.recipeId !== result.recipeId;
+      // Moving or marking an existing entry does not read recipe contents.
+      // New recipes and portion changes retain the existing ownership/read gate.
+      const recipe = replaced || own(input, 'recipeId') || own(input, 'servings') ? personalRecipe(userId, result.recipeId) : null;
+      result.servings = portions(own(input, 'servings') ? input.servings : replaced ? recipe.servings : old.servings);
+      if (recipe && result.servings != null && !(Number.isFinite(recipe.servings) && recipe.servings > 0)) throw fail('В исходном рецепте не указано число порций.', 422, 'SERVINGS_UNKNOWN');
+    }
+    const replaced = old && (old.kind !== kind || old.recipeId !== result.recipeId);
+    result.cooked = own(input, 'cooked') ? input.cooked : replaced ? false : old?.cooked || false;
+    return result;
+  }
   function planEntry(userId, input, timestamp) {
-    if (!plain(input) || Object.keys(input).some(key => !['recipeId', 'date', 'meal', 'servings'].includes(key))) throw fail('Проверьте запись меню.');
-    const recipe = personalRecipe(userId, input.recipeId), servings = portions(input.servings ?? recipe.servings);
-    if (servings != null && !(Number.isFinite(recipe.servings) && recipe.servings > 0)) throw fail('В исходном рецепте не указано число порций.', 422, 'SERVINGS_UNKNOWN');
-    return { id: newId(), recipeId: input.recipeId, date: date(input.date), meal: meal(input.meal), servings, createdAt: timestamp, updatedAt: timestamp };
+    if (!plain(input) || Object.keys(input).some(key => !planFields.includes(key))) throw fail('Проверьте запись меню.');
+    return { id: newId(), ...planValues(userId, input), createdAt: timestamp, updatedAt: timestamp };
   }
   function putSource(state, userId, recipeId, servings, kind, entry, timestamp, restoreExcluded = false) {
     const recipe = personalRecipe(userId, recipeId), target = portions(servings ?? recipe.servings), id = kind + ':' + (entry?.id || recipeId);
@@ -252,8 +286,8 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     }
     if (action === 'plan.add') { state.plan.push(planEntry(userId, Object.fromEntries(fields[action].filter(key => own(input, key)).map(key => [key, input[key]])), timestamp)); return 1; }
     if (action === 'plan.apply') {
-      if (!Array.isArray(input.entries) || !input.entries.length || input.entries.length > 60) throw fail('В один план можно добавить от 1 до 60 блюд.');
-      const occupied = new Set(state.plan.map(row => row.date + ':' + row.meal));
+      if (!Array.isArray(input.entries) || !input.entries.length || input.entries.length > 60) throw fail('За один раз можно добавить от 1 до 60 записей меню.');
+      const occupied = new Set(state.plan.map(row => row.date + ':' + (row.meal ?? null)));
       const entries = input.entries.map(row => {
         const entry = planEntry(userId, row, timestamp), slot = entry.date + ':' + entry.meal;
         if (occupied.has(slot)) throw fail('Этот приём пищи уже запланирован. Обновите предварительный план.', 409, 'PLAN_SLOT_OCCUPIED');
@@ -262,28 +296,16 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
       state.plan.push(...entries); return entries.length;
     }
     if (action === 'plan.update' || action === 'plan.delete') {
-      const row = found(state.plan, input.entryId, 'Рецепт в меню');
+      const row = found(state.plan, input.entryId, 'Запись меню');
       if (action === 'plan.delete') {
         state.plan = state.plan.filter(item => item !== row);
         state.groceries.sources = state.groceries.sources.filter(source => source.planEntryId !== row.id);
       } else {
-        const before = canonical(row);
-        const replaced = own(input, 'recipeId') && input.recipeId !== row.recipeId;
-        let replacement = null;
-        if (own(input, 'recipeId')) {
-          replacement = personalRecipe(userId, input.recipeId);
-          row.recipeId = input.recipeId;
-          if (replaced && !own(input, 'servings')) row.servings = portions(replacement.servings);
-        }
-        if (own(input, 'date')) row.date = date(input.date);
-        if (own(input, 'meal')) row.meal = meal(input.meal);
-        if (own(input, 'servings')) {
-          row.servings = portions(input.servings);
-          const recipe = replacement || personalRecipe(userId, row.recipeId);
-          if (row.servings != null && !(Number.isFinite(recipe.servings) && recipe.servings > 0)) throw fail('В исходном рецепте не указано число порций.', 422, 'SERVINGS_UNKNOWN');
-        }
-        if ((replaced || own(input, 'servings')) && state.groceries.sources.some(source => source.planEntryId === row.id)) putSource(state, userId, row.recipeId, row.servings, 'plan', row, timestamp);
-        if (before !== canonical(row)) row.updatedAt = timestamp;
+        const previous = planView(row), values = planValues(userId, input, previous);
+        const replaced = previous.kind !== values.kind || previous.recipeId !== values.recipeId;
+        if (canonical(previous) !== canonical({ ...previous, ...values })) Object.assign(row, values, { updatedAt: timestamp });
+        if (values.kind === 'note') state.groceries.sources = state.groceries.sources.filter(source => source.planEntryId !== row.id);
+        else if ((replaced || own(input, 'servings')) && state.groceries.sources.some(source => source.planEntryId === row.id)) putSource(state, userId, row.recipeId, row.servings, 'plan', row, timestamp);
       }
       return 1;
     }
@@ -298,9 +320,11 @@ export function createRecipeWorkspace(db, { getRecipe = null, saveCatalogRecipe 
     }
     if (action === 'groceries.fromRecipe') { putSource(state, userId, input.recipeId, input.servings, 'recipe', null, timestamp, input.restoreExcluded); return 1; }
     if (action === 'groceries.fromPlan') {
-      if (input.entryIds !== undefined && (!Array.isArray(input.entryIds) || input.entryIds.length > 60)) throw fail('Выберите не более 60 блюд меню.');
-      const entries = input.entryIds === undefined ? state.plan : [...new Set(input.entryIds)].map(id => found(state.plan, id, 'Рецепт в меню'));
-      if (entries.length > 60) throw fail('Выберите не более 60 блюд меню.');
+      if (input.entryIds !== undefined && (!Array.isArray(input.entryIds) || input.entryIds.length > 60)) throw fail('Выберите не более 60 записей меню.');
+      const selected = input.entryIds === undefined ? state.plan : [...new Set(input.entryIds)].map(id => found(state.plan, id, 'Запись меню'));
+      if (selected.length > 60) throw fail('Выберите не более 60 записей меню.');
+      const entries = selected.filter(entry => entry.kind !== 'note');
+      if (selected.length && !entries.length) throw fail('В заметках нет ингредиентов. Выберите хотя бы один рецепт меню.', 422, 'PLAN_RECIPES_REQUIRED');
       for (const entry of entries) putSource(state, userId, entry.recipeId, entry.servings, 'plan', entry, timestamp, input.restoreExcluded);
       return entries.length;
     }

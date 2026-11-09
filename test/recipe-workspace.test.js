@@ -125,6 +125,123 @@ test('calendar validates real dates and slots; bulk confirmation is all-or-nothi
   assert.equal(f.db.prepare('SELECT servings FROM recipes WHERE id=?').get(recipeId).servings, 2);
 });
 
+test('legacy recipe plans gain read-only defaults without migration, version churn or broken replay', t => {
+  const f = fixture(t), recipeId = f.add();
+  const operation = { action: 'plan.add', recipeId, date: '2026-11-12', meal: 'dinner', operationId: randomUUID(), expectedVersion: 0 };
+  const first = f.store.mutate(f.user, operation), entryId = first.plan[0].id;
+  const stored = JSON.parse(f.db.prepare('SELECT data_json FROM recipe_workspaces WHERE user_id=?').get(f.user).data_json);
+  for (const key of ['kind', 'note', 'cooked']) delete stored.plan[0][key];
+  const legacy = JSON.stringify(stored);
+  f.db.prepare('UPDATE recipe_workspaces SET data_json=? WHERE user_id=?').run(legacy, f.user);
+  const reopened = createRecipeWorkspace(f.db), read = reopened.read(f.user);
+  assert.equal(read.plan[0].kind, 'recipe'); assert.equal(read.plan[0].note, null); assert.equal(read.plan[0].cooked, false);
+  assert.equal(read.plan[0].recipe.id, recipeId); assert.equal(read.version, 1);
+  assert.equal(f.db.prepare('SELECT data_json FROM recipe_workspaces WHERE user_id=?').get(f.user).data_json, legacy);
+  assert.equal(reopened.mutate(f.user, operation).operation.replayed, true);
+  const noop = f.command('plan.update', { entryId, cooked: false });
+  assert.equal(noop.version, 1); assert.equal(noop.operation.result.changed, false);
+  assert.equal(f.db.prepare('SELECT data_json FROM recipe_workspaces WHERE user_id=?').get(f.user).data_json, legacy);
+  const moved = f.command('plan.update', { entryId, meal: null, date: '2026-11-15', cooked: true });
+  assert.equal(moved.plan[0].id, entryId); assert.equal(moved.plan[0].meal, null); assert.equal(moved.plan[0].cooked, true);
+  assert.equal(f.command('groceries.fromPlan', { entryIds: [entryId] }).groceries.items[0].quantity, 200);
+});
+
+test('menu notes are real private entries with strict text, optional meal and independent cooked marks', t => {
+  const f = fixture(t, { getRecipe: () => assert.fail('A note must not read any recipe') });
+  let s = f.command('plan.add', { kind: 'note', date: '2026-11-12', note: '  Ужин у друзей\r\nПринести хлеб  ' });
+  const entry = s.plan[0];
+  assert.equal(entry.kind, 'note'); assert.equal(entry.note, 'Ужин у друзей\nПринести хлеб');
+  for (const key of ['recipeId', 'servings', 'recipe', 'meal']) assert.equal(entry[key], null, key);
+  assert.equal(entry.recipeAvailable, false); assert.equal(entry.cooked, false);
+  assert.equal(f.store.read(f.stranger).plan.length, 0);
+  assert.throws(() => f.command('plan.update', { entryId: entry.id, note: 'Подмена' }, f.stranger), { status: 404 });
+  const update = { action: 'plan.update', entryId: entry.id, cooked: true, note: 'Остатки ужина', meal: 'lunch', operationId: randomUUID(), expectedVersion: s.version };
+  s = f.store.mutate(f.user, update);
+  assert.equal(s.plan[0].cooked, true); assert.equal(s.plan[0].meal, 'lunch'); assert.equal(s.plan[0].note, 'Остатки ужина');
+  assert.equal(f.store.mutate(f.user, update).operation.replayed, true);
+  assert.throws(() => f.store.mutate(f.user, { ...update, operationId: randomUUID() }), { code: 'VERSION_CONFLICT' });
+  for (const patch of [{ note: '' }, { note: 'x'.repeat(2001) }, { note: 'x\u0000y' }, { note: 1 }, { cooked: 1 }, { cooked: null }, { meal: '' }, { kind: null }, { kind: 'event' }, { recipeId: 'secret' }, { servings: 2 }]) {
+    const before = f.store.read(f.user);
+    assert.throws(() => f.command('plan.update', { entryId: entry.id, ...patch }), { status: 400 });
+    assert.deepEqual(f.store.read(f.user), before);
+  }
+  const before = f.store.read(f.user);
+  assert.throws(() => f.command('groceries.fromPlan', { entryIds: [entry.id] }), { status: 422, code: 'PLAN_RECIPES_REQUIRED' });
+  assert.throws(() => f.command('groceries.fromPlan'), { code: 'PLAN_RECIPES_REQUIRED' });
+  assert.deepEqual(f.store.read(f.user), before);
+  assert.equal(f.command('plan.delete', { entryId: entry.id }).plan.length, 0);
+});
+
+test('plan kind and recipe replacement reconcile only their source and never mark a recipe cooked', t => {
+  const f = fixture(t), recipeId = f.add(), other = f.add({ title: 'Картофель', servings: 3, ingredients: [{ name: 'Картофель', quantity: 600, unit: 'г' }] });
+  const originals = f.db.prepare('SELECT * FROM recipes ORDER BY id').all();
+  let s = f.command('groceries.addManual', { name: 'Хлеб', quantity: 1, unit: 'шт' });
+  const manualId = s.groceries.items[0].id;
+  f.command('groceries.setChecked', { itemId: manualId, checked: true });
+  f.command('groceries.fromRecipe', { recipeId });
+  s = f.command('plan.add', { recipeId, date: '2026-11-12', servings: 4, cooked: true });
+  const entryId = s.plan[0].id;
+  s = f.command('groceries.fromPlan', { entryIds: [entryId] });
+  const riceId = s.groceries.items.find(item => !item.manual).id;
+  f.command('groceries.setChecked', { itemId: riceId, checked: true });
+  s = f.command('plan.update', { entryId, cooked: false });
+  assert.equal(s.groceries.items.find(item => item.id === riceId).checked, true);
+  s = f.command('plan.update', { entryId, cooked: true });
+  const before = f.store.read(f.user);
+  assert.throws(() => f.command('plan.update', { entryId, kind: 'note' }), { status: 400 });
+  assert.deepEqual(f.store.read(f.user), before);
+  s = f.command('plan.update', { entryId, kind: 'note', note: 'Обед в гостях', recipeId: null, servings: null });
+  assert.equal(s.plan[0].id, entryId); assert.equal(s.plan[0].cooked, false);
+  assert.equal(s.groceries.sources.length, 1); assert.equal(s.groceries.sources[0].kind, 'recipe');
+  assert.equal(s.groceries.items.find(item => item.id === riceId).quantity, 200);
+  assert.equal(s.groceries.items.find(item => item.id === riceId).checked, false);
+  assert.equal(s.groceries.items.find(item => item.id === manualId).checked, true);
+  const foreign = f.add({ owner: f.stranger });
+  assert.throws(() => f.command('plan.update', { entryId, kind: 'recipe', recipeId: foreign }), { status: 404 });
+  s = f.command('plan.update', { entryId, kind: 'recipe', recipeId: other, cooked: true });
+  assert.equal(s.plan[0].note, null); assert.equal(s.plan[0].servings, 3); assert.equal(s.plan[0].cooked, true);
+  assert.equal(s.groceries.sources.length, 1, 'Changing a note does not implicitly add purchases');
+  s = f.command('groceries.fromPlan', { entryIds: [entryId] });
+  assert.equal(s.groceries.items.find(item => item.name === 'Картофель').quantity, 600);
+  s = f.command('plan.update', { entryId, recipeId });
+  assert.equal(s.plan[0].cooked, false); assert.equal(s.plan[0].servings, 2);
+  assert.equal(s.groceries.items.some(item => item.name === 'Картофель'), false);
+  assert.equal(s.groceries.items.find(item => item.id === riceId).quantity, 400);
+  assert.deepEqual(f.db.prepare('SELECT * FROM recipes WHERE user_id=? ORDER BY id').all(f.user), originals);
+});
+
+test('bulk menu creation supports notes and unassigned meals atomically; mixed shopping ignores notes', t => {
+  const f = fixture(t), recipeId = f.add();
+  const entries = [{ kind: 'note', note: 'В гостях', date: '2026-11-12' }, { recipeId, date: '2026-11-12', meal: 'dinner' }];
+  const operation = { action: 'plan.apply', entries, operationId: randomUUID(), expectedVersion: 0 };
+  let s = f.store.mutate(f.user, operation);
+  assert.equal(s.plan.length, 2); assert.equal(s.operation.result.count, 2);
+  assert.equal(f.store.mutate(f.user, operation).operation.replayed, true);
+  const before = f.store.read(f.user);
+  assert.throws(() => f.command('plan.apply', { entries: [{ recipeId, date: '2026-11-13' }, { kind: 'note', note: 'Занято', date: '2026-11-12', meal: null }] }), { code: 'PLAN_SLOT_OCCUPIED' });
+  assert.throws(() => f.command('plan.apply', { entries: [{ recipeId, date: '2026-11-13' }, { kind: 'note', note: '', date: '2026-11-14' }] }), { status: 400 });
+  assert.throws(() => f.command('plan.apply', { entries: [{ kind: 'note', note: 'Текст', date: '2026-11-14', owner: f.stranger }] }), { status: 400 });
+  assert.deepEqual(f.store.read(f.user), before);
+  s = f.command('groceries.fromPlan', { entryIds: s.plan.map(entry => entry.id) });
+  assert.equal(s.operation.result.count, 1); assert.equal(s.groceries.sources.length, 1); assert.equal(s.groceries.items[0].quantity, 200);
+  assert.equal(s.groceries.sources[0].planEntryId, s.plan.find(entry => entry.kind === 'recipe').id);
+});
+
+test('note conversion, cooked state and linked purchases roll back on failed operation persistence', t => {
+  const f = fixture(t), recipeId = f.add();
+  let s = f.command('plan.add', { recipeId, date: '2026-11-12', cooked: true });
+  const entryId = s.plan[0].id;
+  f.command('groceries.fromPlan', { entryIds: [entryId] });
+  const before = f.store.read(f.user), operation = { action: 'plan.update', entryId, kind: 'note', note: 'Не должно сохраниться', operationId: randomUUID(), expectedVersion: before.version };
+  f.db.exec("CREATE TEMP TRIGGER reject_menu_operation BEFORE INSERT ON recipe_workspace_operations BEGIN SELECT RAISE(ABORT,'menu persistence failed'); END");
+  assert.throws(() => f.store.mutate(f.user, operation), /menu persistence failed/);
+  assert.deepEqual(f.store.read(f.user), before);
+  f.db.exec('DROP TRIGGER reject_menu_operation');
+  s = f.store.mutate(f.user, operation);
+  assert.equal(s.operation.replayed, false); assert.equal(s.plan[0].kind, 'note'); assert.equal(s.plan[0].cooked, false); assert.equal(s.groceries.sources.length, 0);
+  assert.equal(f.store.mutate(f.user, operation).operation.replayed, true);
+});
+
 test('scaling never changes source recipes, merges compatible units only and preserves unknown amounts', t => {
   const f = fixture(t), ingredients = [
     { name: 'Мука', quantity: 200, unit: 'г' }, { name: 'Мука', quantity: 0.3, unit: 'кг' },

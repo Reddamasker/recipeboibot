@@ -148,10 +148,7 @@
     dialog.showModal();return dialog;
   }
   function recipeOptions(selected){return readyRecipes().map(recipe=>`<option value="${esc(recipe.id)}" ${recipe.id===selected?'selected':''}>${esc(recipe.title)}</option>`).join('');}
-  function choosePlanRecipe(){
-    if(!readyRecipes().length)return catalogPicker('plan');
-    return choiceDialog('Добавить блюдо',[{label:'Из моих рецептов',run:()=>planForm()},{label:'Из каталога',run:()=>catalogPicker('plan')}]);
-  }
+  function choosePlanRecipe(date=null){return planForm(null,null,{date});}
   function catalogPicker(destination='plan'){
     ui.dialog?.close();
     const multiple=destination==='auto',dialog=document.createElement('dialog');
@@ -197,10 +194,21 @@
     if(!ui.workspace.collections.length){collectionForm(null,[recipe.id]);return;}
     choiceDialog('Добавить в подборку',ui.workspace.collections.map(book=>({label:`${book.name}${book.recipeIds.includes(recipe.id)?' — уже добавлен':''}`,run:()=>formDialog({title:book.name,action:'collections.setRecipes',submit:book.recipeIds.includes(recipe.id)?'Убрать из подборки':'Добавить в подборку',body:`<p>${esc(recipe.title)}</p><p class="r-field-hint">Рецепт может находиться в нескольких подборках.</p>`,read:()=>({collectionId:book.id,recipeIds:book.recipeIds.includes(recipe.id)?book.recipeIds.filter(id=>id!==recipe.id):[...book.recipeIds,recipe.id]})})})));
   }
-  function planForm(entry=null,selected=null){
-    const recipes=readyRecipes();if(!recipes.length)return catalogPicker('plan');
-    const recipe=recipes.find(recipe=>recipe.id===(selected||entry?.recipeId))||recipes[0];
-    const dialog=formDialog({title:entry?'Изменить блюдо в меню':'Добавить в меню',action:entry?'plan.update':'plan.add',body:`<label class="r-field-label" for="ws-plan-recipe">Рецепт</label><select id="ws-plan-recipe" name="recipeId">${recipeOptions(recipe.id)}</select><div class="r-field-pair"><div><label class="r-field-label" for="ws-plan-date">Дата</label><input id="ws-plan-date" name="date" type="date" required value="${esc(entry?.date||(ui.week===0?localDate():dateKey(dayList()[0])))}"></div><div><label class="r-field-label" for="ws-plan-meal">Приём пищи</label><select id="ws-plan-meal" name="meal">${Object.entries(meals).map(([key,label])=>`<option value="${key}" ${key===(entry?.meal||'dinner')?'selected':''}>${label}</option>`).join('')}</select></div></div>${servingInput(recipe,entry?.servings)}`,read:form=>({...(entry?{entryId:entry.id}:{}),recipeId:form.querySelector('[name=recipeId]').value,date:form.querySelector('[name=date]').value,meal:form.querySelector('[name=meal]').value,servings:readServings(form)})});bindRecipeServings(dialog);return dialog;
+  function planForm(entry=null,selected=null,options={}){
+    ui.dialog?.close();const recipe=recipeById(selected||entry?.recipeId)||entry?.recipe||null;
+    const selectedDate=options.date||entry?.date||(ui.week===0?localDate():dateKey(dayList()[0]));
+    let flow=flowFor(entry?'plan.update':'plan.add'),catalogFlow=null,catalogVisit=null;
+    const cardReturn=ui.cardReturn;
+    const failure=error=>{error.locked=Boolean(flow.conflict||catalogFlow?.conflict);error.uncertain=Boolean(ui.uncertain&&(ui.uncertain.id===flow.id||ui.uncertain.id===catalogFlow?.id));return error;};
+    const dialog=MealPlanEditor.open({entry,selectedRecipe:recipe,date:selectedDate,meal:entry?.meal??null,servings:options.servings??entry?.servings??recipe?.servings,mode:options.mode,
+      recipes:readyRecipes,collections:()=>ui.workspace?.collections||[],imageUrl:r=>r.thumbnailUrl||r.image||'',
+      onSave:async fields=>{try{if(flow.failed)flow=flowFor(entry?'plan.update':'plan.add');flow.inlineConfirmation=Boolean(cardReturn);await mutate(flow,{...(entry?{entryId:entry.id}:{}),...fields});if(cardReturn)cardReturn.savedFlow=flow;else if(ui.section==='meal-plan'){const monday=new Date(dayList()[0]);monday.setUTCDate(monday.getUTCDate()-ui.week*7);ui.week=Math.floor((new Date(fields.date+'T00:00:00Z')-monday)/(7*86400000));planner();}}catch(error){throw failure(error);}},
+      loadCatalog:async(query,page)=>{catalogVisit=crypto.randomUUID();RecipeAnalytics?.event('step_submit','other',{flowId:catalogVisit});RecipeAnalytics?.requestStarted(catalogVisit,'other');return api('/api/catalog?'+new URLSearchParams({q:query,page:String(page)}),{signal:AbortSignal.timeout(12000)});},
+      catalogVisible:element=>{if(element&&catalogVisit)RecipeAnalytics?.requestVisible(element,catalogVisit,false,'full');},
+      onSaveCatalog:async catalogId=>{try{if(!catalogFlow||catalogFlow.failed||catalogFlow.catalogId!==catalogId){catalogFlow=flowFor('collections.saveCatalog');catalogFlow.catalogId=catalogId;}catalogFlow.inlineConfirmation=true;if(!catalogFlow.done){const result=await mutate(catalogFlow,{catalogId});catalogFlow.savedRecipeId=result.operation.result.recipeId;}await refresh();const saved=recipeById(catalogFlow.savedRecipeId);if(!saved)throw new Error('Рецепт сохранён, но список ещё не обновился. Повтори загрузку.');return saved;}catch(error){if(catalogFlow?.done)error.uncertain=true;else failure(error);throw error;}},
+      catalogSavedVisible:element=>{if(element&&catalogFlow?.done)RecipeAnalytics?.observe(element,'workspace_action','collection',{feature:'collections',action:'collections.saveCatalog',outcome:'success',flowId:catalogFlow.id,_started:catalogFlow.startedWall});},
+      onClose:()=>{for(const item of [flow,catalogFlow])if(item&&!item.done&&ui.uncertain?.id!==item.id)actionEvent(item,'cancelled');if(ui.dialog===dialog)ui.dialog=null;observeWorkspace();}
+    });ui.dialog=dialog;return dialog;
   }
   function plannedEntries(){const dates=new Set(dayList().map(dateKey));return ui.workspace?.plan.filter(entry=>dates.has(entry.date))||[];}
   function autoPlan(){
@@ -218,7 +226,7 @@
     dialog.querySelector('[name=quantity]').oninput=event=>{const text=dialog.querySelector('[name=amountText]');text.disabled=Boolean(event.target.value);text.dataset.wsFixed=text.disabled?'true':'false';};
   }
   function groceriesFromRecipe(selected=null){const recipes=readyRecipes();if(!recipes.length)return catalogPicker('groceries');const recipe=recipes.find(recipe=>recipe.id===selected)||recipes[0];const dialog=formDialog({title:'Продукты для рецепта',action:'groceries.fromRecipe',submit:'Добавить продукты',body:`<label class="r-field-label" for="ws-shopping-recipe">Рецепт</label><select id="ws-shopping-recipe" name="recipeId">${recipeOptions(recipe.id)}</select>${servingInput(recipe)}<p class="r-field-hint">Повторное добавление обновит продукты этого рецепта, не создавая второй экземпляр.</p>`,read:form=>({recipeId:form.querySelector('[name=recipeId]').value,servings:readServings(form)})});bindRecipeServings(dialog);}
-  function groceriesFromPlan(){const entries=plannedEntries();if(!entries.length){choiceDialog('Сначала выбери блюдо',[{label:'Добавить продукты из каталога',run:()=>catalogPicker('groceries')},{label:'Добавить блюдо в меню',run:()=>{setRoute({view:'meal-plan'});planner();choosePlanRecipe();}}]);return;}formDialog({title:'Продукты из меню',action:'groceries.fromPlan',submit:'Добавить продукты',body:`<p class="r-field-hint">Выбери блюда выбранной недели. Ручные позиции в покупках сохранятся.</p><div class="r-recipe-checklist">${entries.map(entry=>`<label class="r-check-row"><input type="checkbox" name="entryIds" value="${esc(entry.id)}" ${entry.recipeAvailable?'checked':'disabled data-ws-fixed="true"'}><span>${esc(entry.date)} · ${esc(meals[entry.meal])}<strong>${esc(entry.recipe?.title||'Рецепт недоступен')}</strong></span></label>`).join('')}</div>`,read:form=>{const entryIds=[...form.querySelectorAll('[name=entryIds]:checked')].map(input=>input.value);if(!entryIds.length)throw new Error('Выбери хотя бы одно доступное блюдо.');return {entryIds};}});}
+  function groceriesFromPlan(){const entries=plannedEntries().filter(entry=>entry.kind!=='note');if(!entries.length){choiceDialog('Сначала выбери блюдо',[{label:'Добавить продукты из каталога',run:()=>catalogPicker('groceries')},{label:'Добавить блюдо в меню',run:()=>{setRoute({view:'meal-plan'});planner();choosePlanRecipe();}}]);return;}formDialog({title:'Продукты из меню',action:'groceries.fromPlan',submit:'Добавить продукты',body:`<p class="r-field-hint">Выбери блюда выбранной недели. Ручные позиции в покупках сохранятся.</p><div class="r-recipe-checklist">${entries.map(entry=>`<label class="r-check-row"><input type="checkbox" name="entryIds" value="${esc(entry.id)}" ${entry.recipeAvailable?'checked':'disabled data-ws-fixed="true"'}><span>${esc(entry.date)} · ${esc(meals[entry.meal]||'Без типа')}<strong>${esc(entry.recipe?.title||'Рецепт недоступен')}</strong></span></label>`).join('')}</div>`,read:form=>{const entryIds=[...form.querySelectorAll('[name=entryIds]:checked')].map(input=>input.value);if(!entryIds.length)throw new Error('Выбери хотя бы одно доступное блюдо.');return {entryIds};}});}
   function shoppingChoices(){choiceDialog('Добавить продукты',[{label:'Ввести вручную',run:()=>manualGrocery()},{label:'Из сохранённого рецепта',run:()=>groceriesFromRecipe()},{label:'Из каталога',run:()=>catalogPicker('groceries')},{label:'Из меню на эту неделю',run:()=>groceriesFromPlan()}]);}
   function recipeChoices(recipe){choiceDialog(recipe.title,[{label:'Открыть рецепт',run:()=>openRecipe(recipe.id,true)},{label:'Подборки рецепта',disabled:recipe.status!=='ready'||recipe.previewOnly===true,run:()=>recipeMemberships(recipe)},{label:'Добавить в меню',disabled:recipe.status!=='ready'||recipe.previewOnly===true,run:()=>planForm(null,recipe.id)},{label:'Добавить продукты в покупки',disabled:recipe.status!=='ready'||recipe.previewOnly===true,run:()=>groceriesFromRecipe(recipe.id)}]);}
   function sourceChoices(){
@@ -250,7 +258,7 @@
   const button=(action,label,name,cls='r-action',extra='')=>`<button type="button" class="${cls}" data-review="${action}" ${extra}>${name?ico(name):''}<span>${esc(label)}</span>${cls.includes('r-action')?ico('chevron'):''}</button>`;
   function dayList(){const now=new Date(),date=new Date(Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()));const weekday=(date.getUTCDay()+6)%7;date.setUTCDate(date.getUTCDate()-weekday+ui.week*7);return Array.from({length:7},(_,i)=>new Date(date.getTime()+i*86400000));}
   function navigation(){return `<nav class="r-nav" aria-label="Разделы приложения">${[['collection','Рецепты','bookmark'],['meal-plan','Меню','calendar'],['groceries','Покупки','basket'],['discover','Подобрать','compass']].map(([v,t,i])=>`<button type="button" data-review-view="${v}" aria-current="${ui.section===v?'page':'false'}">${ico(i)}<span>${t}</span></button>`).join('')}</nav>`;}
-  function setMarkup(content,step='other'){root.classList.add('review-shell');root.dataset.analyticsStep=step;root.innerHTML=content+navigation();window.__miniRendered=true;}
+  function setMarkup(content,step='other'){ui.disposePlanner?.();ui.disposePlanner=null;root.classList.add('review-shell');root.dataset.analyticsStep=step;root.innerHTML=content+navigation();window.__miniRendered=true;}
   function title(text,action=null,cls=''){return `<header class="r-header ${cls}"><h1>${text}</h1>${action?button(action,'Настройки','settings','r-round','aria-label="Настройки"'):''}</header>`;}
   function searchField(id,value,placeholder){return `<label class="r-search">${ico('search')}<input id="${id}" type="search" value="${esc(value)}" placeholder="${placeholder}" aria-label="${placeholder}" autocomplete="off"></label>`;}
   function books(){
@@ -280,9 +288,10 @@
   }
   function planner(){
     ui.section='meal-plan';const dates=dayList(),entries=plannedEntries(),fmt=date=>date.toLocaleDateString('ru-RU',{day:'numeric',month:'short',timeZone:'UTC'});
-    const content=!ui.workspace?'<div class="r-plan-empty"><p class="r-field-hint">Загружаем меню…</p></div>':entries.length?'<div class="r-week-plan">'+dates.map(date=>{const day=entries.filter(entry=>entry.date===dateKey(date));if(!day.length)return '';return '<section class="r-plan-day"><h2>'+esc(date.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'}))+'</h2>'+day.map(entry=>'<article class="r-plan-entry" data-ws-entry="'+esc(entry.id)+'"><span class="r-meal-label">'+esc(meals[entry.meal])+'</span><button type="button" class="r-plan-recipe" data-review="plan-open" data-entry-id="'+esc(entry.id)+'" '+(entry.recipeAvailable?'':'disabled')+'>'+esc(entry.recipe?.title||'Рецепт недоступен')+'</button><small>'+esc(entry.servings?num(entry.servings,['порция','порции','порций']):'Порции не указаны')+'</small><div class="r-inline-actions"><button type="button" data-review="edit-plan" data-entry-id="'+esc(entry.id)+'">Изменить</button><button type="button" data-review="remove-plan" data-entry-id="'+esc(entry.id)+'">Убрать</button></div></article>').join('')+'</section>';}).join('')+'</div>':'<div class="r-plan-empty"><img class="r-plan-art" src="'+base+'calendar.svg?v=original-1" alt=""><h2 class="r-empty-title">Пока ничего не запланировано…</h2></div>';
-    setMarkup(title('Моё меню','plan-settings')+'<main class="r-panel"><div class="r-week"><button class="r-plain" data-review="previous-week" aria-label="Предыдущая неделя">'+ico('left')+'</button><strong>'+(ui.week===0?'Эта неделя ':'')+fmt(dates[0])+' – '+fmt(dates[6])+' '+dates[6].getUTCFullYear()+'</strong><button class="r-plain" data-review="next-week" aria-label="Следующая неделя">'+ico('chevron')+'</button></div>'+workspaceNotice()+content+button('plan-add','Добавить блюдо','plus')+button('plan-magic',readyRecipes().length?'Составить из моих рецептов':'Составить меню','magic','r-action r-highlight')+(entries.length?button('plan-shopping','Продукты в список покупок','basket'):'')+'</main>');
-    workspaceStarted();
+    if(ui.planTipDismissed===undefined){try{ui.planTipDismissed=localStorage.getItem('recipe-menu-swipe-tip:'+state.me.id)==='hidden';}catch{ui.planTipDismissed=false;}}
+    const days=dates.map(day=>({key:dateKey(day),weekday:day.toLocaleDateString('ru-RU',{weekday:'long',timeZone:'UTC'}),dateLabel:day.toLocaleDateString('ru-RU',{day:'numeric',month:'long',timeZone:'UTC'}),isToday:dateKey(day)===localDate()}));
+    const content=MealPlanReference.render({days,entries,weekLabel:(ui.week===0?'Эта неделя ':'')+fmt(dates[0])+' – '+fmt(dates[6])+' '+dates[6].getUTCFullYear(),loading:!ui.workspace,tipDismissed:ui.planTipDismissed});
+    setMarkup(content.replace('<p class="mp-sr-only"',workspaceNotice()+'<p class="mp-sr-only"'));ui.disposePlanner=MealPlanReference.mount(root);workspaceStarted();
   }
   function groceries(){
     ui.section='groceries';const items=ui.workspace?.groceries.items||[],checked=items.filter(item=>item.checked).length;
@@ -369,7 +378,7 @@
     const controller=RecipeReferenceCard.mount(element,recipe,{
       toast,saveMetadata:fields=>change(fields),saveNotes:notes=>change({notes}),
       collection:async()=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>recipeMemberships(recipe));}},
-      plan:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>{const dialog=planForm(null,recipe.id);if(servings)dialog.querySelector('#ws-servings').value=servings;});}},
+      plan:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>planForm(null,recipe.id,{servings}));}},
       groceries:async({servings})=>{await own();if(await canEdit()){active();cardWorkspaceForm(recipe,()=>{groceriesFromRecipe(recipe.id);if(servings)ui.dialog.querySelector('#ws-servings').value=servings;});}},
       edit:async()=>{await own();closeOverlay();editRecipe(recipe);},
       tags:async()=>{await own();fieldsForm('Теги рецепта','tags',(recipe.tags||[]).join(', '));},
@@ -425,7 +434,7 @@
     if(/^(seed|dinner):/.test(recipe.id))return previousRecipeDetail(recipe,options);
     return showReferenceCard(recipe,options);
   };
-  render=async function(){const view=new URLSearchParams(location.search).get('view');ui.detailRevision++;if(['meal-plan','groceries','discover'].includes(view)){({ 'meal-plan':planner,groceries,discover })[view]();const recipeId=new URLSearchParams(location.search).get('recipe');if(recipeId)await openRecipe(recipeId,false);return;}if(['collection',null,''].includes(view)){await oldRender();return;}root.classList.remove('review-shell');await oldRender();};
+  render=async function(){ui.disposePlanner?.();ui.disposePlanner=null;const view=new URLSearchParams(location.search).get('view');ui.detailRevision++;if(['meal-plan','groceries','discover'].includes(view)){({ 'meal-plan':planner,groceries,discover })[view]();const recipeId=new URLSearchParams(location.search).get('recipe');if(recipeId)await openRecipe(recipeId,false);return;}if(['collection',null,''].includes(view)){await oldRender();return;}root.classList.remove('review-shell');await oldRender();};
   root.addEventListener('click',async event=>{const el=event.target.closest('button');if(!el||!root.contains(el)||!root.classList.contains('review-shell'))return;if(el.dataset.reviewView){ui.book=null;ui.query='';ui.detailRevision++;ui.navigation=null;setRoute({view:el.dataset.reviewView});await render();resetPageScroll();if(el.dataset.reviewView!=='discover'&&!ui.saving&&!ui.uncertain)void ensureWorkspace(true).catch(()=>{});return}const a=el.dataset.review;if(!a)return;try{switch(a){
     case 'fold':ui.folded=!ui.folded;recipesPage();break;
     case 'tab':ui.tab=el.dataset.tab;ui.book=null;ui.query='';recipesPage();break;
@@ -441,12 +450,16 @@
     case 'recipe-actions':if(await canEdit()){const recipe=recipeById(el.dataset.recipeId);if(recipe)recipeChoices(recipe);}break;
     case 'previous-week':ui.week--;planner();break;case 'next-week':ui.week++;planner();break;
     case 'plan-settings':if(await canEdit())choiceDialog('Моё меню',[{label:'Перейти к этой неделе',run:()=>{ui.week=0;planner();}},{label:'Составить из моих рецептов',run:autoPlan},{label:'Продукты из выбранной недели',run:groceriesFromPlan}]);break;
-    case 'plan-add':if(await canEdit())choosePlanRecipe();break;
+    case 'plan-add':if(await canEdit())choosePlanRecipe(el.dataset.date||null);break;
     case 'plan-magic':if(await canEdit())autoPlan();break;
-    case 'plan-shopping':if(await canEdit())groceriesFromPlan();break;
+    case 'plan-shopping':case 'plan-groceries':if(await canEdit())groceriesFromPlan();break;
+    case 'plan-tip-dismiss':ui.planTipDismissed=true;try{localStorage.setItem('recipe-menu-swipe-tip:'+state.me.id,'hidden');}catch{}planner();break;
+    case 'plan-type':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)planForm(entry,null,{mode:entry.kind==='note'||!entry.recipeAvailable?'type':undefined});}break;
+    case 'plan-cooked':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry&&entry.kind!=='note')await mutate(flowFor('plan.update'),{entryId:entry.id,cooked:!entry.cooked});}break;
+    case 'plan-grocery':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry?.recipeAvailable&&entry.kind!=='note')await mutate(flowFor('groceries.fromPlan'),{entryIds:[entry.id]});}break;
     case 'plan-open':{const entry=ui.workspace?.plan.find(item=>item.id===el.dataset.entryId);if(entry?.recipeAvailable)await openRecipe(entry.recipeId,true);break;}
     case 'edit-plan':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)planForm(entry);}break;
-    case 'remove-plan':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)formDialog({title:'Убрать блюдо из меню?',action:'plan.delete',submit:'Убрать блюдо',body:`<p>${esc(entry.recipe?.title||'Недоступный рецепт')}</p><p class="r-field-hint">${esc(entry.date)} · ${esc(meals[entry.meal])}. Связанные продукты в покупках будут обновлены.</p>`,read:()=>({entryId:entry.id})});}break;
+    case 'remove-plan':if(await canEdit()){const entry=ui.workspace.plan.find(item=>item.id===el.dataset.entryId);if(entry)formDialog({title:'Убрать запись из меню?',action:'plan.delete',submit:'Убрать запись',body:`<p>${esc(entry.kind==='note'?entry.note:entry.recipe?.title||'Недоступный рецепт')}</p><p class="r-field-hint">${esc(entry.date)} · ${esc(meals[entry.meal]||'Без типа')}. Связанные продукты в покупках будут обновлены.</p>`,read:()=>({entryId:entry.id})});}break;
     case 'shopping-add':if(await canEdit())shoppingChoices();break;
     case 'shopping-sources':if(await canEdit())sourceChoices();break;
     case 'item-actions':if(await canEdit()){const item=ui.workspace.groceries.items.find(row=>row.id===el.dataset.itemId);if(item)itemChoices(item);}break;
