@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const root=path.resolve(import.meta.dirname,'..'),out=path.join(root,'public/review/recime-20261109');
+const js=['vendor/telegram-web-app.js','platform-bridge.js','mini-boot.js','analytics.js','recipe-detail.js','recipe-cooking.js','app.js'];
+const css=['styles.css','refinements.css','taste-editor.css','recipe-detail.css'];
+const bootstrap=`window.__recipePlatform={name:'telegram',botUsername:'recipeboi_test_bot'};\n`;
+fs.mkdirSync(out,{recursive:true});
+fs.writeFileSync(path.join(out,'core.js'),bootstrap+js.map(f=>`\n/* Snapshot: ${f} */\n`+fs.readFileSync(path.join(root,'public',f),'utf8').replaceAll('https://t.me/Recipeboibot','https://t.me/recipeboi_test_bot')).join('\n;\n'));
+fs.writeFileSync(path.join(out,'core.css'),css.map(f=>`\n/* Snapshot: ${f} */\n`+fs.readFileSync(path.join(root,'public',f),'utf8')).join('\n'));
+console.log('Built test-only review runtime and styles');
