@@ -1,7 +1,7 @@
-// This landing uses a fictional recipe to demonstrate the product.
 (() => {
   const root = document.getElementById('landing');
   if (!root) return;
+  if (!root.hidden && !window.__miniLaunch) import('/landing-features.js?v=2').catch(() => {});
   const el = (id) => document.getElementById(id);
   el('lp-demo-share').addEventListener('click', async (event) => {
     try {
@@ -61,7 +61,6 @@
       targetVisible = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 1);
       playWhenVisible();
     }, { threshold: 1, rootMargin: '-100px 0px -16px 0px' });
-    // Wait until the receiving bot is visible, including on a short phone screen.
     observer.observe(el('lp-flow-bot'));
   }
 })();

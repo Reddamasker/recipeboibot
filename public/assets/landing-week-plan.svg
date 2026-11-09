@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="338" viewBox="0 0 400 338">
+  <rect x=".5" y=".5" width="399" height="337" rx="14" fill="#fffefa" stroke="#d9d5de"/>
+  <g font-family="Arial,sans-serif" fill="#2e322d">
+    <text x="24" y="35" font-size="18" font-weight="600">Моё меню</text><text x="376" y="34" text-anchor="end" font-size="12" fill="#66685f">На 2 порции</text>
+    <g fill="#e9e0ef"><rect x="24" y="56" width="42" height="34" rx="7"/><rect x="76" y="56" width="42" height="34" rx="7"/><rect x="128" y="56" width="42" height="34" rx="7"/></g>
+    <g font-size="12" text-anchor="middle"><text x="45" y="78" fill="#665172">Пн</text><text x="97" y="78" fill="#665172">Вт</text><text x="149" y="78" fill="#665172">Ср</text><text x="201" y="78" fill="#797780">Чт</text><text x="253" y="78" fill="#797780">Пт</text><text x="305" y="78" fill="#797780">Сб</text><text x="357" y="78" fill="#797780">Вс</text></g>
+    <path d="M24 107H376M24 180H376M24 253H376" stroke="#e6e3e8"/>
+    <g font-size="14" font-weight="600"><text x="24" y="136">Пн</text><text x="24" y="209">Вт</text><text x="24" y="282">Ср</text></g>
+    <g font-size="10" fill="#66685f"><text x="24" y="153">Ужин</text><text x="24" y="226">Обед</text><text x="24" y="299">Ужин</text></g>
+    <g><rect x="73" y="120" width="50" height="48" rx="9" fill="#f3e3cc"/><rect x="73" y="193" width="50" height="48" rx="9" fill="#e7e8d7"/><rect x="73" y="266" width="50" height="48" rx="9" fill="#e9dcd4"/></g>
+    <g fill="none" stroke="#aa895d" stroke-width="2" stroke-linecap="round"><path d="M84 135q9-8 18 0t10 3M85 143q8-7 18 0t10 3M85 151q9-7 18 0t9 2"/><path d="M84 216q8-12 18-8t9 12q-11 12-27-4Z" stroke="#798263"/><path d="m86 281 22 5-4 15-21-5Z" stroke="#a07e6a"/></g>
+    <g font-size="15" font-weight="600"><text x="137" y="140">Паста с томатами</text><text x="137" y="213">Курица с рисом</text><text x="137" y="286">Говядина с перцем</text></g>
+    <g font-size="11" fill="#66685f"><text x="137" y="158">Из вашей коллекции</text><text x="137" y="231">Из вашей коллекции</text><text x="137" y="304">Из вашей коллекции</text></g>
+  </g>
+</svg>
