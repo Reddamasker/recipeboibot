@@ -24,7 +24,7 @@ function runConfig(env = {}, source = "const { config, assertConfig } = await im
   });
 }
 
-test('the public price defaults to the single published 199 ruble tariff', () => {
+test('legacy experiment defaults remain independent of the public subscription catalog', () => {
   const result = runConfig({ ...requiredProviderEnv, BILLING_REQUIRED: 'false' });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [199]);

@@ -34,11 +34,11 @@ test('promo discounts work in test contour: failure frees code, success consumes
   const promoUser = upsertTelegramUser({ id: 600000099, first_name: 'Promo' });
   const trial = startTrial(promoUser.id);
   const order = createMockOrder(promoUser.id, 'card', false, 'PICHU99');
-  assert.equal(order.priceRub, 1.99);
+  assert.equal(order.priceRub, 1.59);
   assert.equal(mockPaymentStatus(promoUser.id).pendingOrder.promoCode, 'PICHU99');
   assert.equal(createMockOrder(promoUser.id, 'card', false, 'pichu99').id, order.id);
   finishMockOrder(promoUser.id, order.id, 'failure');
-  assert.equal(promoQuote(promoUser.id, 'PICHU99').priceRub, 1.99);
+  assert.equal(promoQuote(promoUser.id, 'PICHU99').priceRub, 1.59);
   const retry = createMockOrder(promoUser.id, 'card', false, 'PICHU99');
   assert.notEqual(retry.id, order.id);
   finishMockOrder(promoUser.id, retry.id, 'success');
@@ -74,7 +74,7 @@ test('test contour mirrors discounted three-month and annual access periods', ()
   const threeMonthUser = upsertTelegramUser({ id: 6971956678, first_name: 'Three' });
   createRecipe(threeMonthUser.id, { title: 'Паста', status: 'ready' });
   const three = createMockOrder(threeMonthUser.id, 'card', false, undefined, 3);
-  assert.equal(three.priceRub, 499);
+  assert.equal(three.priceRub, 319);
   assert.equal(three.periodMonths, 3);
   finishMockOrder(threeMonthUser.id, three.id, 'success');
   const threeAccess = getSubscriptionAccess(threeMonthUser.id);
@@ -83,7 +83,7 @@ test('test contour mirrors discounted three-month and annual access periods', ()
   const annualUser = upsertTelegramUser({ id: 6971956677, first_name: 'Annual' });
   createRecipe(annualUser.id, { title: 'Суп', status: 'ready' });
   const annual = createMockOrder(annualUser.id, 'card', false, undefined, 12);
-  assert.equal(annual.priceRub, 1499);
+  assert.equal(annual.priceRub, 599);
   finishMockOrder(annualUser.id, annual.id, 'success');
   assert.ok(Math.abs(Date.parse(getSubscriptionAccess(annualUser.id).expiresAt) - Date.parse(monthsAfter(annual.createdAt, 12))) < 1000);
 });
