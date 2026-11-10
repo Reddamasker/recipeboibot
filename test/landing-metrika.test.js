@@ -32,6 +32,8 @@ test('no Metrika on hidden, internal, probe, embedded, Mini App or private-query
  for(const options of [{hidden:true},{internal:true},{probe:true},{frame:true},{mini:true},{id:'0'},{query:'?token=private'},{query:'?view=collection'},{query:'#tgWebAppData=private'}])assert.equal(fixture(options).scripts.length,0,JSON.stringify(options));
  const p=fixture();p.scripts[0].onerror();for(let i=0;i<50;i++)p.click('telegram');assert.equal(p.window.ym.a.length,0);
  const hidden=fixture({hidden:true});hidden.show();assert.equal(hidden.scripts.length,1);
+ for (const query of ['?_ym_status-check=123456789&_ym_lang=ru','?_ym_debug=2']) { const check=fixture({query,internal:true});assert.equal(check.scripts.length,1);assert.equal(check.window.ym.a[1][2],'https://dishfinder.ru/'); }
+ assert.equal(fixture({query:'?_ym_status-check=987654321'}).scripts.length,0);
  for(const settings of [{botPlatform:'max'},{botPlatform:'telegram',testContour:true}])assert.equal(landingMetrikaCounter({...settings,yandexMetrikaCounterId:123456789}),0);
 });
 test('only public landing HTML opts into Metrika; Mini App, dashboard and APIs retain their policy',async()=>{
