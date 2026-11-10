@@ -67,6 +67,15 @@ async function sendChatGenerationDisabled(chatId, userId, { refused = true, grou
     ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть коллекцию', web_app: { url } }]] } } : {});
 }
 
+async function sendCollectionEntry(chatId, userId, importEntry = false) {
+  const previous = getPendingIntent(userId);
+  setPendingIntent(userId, { kind: 'recipe-save', collectionOnboarding: true, resumeIntent: previous?.kind === 'recipe-save' ? previous.resumeIntent : previous });
+  const url = webAppUrl({ view: 'collection' });
+  identifyProductStep(importEntry ? 'import' : 'home');
+  await send(chatId, importEntry ? '<b>Добавить рецепт</b>\n\nПришли ссылку, фото или текст рецепта. Можно переслать сообщение или продиктовать рецепт голосом.\n\nЯ обработаю его и добавлю в твою коллекцию.\n\nДля отмены — /cancel.' : collectionWelcome, url ? { reply_markup: { inline_keyboard: [[{ text: collectionButtonText, web_app: { url } }]] } } : {});
+  recordProduct(userId, 'chat_prompt_delivered', { step: importEntry ? 'import' : 'home' });
+}
+
 const awaitingFirstRecipe = (userId) => Boolean(userId && isFirstRecipeAwaitingTrial(userId) && !getSubscriptionAccess(userId).active);
 function firstRecipeBenefitsMarkup() {
   const url = webAppUrl({ view: 'benefits' });
@@ -1249,13 +1258,8 @@ export async function handleMessage(message) {
   }
   if ((!config.legacyRecipeFlowsEnabled && /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text) && !/^\/start(?:@[A-Za-z0-9_]+)?\s+(?:feedback|group_access)(?:\s|$)/i.test(text)) || /^\/start(?:@[A-Za-z0-9_]+)?\s+collection(?:_save)?\s*$/i.test(text) || landingStartIntent(text) === 'collection' || maxLandingEntry) {
     if (!user.is_allowed) allowUser(user.id);
-    const previous = getPendingIntent(user.id);
-    setPendingIntent(user.id, { kind: 'recipe-save', collectionOnboarding: true, resumeIntent: previous?.kind === 'recipe-save' ? previous.resumeIntent : previous });
-    const url = webAppUrl({ view: 'collection' });
     const importEntry = /\s(?:collection_save|save)\s*$/i.test(text) || landingStartIntent(text) === 'save';
-    if (importEntry) identifyProductStep('import');
-    await send(chatId, importEntry ? '<b>Добавить рецепт</b>\n\nПришли ссылку, фото или текст рецепта. Можно переслать сообщение или продиктовать рецепт голосом.\n\nЯ обработаю его и добавлю в твою коллекцию.\n\nДля отмены — /cancel.' : collectionWelcome, url ? { reply_markup: { inline_keyboard: [[{ text: collectionButtonText, web_app: { url } }]] } } : {});
-    recordProduct(user.id, 'chat_prompt_delivered', { step: importEntry ? 'import' : 'home' });
+    await sendCollectionEntry(chatId, user.id, importEntry);
     return;
   }
   const feedbackEntry = getPendingIntent(user.id);
@@ -1466,7 +1470,7 @@ export async function handleMyChatMember(change) {
     const user = resolvePrivateTelegramUser(change.from);
   identifyProductUser(user.id);
     if (!user.is_allowed) allowUser(user.id);
-    if (!config.legacyRecipeFlowsEnabled) { await handleMessage({ from: change.from, chat, text: '/start' }); return; }
+    if (!config.legacyRecipeFlowsEnabled) { await sendCollectionEntry(chat.id, user.id); return; }
     const pending = getPendingIntent(user.id);
     if (['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {
       await resumeDinnerIntake(chat.id, user.id, pending, { unblocked: true });

@@ -44,6 +44,11 @@ assert.equal(getPendingIntent(user.id).resumeIntent.kind,'recipe-save');assert.e
 await send('/start');await send('/cancel');
 await handleMyChatMember({chat,from,old_chat_member:{status:'kicked'},new_chat_member:{status:'member'}});
 assert.equal(messages.at(-1).text,collectionWelcome);
+const unblockedFrom={id:config.botPlatform==='max'?'max:997010':997010,first_name:'Unblocked fixture'};
+if(config.botPlatform==='max')maxStore.bind(997010,997010);
+await handleMyChatMember({chat:{id:unblockedFrom.id,type:'private'},from:unblockedFrom,old_chat_member:{status:'kicked'},new_chat_member:{status:'member'}});
+const unblocked=resolvePrivateTelegramUser(unblockedFrom);
+assert.equal(db.prepare('SELECT COUNT(*) n FROM acquisition_starts WHERE user_id=?').get(unblocked.id).n,0,'Unblocking must not fabricate a bot or advertising start');
 startTrial(user.id);
 assert.equal(queueTrialWelcome(user.id,from.id,{ready:true}),false);
 db.prepare("INSERT INTO trial_welcome_messages(user_id,chat_id,trial_started_at,ready,next_attempt_at) VALUES(?,?,?,1,?)").run(user.id,String(from.id),new Date().toISOString(),new Date().toISOString());
