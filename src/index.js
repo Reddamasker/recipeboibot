@@ -12,6 +12,7 @@ import { startNotificationScheduler, stopNotificationScheduler } from './notific
 import { startBillingScheduler, stopBillingScheduler } from './billing.js';
 import { startTrialWelcomeScheduler, stopTrialWelcomeScheduler } from './trial-welcome.js';
 import { startDirectScheduler, stopDirectScheduler } from './yandex-direct.js';
+import { startJourneyEnrichmentScheduler, stopJourneyEnrichmentScheduler } from './yandex-journey-enrichment.js';
 import { startTrialReminderScheduler, stopTrialReminderScheduler } from './trial-reminders.js';
 import { sendTrialRecipeReminder } from './telegram.js';
 import { initializeTrialDigest } from './trial-digest-store.js';
@@ -34,6 +35,7 @@ server.listen(config.port, '0.0.0.0', () => {
   log('info', 'server_started', { port: config.port, appUrlConfigured: Boolean(config.appUrl) });
   startBillingScheduler();
   startDirectScheduler();
+  startJourneyEnrichmentScheduler();
   startCatalogHandoffScheduler();
   if (config.imageModel) void (async () => {
     for (const item of listGeneratedRecipesWithoutImages()) await ensureRecipeImage(item.userId, getRecipe(item.userId, item.id));
@@ -51,6 +53,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
   if (shuttingDown) return;
   shuttingDown = true;
   stopCatalogHandoffScheduler();
+  stopJourneyEnrichmentScheduler();
   stopTrialReminderScheduler();
   stopTrialWelcomeScheduler(); stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
   const deadline = setTimeout(() => process.exit(1), 80000); deadline.unref();

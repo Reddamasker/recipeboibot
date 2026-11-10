@@ -2,6 +2,7 @@ import { productReport } from './product-analytics.js';
 import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { randomBytes } from 'node:crypto';
 import { parseMaxLandingPayload } from './max-landing-acquisition.js';
+import { recordChatAdvertising } from './user-ad-attribution.js';
 import { db } from './db.js';
 import { config } from './config.js';
 import { MAX_AD_PLACEMENT, MAX_AD_PAYLOAD, MAX_AD_NAME, maxAdvertisingLink } from './max-acquisition.js';
@@ -86,7 +87,7 @@ export function recordBotStart(user, text, at = new Date()) {
   const maxLanding = config.botPlatform === 'max' ? parseMaxLandingPayload(text) : null;
   if (maxLanding) {
     // First touch and timestamp stay immutable, including organic/returning users.
-    if (db.prepare('SELECT 1 FROM acquisition_starts WHERE user_id=?').get(user.id)) return;
+    if (db.prepare('SELECT 1 FROM acquisition_starts WHERE user_id=?').get(user.id)) { recordChatAdvertising(user); return; }
     db.exec('SAVEPOINT max_landing_start');
     try {
       createCampaign(maxLanding.campaign);
@@ -98,6 +99,7 @@ export function recordBotStart(user, text, at = new Date()) {
         .run(user.id, maxLanding.campaign, maxLanding.token, at.toISOString(), user.is_allowed ? 1 : 0);
       db.exec('RELEASE max_landing_start');
     } catch (error) { db.exec('ROLLBACK TO max_landing_start'); db.exec('RELEASE max_landing_start'); throw error; }
+    recordChatAdvertising(user);
     campaignPriceAssignment(user.id, at);
     return;
   }
@@ -110,6 +112,7 @@ export function recordBotStart(user, text, at = new Date()) {
   // First start attribution is immutable; existing accounts are is_returning visits.
   db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
     .run(user.id, maxCampaign || click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);
+  recordChatAdvertising(user);
   campaignPriceAssignment(user.id, at);
 }
 
