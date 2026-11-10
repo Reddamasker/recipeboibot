@@ -29,6 +29,7 @@
       if (!response.ok) return;
       const data = await response.json();
       if (!/^\/landing\/go\/[a-f0-9]{32}$/.test(data.href || '')) return;
+      void import('/landing-heatmap.js?v=1').then(module => module.start(visitId)).catch(() => {});
       for (const link of root.querySelectorAll('a[href]')) {
         const url = new URL(link.href, location.origin);
         if (link.dataset?.landingPlatform === 'max') link.href = `${data.href}?platform=max`;
