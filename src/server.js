@@ -40,6 +40,7 @@ import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
+import { recordLandingHeatmap, landingHeatmapReport, landingHeatmapPreview } from './landing-heatmap.js';
 import { telegramOpenDocument } from './telegram-open.js';
 import { catalogSearch, catalogRecipe, catalogDaily } from './web-catalog.js';
 import { isPublicCatalogRecipe, saveCatalogRecipeForUser } from './catalog-handoff.js';
@@ -641,6 +642,15 @@ async function handleRequest(request, response) {
           return json(response, 200, { ok: true });
         }
         if (!dashboardSessionValid(cookie)) return json(response, 401, { error: 'Войдите в дашборд' });
+        if (url.pathname === '/api/dashboard/landing-heatmap') {
+          if (request.method !== 'GET') return json(response,405,{error:'Метод не поддерживается'});
+          return json(response,200,landingHeatmapReport(url.searchParams));
+        }
+        if (url.pathname === '/api/dashboard/landing-preview') {
+          if (request.method !== 'GET') return json(response,405,{error:'Метод не поддерживается'});
+          response.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','content-security-policy':"default-src 'self'; script-src 'none'; connect-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'; form-action 'none'; base-uri 'none'"});
+          return response.end(landingHeatmapPreview(publicDir));
+        }
         if (url.pathname === '/api/dashboard/catalog-visits') {
           if (request.method !== 'GET') return json(response, 405, { error: 'Метод не поддерживается' });
           return json(response, 200, await dashboardCatalogDetails(url.searchParams));
@@ -678,6 +688,14 @@ async function handleRequest(request, response) {
         if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
         const input = await bodyJson(request, 6000);
         return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
+      }
+      if (url.pathname === '/api/landing/heatmap') {
+        if (request.method !== 'POST') return json(response,405,{error:'Метод не поддерживается'});
+        if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response,403,{error:'Запрос отклонён'});
+        const input=await bodyJson(request,12000);
+        for (const id of new Set((Array.isArray(input?.events)?input.events:[]).map(e=>e?.visitId).filter(id=>/^[a-f0-9]{32}$/.test(id)))) rateLimit(`landing-map:${id}`,120,60000);
+        const adminCookie=String(request.headers.cookie||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('funnel_session='))?.slice(15);
+        return json(response,200,recordLandingHeatmap(input,{internal:dashboardSessionValid(adminCookie),userAgent:request.headers['user-agent']||'',purpose:`${request.headers.purpose||''} ${request.headers['sec-purpose']||''}`}));
       }
       if (url.pathname === '/open/recipe-bot' || url.pathname.startsWith('/open/recipe-bot/')) {
         const destinationPlatform = url.pathname === '/open/recipe-bot' ? config.botPlatform

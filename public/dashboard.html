@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Воронка — Твои рецепты</title><link rel="stylesheet" href="/dashboard.css?v=catalog-selection-1"><script src="/dashboard-catalog-visits.js?v=unified-recipe-1" defer></script><script src="/dashboard.js?v=workspace-interactions-1" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Воронка — Твои рецепты</title><link rel="stylesheet" href="/dashboard.css?v=catalog-selection-1"><link rel="stylesheet" href="/dashboard-heatmap.css?v=1"><script src="/dashboard-heatmap.js?v=1" defer></script><script src="/dashboard-catalog-visits.js?v=unified-recipe-1" defer></script><script src="/dashboard.js?v=landing-heatmap-1" defer></script></head>
 <body>
+  <link rel="stylesheet" href="/dashboard-heatmap.css?v=1"><script src="/dashboard-heatmap.js?v=1" defer></script>
   <section id="login" class="login" hidden>
     <div class="login-card"><div class="brand"><span class="brand-mark" aria-hidden="true"></span>Твои рецепты <span class="brand-sub">Аналитика</span></div><h1>Воронка пользователей</h1><p>От рекламы до первой оплаты — все этапы в одном месте.</p><form id="login-form"><label for="password">Пароль дашборда</label><input id="password" name="password" type="password" autocomplete="current-password" required><button class="primary" type="submit">Войти</button><p id="login-error" class="error" role="alert"></p></form></div>
   </section>
@@ -17,6 +18,12 @@
         <div id="web-login-diagnostics-content"></div>
       </section>
       <section id="metrics" class="metrics" aria-label="Количество пользователей по этапам"></section>
+      <section id="landing-heatmap-panel" class="panel" aria-labelledby="landing-heatmap-title">
+        <div class="panel-heading"><div><p class="eyebrow">НОВЫЙ ЛЕНДИНГ</p><h2 id="landing-heatmap-title">Карта кликов и прокрутки</h2></div><span class="badge neutral">По выбранному размещению</span></div>
+        <form id="heatmap-filters" class="hm-filters"><label>Экран<select id="heatmap-layout"><option value="mobile">Телефон</option><option value="tablet">Планшет</option><option value="desktop">Компьютер</option></select></label><label>Карта<select id="heatmap-mode"><option value="clicks">Клики</option><option value="scroll">Прокрутка</option></select></label><label>С даты<input id="heatmap-from" type="date"></label><label>По дату<input id="heatmap-to" type="date"></label><button class="secondary" type="submit">Показать</button></form>
+        <p id="heatmap-status" class="panel-note" role="status"></p><div id="heatmap-summary" class="hm-summary"></div>
+        <div class="hm-layout"><div><div id="heatmap-stage" class="hm-stage"><div id="heatmap-space" class="hm-space"><iframe id="heatmap-frame" title="Карта на макете лендинга" sandbox="allow-same-origin" tabindex="-1"></iframe></div></div><p class="hm-note">Прокручивайте макет. Красные точки — больше нажатий. Глубина — нижняя граница показанной части страницы, не подтверждение чтения. Одна загрузка страницы — одно посещение; это не число людей.</p></div><div><h3>Глубина просмотра</h3><div id="heatmap-depth"></div><h3>Где нажимали</h3><div id="heatmap-actions"></div></div></div>
+      </section>
       <section id="catalog-visits-panel" class="panel activity-panel" aria-labelledby="catalog-visits-title">
         <div class="panel-heading"><div><p class="eyebrow">ОТ ВХОДА НА САЙТ ДО БОТА</p><h2 id="catalog-visits-title">Что делают на сайте</h2></div><span class="badge neutral">По выбранному размещению</span></div>
         <form id="catalog-visits-filters" class="visit-filters">
