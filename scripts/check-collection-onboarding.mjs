@@ -41,7 +41,8 @@ const send=text=>handleChatUpdate({message:{from,chat,text}});
 try{
   const previous={kind:'dinner-intake',profileOnly:true,intake:{householdSize:2}};
   setPendingIntent(user.id,previous);
-  const initial=platform==='max'?normalizeMaxUpdate({update_type:'bot_started',timestamp:1,chat_id:id,user:{user_id:id,first_name:'QA'},payload:'collection'}):{message:{from,chat,text:'/start collection'}};
+  const landingPayload = process.env.QA_LANDING === 'true' ? 'lc_ya-product-landing-202611_' + 'L'.repeat(24) : 'collection';
+  const initial=platform==='max'?normalizeMaxUpdate({update_type:'bot_started',timestamp:1,chat_id:id,user:{user_id:id,first_name:'QA'},payload:landingPayload}):{message:{from,chat,text:'/start collection'}};
   await handleChatUpdate(initial);
   assert.equal(messages.at(-1).text,collectionWelcome);assert.equal(calls,0);assert.equal(getSubscriptionAccess(user.id).active,false);
   const buttons=platform==='max'?messages.at(-1).attachments[0].payload.buttons:messages.at(-1).reply_markup.inline_keyboard;
@@ -57,6 +58,12 @@ try{
   await send('/cancel');assert.deepEqual(getPendingIntent(user.id),previous);
   await send('/start collection');assert.equal(messages.at(-1).text,collectionWelcome);
   startTrial(user.id);await send('Другой семейный рецепт');assert.equal(listRecipes(user.id).length,2);
+  if(platform==='max' && process.env.QA_LANDING === 'true') {
+    const {funnelReport}=await fromRoot('funnel.js');
+    const report=funnelReport('ya-product-landing-202611');
+    assert.equal(report.totals.starts,1);assert.equal(report.totals.firstRecipe,1);assert.equal(report.totals.trial,1);
+    assert.equal(db.prepare('SELECT click_token FROM acquisition_starts WHERE user_id=?').get(user.id).click_token,'L'.repeat(24));
+  }
   assert.ok(messages.some(m=>m.text?.includes(collectionSaved)));assert.equal(getPendingIntent(user.id).collectionOnboarding,true);
   const before=calls;await send('Другой семейный рецепт');assert.equal(calls,before);assert.equal(listRecipes(user.id).length,2);
   // The production update registry prevents replayed deliveries from duplicating prompts.

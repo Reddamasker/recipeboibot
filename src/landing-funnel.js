@@ -1,5 +1,7 @@
 import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { db } from './db.js';
+import { randomBytes } from 'node:crypto';
+import { maxLandingPayload } from './max-landing-acquisition.js';
 import { config } from './config.js';
 import { log } from './log.js';
 import { advertisingRedirect, createCampaign, isAdvertisingProbe } from './funnel.js';
@@ -19,6 +21,11 @@ if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column
 if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'max_clicked_at')) {
   db.exec('ALTER TABLE landing_visits ADD COLUMN max_clicked_at TEXT');
 }
+if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'max_click_token')) {
+  db.exec('ALTER TABLE landing_visits ADD COLUMN max_click_token TEXT');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS landing_max_click_token ON landing_visits(max_click_token)');
+db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_max_attribution_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_tracking_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_max_tracking_since',?)").run(new Date().toISOString());
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -58,7 +65,17 @@ export function landingRedirect(id, options = {}) {
   if (!['GET', 'HEAD'].includes(options.method || 'GET')) throw fail('Метод не поддерживается', 405);
   if (platform === 'max') {
     if (!isAdvertisingProbe(options)) {
-      try { db.prepare('UPDATE landing_visits SET max_clicked_at=COALESCE(max_clicked_at,?) WHERE id=?').run(new Date().toISOString(), id); }
+      try {
+        const token = visit.max_click_token || randomBytes(18).toString('base64url');
+        // Test-site traffic must never become a production acquisition cohort.
+        const payload = !config.testContour && maxLandingPayload(visit.campaign || 'site-landing', token);
+        db.prepare('UPDATE landing_visits SET max_clicked_at=COALESCE(max_clicked_at,?),max_click_token=COALESCE(max_click_token,?) WHERE id=?')
+          .run(new Date().toISOString(), payload ? token : null, id);
+        if (payload) {
+          const username = /^[A-Za-z0-9_]{5,64}$/.test(config.maxBotUsername) ? config.maxBotUsername : 'id500912857935_bot';
+          return `https://max.ru/${username}?start=${payload}`;
+        }
+      }
       catch { log('warn', 'landing_max_click_failed'); }
     }
     return '/open/recipe-bot/max';
@@ -91,6 +108,7 @@ export function landingReport(slug = 'all') {
     ${slug === 'all' ? '' : slug === 'site-landing' ? 'AND v.campaign IS NULL' : 'AND v.campaign=?'}`).get(...analyticsExcludedIds, ...params).n;
   return { trackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_tracking_since'").get().value,
     maxTrackingSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_max_tracking_since'").get().value,
+    maxAttributionSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_max_attribution_since'").get().value,
     totalViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits').get().n,
     taggedViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits WHERE campaign IS NOT NULL').get().n,
     htmlLoads: db.prepare('SELECT COUNT(*) AS n FROM landing_html_loads').get().n,

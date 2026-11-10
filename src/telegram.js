@@ -28,6 +28,7 @@ import { getSubscriptionAccess, requireRecipeEntry, canReceiveFirstRecipe, getFi
 import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
+import { parseMaxLandingPayload } from './max-landing-acquisition.js';
 import { landingStartIntent } from './landing-funnel.js';
 import { collectionWelcome, collectionSaved, collectionButtonText } from './collection-onboarding.js';
 import { maxChatCall } from './max-client.js';
@@ -1234,8 +1235,11 @@ export async function handleMessage(message) {
   else if (analyticsCommand === '/preferences') identifyProductStep('intake');
   const catalogPayload = text.match(/^\/start(?:@[A-Za-z0-9_]+)?\s+(ch_[\s\S]*)$/i)?.[1].trim();
   if (catalogPayload) { identifyProductStep('catalog'); await handleCatalogHandoff(message, user, catalogPayload); return; }
-  recordBotStart(user, text);
-  if (/^\/start(?:@[A-Za-z0-9_]+)?\s+collection(?:_save)?\s*$/i.test(text) || landingStartIntent(text) === 'collection') {
+  const maxLandingEntry = config.botPlatform === 'max' && parseMaxLandingPayload(text);
+  if (maxLandingEntry) {
+    try { recordBotStart(user, text); } catch { log('warn', 'landing_max_start_failed'); }
+  } else recordBotStart(user, text);
+  if (/^\/start(?:@[A-Za-z0-9_]+)?\s+collection(?:_save)?\s*$/i.test(text) || landingStartIntent(text) === 'collection' || maxLandingEntry) {
     if (!user.is_allowed) allowUser(user.id);
     const previous = getPendingIntent(user.id);
     setPendingIntent(user.id, { kind: 'recipe-save', collectionOnboarding: true, resumeIntent: previous?.kind === 'recipe-save' ? previous.resumeIntent : previous });

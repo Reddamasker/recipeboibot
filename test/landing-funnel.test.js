@@ -201,3 +201,23 @@ test('MAX telemetry write failure keeps navigation available and cross-platform 
   assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=collection');
   assert.match(page.maxLink.href, /^\/landing\/go\/[a-f0-9]{32}\?platform=max$/);
 });
+
+test('registered landing sources carry stable separate MAX tokens without inflating Telegram clicks', () => {
+  for (const slug of ['ya-product-landing-202611', 'ya-product-rsya-202611', 'site-landing']) {
+    createCampaign(slug);
+    const id = visitId(); recordLandingView({ visitId: id, query: slug === 'site-landing' ? '' : `campaign=${slug}` });
+    assert.equal(landingRedirect(id, { platform: 'max', method: 'HEAD' }), '/open/recipe-bot/max');
+    assert.equal(db.prepare('SELECT max_click_token FROM landing_visits WHERE id=?').get(id).max_click_token, null);
+    const url = landingRedirect(id, { platform: 'max' });
+    assert.equal(url, landingRedirect(id, { platform: 'max' }));
+    assert.equal(new URL(url).hostname, 'max.ru');
+    const payload = startFrom(url); assert.ok(payload.length <= 64);
+    const row = db.prepare('SELECT * FROM landing_visits WHERE id=?').get(id);
+    assert.equal(payload, `lc_${slug}_${row.max_click_token}`);
+    assert.equal(row.click_token, null); assert.equal(row.telegram_clicked_at, null);
+    landingRedirect(id);
+    const both = db.prepare('SELECT * FROM landing_visits WHERE id=?').get(id);
+    assert.notEqual(both.click_token, both.max_click_token);
+    assert.ok(landingReport(slug).maxAttributionSince);
+  }
+});
