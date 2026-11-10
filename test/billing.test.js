@@ -83,7 +83,7 @@ test('recurring consent rejects missing/stale versions and preserves evidence af
   createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1', periodMonths: 3 }, at);
   const evidence = db.prepare('SELECT * FROM payment_consent_history WHERE user_id=? ORDER BY rowid').all(account.id);
   assert.equal(evidence.length, 2);
-  assert.equal(evidence[0].amount_kopeks, 49900);
+  assert.equal(evidence[0].amount_kopeks, 31900);
   assert.equal(evidence[0].period_months, 3);
   assert.match(evidence[0].consent_text, /обработку персональных данных/);
   assert.match(evidence[0].terms_text, /24 часа/);
@@ -97,23 +97,23 @@ test('recurring consent rejects missing/stale versions and preserves evidence af
   assert.deepEqual(db.prepare('SELECT * FROM payment_consent_history WHERE user_id=? ORDER BY rowid LIMIT 2').all(account.id), evidence);
 });
 
-test('99 percent order charges 1.99, signs the discounted receipt, reserves once and grants only after callback', () => {
+test('99 percent order charges 1.59, signs the discounted receipt, reserves once and grants only after callback', () => {
   const promoUser = upsertTelegramUser({ id: 600000088, first_name: 'Promo' });
   const at = new Date();
   const trial = startTrial(promoUser.id, at);
   const normal = createPaymentOrder(promoUser.id, {}, at);
   const order = createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', amount: 0 }, at);
   assert.notEqual(order.id, normal.id);
-  assert.equal(order.priceRub, 1.99);
+  assert.equal(order.priceRub, 1.59);
   assert.equal(order.autoRenew, false);
   assert.equal(order.promoCode, 'PICHU99');
   assert.equal(createPaymentOrder(promoUser.id, { promoCode: 'pichu99' }, at).id, order.id);
   assert.equal(createPaymentOrder(promoUser.id, {}, at).id, normal.id);
   assert.throws(() => createPaymentOrder(promoUser.id, { promoCode: 'PICHU99', autoRenew: true, consentVersion: '2026-10-03-v1' }, at), { status: 400 });
   const document = paymentRedirectDocument(order.id, at);
-  assert.match(document, /name="OutSum" value="1.99"/);
+  assert.match(document, /name="OutSum" value="1.59"/);
   const receipt = JSON.parse(decodeURIComponent(document.match(/name="Receipt" value="([^"]+)"/)[1]));
-  assert.equal(receipt.items[0].sum, 1.99);
+  assert.equal(receipt.items[0].sum, 1.59);
   assert.equal(getSubscriptionAccess(promoUser.id, at).expiresAt, trial.expiresAt);
   assert.throws(() => callback(order, at, { OutSum: '0.00', SignatureValue: digest(`0.00:${order.invId}:${process.env.ROBOKASSA_PASSWORD2}`) }), { status: 400 });
   callback(order, at);
@@ -144,6 +144,67 @@ test('free month postpones an existing renewal without changing its amount or en
   assert.equal(extended.next_charge_at, new Date(Date.parse(getSubscriptionAccess(account.id, at).expiresAt) - 86400000).toISOString());
 });
 
+test('landing, offer, invoice and receipt agree for all terms and ignore client amounts', () => {
+  const landing = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const displayed = [...landing.matchAll(/<dd>(\d+) ₽ <s>([\d ]+) ₽<\/s><\/dd>/g)].map(m => [Number(m[1]), Number(m[2].replaceAll(' ', ''))]);
+  assert.deepEqual(displayed, [[159, 199], [319, 499], [599, 1499]]);
+  const account = upsertTelegramUser({ id: 600000201, first_name: 'Landing prices' });
+  const at = new Date(); startTrial(account.id, at);
+  const offer = getBillingOffer(account.id, at);
+  assert.deepEqual(offer.plans.map(p => [p.priceRub, p.fullPriceRub]), displayed);
+  for (const plan of offer.plans) {
+    const order = createPaymentOrder(account.id, { periodMonths: plan.months, priceRub: 1, amount: 1 }, at);
+    assert.equal(order.priceRub, plan.priceRub);
+    assert.equal(createPaymentOrder(account.id, { periodMonths: plan.months }, at).id, order.id);
+    const doc = paymentRedirectDocument(order.id, at);
+    assert.equal(doc.match(/name="OutSum" value="([^"]+)"/)[1], plan.priceRub.toFixed(2));
+    const receipt = JSON.parse(decodeURIComponent(doc.match(/name="Receipt" value="([^"]+)"/)[1]));
+    assert.equal(receipt.items[0].sum, plan.priceRub);
+  }
+});
+
+test('old pending invoices are immutable, not reused or handed off, and late signed callbacks still work', () => {
+  const account = upsertTelegramUser({ id: 600000202, first_name: 'Old invoice' });
+  const at = new Date(); startTrial(account.id, at);
+  const old = createPaymentOrder(account.id, {}, at);
+  db.prepare('UPDATE payment_orders SET amount_kopeks=19900 WHERE id=?').run(old.id);
+  const saved = db.prepare('SELECT * FROM payment_orders WHERE id=?').get(old.id);
+  assert.equal(getBillingOffer(account.id, at).pendingOrder, null);
+  assert.throws(() => paymentRedirectDocument(old.id, at), { status: 409 });
+  const current = createPaymentOrder(account.id, {}, at);
+  assert.notEqual(current.id, old.id); assert.equal(current.priceRub, 159);
+  assert.deepEqual(db.prepare('SELECT * FROM payment_orders WHERE id=?').get(old.id), saved);
+  callback({ ...old, priceRub: 199 }, at);
+  const expiry = getSubscriptionAccess(account.id, at).expiresAt;
+  callback({ ...old, priceRub: 199 }, at);
+  assert.equal(getSubscriptionAccess(account.id, at).expiresAt, expiry);
+});
+
+test('legacy renewal is capped at the landing price without raising cheaper agreements or changing consent', async () => {
+  for (const [index, agreed, expected] of [[0, 19900, 15900], [1, 9900, 9900]]) {
+    const account = upsertTelegramUser({ id: 600000203 + index, first_name: 'Legacy renewal' });
+    const at = new Date('2026-11-10T10:00:00Z'); startTrial(account.id, at);
+    const parent = createPaymentOrder(account.id, { autoRenew: true, consentVersion: '2026-10-03-v1' }, at);
+    callback(parent, at);
+    db.prepare('UPDATE payment_recurring SET amount_kopeks=?,next_charge_at=? WHERE user_id=?').run(agreed, at.toISOString(), account.id);
+    const evidence = db.prepare('SELECT * FROM payment_consent_history WHERE user_id=?').all(account.id);
+    assert.equal(getBillingOffer(account.id, at).recurring.priceRub, expected / 100);
+    let checked = false;
+    await runRecurringCycle(at, async (_url, request) => {
+      const invId = Number(request.body.get('InvoiceID'));
+      const order = db.prepare('SELECT * FROM payment_orders WHERE inv_id=?').get(invId);
+      if (order.user_id === account.id) {
+        checked = true; assert.equal(request.body.get('OutSum'), (expected / 100).toFixed(2));
+        assert.equal(JSON.parse(decodeURIComponent(request.body.get('Receipt'))).items[0].sum, expected / 100);
+      }
+      return new Response(`OK+${invId}`);
+    });
+    assert.equal(checked, true);
+    assert.deepEqual(db.prepare('SELECT * FROM payment_consent_history WHERE user_id=?').all(account.id), evidence);
+    cancelAutoRenew(account.id, at);
+  }
+});
+
 test.after(() => {
   db.close();
   for (const suffix of ['', '-wal', '-shm']) {
@@ -156,11 +217,11 @@ test('price experiment is stable, recorded once, and an initial order is signed 
   const second = getBillingOffer(user.id, new Date('2026-09-29T10:00:00.000Z'));
   assert.equal(first.available, true);
   assert.equal(first.mode, 'provider');
-  assert.ok([129, 199].includes(first.offer.priceRub));
+  assert.equal(first.offer.priceRub, 159);
   assert.deepEqual(first.plans.map(({ months, priceRub, discountPercent, savingRub }) => ({ months, priceRub, discountPercent, savingRub })), [
-    { months: 1, priceRub: 199, discountPercent: 0, savingRub: 0 },
-    { months: 3, priceRub: 499, discountPercent: 16, savingRub: 98 },
-    { months: 12, priceRub: 1499, discountPercent: 37, savingRub: 889 }
+    { months: 1, priceRub: 159, discountPercent: 20, savingRub: 40 },
+    { months: 3, priceRub: 319, discountPercent: 36, savingRub: 180 },
+    { months: 12, priceRub: 599, discountPercent: 60, savingRub: 900 }
   ]);
   assert.deepEqual(second.offer, first.offer);
   assert.equal(recordBillingExposure(user.id), true);
@@ -200,10 +261,10 @@ test('three-month and annual orders charge discounted prices and grant the purch
   createRecipe(threeMonthUser.id, { title: 'Запеканка', status: 'ready', ingredients: [{ name: 'картофель' }], steps: [{ text: 'Запечь.' }] });
   const threeAt = new Date('2026-09-29T12:00:00.000Z');
   const three = createPaymentOrder(threeMonthUser.id, { periodMonths: 3 }, threeAt);
-  assert.equal(three.priceRub, 499);
+  assert.equal(three.priceRub, 319);
   assert.equal(three.periodMonths, 3);
   const threeDocument = paymentRedirectDocument(three.id, threeAt);
-  assert.match(threeDocument, /name="OutSum" value="499.00"/);
+  assert.match(threeDocument, /name="OutSum" value="319.00"/);
   assert.match(threeDocument, /на 3 месяца/);
   callback(three, threeAt);
   assert.equal(getSubscriptionAccess(threeMonthUser.id, threeAt).expiresAt, '2026-12-29T12:00:00.000Z');
@@ -212,7 +273,7 @@ test('three-month and annual orders charge discounted prices and grant the purch
   createRecipe(annualUser.id, { title: 'Рагу', status: 'ready', ingredients: [{ name: 'овощи' }], steps: [{ text: 'Потушить.' }] });
   const annualAt = new Date('2026-09-29T13:00:00.000Z');
   const annual = createPaymentOrder(annualUser.id, { periodMonths: 12 }, annualAt);
-  assert.equal(annual.priceRub, 1499);
+  assert.equal(annual.priceRub, 599);
   assert.equal(annual.periodMonths, 12);
   callback(annual, annualAt);
   assert.equal(getSubscriptionAccess(annualUser.id, annualAt).expiresAt, '2027-09-29T13:00:00.000Z');

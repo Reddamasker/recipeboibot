@@ -25,7 +25,7 @@ test('promo names normalize spaces and case; amounts are server-owned and old ty
   const { user } = fresh();
   const quote = promoQuote(user.id, ' pichu99 ');
   assert.equal(quote.code, 'PICHU99'); assert.equal(quote.discountPercent, 99);
-  assert.equal(quote.basePriceRub, 199); assert.equal(quote.priceRub, 1.99); assert.equal(quote.periodMonths, 1);
+  assert.equal(quote.basePriceRub, 159); assert.equal(quote.priceRub, 1.59); assert.equal(quote.periodMonths, 1);
   assert.equal(promoQuote(user.id, 'PICHU 100').priceRub, 0);
   for (const code of ['PICHU9', 'bad', '', null, {}, 'a'.repeat(65)]) assert.throws(() => promoQuote(user.id, code), { status: 400 });
   assert.equal(getSubscriptionAccess(user.id).active, false);
@@ -33,7 +33,7 @@ test('promo names normalize spaces and case; amounts are server-owned and old ty
 
 test('all promo codes quote every catalog term and reject unsupported durations', () => {
   const { user } = fresh();
-  for (const [code, amounts] of [['PICHU99', [1.99, 4.99, 14.99]], ['PICHU100', [0, 0, 0]], ['DINNER159', [159, 399, 1199]]]) {
+  for (const [code, amounts] of [['PICHU99', [1.59, 3.19, 5.99]], ['PICHU100', [0, 0, 0]], ['DINNER159', [159, 319, 599]]]) {
     for (const [index, months] of [1, 3, 12].entries()) {
       const quote = promoQuote(user.id, code, months);
       assert.equal(quote.periodMonths, months); assert.equal(quote.priceRub, amounts[index]);
@@ -95,7 +95,7 @@ test('99 percent requires payment, no disconnected-provider order or code consum
   const { user } = fresh();
   assert.throws(() => redeemFreePromo(user.id, 'PICHU99'), { status: 400 });
   assert.throws(() => createPaymentOrder(user.id, { promoCode: 'PICHU99' }), { status: 503 });
-  assert.equal(promoQuote(user.id, 'PICHU99').priceRub, 1.99);
+  assert.equal(promoQuote(user.id, 'PICHU99').priceRub, 1.59);
   assert.equal(getSubscriptionAccess(user.id).active, false);
 });
 
@@ -128,7 +128,7 @@ test('authenticated free promo API grants the requested catalog term and paralle
     assert.equal(invalid.status, 400);
     assert.equal(getSubscriptionAccess(user.id).active, false);
     const quote = await fetch(base + '/api/billing/promo/quote', { method: 'POST', headers, body: JSON.stringify({ code: 'PICHU100', periodMonths: 12 }) }).then(r => r.json());
-    assert.equal(quote.periodMonths, 12); assert.equal(quote.basePriceRub, 1499); assert.equal(quote.priceRub, 0);
+    assert.equal(quote.periodMonths, 12); assert.equal(quote.basePriceRub, 599); assert.equal(quote.priceRub, 0);
     const results = await Promise.all([12, 3].map(periodMonths => fetch(base + '/api/billing/promo/redeem', { method: 'POST', headers, body: JSON.stringify({ code: 'PICHU100', periodMonths }) }).then(r => r.json())));
     assert.equal(results[0].periodMonths, 12); assert.equal(results[1].periodMonths, 12);
     assert.equal(results[0].expiresAt, results[1].expiresAt);

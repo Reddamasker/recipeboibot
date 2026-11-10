@@ -93,7 +93,7 @@ test('discounted MAX order shares namespace, reserves once and only confirmed pa
   const user = buyer();
   const order = createPaymentOrder(user.id, { promoCode: 'PICHU99' }, at);
   assert.ok(order.invId >= MAX_INVOICE_FLOOR);
-  assert.equal(order.priceRub, 1.99);
+  assert.equal(order.priceRub, 1.59);
   assert.equal(createPaymentOrder(user.id, { promoCode: 'PICHU99' }, at).id, order.id);
   assert.equal(db.prepare('SELECT redeemed_at FROM promo_redemptions WHERE user_id=?').get(user.id).redeemed_at, null);
   processRobokassaResult(callbackParams(order), at);

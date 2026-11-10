@@ -1,7 +1,7 @@
 const catalog = [
-  { months: 1, priceRub: 199, fullPriceRub: 199, discountPercent: 0, savingRub: 0, pricePerMonthRub: 199 },
-  { months: 3, priceRub: 499, fullPriceRub: 597, discountPercent: 16, savingRub: 98, pricePerMonthRub: 166.33 },
-  { months: 12, priceRub: 1499, fullPriceRub: 2388, discountPercent: 37, savingRub: 889, pricePerMonthRub: 124.92 }
+  { months: 1, priceRub: 159, fullPriceRub: 199, discountPercent: 20, savingRub: 40, pricePerMonthRub: 159 },
+  { months: 3, priceRub: 319, fullPriceRub: 499, discountPercent: 36, savingRub: 180, pricePerMonthRub: 106.33 },
+  { months: 12, priceRub: 599, fullPriceRub: 1499, discountPercent: 60, savingRub: 900, pricePerMonthRub: 49.92 }
 ];
 
 export const SUBSCRIPTION_PLANS = Object.freeze(catalog.map((plan) => Object.freeze(plan)));

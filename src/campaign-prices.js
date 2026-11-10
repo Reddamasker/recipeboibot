@@ -45,7 +45,9 @@ export function campaignPromoAvailable(userId) {
 export function campaignPromoPlans() {
   const e = DINNER_PRICE_EXPERIMENT;
   return SUBSCRIPTION_PLANS.map(plan => {
-    const priceRub = plan.months === 1 ? e.promoPriceRub : plan.months === 3 ? e.threeMonthsPromoPriceRub : Math.round(plan.priceRub * 0.8);
+    // Keep the original campaign promise, but never charge more than the public offer.
+    // Public and campaign discounts do not stack.
+    const priceRub = Math.min(plan.priceRub, plan.months === 1 ? e.promoPriceRub : plan.months === 3 ? e.threeMonthsPromoPriceRub : 1199);
     return { months: plan.months, basePriceRub: plan.priceRub, priceRub, discountRub: plan.priceRub - priceRub };
   });
 }
@@ -53,9 +55,8 @@ export function campaignPromoPlans() {
 export function campaignPromotion(userId) {
   if (campaignPriceAssignment(userId)?.variant !== 'B' || !campaignPromoAvailable(userId)) return null;
   const experiment = DINNER_PRICE_EXPERIMENT;
-  return { code: experiment.promoCode, basePriceRub: experiment.basePriceRub, priceRub: experiment.promoPriceRub,
-    discountRub: 40, periodMonths: 1, oneTime: true, autoRenew: false,
-    plans: campaignPromoPlans() };
+  const plans = campaignPromoPlans();
+  return { code: experiment.promoCode, ...plans[0], periodMonths: 1, oneTime: true, autoRenew: false, plans };
 }
 
 export function recordCampaignPriceExposure(userId, at = new Date()) {

@@ -147,9 +147,14 @@ function assignmentFor(userId, at = new Date()) {
   return db.prepare('SELECT * FROM payment_experiment_assignments WHERE user_id=? AND experiment_key=?').get(userId, config.paymentExperimentKey);
 }
 
+function renewalAmount(row) {
+  const plan = subscriptionPlan(row.period_months || 1);
+  return plan ? Math.min(row.amount_kopeks, Math.round(plan.priceRub * 100)) : row.amount_kopeks;
+}
+
 function recurringFor(userId) {
   const row = db.prepare('SELECT * FROM payment_recurring WHERE user_id=?').get(userId);
-  return row ? { enabled: Boolean(row.enabled), priceRub: row.amount_kopeks / 100, periodMonths: row.period_months, nextChargeAt: row.next_charge_at, cancelledAt: row.cancelled_at } : { enabled: false, nextChargeAt: null, cancelledAt: null };
+  return row ? { enabled: Boolean(row.enabled), priceRub: renewalAmount(row) / 100, periodMonths: row.period_months, nextChargeAt: row.next_charge_at, cancelledAt: row.cancelled_at } : { enabled: false, nextChargeAt: null, cancelledAt: null };
 }
 
 export function billingAvailable() {
@@ -184,10 +189,10 @@ export function getBillingOffer(userId, at = new Date()) {
     consentVersion: PAYMENT_CONSENT_VERSION,
     consentText: PAYMENT_CONSENT_TEXT,
     recurring: recurringFor(userId),
-    offer: assignment ? { variant: 'period_1_price_199', priceRub: 199, currency: 'RUB', period: 'month', periodMonths: 1 } : null,
+    offer: assignment ? { variant: `period_1_price_${subscriptionPlan(1).priceRub}`, priceRub: subscriptionPlan(1).priceRub, currency: 'RUB', period: 'month', periodMonths: 1 } : null,
     plans: assignment ? publicSubscriptionPlans().map(plan => ({ ...plan, consentTerms: paymentConsentTerms(plan.priceRub * 100, plan.months) })) : [],
     campaignPromotion: assignment ? campaignPromotion(userId) : null,
-    pendingOrder: pending ? publicOrder(pending) : null
+    pendingOrder: pending && pending.amount_kopeks <= subscriptionPlan(pending.period_months || 1).priceRub * 100 ? publicOrder(pending) : null
   };
 }
 
@@ -229,7 +234,7 @@ export function createPaymentOrder(userId, { autoRenew = false, consentVersion, 
   const recentAfter = new Date(at.getTime() - 30 * 60 * 1000).toISOString();
   const reserved = promo && reservedPromoOrder(userId, promo.code);
   const existing = reserved ? db.prepare("SELECT * FROM payment_orders WHERE id=? AND user_id=? AND status='pending'").get(reserved, userId)
-    : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND period_months=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, plan.months, recentAfter);
+    : !promo && db.prepare("SELECT * FROM payment_orders WHERE user_id=? AND kind='initial' AND status='pending' AND promo_code IS NULL AND auto_renew=? AND period_months=? AND amount_kopeks=? AND created_at>? ORDER BY created_at DESC LIMIT 1").get(userId, autoRenew ? 1 : 0, plan.months, Math.round(plan.priceRub * 100), recentAfter);
   if (existing) {
     assertInvoiceNamespace(existing.inv_id);
     if (promo && (existing.period_months !== plan.months || existing.amount_kopeks !== Math.round(promo.priceRub * 100))) {
@@ -316,6 +321,7 @@ export function paymentRedirectDocument(id, at = new Date()) {
   const order = db.prepare("SELECT * FROM payment_orders WHERE id=? AND kind='initial'").get(id);
   if (order) assertInvoiceNamespace(order.inv_id);
   if (!order || order.status !== 'pending') throw error('Ссылка на оплату недоступна', 404);
+  if (order.amount_kopeks > subscriptionPlan(order.period_months || 1).priceRub * 100) throw error('Цена снизилась. Вернитесь в приложение и создайте оплату по новому тарифу.', 409);
   if (Date.parse(order.updated_at) < at.getTime() - 24 * 60 * 60 * 1000) throw error('Срок ссылки на оплату истёк', 410);
   const fields = paymentFields(order).map(([name, value]) => `<input type="hidden" name="${html(name)}" value="${html(value)}">`).join('');
   if (order.is_test === 0) recordProduct(order.user_id, 'provider_handoff', {step:'checkout',detail:{orderId:order.id}});
@@ -455,7 +461,7 @@ function createRecurringOrder(row, at) {
   const timestamp = nowIso(at);
   db.prepare(`INSERT INTO payment_orders(id,user_id,experiment_key,variant,amount_kopeks,kind,parent_inv_id,auto_renew,status,created_at,updated_at,period_months,is_test)
     VALUES(?,?,?,?,?,'recurring',?,1,'pending',?,?,?,?)`)
-    .run(id, row.user_id, parent?.experiment_key || config.paymentExperimentKey, parent?.variant || assignment?.variant || `price_${row.amount_kopeks / 100}`, row.amount_kopeks, row.parent_inv_id, timestamp, timestamp, row.period_months || 1, config.robokassaTest || config.testContour ? 1 : 0);
+    .run(id, row.user_id, parent?.experiment_key || config.paymentExperimentKey, parent?.variant || assignment?.variant || `price_${row.amount_kopeks / 100}`, renewalAmount(row), row.parent_inv_id, timestamp, timestamp, row.period_months || 1, config.robokassaTest || config.testContour ? 1 : 0);
   return db.prepare('SELECT * FROM payment_orders WHERE id=?').get(id);
 }
 

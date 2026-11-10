@@ -82,7 +82,7 @@ export function mockPaymentStatus(userId) {
     hasFirstRecipe: Boolean(firstValue), firstValue, offerShown: Boolean(offer.shown_at),
     mode: 'mock', available: true, recurringSupported: true,
     recurring: { enabled: Boolean(recurring?.auto_renew), nextChargeAt: recurring?.auto_renew && access.expiresAt ? new Date(Date.parse(access.expiresAt) - 24 * 60 * 60 * 1000).toISOString() : null },
-    offer: { variant: 'period_1_price_199', priceRub: 199, currency: 'RUB', period: 'month', periodMonths: 1 },
+    offer: { variant: `period_1_price_${subscriptionPlan(1).priceRub}`, priceRub: subscriptionPlan(1).priceRub, currency: 'RUB', period: 'month', periodMonths: 1 },
     plans: publicSubscriptionPlans(),
     campaignPromotion: firstValue ? campaignPromotion(userId) : null,
     pendingOrder: pending ? { id: pending.id, method: pending.method, autoRenew: Boolean(pending.auto_renew), priceRub: pending.amount_rub, variant: pending.variant, createdAt: pending.created_at, promoCode: pending.promo_code || null, periodMonths: Number(pending.period_months || 1) } : null
