@@ -59,6 +59,7 @@ export const config = Object.freeze({
   yandexDirectMaxCampaignId: process.env.YANDEX_DIRECT_MAX_CAMPAIGN_ID || '',
   yandexDirectRecipeFirstCampaignId: process.env.YANDEX_DIRECT_RECIPE_FIRST_CAMPAIGN_ID || '',
   yandexDirectProductCampaignId: process.env.YANDEX_DIRECT_PRODUCT_CAMPAIGN_ID || '',
+  yandexDirectRsyaCampaignId: process.env.YANDEX_DIRECT_RSYA_CAMPAIGN_ID || '',
   yandexDirectPlacement: process.env.YANDEX_DIRECT_PLACEMENT || 'ya-dinner-202610',
   telegramPolling: botPlatform === 'telegram' && process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',

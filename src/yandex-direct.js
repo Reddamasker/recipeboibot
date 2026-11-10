@@ -17,6 +17,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS acquisition_direct_stats (
 );`);
 
 export function directImportSettings(slug = config.yandexDirectPlacement) {
+  if (slug === 'ya-product-rsya-202611') return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
+    campaignId: config.yandexDirectRsyaCampaignId, slug, name: 'РСЯ — рецепты, меню и покупки, ноябрь 2026' };
   if (slug === 'ya-product-landing-202611') return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
     campaignId: config.yandexDirectProductCampaignId, slug, name: 'Яндекс — рецепты, меню и покупки, ноябрь 2026' };
   if (slug === RECIPE_FIRST_PLACEMENT) return { token: config.yandexDirectToken, login: config.yandexDirectLogin,
@@ -67,7 +69,8 @@ export function dashboardFunnelReport(slug = 'all') {
   report.campaigns = report.campaigns.map(campaign => ({ ...campaign, statsSource: imported.get(campaign.slug) ? 'direct' : 'manual',
     ...(campaign.slug === MAX_AD_PLACEMENT ? { link: maxAdvertisingLink(), platform: 'max' } : {}),
     ...(campaign.slug === RECIPE_FIRST_PLACEMENT ? { link: recipeFirstAdvertisingLink() } : {}),
-    ...(campaign.slug === 'ya-product-landing-202611' ? { link: 'https://dishfinder.ru/?campaign=ya-product-landing-202611' } : {}) }));
+    ...(['ya-product-landing-202611', 'ya-product-rsya-202611'].includes(campaign.slug)
+      ? { link: 'https://dishfinder.ru/?campaign=' + campaign.slug } : {}) }));
   const scope = report.campaign ? [report.campaign] : report.campaigns;
   const hasDirect = scope.some(campaign => imported.get(campaign.slug));
   report.clickSource = hasDirect ? 'direct' : 'link';
@@ -113,7 +116,8 @@ function configuredDirectSettings() {
     ...(config.yandexDirectOutsideCampaignId ? ['ya-dinner-outside-202610'] : []),
     ...(config.yandexDirectMaxCampaignId ? [MAX_AD_PLACEMENT] : []),
     ...(config.yandexDirectRecipeFirstCampaignId ? [RECIPE_FIRST_PLACEMENT] : []),
-    ...(config.yandexDirectProductCampaignId ? ['ya-product-landing-202611'] : [])].map(slug => directImportSettings(slug));
+    ...(config.yandexDirectProductCampaignId ? ['ya-product-landing-202611'] : []),
+    ...(config.yandexDirectRsyaCampaignId ? ['ya-product-rsya-202611'] : [])].map(slug => directImportSettings(slug));
 }
 export async function syncDirectCampaigns(slug = 'all', options = {}) {
   if (slug !== 'all') return syncDirectStats({ ...options, settings: directImportSettings(slug) });
