@@ -35,7 +35,7 @@ test('RSYA campaign imports its own spend and keeps landing visits and platform 
   const tg = landingRedirect(visitId);
   assert.match(tg, /start=lp_[A-Za-z0-9_-]{24}$/);
   assert.equal(landingRedirect(visitId), tg);
-  assert.equal(landingRedirect(visitId, { platform: 'max' }), '/open/recipe-bot/max');
+  assert.match(landingRedirect(visitId, { platform: 'max' }), /^https:\/\/max\.ru\/[A-Za-z0-9_]+\?start=lc_ya-product-rsya-202611_[A-Za-z0-9_-]{24}$/);
   landingRedirect(visitId, { platform: 'max' });
   const landing = landingReport(slug);
   assert.equal(landing.views, 1); assert.equal(landing.telegramClicks, 1); assert.equal(landing.maxClicks, 1);
