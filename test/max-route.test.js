@@ -20,7 +20,7 @@ function signed(payload) {
   return params.toString();
 }
 
-async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false, firstGate = false, firstUnlocked = false, guide = false } = {}) {
+async function bootFixture({ route, payload = route && encode(route), search = '?view=dinner', hash = '', platform = 'max', unsafe = true, authFails = false, shared = false, pendingTrial = false, paymentStatus, trialEligible = false, firstGate = false, firstUnlocked = false, guide = false, chatStarted } = {}) {
   const location = new URL(`https://recipes.test/${shared ? 'share/' + 'a'.repeat(32) : ''}${search}`);
   location.hash = hash;
   const requests = [], pages = [], details = [], probes = [], navigations = [];
@@ -44,7 +44,7 @@ async function bootFixture({ route, payload = route && encode(route), search = '
       assert.equal(identity.id, 'max:123');
       if (authFails) return { ok: false, status: 401, json: async () => ({ error: 'Авторизация отклонена' }) };
       let response;
-      if (path === '/api/me') response = { id: identity.id, displayName: identity.first_name };
+      if (path === '/api/me') response = { id: identity.id, displayName: identity.first_name, platform, chatStarted };
       else if (path === '/api/library') response = { recipes: [], jobs: [] };
       else if (path === '/api/billing/offer') response = { active: pendingTrial || paymentStatus === 'paid' || firstUnlocked, available: !!paymentStatus || trialEligible, mode: paymentStatus || trialEligible ? 'provider' : undefined, trial: trialEligible || firstGate ? { eligible: true, used: false } : undefined, firstRecipe: firstGate || firstUnlocked || guide ? { awaitingTrial: firstGate, trialGateUsed: true } : undefined, pendingFirstRecipe: firstGate || firstUnlocked ? { recipeId: generatedKey, title: 'Выбранная паста', unlocked: firstUnlocked } : undefined };
       else if (path === '/api/dinner/profile' && guide) response = { preferredCategories: { pasta: 1 }, dishPreferences: {}, tastePreferencesStatus: 'pending' };
@@ -250,4 +250,31 @@ test('MAX signed feature-guide launch is retained independently of generic recip
   assert.deepEqual(f.pages, ['guide:taste']);
   assert.equal(f.location.searchParams.get('view'), 'trial-guide');
   assert.equal(f.details.length, 0);
+});
+
+
+test('MAX app-first entry opens collection from registered base without changing explicit destinations', async () => {
+  for (const search of ['', '?view=dinner', '?view=menu']) {
+    const f = await bootFixture({ search, chatStarted: false });
+    assert.deepEqual(f.pages, ['collection']);
+    assert.equal(f.location.searchParams.get('view'), 'collection');
+    assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
+  }
+  const linked = await bootFixture({ route: { recipe: generatedKey }, chatStarted: false });
+  assert.equal(linked.details[0].recipe.id, generatedKey);
+  const returning = await bootFixture({ chatStarted: true });
+  assert.deepEqual(returning.pages, ['dinner']);
+  const telegram = await bootFixture({ platform: 'telegram', chatStarted: false });
+  assert.deepEqual(telegram.pages, ['dinner']);
+});
+
+test('entry failure has retry and a platform chat link without discarding requested route', async () => {
+  for (const platform of ['max', 'telegram']) {
+    const f = await bootFixture({ platform, search: '?view=collection&recipe=private-recipe', authFails: true });
+    assert.match(f.root.innerHTML, /id="entry-retry"/);
+    assert.match(f.root.innerHTML, /id="entry-open-bot"/);
+    assert.match(f.root.innerHTML, platform === 'max' ? /https:\/\/max.ru\// : /https:\/\/t.me\//);
+    assert.equal(f.location.search, '?view=collection&recipe=private-recipe');
+    assert.equal(f.navigations.length, 0);
+  }
 });

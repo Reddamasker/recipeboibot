@@ -177,6 +177,12 @@ export function funnelReport(slug = 'all') {
         WHERE s.campaign=? AND s.is_returning=0 AND ${analyticsUserCondition}`).all(slug, ...analyticsExcludedIds)
     : db.prepare(`SELECT u.id,CASE WHEN s.is_returning=0 THEN s.started_at END AS started_at,CASE WHEN s.is_returning=0 THEN s.click_token END AS click_token FROM users u LEFT JOIN acquisition_starts s ON s.user_id=u.id
         WHERE (u.is_allowed=1 OR s.user_id IS NOT NULL) AND ${analyticsUserCondition}`).all(...analyticsExcludedIds);
+  // App authentication is distinct from starting a chat. Include authenticated
+  // app-only accounts in product metrics without manufacturing bot starts.
+  const productCohort = campaign ? cohort : [...cohort, ...db.prepare(`SELECT u.id FROM users u
+    WHERE u.is_allowed<>1 AND NOT EXISTS(SELECT 1 FROM acquisition_starts s WHERE s.user_id=u.id)
+      AND EXISTS(SELECT 1 FROM product_events p WHERE p.user_id=u.id AND p.event='operation_finished' AND p.step='boot')
+      AND ${analyticsUserCondition}`).all(...analyticsExcludedIds)];
   const recipeTimes = new Map(db.prepare(`SELECT user_id,MIN(at) AS at FROM (${recipeSources()}) GROUP BY user_id`).all().map(r => [r.user_id, r.at]));
   const trialTimes = new Map((exists('user_trials') ? db.prepare('SELECT user_id,starts_at AS at FROM user_trials').all() : []).map(r => [r.user_id, r.at]));
   const classifiedPayments = exists('payment_orders') && db.prepare('PRAGMA table_info(payment_orders)').all().some(c => c.name === 'is_test');
@@ -232,7 +238,7 @@ export function funnelReport(slug = 'all') {
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered, selectedTrials,
     recipeActivity: recipeActivityReport(cohort, Boolean(campaign)),
     trialJourney: trialJourneyReport(cohort, Boolean(campaign)),
-    productAnalytics: { platforms: [productReport(cohort, Boolean(campaign), new Date().toISOString(), campaign?.slug || null)] },
+    productAnalytics: { platforms: [productReport(productCohort, Boolean(campaign), new Date().toISOString(), campaign?.slug || null)] },
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
     priceExperiment: !campaign || DINNER_PRICE_EXPERIMENT.campaigns.includes(campaign.slug)
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,

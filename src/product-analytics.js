@@ -27,6 +27,7 @@ db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_lat
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('photo_imports_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_interactions_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('app_entry_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
 export const workspaceTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_since'").get().value;
 export const workspaceInteractionsTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_interactions_since'").get()?.value || null;
@@ -147,6 +148,13 @@ export function validProductReport(value, { legacy = false } = {}) {
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (value.latency != null && !validLatencyReport(value.latency)) return false;
+  if (value.appEntry != null) {
+    const r=value.appEntry,t=r.timing;
+    if (!Number.isFinite(Date.parse(r.trackingSince)) || !['attempts','successes','errors','users','visibleUsers','unidentifiedErrors'].every(k=>Number.isSafeInteger(r[k])&&r[k]>=0)
+      || r.successes+r.errors!==r.attempts || r.users>r.successes || r.visibleUsers>r.users || r.unidentifiedErrors>r.errors
+      || !t || !Number.isSafeInteger(t.samples) || t.samples<0 || t.samples>r.attempts || !numeric(t.p50) || !numeric(t.p95)
+      || (t.samples===0?t.p50!==null||t.p95!==null:t.p50===null || t.p95===null || t.p50>t.p95)) return false;
+  }
   if (value.workspace != null && !validWorkspaceReport(value.workspace)) return false;
   if (value.catalogJourney != null && !validCatalogJourneyReport(value.catalogJourney)) return false;
   if (value.photoImports != null) {
@@ -244,6 +252,16 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const eligible = row => users.has(row.user_id) && (!campaign || row.created_at >= users.get(row.user_id).started_at);
   const rows = db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
   const events = rows.filter(r => r.user_id && eligible(r));
+  const entrySince=db.prepare("SELECT value FROM product_analytics_metadata WHERE key='app_entry_since'").get()?.value;
+  const boot=events.filter(r=>r.event==='operation_finished'&&r.step==='boot'&&r.created_at>=entrySince&&r.created_at<=at);
+  const successfulBoot=boot.filter(r=>{const status=JSON.parse(r.detail_json).status;return status>=200&&status<400;});
+  const failedBoot=boot.filter(r=>JSON.parse(r.detail_json).status>=400);
+  const anonymousBoot=campaign?[]:rows.filter(r=>!r.user_id&&r.event==='auth_error'&&r.step==='boot'&&r.created_at>=entrySince&&r.created_at<=at);
+  const entered=new Map();for(const r of successfulBoot)if(!entered.has(r.user_id))entered.set(r.user_id,r.created_at);
+  const entryDurations=boot.map(r=>r.duration_ms).filter(n=>Number.isFinite(n)&&n>=0);
+  const appEntry=entrySince?{trackingSince:entrySince,attempts:successfulBoot.length+failedBoot.length+anonymousBoot.length,successes:successfulBoot.length,errors:failedBoot.length+anonymousBoot.length,
+    users:entered.size,visibleUsers:new Set(events.filter(r=>r.event==='screen_view'&&entered.has(r.user_id)&&r.created_at>=entered.get(r.user_id)&&r.created_at<=at).map(r=>r.user_id)).size,
+    unidentifiedErrors:anonymousBoot.length,timing:{samples:entryDurations.length,p50:percentile(entryDurations,.5),p95:percentile(entryDurations,.95)}}:null;
   const positions = new Map(events.map((r,i)=>[r,i]));
   // Partition once: scanning every account's events for every other account made
   // the MAX bridge exceed its request deadline as the account cohort grew.
@@ -374,7 +392,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
   }
-  return { platform: config.botPlatform, trackingSince: productTrackingSince(), workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
+  return { platform: config.botPlatform, trackingSince: productTrackingSince(), appEntry, workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
     imports:groupStatuses(imports),photoImports,notifications:groupStatuses(notifications), trialReminders:config.botPlatform === 'max' ? null : trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
     catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),

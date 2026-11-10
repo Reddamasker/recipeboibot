@@ -142,7 +142,11 @@ function authenticate(request, { readOnly = false } = {}) {
     const owner = db.prepare('SELECT * FROM users WHERE telegram_id=?').get(String(telegramUser.id));
     user = owner && (db.prepare('SELECT u.* FROM private_test_profiles p JOIN users u ON u.id=p.test_user_id WHERE p.owner_user_id=?').get(owner.id) || owner);
   } else user = resolvePrivateTelegramUser(telegramUser);
-  if (!user?.is_allowed) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
+  // A verified MAX Mini App identity does not require a prior bot_started event.
+  // Keep is_allowed as chat-start state: setting it here would fabricate starts,
+  // returning acquisition users and permission to send chat messages.
+  if (user) identifyProductUser(user.id);
+  if (!user || (config.botPlatform !== 'max' && !user.is_allowed)) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
   rateLimit(`user:${user.id}`);
   return user;
 }
@@ -318,7 +322,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'GET' && url.pathname === '/api/me') {
     const botUsername = config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
-    return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
+    return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, chatStarted: Boolean(user.is_allowed), testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
   }
   if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, {...getNotificationSchedule(user.id),dailyDigest:config.legacyDinnerNotificationsEnabled && Boolean(digestMember(user.id))});
   if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));

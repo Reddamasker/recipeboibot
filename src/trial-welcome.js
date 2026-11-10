@@ -4,6 +4,7 @@ import { getTrialStatus, getSubscriptionAccess } from './subscriptions.js';
 import { selectionRecord } from './first-recipe-selection.js';
 import { log } from './log.js';
 import { enrollTrialDigest, eligibleDigestUser, cancelDigestParts } from './trial-digest-store.js';
+import { getMaxChatBinding } from './max-store.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS trial_welcome_messages (
  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -40,6 +41,10 @@ export async function deliverTrialWelcome(userId, sendFn=sender) {
  if(!trial.active||trial.startsAt!==row.trial_started_at||!getSubscriptionAccess(userId,now).active||!ownsRecipient(userId,row.chat_id)) {
   db.prepare("UPDATE trial_welcome_messages SET status='cancelled' WHERE user_id=? AND status<>'sent'").run(userId);cancelDigestParts(null,userId);return false;
  }
+ // A signed Mini App session proves identity, not that the user started a chat.
+ // Keep the welcome pending without transport attempts until a trusted MAX event
+ // has established the recipient's chat. A later start resumes normal delivery.
+ if(config.botPlatform==='max'&&!getMaxChatBinding(row.chat_id))return false;
  const stale=new Date(now.getTime()-120000).toISOString();
  db.prepare("UPDATE trial_welcome_messages SET status='pending',claimed_at=NULL WHERE user_id=? AND status='sending' AND claimed_at<=?").run(userId,stale);
  if(!db.prepare("UPDATE trial_welcome_messages SET status='sending',attempts=attempts+1,claimed_at=? WHERE user_id=? AND status='pending' AND ready=1 AND next_attempt_at<=?")
@@ -71,7 +76,9 @@ export function startTrialWelcomeScheduler(sendFn) {
   if(running)return;running=true;
   try{
    recoverDigestWelcomes();
-   for(const row of db.prepare("SELECT user_id FROM trial_welcome_messages WHERE ready=1 AND status IN ('pending','sending') ORDER BY next_attempt_at LIMIT 20").all())await deliverTrialWelcome(row.user_id);
+   const connected=config.botPlatform==='max'?" AND EXISTS(SELECT 1 FROM max_chat_bindings b WHERE 'max:'||b.user_id=w.chat_id)":"";
+   // Waiting app-only users must not occupy the entire delivery batch.
+   for(const row of db.prepare("SELECT user_id FROM trial_welcome_messages w WHERE ready=1 AND status IN ('pending','sending')"+connected+" ORDER BY next_attempt_at LIMIT 20").all())await deliverTrialWelcome(row.user_id);
   }
   catch(error){log('warn','trial_welcome_scheduler_failed',{error});}finally{running=false;}
  };

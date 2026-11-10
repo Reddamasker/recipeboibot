@@ -5662,7 +5662,20 @@ if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined
   scan();
 }
 
+function entryRecovery(message, { retry = true } = {}) {
+  const botUrl = window.RecipePlatform?.botUrl('collection') || 'https://t.me/Recipeboibot?start=collection';
+  root.innerHTML = `<main class="outside"><div class="brand-mark">Р</div><h1>Не получилось войти</h1><p>${esc(message)}</p>${retry ? '<button class="primary accent" id="entry-retry" type="button">Попробовать ещё раз</button>' : ''}<p><a id="entry-open-bot" class="primary" href="${esc(botUrl)}">Открыть чат бота</a></p></main>`;
+  document.querySelector('#entry-retry')?.addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    await boot();
+  });
+  document.querySelector('#entry-open-bot')?.addEventListener('click', event => {
+    try { if (window.RecipePlatform?.openBot('collection')) event.preventDefault(); } catch { /* The link remains usable. */ }
+  });
+}
+
 async function boot() {
+  if (window.__miniRedirect) return;
   const sharedMatch = location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
   if (!sharedMatch && !tg?.initData) {
     window.miniProbe?.('missing-init-data');
@@ -5670,7 +5683,7 @@ async function boot() {
       document.querySelector('#landing')?.setAttribute('hidden', '');
       root.hidden = false;
       window.__miniRendered = true;
-      root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>${esc(window.RecipePlatform?.label || 'Telegram')} не передал данные входа. Закройте окно и откройте приложение кнопкой в чате бота.</p></main>`;
+      entryRecovery(`${window.RecipePlatform?.label || 'Telegram'} не передал данные входа. Откройте чат бота и запустите приложение снова.`, { retry: false });
     }
     return;
   }
@@ -5686,9 +5699,8 @@ async function boot() {
     // Server authentication has succeeded; start parameters affect navigation only.
     const launchRoute = window.RecipePlatform?.initialRoute();
     const launchParams = new URLSearchParams(location.search);
-    // MAX opens the registered base URL (which may already contain view=dinner).
-    // Its launch payload identifies the requested screen or recipe for this opening.
     if (launchRoute && (window.RecipePlatform.name === 'max' || !launchParams.has('view') && !launchParams.has('recipe'))) setRoute(launchRoute, { replace: true });
+    else if (state.me.platform === 'max' && state.me.chatStarted === false && !launchParams.has('recipe') && (!launchParams.has('view') || ['menu', 'dinner'].includes(launchParams.get('view')))) setRoute({ view: 'collection' }, { replace: true });
     window.miniProbe?.('profile-loaded');
     await refresh();
     window.miniProbe?.('library-loaded');
@@ -5713,7 +5725,7 @@ async function boot() {
   } catch (error) {
     window.__miniRendered = true;
     window.miniProbe?.('app-error');
-    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Не получилось войти</h1><p>${esc(error.message)}</p><p>Вернитесь в чат бота и нажмите Start.</p></main>`;
+    entryRecovery(error.message);
   }
 }
 boot();
