@@ -64,9 +64,10 @@ export const config = Object.freeze({
   telegramPolling: botPlatform === 'telegram' && process.env.TELEGRAM_POLLING !== 'false',
   testContour: process.env.TEST_CONTOUR === 'true',
   // Retired with the collection-first product. Saved schedules must never opt users back in.
-  legacyDinnerNotificationsEnabled: process.env.LEGACY_DINNER_NOTIFICATIONS_ENABLED === 'true',
-  chatRecipeGenerationEnabled: process.env.CHAT_RECIPE_GENERATION_ENABLED
-    ? process.env.CHAT_RECIPE_GENERATION_ENABLED !== 'false' : process.env.TEST_CONTOUR !== 'true',
+  legacyRecipeFlowsEnabled: process.env.LEGACY_RECIPE_FLOWS_ENABLED === 'true',
+  legacyDinnerNotificationsEnabled: process.env.LEGACY_RECIPE_FLOWS_ENABLED === 'true' && process.env.LEGACY_DINNER_NOTIFICATIONS_ENABLED === 'true',
+  chatRecipeGenerationEnabled: process.env.LEGACY_RECIPE_FLOWS_ENABLED === 'true' && (process.env.CHAT_RECIPE_GENERATION_ENABLED
+    ? process.env.CHAT_RECIPE_GENERATION_ENABLED !== 'false' : process.env.TEST_CONTOUR !== 'true'),
   testBotUsername: process.env.TEST_BOT_USERNAME || '',
   testPriceVariants: csvIntegers('TEST_PRICE_VARIANTS', '129'),
   billingRequired: process.env.BILLING_REQUIRED === 'true',

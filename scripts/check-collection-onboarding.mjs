@@ -49,13 +49,13 @@ try{
   assert.equal(buttons[0][0].text,collectionButtonText);
   if(platform==='telegram')assert.equal(new URL(buttons[0][0].web_app.url).searchParams.get('view'),'collection');
   else assert.equal(JSON.parse(Buffer.from(buttons[0][0].payload,'base64url')).view,'collection');
-  await send('/start collection');assert.deepEqual(getPendingIntent(user.id).resumeIntent,previous);
-  await send('/cancel');assert.deepEqual(getPendingIntent(user.id),previous);
+  await send('/start collection');assert.deepEqual(getPendingIntent(user.id).resumeIntent,null);
+  await send('/cancel');assert.deepEqual(getPendingIntent(user.id),null);
   await send('/start collection_save');assert.match(messages.at(-1).text,/Добавить рецепт/);
   failImport=true;await send('Семейный омлет');assert.equal(listRecipes(user.id).length,0);assert.equal(getPendingIntent(user.id).collectionOnboarding,true);
   failImport=false;await send('Семейный омлет');assert.equal(listRecipes(user.id).length,1);assert.equal(getSubscriptionAccess(user.id).active,false);
   const accessCalls=calls;await send('Ещё один рецепт');assert.equal(calls,accessCalls);
-  await send('/cancel');assert.deepEqual(getPendingIntent(user.id),previous);
+  await send('/cancel');assert.deepEqual(getPendingIntent(user.id),null);
   await send('/start collection');assert.equal(messages.at(-1).text,collectionWelcome);
   startTrial(user.id);await send('Другой семейный рецепт');assert.equal(listRecipes(user.id).length,2);
   if(platform==='max' && process.env.QA_LANDING === 'true') {

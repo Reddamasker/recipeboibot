@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const source = fs.readFileSync('public/app.js', 'utf8');
 
-test('trial button starts server entitlement directly without checkout and begins onboarding', async () => {
+test('trial button starts server entitlement directly and opens the current collection', async () => {
   const { sandbox, nodes, state, calls, steps, routes } = combinedOfferHarness({ ...expiredPayment,
     available: false, hasFirstRecipe: false, trial: { eligible: true, used: false } });
   assert.match(sandbox.root.innerHTML, /7 дней бесплатно/);
@@ -12,8 +12,8 @@ test('trial button starts server entitlement directly without checkout and begin
   assert.equal(calls.length, 0); // Rendering never starts trial or creates an order.
   await nodes['#start-trial'].handler({ currentTarget: { disabled: false } });
   assert.deepEqual(calls, [['/api/billing/trial', 'POST']]);
-  assert.deepEqual(steps, ['taste', [false, true]]);
-  assert.equal(routes[0].view, 'dinner');
+  assert.deepEqual(steps, [null]);
+  assert.equal(routes[0].view, 'collection');
   assert.equal(state.payment.active, true);
 });
 
@@ -336,8 +336,8 @@ test('benefits trial button activates with one click, ignores a concurrent click
   release(); await retry;
   assert.deepEqual(calls, [['/api/billing/trial', 'POST'], ['/api/billing/trial', 'POST']]);
   assert.equal(state.payment.active, true);
-  assert.deepEqual(steps, ['taste', [false, true]]);
-  assert.equal(routes[0].view, 'dinner');
+  assert.deepEqual(steps, [null]);
+  assert.equal(routes[0].view, 'collection');
 });
 
 test('first recipe banner opens three benefits and only their trial button starts access', () => {
@@ -356,8 +356,8 @@ test('first recipe banner opens three benefits and only their trial button start
   assert.equal(calls.length, 0);
   assert.equal((sandbox.root.innerHTML.match(/class="offer-feature"/g) || []).length, 3);
   assert.match(sandbox.root.innerHTML, /Сохраняем за тебя/);
-  assert.match(sandbox.root.innerHTML, /Подбираем на вечер/);
-  assert.match(sandbox.root.innerHTML, /Напоминаем вовремя/);
+  assert.match(sandbox.root.innerHTML, /Планируем меню/);
+  assert.match(sandbox.root.innerHTML, /Собираем покупки/);
   assert.match(sandbox.root.innerHTML, /data-start-trial>Попробовать 7 дней бесплатно/);
   assert.doesNotMatch(sandbox.root.innerHTML, /data-period-months|offer-pay/);
   nodes['#benefits-back'].onclick();

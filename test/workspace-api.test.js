@@ -253,11 +253,11 @@ test('card read and changes respect first recipe lock while Ask uses authenticat
     assert.equal(events.length, 1); assert.equal(events[0].id, 'workspace-' + question.operationId); assert.equal(events[0].flow_id, question.operationId);
     assert.deepEqual(JSON.parse(events[0].detail_json), { feature: 'collections', action: 'collections.askRecipe' });
     assert.equal(events[0].detail_json.includes(question.question), false);
-    // Consume only the API burst limiter through invalid audio, never provider
+    // Consume only the API burst limiter through invalid import media, never provider
     // or budget calls; the ninth AI action must reject before claiming a UUID.
     for (let n = 0; n < 7; n++) {
-      const limited = await fetch(base + '/api/recipe-request/transcribe', { method: 'POST',
-        headers: { authorization: a.authorization, 'content-type': 'application/json' }, body: JSON.stringify({ mime: 'invalid' }) });
+      const limited = await fetch(base + '/api/import', { method: 'POST',
+        headers: { authorization: a.authorization, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image', mime: 'invalid' }) });
       assert.equal(limited.status, 415); await limited.text();
     }
     for (let n = 0; n < 2; n++) {

@@ -63,7 +63,7 @@ async function sendChatGenerationDisabled(chatId, userId, { refused = true, grou
   identifyProductUser(userId);
   if (refused) { identifyProductStep('request'); productError(403); }
   const url = groupMode ? null : webAppUrl({ view: 'collection' });
-  await send(chatId, 'ИИ-генерация рецептов по запросу в чате отключена. Можно открыть коллекцию или прислать ссылку, фото либо готовый текст рецепта для сохранения.', url
+  await send(chatId, config.legacyRecipeFlowsEnabled ? 'ИИ-генерация рецептов по запросу в чате отключена. Можно открыть коллекцию или прислать ссылку, фото либо готовый текст рецепта для сохранения.' : 'Этот сценарий отключён. Откройте коллекцию: в ней можно сохранить рецепт, составить меню и список покупок. Готовые рецепты доступны на вкладке «Подобрать».', url
     ? { reply_markup: { inline_keyboard: [[{ text: 'Открыть коллекцию', web_app: { url } }]] } } : {});
 }
 
@@ -75,7 +75,7 @@ function firstRecipeBenefitsMarkup() {
 async function sendFirstRecipeBenefits(chatId, userId, options = {}) {
   const pending = getPendingFirstRecipe(userId);
   const title = pending?.title || 'Ваш первый рецепт';
-  const caption = `<b>${escapeHtml(title)}</b>\n\nРецепт готов и ждёт вас.\n\nПопробуйте 7 дней бесплатно: готовые рецепты с учётом ваших вкусов, коллекция любимых блюд и напоминания об ужине.\n\nБез карты и списаний. После запуска откроется именно этот рецепт.`;
+  const caption = `<b>${escapeHtml(title)}</b>\n\nРецепт готов и ждёт вас.\n\nПопробуйте 7 дней бесплатно: коллекция любимых блюд, меню и список покупок.\n\nБез карты и списаний. После запуска откроется именно этот рецепт.`;
   const reply_markup = firstRecipeBenefitsMarkup();
   const photo = pending?.imageUrl && (pending.imageUrl.startsWith('/') && config.appUrl ? new URL(pending.imageUrl, config.appUrl).toString() : pending.imageUrl);
   if (photo) {
@@ -116,6 +116,7 @@ async function sendUnlockedFirstRecipe(chatId, userId) {
 }
 
 export async function sendTrialWelcomeMessage(userId, chatId, trial) {
+  if (!config.legacyRecipeFlowsEnabled) return false;
   if (!trial?.active) throw new Error('Пробный период уже не активен');
   if (config.legacyDinnerNotificationsEnabled && digestMember(userId)) return sendDigestWelcome(userId,chatId,trial,{send:telegram,url:webAppUrl});
   const url = webAppUrl({ view: 'trial-guide' });
@@ -164,7 +165,7 @@ async function sendTestOffer(chatId, userId, force = false) {
   const status = mock ? mockPaymentStatus(userId) : getBillingOffer(userId);
   if (status.trial?.eligible && (force || status.hasFirstRecipe)) {
     if (!force && !(mock ? claimMockOffer(userId) : recordBillingExposure(userId))) return;
-    await send(chatId, '<b>Попробуйте 7 дней бесплатно</b>\n\nПолучайте новые варианты ужина с учётом ваших вкусов, сохраняйте рецепты и настройте напоминания.\n\nКнопка сразу откроет семь суток полного доступа. Без карты и списаний. Подписка оформляется отдельно.', { reply_markup: { inline_keyboard: [[{ text: 'Попробовать 7 дней бесплатно', callback_data: 'trial:start' }]] } });
+    await send(chatId, '<b>Попробуйте 7 дней бесплатно</b>\n\nСохраняйте свои рецепты, составляйте меню и список покупок.\n\nКнопка сразу откроет семь суток полного доступа. Без карты и списаний. Подписка оформляется отдельно.', { reply_markup: { inline_keyboard: [[{ text: 'Попробовать 7 дней бесплатно', callback_data: 'trial:start' }]] } });
     return;
   }
   if (status.trial?.used && !status.active) {
@@ -173,7 +174,7 @@ async function sendTestOffer(chatId, userId, force = false) {
   }
   if (!status.available) return;
   if (!status.hasFirstRecipe) {
-    if (force) await send(chatId, `Сначала сохраните первый рецепт или приготовьте предложенный ужин. После этого откроется ${mock ? 'тестовое ' : ''}предложение.`);
+    if (force) await send(chatId, `Сначала сохраните первый рецепт. После этого откроется ${mock ? 'тестовое ' : ''}предложение.`);
     return;
   }
   if (status.active) {
@@ -184,7 +185,7 @@ async function sendTestOffer(chatId, userId, force = false) {
   if (force) mock ? claimMockOffer(userId) : recordBillingExposure(userId);
   const lead = status.firstValue === 'cooked' ? 'Первый ужин приготовлен — теперь можно пополнить свою коллекцию.' : 'Первый рецепт готов — он останется в вашей коллекции.';
   const details = mock ? 'Это тестовый сценарий: деньги не списываются.' : `Оплата проходит на защищённой странице Robokassa.${status.recurringSupported ? ' Автопродление подключается только с отдельного согласия.' : ''}`;
-  await send(chatId, `<b>${lead}</b>\n\nЧтобы сохранять следующие рецепты автоматически и пользоваться напоминаниями, оформите доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. ${details}`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
+  await send(chatId, `<b>${lead}</b>\n\nЧтобы сохранять следующие рецепты автоматически, составлять меню и список покупок, оформите доступ за <b>${status.offer.priceRub} ₽ в месяц</b>. ${details}`, { reply_markup: { inline_keyboard: [[{ text: `Посмотреть предложение · ${status.offer.priceRub} ₽`, web_app: { url: webAppUrl({ view: 'offer' }) } }]] } });
 }
 function canUsePaidImport(userId) {
   if (config.testContour && !billingAvailable()) return canUseTestImport(userId);
@@ -199,7 +200,7 @@ export async function handleTrialCallback(callback) {
   const access = getSubscriptionAccess(user.id);
   if (access.active && access.source !== 'trial') {
     if (getPendingFirstRecipe(user.id)) { await sendUnlockedFirstRecipe(chatId, user.id); return true; }
-    await send(chatId, 'Полный доступ уже активен. Можно продолжить подбор рецептов.', { reply_markup: dinnerWebAppMarkup() });
+    await send(chatId, 'Полный доступ уже активен. Можно сохранять рецепты, составлять меню и список покупок.', { reply_markup: dinnerWebAppMarkup() });
     return true;
   }
   const used = getTrialStatus(user.id).used;
@@ -211,7 +212,7 @@ export async function handleTrialCallback(callback) {
     await queueTrialWelcome(user.id, chatId, { ready: false });
     addDinnerEvent(user.id, 'trial_started', { detail: { source: config.botPlatform } });
   }
-  const text = '<b>Пробный период начался</b>\n\nПолный доступ до ' + escapeHtml(new Date(trial.expiresAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })) + ' МСК. Можно подбирать новые блюда, сохранять рецепты и настраивать напоминания. Карта не нужна, списаний нет.';
+  const text = '<b>Пробный период начался</b>\n\nПолный доступ до ' + escapeHtml(new Date(trial.expiresAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })) + ' МСК. Можно сохранять рецепты, составлять меню и список покупок. Карта не нужна, списаний нет.';
   const reply_markup = dinnerWebAppMarkup();
   try {
     await telegram('editMessageText', { chat_id: chatId, message_id: callback.message.message_id, text, parse_mode: 'HTML', reply_markup });
@@ -263,8 +264,8 @@ async function sendDinnerEntry(chatId, userId, { skipOnboarding = false, firstSt
 }
 let dinnerLaunchId = 0;
 function dinnerWebAppMarkup() {
-  const url = webAppUrl({ view: 'dinner', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
-  return url ? { inline_keyboard: [[{ text: 'Открыть варианты ужина', web_app: { url } }]] } : { inline_keyboard: [] };
+  const url = webAppUrl({ view: config.legacyRecipeFlowsEnabled ? 'dinner' : 'collection', launch: `${Date.now().toString(36)}-${++dinnerLaunchId}` });
+  return url ? { inline_keyboard: [[{ text: config.legacyRecipeFlowsEnabled ? 'Открыть варианты ужина' : 'Открыть коллекцию', web_app: { url } }]] } : { inline_keyboard: [] };
 }
 function dinnerPreparingMarkup() {
   return { inline_keyboard: [[{ text: 'Готовим рецепты', callback_data: 'dinner:preparing' }]] };
@@ -417,6 +418,7 @@ export async function handleDinnerIntakeCallback(callback) {
   if (!/^dinner:(?:skip|redo|confirm|preparing|unavailable|size:[1-9])$/.test(data) || callback.message?.chat?.type !== 'private' || !callback.from || String(callback.from.id) !== String(callback.message.chat.id)) return false;
   const user = resolvePrivateTelegramUser(callback.from), chatId = callback.message.chat.id;
   identifyProductUser(user.id);
+  if (!config.legacyRecipeFlowsEnabled) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendChatGenerationDisabled(chatId, user.id); return true; }
   if (awaitingFirstRecipe(user.id)) { await telegram('answerCallbackQuery', { callback_query_id: callback.id }); await sendFirstRecipeBenefits(chatId, user.id); return true; }
   if (['dinner:preparing', 'dinner:unavailable'].includes(data)) {
     await telegram('answerCallbackQuery', { callback_query_id: callback.id, text: data === 'dinner:preparing' ? 'Рецепты ещё готовятся' : 'Не удалось подготовить рецепты. Попробуйте ещё раз позже.' });
@@ -514,8 +516,8 @@ export async function configureTelegramMenuButton() {
   if (!url) throw new Error('APP_URL is not configured for the Telegram menu button');
   await telegram('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Меню', web_app: { url } } });
   await telegram('setMyCommands', { commands: [
-    { command: 'dinner', description: 'Что на сегодня' }, { command: 'collection', description: 'Мои рецепты' },
-    { command: 'save', description: 'Сохранить рецепт' }, { command: 'preferences', description: 'Мои предпочтения' },
+    { command: 'collection', description: 'Мои рецепты, меню и покупки' },
+    { command: 'save', description: 'Сохранить рецепт' },
     { command: 'feedback', description: 'Обратная связь: вопрос, предложение или жалоба' },
     { command: 'cancel', description: 'Отменить текущее действие' }, { command: 'help', description: 'Как пользоваться ботом' }
   ], scope: { type: 'all_private_chats' } });
@@ -684,7 +686,7 @@ export async function sendFirstFreeRecipe(chatId, recipe, options = {}) {
   const userId = options.userId || recipe.user_id;
   if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId, options); return; }
   if (userId) assertFirstRecipeReadable(userId, recipe.id);
-  if (options.userId && !options.dialogue) options = { ...options, dialogue: captureDinnerDialogue(options.userId, recipe) };
+  if (config.legacyRecipeFlowsEnabled && options.userId && !options.dialogue) options = { ...options, dialogue: captureDinnerDialogue(options.userId, recipe) };
   const ingredients = (recipe.ingredients || []).map(item => [item.quantity, item.unit, item.name || item.raw].filter(value => value !== null && value !== undefined && value !== '').join(' ')).join('\n');
   const steps = (recipe.steps || []).map((step, index) => `${index + 1}. ${step.text || step}`).join('\n');
   const n = recipe.nutrition;
@@ -1166,7 +1168,7 @@ async function sendCatalogContinuation(chatId, userId, recipe, { saved = false, 
   const rows = [];
   const recipeUrl = webAppUrl(recipe ? { view: 'collection', recipe: recipe.id } : { view: 'collection' });
   if (recipeUrl) rows.push([{ text: recipe ? 'Открыть рецепт' : 'Мои рецепты', web_app: { url: recipeUrl } }]);
-  const tastesUrl = webAppUrl({ view: 'tastes' });
+  const tastesUrl = config.legacyRecipeFlowsEnabled && webAppUrl({ view: 'tastes' });
   if (tastesUrl) rows.push([{ text: 'Настроить мои вкусы', web_app: { url: tastesUrl } }]);
   const access = getSubscriptionAccess(userId), trial = getTrialStatus(userId);
   if (!access.active) {
@@ -1178,7 +1180,7 @@ async function sendCatalogContinuation(chatId, userId, recipe, { saved = false, 
   }
   const title = recipe ? `<b>${escapeHtml(recipe.title)}</b>\n\n` : '';
   const result = saved ? (duplicate ? 'Рецепт уже есть в вашей коллекции.' : 'Рецепт сохранён в вашей коллекции.') : 'Ваши сохранённые рецепты под рукой.';
-  const text = `${title}${result}\n\nРецепт с сайта можно открывать бесплатно. Настройка вкусов необязательна — она поможет будущим подборкам.${!access.active && !trial.used ? '\n\nДля персональных подборок и других возможностей можно отдельно начать 7 дней бесплатно. Карта не нужна.' : ''}`;
+  const text = `${title}${result}\n\nРецепт с сайта можно открывать бесплатно. Сохраняйте любимые блюда, составляйте меню и список покупок.${!access.active && !trial.used ? '\n\nДля сохранения своих рецептов и других возможностей можно отдельно начать 7 дней бесплатно. Карта не нужна.' : ''}`;
   await send(chatId, text, { reply_markup: { inline_keyboard: rows } });
 }
 
@@ -1240,12 +1242,17 @@ export async function handleMessage(message) {
   if (maxLandingEntry) {
     try { recordBotStart(user, text); } catch { log('warn', 'landing_max_start_failed'); }
   } else recordBotStart(user, text);
-  if (/^\/start(?:@[A-Za-z0-9_]+)?\s+collection(?:_save)?\s*$/i.test(text) || landingStartIntent(text) === 'collection' || maxLandingEntry) {
+  if (hasCatalogFirstRecipe(user.id) && /^\/start(?:@[A-Za-z0-9_]+)?(?:\s+dinner)?\s*$/i.test(text)) {
+    if (!user.is_allowed) allowUser(user.id);
+    await sendCatalogContinuation(chatId, user.id, latestPublicCatalogRecipe(user.id));
+    return;
+  }
+  if ((!config.legacyRecipeFlowsEnabled && /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text) && !/^\/start(?:@[A-Za-z0-9_]+)?\s+(?:feedback|group_access)(?:\s|$)/i.test(text)) || /^\/start(?:@[A-Za-z0-9_]+)?\s+collection(?:_save)?\s*$/i.test(text) || landingStartIntent(text) === 'collection' || maxLandingEntry) {
     if (!user.is_allowed) allowUser(user.id);
     const previous = getPendingIntent(user.id);
     setPendingIntent(user.id, { kind: 'recipe-save', collectionOnboarding: true, resumeIntent: previous?.kind === 'recipe-save' ? previous.resumeIntent : previous });
     const url = webAppUrl({ view: 'collection' });
-    const importEntry = /\scollection_save\s*$/i.test(text);
+    const importEntry = /\s(?:collection_save|save)\s*$/i.test(text) || landingStartIntent(text) === 'save';
     if (importEntry) identifyProductStep('import');
     await send(chatId, importEntry ? '<b>Добавить рецепт</b>\n\nПришли ссылку, фото или текст рецепта. Можно переслать сообщение или продиктовать рецепт голосом.\n\nЯ обработаю его и добавлю в твою коллекцию.\n\nДля отмены — /cancel.' : collectionWelcome, url ? { reply_markup: { inline_keyboard: [[{ text: collectionButtonText, web_app: { url } }]] } } : {});
     recordProduct(user.id, 'chat_prompt_delivered', { step: importEntry ? 'import' : 'home' });
@@ -1283,13 +1290,14 @@ export async function handleMessage(message) {
     await send(chatId, `<b>Сбросить тестового пользователя?</b>\n\n${explanation}`, { reply_markup: { inline_keyboard: [[{ text: 'Да, сбросить', callback_data: 'test:reset:confirm' }], [{ text: 'Отмена', callback_data: 'test:reset:cancel' }]] } });
     return;
   }
+  if (!config.legacyRecipeFlowsEnabled && /^\/(?:dinner|find|search|ingredients|preferences|menu)(?:\s|$)/i.test(text)) {
+    await sendChatGenerationDisabled(chatId, user.id); return;
+  }
+  if (!config.legacyRecipeFlowsEnabled && text === '/help') {
+    await send(chatId, '/collection — коллекция, меню и покупки; /save — сохранить рецепт из ссылки, фото, текста или голосового сообщения; /feedback — обратная связь. Готовые рецепты — на вкладке «Подобрать».'); return;
+  }
   if (text === '/offer') { await sendTestOffer(chatId, user.id, true); return; }
   if (text === '/privacy' || text === '/terms') { await send(chatId, `${text === '/privacy' ? 'Как обрабатываются ваши данные' : 'Условия закрытого теста'}: ${config.appUrl}/${text.slice(1)}.html`); return; }
-  if (hasCatalogFirstRecipe(user.id) && /^\/start(?:@[A-Za-z0-9_]+)?(?:\s+dinner)?\s*$/i.test(text)) {
-    if (!user.is_allowed) allowUser(user.id);
-    await sendCatalogContinuation(chatId, user.id, latestPublicCatalogRecipe(user.id));
-    return;
-  }
   if (awaitingFirstRecipe(user.id) && !(text === '/cancel' && getPendingIntent(user.id)?.collectionOnboarding) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text) && !(text === '/collection' && hasCatalogFirstRecipe(user.id))) {
     if (getPendingIntent(user.id)?.collectionOnboarding && !text.startsWith('/')) { identifyProductStep('import'); productError(402); }
     if (text.startsWith('/start') && !user.is_allowed) allowUser(user.id);
@@ -1395,9 +1403,9 @@ export async function handleMessage(message) {
   if (text.startsWith('/delete_recipe ')) { archiveRecipe(user.id, text.slice(15)); await send(chatId, 'Рецепт убран из библиотеки.'); return; }
 
   const pending = getPendingIntent(user.id);
-  const savingRecipe = pending?.kind === 'recipe-save';
+  const savingRecipe = pending?.kind === 'recipe-save' || !config.legacyRecipeFlowsEnabled && Boolean(message.voice || message.audio);
   if (pending && ['dinner-intake', 'dinner-confirm'].includes(pending.kind) && await handleDinnerIntakeMessage(message, user, pending)) return;
-  const dialogue = getRecipeDialogue(user.id);
+  const dialogue = config.legacyRecipeFlowsEnabled ? getRecipeDialogue(user.id) : null;
   if (pending && !savingRecipe && (!dialogue || pending.kind !== 'recipe-suggestion') && await handlePendingChoice(message, user, pending)) return;
   if (pending && !savingRecipe && !dialogue) clearPendingIntent(user.id);
 
@@ -1417,12 +1425,12 @@ export async function handleMessage(message) {
   if (!savingRecipe && !message.photo?.length && !content.url && dialogue && (detectIntent(content.text) !== 'save' || localDialogueAction(content.text)) && !/^\/(?:find|search)\s/iu.test(content.text)) {
     await handleRecipeDialogueText(chatId, user, content.text, dialogue); return;
   }
-  if (!savingRecipe && !dialogue && !message.photo?.length && !content.url && ['replace', 'refine', 'skip-save'].includes(localDialogueAction(content.text)?.action)) {
+  if (config.legacyRecipeFlowsEnabled && !savingRecipe && !dialogue && !message.photo?.length && !content.url && ['replace', 'refine', 'skip-save'].includes(localDialogueAction(content.text)?.action)) {
     await send(chatId, 'Не вижу, к какому рецепту относится ответ. Напишите, что хотите приготовить, или нажмите кнопку под нужным рецептом.'); return;
   }
   const isDinnerFollowup = /^(?:кстати(?=\s|[,.!]|$)|забыл(?:а)?\s+(?:сказать|упомянуть)|ещ[её]\s+есть|у\s+нас\s+(?:есть\s+)?(?:дети|реб[её]нок)|есть\s+реб[её]нок|детей\s+нет|аллерги[яи]\s|на\s+(?:двоих|троих|четверых|\d+)\s*(?:человек)?[,.! ]*$|(?:сегодня|на\s+сегодня|на\s+ужин)(?=\s|[,.!]|$)|хоч(?:у|ем|ется)(?=\s|[,.!]|$)|давай(?:те)?\s+приготов)/iu.test(content.text.trim());
   const isDirectMealRequest = /^(?:сегодня|на\s+сегодня|на\s+ужин|хоч(?:у|ем|ется)|давай(?:те)?\s+приготов)(?=\s|[,.!]|$)/iu.test(content.text.trim());
-  if (!savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && !isDirectMealRequest && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
+  if (config.legacyRecipeFlowsEnabled && !savingRecipe && !message.photo?.length && !content.url && isDinnerFollowup && !isDirectMealRequest && (getDinnerContext(user.id).length || getFoodProfile(user.id).onboardingCompleted)) {
     await handleDinnerIntakeMessage({ chat: message.chat, from: message.from, text: content.text }, user, { kind: 'dinner-intake', intake: currentDinnerIntake(user.id), profileOnly: !getDinnerContext(user.id).length });
     return;
   }
@@ -1430,10 +1438,11 @@ export async function handleMessage(message) {
   const intent = savingRecipe ? 'save' : detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
   if (intent === 'search') { await sendSearchResults(chatId, user, content.text, { sourceType: content.sourceType }); return; }
   if (intent === 'save') {
-    try { if (await saveContent(message, user, content) && savingRecipe && !pending.collectionOnboarding) restoreAfterRecipeSave(user.id, pending); }
+    try { if (await saveContent(message, user, content) && savingRecipe && pending && !pending.collectionOnboarding) restoreAfterRecipeSave(user.id, pending); }
     catch (error) { productError(error.status || 500); log('error', 'telegram_import_failed', { error, userId: user.id }); await send(chatId, `Не получилось сохранить: ${escapeHtml(error.message)}\n\nМожно прислать текст или скриншот рецепта.`); }
     return;
   }
+  if (!config.legacyRecipeFlowsEnabled) { await sendChatGenerationDisabled(chatId, user.id); return; }
   setPendingIntent(user.id, content);
   await send(chatId, 'Найти в вашей коллекции или сохранить ваш рецепт? Ответьте «найти» или «сохранить».');
 }
@@ -1457,6 +1466,7 @@ export async function handleMyChatMember(change) {
     const user = resolvePrivateTelegramUser(change.from);
   identifyProductUser(user.id);
     if (!user.is_allowed) allowUser(user.id);
+    if (!config.legacyRecipeFlowsEnabled) { await handleMessage({ from: change.from, chat, text: '/start' }); return; }
     const pending = getPendingIntent(user.id);
     if (['dinner-onboarding-restart', 'dinner-intake', 'dinner-confirm'].includes(pending?.kind)) {
       await resumeDinnerIntake(chat.id, user.id, pending, { unblocked: true });

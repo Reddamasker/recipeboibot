@@ -63,7 +63,7 @@ test('HTTP can reopen, share and edit a public saved recipe after trial expirati
   assert.equal(edited.publicCatalogSaved, true);
   assert.equal((await call(account, route)).ingredients[0].quantity, 150);
   assert.deepEqual(getTrialStatus(account.user.id), trial);
-  await call(account, '/api/recipe-request', { method: 'POST', body: { query: 'Суп' }, status: 402 });
+  await call(account, '/api/recipe-request', { method: 'POST', body: { query: 'Суп' }, status: 410 });
 });
 
 test('HTTP preserves one public recipe while unrelated staged first-recipe details remain inaccessible', async () => {

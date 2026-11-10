@@ -9,7 +9,7 @@ const source = fs.readFileSync('public/app.js', 'utf8');
 function fixture({ active = true, step = null, cached = false } = {}) {
   const profile = { preferredCategories: { pasta: 1 }, dishPreferences: { pasta: 1 }, excludedIngredients: [], dishRatings:{'seed:chicken-cutlets':1,'seed:borscht-beef':-1,'seed:fish-potato':1},tasteRevision:1,tastePreferencesStatus: 'completed' };
   const requests = [], routes = [], pages = [], store = new Map(), nodes = {};
-  const state = { me: { id: 'guide-user' }, payment: { active, accessSource: 'trial', firstRecipe: { trialGateUsed: true }, pendingFirstRecipe: { recipeId: 'same-first', unlocked: true } }, dinner: cached ? { profile, recommendations: [] } : null };
+  const state = { me: { legacyRecipeFlowsEnabled: true, id: 'guide-user' }, payment: { active, accessSource: 'trial', firstRecipe: { trialGateUsed: true }, pendingFirstRecipe: { recipeId: 'same-first', unlocked: true } }, dinner: cached ? { profile, recommendations: [] } : null };
   const guideKey = 'recipeboibot-trial-guide-v1:guide-user', legacyKey = 'recipeboibot-trial-onboarding-v1:guide-user';
   store.set(legacyKey, 'payment-success'); if (step) store.set(guideKey, step);
   const editor=tasteElement(), appRoot=tasteElement(); appRoot.querySelector=()=>editor;

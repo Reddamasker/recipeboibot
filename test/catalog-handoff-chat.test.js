@@ -42,7 +42,7 @@ async function capture(run) {
 const buttons = calls => calls.flatMap(call => call.reply_markup?.inline_keyboard?.flat() || []);
 test.after(() => { db.close(); fs.rmSync(directory, { recursive: true, force: true }); });
 
-test('a catalog start saves the exact recipe before offering optional onboarding and keeps campaign attribution', async () => {
+test('a catalog start saves the exact recipe without retired onboarding and keeps campaign attribution', async () => {
   const account = fresh(), profile = getFoodProfile(account.user.id);
   createCampaign('catalog-chat-test', 'Catalog chat fixture');
   const route = handoff('pasta-tomato', { campaign: 'catalog-chat-test' });
@@ -169,7 +169,7 @@ test('MAX carries the saved recipe id in its app button and skips repeated first
     assert.equal(db.prepare('SELECT COUNT(*) n FROM trial_digest_members').get().n,0);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM notification_schedules WHERE user_id=?').get(user.id).n,0);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM trial_reminder_members').get().n,0);
-    assert.ok(calls.some(c=>String(c.text).includes('Спасибо, что запустил пробный период!')));
+    assert.ok(!calls.some(c=>String(c.text).includes('Спасибо, что запустил пробный период!')));
     db.close();
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', env: { ...process.env, DATABASE_PATH: path.join(directory, 'max.sqlite'), BOT_PLATFORM: 'max', TELEGRAM_BOT_TOKEN: '', MAX_BOT_TOKEN: 'fixture-max-token', MAX_BOT_USERNAME: 'fixture_max_bot', MAX_WEBHOOK_SECRET: 'fixture-max-secret-'.repeat(3), TELEGRAM_POLLING: 'false' } });

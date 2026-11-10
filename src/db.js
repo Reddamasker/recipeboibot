@@ -408,7 +408,14 @@ export function setPendingIntent(userId, payload) {
 export function getPendingIntent(userId) {
   const row = db.prepare('SELECT payload_json,updated_at FROM pending_intents WHERE user_id=?').get(userId);
   if (!row || Date.now() - Date.parse(row.updated_at) > 24 * 60 * 60 * 1000) { if (row) clearPendingIntent(userId); return null; }
-  try { return JSON.parse(row.payload_json); } catch { clearPendingIntent(userId); return null; }
+  try {
+    const current = value => {
+      if (!value || typeof value !== 'object') return null;
+      if (!config.legacyRecipeFlowsEnabled && !['recipe-save', 'feedback'].includes(value.kind)) return null;
+      return value.resumeIntent ? { ...value, resumeIntent: current(value.resumeIntent) } : value;
+    };
+    return current(JSON.parse(row.payload_json));
+  } catch { clearPendingIntent(userId); return null; }
 }
 export function clearPendingIntent(userId) { db.prepare('DELETE FROM pending_intents WHERE user_id=?').run(userId); }
 

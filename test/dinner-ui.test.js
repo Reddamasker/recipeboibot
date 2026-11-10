@@ -108,8 +108,8 @@ test('offer banner names the next action directly and uses no emoji', () => {
   assert.match(html, /Месячный доступ · 129 ₽/);
   assert.equal((html.match(/class="offer-feature"/g) || []).length, 3);
   assert.match(html, /Сохраняем за тебя/);
-  assert.match(html, /Подбираем на вечер/);
-  assert.match(html, /Напоминаем вовремя/);
+  assert.match(html, /Планируем меню/);
+  assert.match(html, /Собираем покупки/);
   assert.match(html, /Попробовать бесплатно/);
   assert.doesNotMatch(html, /Посмотри дальше|Посмотреть предложение|↗|◷/);
   for (const illustration of ['save', 'dinner', 'reminder']) {
@@ -258,7 +258,7 @@ test('first dinner asks pending taste preferences before composing recipes; expl
   const handler = source.slice(source.indexOf('async function beginDinner('), source.indexOf('\nasync function showDinnerOnboarding'));
   assert.match(document, /app\.js\?v=dinner-10\.85/);
   let needsOnboarding = true, needsTastePreferences = true, questions = 0, tastes = 0, recipes = 0, trialPages = 0, trialStep;
-  const sandbox = { state: {}, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
+  const sandbox = { state: { me: { legacyRecipeFlowsEnabled: true } }, dinnerPollTimer: null, clearTimeout() {}, AbortSignal, URLSearchParams, location: { search: '' },
     api: async () => ({ sessionId: 'fresh', profile: {}, needsOnboarding, needsTastePreferences }),
     showDinnerTastePreferences: () => { tastes++; },
     showDinnerOnboarding: async () => { questions++; }, loadDinnerRecommendation: async () => { recipes++; },
@@ -300,7 +300,7 @@ test('an already successful test payment resumes pending trial onboarding on the
   const handler = source.slice(source.indexOf('async function resumePendingTrialTastePreferences()'), source.indexOf('\nasync function showDinnerOnboarding'));
   let route, dinnerArgs, profileStatus = 'pending';
   let savedStep = null, rendered = 0;
-  const sandbox = { state: { me: { testContour: true }, payment: { active: true } }, AbortSignal,
+  const sandbox = { state: { me: { legacyRecipeFlowsEnabled: true, testContour: true }, payment: { active: true } }, AbortSignal,
     api: async () => ({ tastePreferencesStatus: profileStatus }),
     savedTrialOnboardingStep: () => savedStep,
     setTrialOnboardingStep: (value) => { sandbox.state.trialOnboarding = value; },
@@ -361,7 +361,7 @@ test('trial onboarding continues from tastes to notifications and collection ins
   const elements = {};
   const root = { innerHTML: '' };
   const routes = [];
-  const state = { trialOnboarding: 'notifications' };
+  const state = { me: { legacyRecipeFlowsEnabled: true }, trialOnboarding: 'notifications' };
   const sandbox = {
     root, state, header: () => '<header></header>', bindCommon() {}, trialGuideCloseButton: () => '', resetPageScroll() {}, tg: { close: assert.fail },
     document: { querySelector: (selector) => (elements[selector] ||= {}) },

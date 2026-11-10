@@ -60,17 +60,16 @@ test('private fresh profile shares authenticated bot/API identity and preserves 
     await handleMessage({ from: tg, chat: { id: tg.id, type: 'private' }, text: '/start' });
     assert.equal(messages.length, 1);
     assert.equal(messages[0].chat_id, tg.id);
-    assert.match(messages[0].text, /Уже ищу варианты для вашего ужина/);
-    assert.equal(store.getPendingIntent(mode.testUserId).profileOnly, true);
+    assert.match(messages[0].text, /Сохрани свой первый рецепт/);
+    assert.equal(store.getPendingIntent(mode.testUserId).kind, 'recipe-save');
     assert.doesNotMatch(messages[0].text, /возвращением|назовите продукты/i);
     assert.equal(store.getUserById(mode.testUserId).is_allowed, 1);
     assert.equal((await (await fetch(base + '/api/me', { headers })).json()).id, mode.testUserId);
     assert.deepEqual((await (await fetch(base + '/api/library', { headers })).json()).recipes, []);
     assert.equal((await fetch(base + '/api/recipes/' + recipe.id, { headers })).status, 404);
     assert.equal((await fetch(base + '/api/billing/trial', { method: 'POST', headers, body: '{}' })).status, 200);
-    const session = await (await fetch(base + '/api/dinner/open', { method: 'POST', headers, body: '{}' })).json();
-    const choices = await (await fetch(base + '/api/dinner/recommend', { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId }) })).json();
-    assert.equal(choices.recommendations.length, 3);
+    assert.equal((await fetch(base + '/api/dinner/open', { method: 'POST', headers, body: '{}' })).status, 410);
+    assert.equal((await fetch(base + '/api/workspace', { headers })).status, 200);
 
     const otherTg = { id: 75102, first_name: 'Other' };
     const other = store.upsertTelegramUser(otherTg); store.allowUser(other.id);
@@ -83,7 +82,8 @@ test('private fresh profile shares authenticated bot/API identity and preserves 
     assert.equal(store.listRecipes(owner.id)[0].id, recipe.id);
     assert.deepEqual(getFoodProfile(owner.id), originalProfile);
     assert.deepEqual(getDinnerContext(owner.id), originalContext);
-    assert.equal(store.getPendingIntent(owner.id).text, 'Original draft');
+    assert.equal(store.getPendingIntent(owner.id), null, 'Retired draft cannot resume');
+    assert.equal(JSON.parse(store.db.prepare('SELECT payload_json FROM pending_intents WHERE user_id=?').get(owner.id).payload_json).text, 'Original draft');
     assert.equal(store.db.prepare('SELECT count(*) n FROM ai_reservations').get().n, 1);
     assert.ok(store.getUserById(mode.testUserId), 'test history remains after stop');
   } finally {
