@@ -1,10 +1,10 @@
 const allowed = new Set(['campaign','utm_source','utm_medium','utm_campaign','utm_content','utm_term','campaign_id','adgroup_id','phrase_id','device','yclid']);
 let waitingForVisible = false;
-export function start() {
+export function start(visitId = null) {
   if (document.visibilityState !== 'visible') {
     if (!waitingForVisible) {
       waitingForVisible = true;
-      const resume = () => { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', resume); waitingForVisible = false; start(); } };
+      const resume = () => { if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', resume); waitingForVisible = false; start(visitId); } };
       document.addEventListener('visibilitychange', resume);
     }
     return;
@@ -31,7 +31,31 @@ export function start() {
   window.ym(id, 'init', { ssr:true, defer:true, webvisor:true, clickmap:true, trackLinks:false, accurateTrackBounce:true, disableYtm:true, sendTitle:false });
   const url = new URL(location.pathname, location.origin); url.search = new URLSearchParams([...query].filter(([key]) => allowed.has(key))).toString();
   let referer = ''; try { referer = new URL(document.referrer).origin + '/'; } catch {}
-  window.ym(id, 'hit', url.href, { title:'Твои рецепты — лендинг', referer });
+  const linkedVisit = /^[a-f0-9]{32}$/.test(visitId || '') ? visitId : null;
+  window.ym(id, 'hit', url.href, { title:'Твои рецепты — лендинг', referer,
+    ...(linkedVisit ? { params: { recipe_visit_id: linkedVisit } } : {}) });
+  if (linkedVisit) {
+    let identityStarted = false;
+    window.ym(id, 'getClientID', clientId => {
+      if (identityStarted || disabled || !visible() || typeof clientId !== 'string' || !/^[0-9]{1,32}$/.test(clientId)) return;
+      identityStarted = true;
+      // Never await SDK/analytics from a navigation handler. Retry one immutable
+      // association only; failures do not replace or disable the messenger link.
+      void (async () => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (disabled || !visible()) return;
+          try {
+            const response = await fetch('/api/landing/identity', { method: 'POST', credentials: 'omit',
+              headers: { 'content-type': 'application/json', 'x-landing-request': '1' },
+              body: JSON.stringify({ visitId: linkedVisit, clientId }), keepalive: true,
+              signal: AbortSignal.timeout(4000) });
+            if (response.ok || (response.status >= 400 && response.status < 500)) return;
+          } catch {}
+          if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      })();
+    });
+  }
   const goals = new Set();
   root.addEventListener('click', event => {
     if (disabled || !event.isTrusted || !visible() || !(event.target instanceof Element)) return;

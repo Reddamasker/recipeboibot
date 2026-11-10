@@ -24,6 +24,9 @@ if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column
 if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'max_click_token')) {
   db.exec('ALTER TABLE landing_visits ADD COLUMN max_click_token TEXT');
 }
+if (!db.prepare('PRAGMA table_info(landing_visits)').all().some(column => column.name === 'metrika_client_id')) {
+  db.exec('ALTER TABLE landing_visits ADD COLUMN metrika_client_id TEXT');
+}
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS landing_max_click_token ON landing_visits(max_click_token)');
 db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_max_attribution_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_tracking_since',?)").run(new Date().toISOString());
@@ -55,6 +58,16 @@ export function recordLandingView(input, options = {}) {
   db.prepare('INSERT OR IGNORE INTO landing_visits(id,campaign,tags_json,opened_at,intent) VALUES(?,?,?,?,?)')
     .run(input.visitId, campaign, JSON.stringify(tags), new Date().toISOString(), 'collection');
   return { href: `/landing/go/${input.visitId}` };
+}
+export function recordLandingIdentity(input, options = {}) {
+  if (!/^[a-f0-9]{32}$/.test(input?.visitId || '') || !/^[0-9]{1,32}$/.test(input?.clientId || '') || typeof input.clientId !== 'string') throw fail('Неверная метка посещения');
+  if (isAdvertisingProbe(options) || config.testContour || config.botPlatform === 'max') return { skipped: true };
+  const visit = db.prepare('SELECT metrika_client_id FROM landing_visits WHERE id=?').get(input.visitId);
+  if (!visit) throw fail('Посещение не найдено', 404);
+  // The random visit ID is the capability. Replays cannot replace its identity.
+  if (visit.metrika_client_id && visit.metrika_client_id !== input.clientId) throw fail('Метка посещения уже сохранена', 409);
+  db.prepare('UPDATE landing_visits SET metrika_client_id=COALESCE(metrika_client_id,?) WHERE id=?').run(input.clientId, input.visitId);
+  return { ok: true };
 }
 export function landingRedirect(id, options = {}) {
   const platform = options.platform ?? 'telegram';

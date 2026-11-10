@@ -11,6 +11,7 @@ import { importTextWithAccess as importText, importUrlWithAccess as importUrl, i
 import { resolveRecipeRequest, suggestForEmptySearch, assertSuggestionCurrent } from './suggestions.js';
 import { validateTelegramInitData } from './security.js';
 import { validateMaxInitData, verifyMaxWebhookSecret } from './max-auth.js';
+import { bindAppAdvertising } from './user-ad-attribution.js';
 import { callbackDestination, jwsRoutingParameters } from './payment-routing.js';
 import { enqueueMaxUpdate } from './max-events.js';
 import { log } from './log.js';
@@ -36,10 +37,12 @@ import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } f
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { mergeMaxFunnelReport, maxFunnelSnapshot, maxFunnelAuthorized } from './max-funnel.js';
 import { catalogDetailFilters, catalogDetailReport, dashboardCatalogDetails } from './catalog-detail-analytics.js';
+import { userAdJourneyFilters, userAdJourneyReport, dashboardUserAdJourneys } from './user-ad-journey.js';
+import { enrichUserAdJourneyReport } from './yandex-journey-enrichment.js';
 import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
-import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
+import { recordLandingHtmlLoad, recordLandingView, recordLandingIdentity, landingRedirect, landingReport } from './landing-funnel.js';
 import { recordLandingHeatmap, landingHeatmapReport, landingHeatmapPreview } from './landing-heatmap.js';
 import { landingMetrikaCounter, metrikaSources, metrikaConnections, metrikaFrames } from './landing-metrika.js';
 import { telegramOpenDocument } from './telegram-open.js';
@@ -146,6 +149,7 @@ function authenticate(request, { readOnly = false } = {}) {
   // Keep is_allowed as chat-start state: setting it here would fabricate starts,
   // returning acquisition users and permission to send chat messages.
   if (user) identifyProductUser(user.id);
+  if (user && !readOnly) bindAppAdvertising(user, new URLSearchParams(header.slice(4)).get('start_param'));
   if (!user || (config.botPlatform !== 'max' && !user.is_allowed)) throw Object.assign(new Error('Вернитесь в чат бота и нажмите Start'), { status: 403 });
   rateLimit(`user:${user.id}`);
   return user;
@@ -588,6 +592,10 @@ async function handleRequest(request, response) {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
         return json(response, 200, catalogDetailReport(catalogDetailFilters(url.searchParams,'max')));
       }
+      if (url.pathname === '/api/internal/user-ad-journeys') {
+        if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response,404,{error:'Не найдено'});
+        return json(response,200,userAdJourneyReport(userAdJourneyFilters(url.searchParams,'max')));
+      }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
       if (url.pathname.startsWith('/api/internal/catalog-handoff/')) {
         const action=url.pathname.slice('/api/internal/catalog-handoff/'.length);
@@ -661,6 +669,10 @@ async function handleRequest(request, response) {
           if (request.method !== 'GET') return json(response, 405, { error: 'Метод не поддерживается' });
           return json(response, 200, await dashboardCatalogDetails(url.searchParams));
         }
+        if (url.pathname === '/api/dashboard/user-ad-journeys') {
+          if (request.method !== 'GET') return json(response,405,{error:'Метод не поддерживается'});
+          return json(response,200,enrichUserAdJourneyReport(await dashboardUserAdJourneys(url.searchParams)));
+        }
         if (request.method === 'GET' && url.pathname === '/api/dashboard/web-login-prototype') return json(response,200,webLoginStore?.report() || null);
         if (request.method === 'POST' && url.pathname === '/api/dashboard/logout') {
           closeDashboardSession(cookie); response.setHeader('set-cookie', sessionCookie(''));
@@ -694,6 +706,13 @@ async function handleRequest(request, response) {
         if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
         const input = await bodyJson(request, 6000);
         return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
+      }
+      if (url.pathname === '/api/landing/identity') {
+        if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
+        if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
+        const input = await bodyJson(request, 1000);
+        rateLimit(`landing-identity:${input?.visitId}`, 6, 60000);
+        return json(response, 200, recordLandingIdentity(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
       }
       if (url.pathname === '/api/landing/heatmap') {
         if (request.method !== 'POST') return json(response,405,{error:'Метод не поддерживается'});
