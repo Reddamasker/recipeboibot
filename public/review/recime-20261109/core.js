@@ -1,4 +1,4 @@
-window.__recipePlatform={name:'telegram',botUsername:'recipeboi_test_bot'};
+window.__recipePlatform ||= {name:'telegram',botUsername:'Recipeboibot'};
 
 /* Snapshot: vendor/telegram-web-app.js */
 // WebView
@@ -5080,7 +5080,7 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
   const shopping = missing.length ? `<aside class="detail-shopping"><strong>Докупить</strong><p>${esc(missing.join(', '))}</p></aside>` : '';
   const image = safeImage(r.thumbnailUrl);
   const imagePending = Boolean(suggestion && !image);
-  const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/recipeboi_test_bot?start=dinner')}" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
+  const sharedIntro = shared ? `<section class="shared-intro"><div class="shared-avatar">${esc((r.sharedBy || 'П').trim()[0]?.toLocaleUpperCase('ru') || 'П')}</div><div><strong>${esc(r.sharedBy || 'Пользователь')} делится рецептом</strong><p>Рецепт сохранён в сервисе «Рецепты» — он собирает рецепты из ссылок, фото, текста и голосовых.</p><a href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" target="_blank" rel="noopener noreferrer">Подробнее о сервисе →</a></div></section>` : '';
   const backButton = shared ? '' : window.RecipeDetail.back();
   const editButton = requestMode
     ? '<button class="detail-edit" id="request-refine" type="button">Уточнить пожелание</button>'
@@ -5176,7 +5176,7 @@ async function openSharedRecipe(token) {
     closeOverlay(); root.innerHTML = ''; recipeDetail(recipe, { shared: true });
     document.title = `${recipe.title} — Рецепты`;
   } catch (error) {
-    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/recipeboi_test_bot?start=dinner')}" style="text-decoration:none">Открыть сервис ↗</a></main>`;
+    root.innerHTML = `<main class="outside"><div class="brand-mark">!</div><h1>Рецепт недоступен</h1><p>${esc(error.message)}</p><a class="primary accent" href="${esc(globalThis.window?.RecipePlatform?.botUrl('dinner') || 'https://t.me/Recipeboibot?start=dinner')}" style="text-decoration:none">Открыть сервис ↗</a></main>`;
   } finally {
     // Telegram's in-app browser exposes its WebView bridge even for public links.
     // Mark this route as rendered so the Mini App startup watchdog does not

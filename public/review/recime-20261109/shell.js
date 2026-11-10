@@ -1,4 +1,4 @@
-/* Test-only workspace. Recipe auth, access and existing recipe flows stay in core.js. */
+/* Shared workspace. Recipe auth, access and existing recipe flows stay in core.js. */
 (() => {
   'use strict';
   const base='/review/recime-20261109/';
@@ -590,5 +590,5 @@
   root.addEventListener('submit',event=>{if(event.target.id==='r-catalog-form'){event.preventDefault();ui.catalogQuery=root.querySelector('#r-catalog-search').value.trim();ui.catalogFilter=null;ui.catalog=null;void loadCatalog(true);}});
   window.RecipeReview={version:'workspace-4',resetView:()=>{ui.tab='books';ui.book=null;ui.query='';setRoute({view:'collection'});return render();}};
   // A direct browser opening provides the same honest entry error as the regular Mini App.
-  if(!tg?.initData){const landing=document.querySelector('#landing');if(landing)landing.hidden=true;root.hidden=false;root.innerHTML='<main class="outside"><div class="brand-mark">Р</div><h1>Открой в тестовом боте</h1><p>Новый интерфейс доступен через кнопку «Меню» в Telegram.</p><a class="primary accent" href="https://t.me/recipeboi_test_bot">Открыть тестового бота</a></main>';window.__miniRendered=true;}
+  if(!tg?.initData){const landing=document.querySelector('#landing');if(landing)landing.hidden=true;root.hidden=false;root.innerHTML=`<main class="outside"><div class="brand-mark">Р</div><h1>Открой приложение в боте</h1><p>Нажми кнопку «Меню» в ${esc(window.RecipePlatform?.label||'Telegram')}.</p><a class="primary accent" href="${esc(window.RecipePlatform.botUrl())}">Открыть бота</a></main>`;window.__miniRendered=true;}
 })();

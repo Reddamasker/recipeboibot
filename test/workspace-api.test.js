@@ -283,7 +283,7 @@ if (platform === 'telegram') test('test polling setup preserves the workspace en
     const menu = calls.find(call => call.method === 'setChatMenuButton').body.menu_button;
     const url = new URL(menu.web_app.url);
     assert.equal(url.origin, 'https://test-recipes.example.test');
-    assert.equal(url.pathname, '/review/recime-20261109/index.html');
+    assert.equal(url.pathname, '/app');
     assert.equal(url.searchParams.get('view'), 'collection');
   } finally { globalThis.fetch = previous; }
 });

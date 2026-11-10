@@ -1895,6 +1895,7 @@ if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined
 }
 
 async function boot() {
+  if (window.__miniRedirect) return;
   const sharedMatch = location.pathname.match(/^\/share\/([A-Za-z0-9_-]{32})\/?$/);
   if (!sharedMatch && !tg?.initData) {
     window.miniProbe?.('missing-init-data');

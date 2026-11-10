@@ -999,7 +999,7 @@ test('polling completes a dinner callback without routing it as an absent messag
     assert.equal(database.getPendingIntent(user.id), null);
     const menu = calls.find((call) => call.method === 'setChatMenuButton');
     assert.equal(menu.body.menu_button.text, 'Меню');
-    assert.equal(new URL(menu.body.menu_button.web_app.url).searchParams.get('view'), 'menu');
+    assert.equal(new URL(menu.body.menu_button.web_app.url).searchParams.get('view'), 'collection');
   } finally { telegramModule.stopTelegramPolling(); globalThis.fetch = originalFetch; }
 });
 

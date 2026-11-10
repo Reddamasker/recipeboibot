@@ -16,6 +16,15 @@
   const isMiniLaunch = () => isMax ? Boolean(window.WebApp?.initData || /(?:^#|[&?])WebAppData=/.test(location.hash)) : Boolean(window.Telegram?.WebApp?.initData || window.TelegramWebviewProxy?.postEvent || /(?:^#|[&?])tgWebAppData=/.test(location.hash));
   const showAppShell = () => {
     if (!isMiniLaunch()) return false;
+    if (['/', '/index.html'].includes(location.pathname)) {
+      if (!window.__miniRedirect) {
+        window.__miniRedirect = true;
+        const destination = new URL(location.href);
+        destination.pathname = '/app';
+        location.replace(destination.href);
+      }
+      return false;
+    }
     window.__miniLaunch = true;
     const landing = document.querySelector('#landing');
     if (landing) landing.hidden = true;

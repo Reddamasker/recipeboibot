@@ -44,3 +44,15 @@ export function acceptsGzip(header = '') {
     return encoding.toLowerCase() === 'gzip' && !parameters.some((parameter) => /^\s*q\s*=\s*0(?:\.0*)?\s*$/i.test(parameter));
   });
 }
+
+// One shared application, with identity supplied by the serving contour.
+export function buildMiniAppDocument(publicDir, { botPlatform = 'telegram', botUsername } = {}) {
+  const name = botPlatform === 'max' ? 'max' : 'telegram';
+  const settings = JSON.stringify({ name, botUsername: botUsername || (name === 'telegram' ? 'Recipeboibot' : '') }).replaceAll('<', '\\u003c');
+  const source = `window.__recipePlatform=${settings};`;
+  const scriptHashes = `'sha256-${createHash('sha256').update(source).digest('base64')}'`;
+  const sdk = name === 'max' ? '<script defer src="https://st.max.ru/js/max-web-app.js"></script>' : '';
+  const html = fs.readFileSync(path.join(publicDir, 'review/recime-20261109/index.html'), 'utf8')
+    .replace('</title>', `</title><script>${source}</script>${sdk}`);
+  return { bytes: Buffer.from(html), scriptHashes };
+}

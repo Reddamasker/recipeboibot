@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
-import { buildWebDocument, acceptsGzip } from './web-document.js';
+import { buildWebDocument, buildMiniAppDocument, acceptsGzip } from './web-document.js';
 import { config } from './config.js';
 import { webLoginRoute, webLoginStore, webLoginPreviewDocument } from './web-login-prototype.js';
 import { platformLegalDocument } from './platform-legal.js';
@@ -507,12 +507,19 @@ async function api(request, response, url) {
 }
 
 function serveStatic(request, response, pathname) {
-  // Previously sent chat buttons still point at /?recipe=... or /index.html.
-  // Serve the same test shell at those addresses without redirecting away from
-  // Telegram's launch query/hash. Public share/catalog pages keep their routes.
-  const entryPath = new URL(request.url, 'http://localhost').pathname;
-  const testEntry = config.testContour && config.botPlatform === 'telegram' && ['/', '/index.html'].includes(entryPath);
-  const requested = testEntry ? '/review/recime-20261109/index.html' : pathname === '/' ? '/index.html' : pathname;
+  // Old chat links retain query/hash navigation. Anonymous Telegram root stays
+  // the public landing; hash-only Mini App launches switch to /app in mini-boot.
+  const entryUrl = new URL(request.url, 'http://localhost');
+  const appEntry = ['/app', '/app/', '/review/recime-20261109/index.html'].includes(entryUrl.pathname)
+    || ['/', '/index.html'].includes(entryUrl.pathname) && (config.testContour || config.botPlatform === 'max' || entryUrl.searchParams.has('view') || entryUrl.searchParams.has('recipe'));
+  if (appEntry) {
+    const document = buildMiniAppDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot' });
+    securityHeaders(response, document.scriptHashes);
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    response.end(request.method === 'HEAD' ? undefined : document.bytes);
+    return true;
+  }
+  const requested = pathname === '/' ? '/index.html' : pathname;
   if (requested === '/index.html') {
     webDocument ??= buildWebDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : undefined });
     const compressed = acceptsGzip(request.headers['accept-encoding']);
