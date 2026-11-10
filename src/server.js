@@ -41,6 +41,7 @@ import { openDashboardSession, closeDashboardSession, dashboardSessionValid } fr
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, landingRedirect, landingReport } from './landing-funnel.js';
 import { recordLandingHeatmap, landingHeatmapReport, landingHeatmapPreview } from './landing-heatmap.js';
+import { landingMetrikaCounter, metrikaSources, metrikaConnections, metrikaFrames } from './landing-metrika.js';
 import { telegramOpenDocument } from './telegram-open.js';
 import { catalogSearch, catalogRecipe, catalogDaily } from './web-catalog.js';
 import { isPublicCatalogRecipe, saveCatalogRecipeForUser } from './catalog-handoff.js';
@@ -71,13 +72,14 @@ const recipeWorkspace = createRecipeWorkspace(db, {
   }
 });
 
-function securityHeaders(response, scriptHashes = '') {
+function securityHeaders(response, scriptHashes = '', metrika = false) {
   response.setHeader('x-content-type-options', 'nosniff');
   response.setHeader('referrer-policy', 'no-referrer');
   response.setHeader('permissions-policy', 'camera=(), microphone=(self), geolocation=()');
   const sdkOrigin = config.botPlatform === 'max' ? 'https://st.max.ru' : 'https://telegram.org';
   const frameOrigins = config.botPlatform === 'max' ? 'https://max.ru https://web.max.ru https://*.max.ru' : 'https://web.telegram.org https://*.telegram.org';
   response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors ${frameOrigins}`);
+  if (metrika) response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes} ${metrikaSources} https://yastatic.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ${metrikaConnections}; child-src 'self' blob: ${metrikaSources}; frame-src 'self' blob: ${metrikaSources}; frame-ancestors 'self' ${frameOrigins} ${metrikaFrames}`);
 }
 function json(response, status, value) {
   if(response.recipeGateUserId)value=protectFirstRecipeResponse(response.recipeGateUserId,value);
@@ -522,11 +524,11 @@ function serveStatic(request, response, pathname) {
   }
   const requested = pathname === '/' ? '/index.html' : pathname;
   if (requested === '/index.html') {
-    webDocument ??= buildWebDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : undefined });
+    webDocument ??= buildWebDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : undefined, metrikaCounterId: landingMetrikaCounter(config) });
     const compressed = acceptsGzip(request.headers['accept-encoding']);
     const bytes = compressed ? webDocument.gzip : webDocument.bytes;
     recordLandingHtmlLoad({ method: request.method, userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` });
-    securityHeaders(response, webDocument.scriptHashes);
+    securityHeaders(response, webDocument.scriptHashes, Boolean(landingMetrikaCounter(config)));
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'vary': 'Accept-Encoding', 'content-length': bytes.length, ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
     response.end(request.method === 'HEAD' ? undefined : bytes);
     return true;

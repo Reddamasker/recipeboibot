@@ -5,7 +5,7 @@ import { gzipSync } from 'node:zlib';
 
 // Keep the same document and routes. Ship its existing startup resources in
 // one response so a stalled secondary connection cannot prevent app.js running.
-export function buildWebDocument(publicDir, { telegramSdk, botUsername, botPlatform = 'telegram' } = {}) {
+export function buildWebDocument(publicDir, { telegramSdk, botUsername, botPlatform = 'telegram', metrikaCounterId = 0 } = {}) {
   const isMax = botPlatform === 'max';
   const hashes = [];
   const deferred = [];
@@ -20,6 +20,7 @@ export function buildWebDocument(publicDir, { telegramSdk, botUsername, botPlatf
     return `<script>${text}</script>`;
   };
   let html = read('index.html');
+  if (Number.isSafeInteger(metrikaCounterId) && metrikaCounterId > 0) html = html.replace('</head>', `<meta name="yandex-metrika-counter" content="${metrikaCounterId}"></head>`);
   html = html.replace(/<script src="\/platform-bridge\.js[^"<>]*"><\/script>\s*/, '');
   html = html.replace(/<link rel="stylesheet" href="(\/[^"<>]+)">/g, (_, url) => `<style>${read(url).replace(/<\/style/gi, '<\\/style')}</style>`);
   html = html.replace(/<script( defer)? src="(\/[^"<>]+)"><\/script>/g, (_, defer, url) => {
