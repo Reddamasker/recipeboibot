@@ -71,7 +71,7 @@ test('catalog invitation resolves the correct bot in all contours without accept
         }
         if (result.method === 'POST') {assert.equal(result.status,405);assert.equal(result.location,null);continue;}
         const useMax=result.route==='/max'||result.route===''&&platform==='max';
-        const expected=useMax?`https://max.ru/${expectedMax}?start=dinner`:`https://t.me/${testContour==='true'?'recipeboi_test_bot':'Recipeboibot'}?start=dinner`;
+        const expected=useMax?`https://max.ru/${expectedMax}?start=collection`:`https://t.me/${testContour==='true'?'recipeboi_test_bot':'Recipeboibot'}?start=collection`;
         assert.equal(result.status, 302);
         assert.equal(result.location, expected);
         assert.equal(result.cache, 'no-store');

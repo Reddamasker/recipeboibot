@@ -219,3 +219,5 @@ body:has(.review-shell){background:var(--review-bg)}
 .r-workspace-dialog .r-auto-plan{display:grid;gap:16px;margin-top:16px}
 .r-workspace-dialog .r-auto-entry{border:1px solid var(--review-line);border-radius:13px;padding:0 12px 13px;background:var(--review-highlight)}
 @media(max-width:350px){.r-workspace-dialog{padding:17px;width:calc(100% - 20px)}.r-workspace-dialog .r-field-pair{gap:8px}.r-workspace-dialog .r-dialog-footer{bottom:-17px}.review-shell .r-shopping-item{gap:8px}.review-shell .r-shopping-tools button{font-size:11px}}
+
+.r-collection-onboarding{padding:24px 20px;margin:8px 0 24px;border:1px solid #dfd6e9;border-radius:20px;background:#f3edf8;color:#362743}.r-collection-onboarding h1{font-size:24px;line-height:1.2;margin:0 0 12px}.r-collection-onboarding p{font-size:16px;line-height:1.5;margin:0 0 20px}.r-onboarding-button{display:block;padding:14px 16px;border-radius:14px;background:#8662a7;color:#fff;text-align:center;font-size:16px;font-weight:600;line-height:1.3;text-decoration:none}.r-onboarding-button:focus-visible{outline:3px solid #362743;outline-offset:3px}

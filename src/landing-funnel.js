@@ -46,7 +46,7 @@ export function recordLandingView(input, options = {}) {
   const tags = tagsFrom(input.query);
   const campaign = campaignFrom(tags);
   db.prepare('INSERT OR IGNORE INTO landing_visits(id,campaign,tags_json,opened_at,intent) VALUES(?,?,?,?,?)')
-    .run(input.visitId, campaign, JSON.stringify(tags), new Date().toISOString(), campaign === 'ya-dinner-landing-202610' ? 'dinner' : 'save');
+    .run(input.visitId, campaign, JSON.stringify(tags), new Date().toISOString(), 'collection');
   return { href: `/landing/go/${input.visitId}` };
 }
 export function landingRedirect(id, options = {}) {
@@ -63,7 +63,7 @@ export function landingRedirect(id, options = {}) {
     }
     return '/open/recipe-bot/max';
   }
-  if (isAdvertisingProbe(options)) return `https://t.me/${username}?start=${visit.intent}`;
+  if (isAdvertisingProbe(options)) return `https://t.me/${username}?start=collection`;
   if (visit.click_token) return `https://t.me/${username}?start=lp_${visit.click_token}`;
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -78,7 +78,8 @@ export function landingRedirect(id, options = {}) {
 }
 export function landingStartIntent(text) {
   const token = String(text).match(/^\/start(?:@[A-Za-z0-9_]+)?\s+lp_([A-Za-z0-9_-]{24})\s*$/i)?.[1];
-  return token && db.prepare('SELECT intent FROM landing_visits WHERE click_token=?').get(token)?.intent || null;
+  // Existing landing links join the same entry without rewriting historical attribution.
+  return token && db.prepare('SELECT id FROM landing_visits WHERE click_token=?').get(token) ? 'collection' : null;
 }
 export function landingReport(slug = 'all') {
   const scope = slug === 'all' ? '' : slug === 'site-landing' ? 'WHERE v.campaign IS NULL' : 'WHERE v.campaign=?';

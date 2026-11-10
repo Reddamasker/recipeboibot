@@ -29,6 +29,7 @@ import { youtubePlaylist } from './youtube.js';
 import { submitFeedback } from './feedback.js';
 import { recordBotStart } from './funnel.js';
 import { landingStartIntent } from './landing-funnel.js';
+import { collectionWelcome, collectionSaved, collectionButtonText } from './collection-onboarding.js';
 import { maxChatCall } from './max-client.js';
 import { safeFetchBuffer } from './security.js';
 import { inspectMaxAudio } from './max-media.js';
@@ -978,6 +979,13 @@ async function finishImport(chatId, outcome, options = {}) {
   if (outcome.state === 'processing') { await send(chatId, 'Этот источник уже обрабатывается. Новую задачу не создаю.'); return; }
   const recipe = outcome.recipe;
   const userId = options.userId || recipe?.user_id;
+  if (outcome.state === 'created' && !options.groupMode && getPendingIntent(userId)?.collectionOnboarding) {
+    const url = webAppUrl({ view: 'collection' });
+    const markup = { inline_keyboard: url ? [[{ text: collectionButtonText, web_app: { url } }]] : [] };
+    await send(chatId, `<b>${escapeHtml(recipe.title)}</b>\n\n${collectionSaved}`, { reply_markup: markup });
+    if (awaitingFirstRecipe(userId)) await sendFirstRecipeBenefits(chatId, userId);
+    return;
+  }
   if (awaitingFirstRecipe(userId)) { await sendFirstRecipeBenefits(chatId, userId); return; }
   if (outcome.state === 'existing') { await send(chatId, `Этот рецепт уже есть: <b>${escapeHtml(recipe.title)}</b>.`, { reply_markup: recipeButton(recipe, options) }); return; }
   await send(chatId, `Сохранено: <b>${escapeHtml(recipe.title)}</b>. Рецепт уже появился ${options.groupMode ? 'в коллекции владельца группы' : 'в вашей коллекции'}.`, { reply_markup: recipeButton(recipe, options) });
@@ -992,7 +1000,7 @@ async function saveContent(message, user, content, options = {}) {
     await sendTestOffer(chatId, user.id, true);
     return;
   }
-  if (!canUsePaidImport(user.id)) { await sendTestOffer(chatId, user.id, true); return; }
+  if (!canUsePaidImport(user.id)) { productError(402); await sendTestOffer(chatId, user.id, true); return; }
   if (message.photo?.length) {
     const draft = addPhotoDraft(user.id, message);
     await sendPhotoDraft(chatId, draft);
@@ -1091,7 +1099,7 @@ export async function handlePhotoDraftCallback(callback) {
     success = outcome.state !== 'processing';
     if (success && !groupMode) {
       const pending = getPendingIntent(user.id);
-      if (pending?.kind === 'recipe-save') restoreAfterRecipeSave(user.id, pending);
+      if (pending?.kind === 'recipe-save' && !pending.collectionOnboarding) restoreAfterRecipeSave(user.id, pending);
     }
   } catch (error) {
     productError(error.status || 500);
@@ -1227,6 +1235,17 @@ export async function handleMessage(message) {
   const catalogPayload = text.match(/^\/start(?:@[A-Za-z0-9_]+)?\s+(ch_[\s\S]*)$/i)?.[1].trim();
   if (catalogPayload) { identifyProductStep('catalog'); await handleCatalogHandoff(message, user, catalogPayload); return; }
   recordBotStart(user, text);
+  if (/^\/start(?:@[A-Za-z0-9_]+)?\s+collection(?:_save)?\s*$/i.test(text) || landingStartIntent(text) === 'collection') {
+    if (!user.is_allowed) allowUser(user.id);
+    const previous = getPendingIntent(user.id);
+    setPendingIntent(user.id, { kind: 'recipe-save', collectionOnboarding: true, resumeIntent: previous?.kind === 'recipe-save' ? previous.resumeIntent : previous });
+    const url = webAppUrl({ view: 'collection' });
+    const importEntry = /\scollection_save\s*$/i.test(text);
+    if (importEntry) identifyProductStep('import');
+    await send(chatId, importEntry ? '<b>Добавить рецепт</b>\n\nПришли ссылку, фото или текст рецепта. Можно переслать сообщение или продиктовать рецепт голосом.\n\nЯ обработаю его и добавлю в твою коллекцию.\n\nДля отмены — /cancel.' : collectionWelcome, url ? { reply_markup: { inline_keyboard: [[{ text: collectionButtonText, web_app: { url } }]] } } : {});
+    recordProduct(user.id, 'chat_prompt_delivered', { step: importEntry ? 'import' : 'home' });
+    return;
+  }
   const feedbackEntry = getPendingIntent(user.id);
   const feedbackStart = text === '/feedback' || text === 'Обратная связь' || /^\/start(?:@[A-Za-z0-9_]+)?\s+feedback\s*$/i.test(text);
   const restoreFeedbackIntent = () => { clearPendingIntent(user.id); if (feedbackEntry?.resumeIntent) setPendingIntent(user.id, feedbackEntry.resumeIntent); };
@@ -1267,6 +1286,7 @@ export async function handleMessage(message) {
     return;
   }
   if (awaitingFirstRecipe(user.id) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text) && !(text === '/collection' && hasCatalogFirstRecipe(user.id))) {
+    if (getPendingIntent(user.id)?.collectionOnboarding && !text.startsWith('/')) { identifyProductStep('import'); productError(402); }
     if (text.startsWith('/start') && !user.is_allowed) allowUser(user.id);
     await sendFirstRecipeBenefits(chatId, user.id);
     return;
@@ -1405,8 +1425,8 @@ export async function handleMessage(message) {
   const intent = savingRecipe ? 'save' : detectIntent(content.text, { hasPhoto: Boolean(message.photo?.length), hasUrl: Boolean(content.url) });
   if (intent === 'search') { await sendSearchResults(chatId, user, content.text, { sourceType: content.sourceType }); return; }
   if (intent === 'save') {
-    try { if (await saveContent(message, user, content) && savingRecipe) restoreAfterRecipeSave(user.id, pending); }
-    catch (error) { log('error', 'telegram_import_failed', { error, userId: user.id }); await send(chatId, `Не получилось сохранить: ${escapeHtml(error.message)}\n\nМожно прислать текст или скриншот рецепта.`); }
+    try { if (await saveContent(message, user, content) && savingRecipe && !pending.collectionOnboarding) restoreAfterRecipeSave(user.id, pending); }
+    catch (error) { productError(error.status || 500); log('error', 'telegram_import_failed', { error, userId: user.id }); await send(chatId, `Не получилось сохранить: ${escapeHtml(error.message)}\n\nМожно прислать текст или скриншот рецепта.`); }
     return;
   }
   setPendingIntent(user.id, content);

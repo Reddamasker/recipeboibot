@@ -706,7 +706,7 @@ async function handleRequest(request, response) {
         if (!['GET', 'HEAD'].includes(request.method)) return json(response, 405, { error: 'Метод не поддерживается' });
         const maxUsername = /^[A-Za-z0-9_]{5,64}$/.test(config.maxBotUsername) ? config.maxBotUsername : 'id500912857935_bot';
         const username = destinationPlatform === 'max' ? maxUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
-        const destination = `${destinationPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${encodeURIComponent(username)}?start=dinner`;
+        const destination = `${destinationPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${encodeURIComponent(username)}?start=collection`;
         securityHeaders(response);
         response.setHeader('x-robots-tag', 'noindex, nofollow');
         response.writeHead(302, { location: destination, 'cache-control': 'no-store' });

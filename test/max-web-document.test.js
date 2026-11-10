@@ -24,13 +24,13 @@ test('MAX document loads its SDK before app, with platform bootstrap before boot
   const choiceLabels = choices.replace(/<[^>]+>/g, '');
   assert.match(choiceLabels, /Попробовать бесплатно в Telegram/);
   assert.match(choiceLabels, /Попробовать бесплатно в MAX/);
-  assert.match(choices, /href="https:\/\/t\.me\/Recipeboibot\?start=save"/);
+  assert.match(choices, /href="https:\/\/t\.me\/Recipeboibot\?start=collection"/);
   assert.match(choices, /href="\/open\/recipe-bot\/max"/);
   assert.doesNotMatch(html.replace(/<div class="lp-platforms"[\s\S]*?<\/div>/g, ''), /TelegramWebviewProxy=function|href="https:\/\/t\.me\/Recipeboibot\?start=/);
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
   assert.ok(inline[0][1].indexOf('window.__recipePlatform=') < inline[0][1].indexOf("report('boot-script')"));
   assert.ok(html.indexOf('https://st.max.ru/js/max-web-app.js') < html.indexOf("window.miniProbe?.('app-script')"));
-  assert.match(html, /href="https:\/\/max.ru\/recipe_max_bot\?start=save"/);
+  assert.match(html, /href="https:\/\/max.ru\/recipe_max_bot\?start=collection"/);
   assert.match(html, /список покупок в MAX/);
   for (const [, source] of inline) {
     new vm.Script(source);

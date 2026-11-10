@@ -59,11 +59,11 @@ test('HTML loads, visible landing events and advertising redirects remain separa
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
-test('landing start preserves the save-recipe action and campaign attribution without AI or real Telegram messages', async () => {
+test('landing start opens the shared collection onboarding and campaign attribution without AI or real Telegram messages', async () => {
   const id = visitId();
   recordLandingView({ visitId: id, query: 'campaign=ya-dinner-202610&utm_content=ad-123' });
   const payload = startFrom(landingRedirect(id));
-  assert.equal(landingStartIntent(`/start ${payload}`), 'save');
+  assert.equal(landingStartIntent(`/start ${payload}`), 'collection');
   const sender = { id: 890000001, first_name: 'Лендинг' };
   const original = globalThis.fetch, messages = [];
   globalThis.fetch = async (url, options) => {
@@ -78,7 +78,7 @@ test('landing start preserves the save-recipe action and campaign attribution wi
   assert.equal(db.prepare('SELECT campaign FROM acquisition_starts WHERE user_id=?').get(user.id).campaign, 'ya-dinner-202610');
   assert.equal(landingReport('ya-dinner-202610').starts, 1);
   assert.equal(funnelReport('ya-dinner-202610').totals.starts, 1);
-  assert.ok(messages.some(message => message.text?.includes('Сохранить рецепт')));
+  assert.ok(messages.some(message => message.text?.includes('Сохрани свой первый рецепт')));
   assert.equal(landingStartIntent('/start lp_not_a_real_token'), null);
 });
 
@@ -101,7 +101,7 @@ test('untagged visits stay separate; returning users and owner do not inflate ne
 });
 
 async function browserFixture({ hidden = false, mini = false, background = false, fails = false, dinner = false, platform = 'telegram' } = {}) {
-  const link = { href: 'https://t.me/Recipeboibot?start=save', textContent: 'Попробовать в Telegram', dataset: { landingPlatform: 'telegram' } }, calls = [], events = {};
+  const link = { href: 'https://t.me/Recipeboibot?start=collection', textContent: 'Попробовать в Telegram', dataset: { landingPlatform: 'telegram' } }, calls = [], events = {};
   const maxLink = { href: 'https://site.example/open/recipe-bot/max', textContent: 'Попробовать в MAX', dataset: { landingPlatform: 'max' } };
   const title = {};
   const root = { hidden, getClientRects: () => [{}], querySelector: selector => selector === '#lp-title' ? title : null, querySelectorAll: () => [link, maxLink] };
@@ -126,17 +126,17 @@ test('client records only a visible landing, skips Mini App, and sends one event
 });
 test('analytics failure leaves the original Telegram link available', async () => {
   const page = await browserFixture({ fails: true });
-  assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=save');
+  assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=collection');
   assert.equal(page.maxLink.href, 'https://site.example/open/recipe-bot/max');
 });
 
-test('paid landing opens the dinner onboarding with its own attribution and stable price experiment', async () => {
+test('paid landing opens the same collection onboarding with its own attribution and stable price experiment', async () => {
   const slug = 'ya-dinner-landing-202610'; createCampaign(slug);
   const id = visitId(); recordLandingView({ visitId: id, query: 'utm_campaign=ya_dinner_landing_search_202610&yclid=landing-ad' });
   assert.equal(db.prepare('SELECT campaign FROM landing_visits WHERE id=?').get(id).campaign, slug);
-  assert.equal(startFrom(landingRedirect(id, { method: 'HEAD' })), 'dinner');
+  assert.equal(startFrom(landingRedirect(id, { method: 'HEAD' })), 'collection');
   const payload = startFrom(landingRedirect(id));
-  assert.equal(landingStartIntent(`/start ${payload}`), 'dinner');
+  assert.equal(landingStartIntent(`/start ${payload}`), 'collection');
   const sender = { id: 890000003, first_name: 'Ужин' };
   const original = globalThis.fetch, messages = [];
   globalThis.fetch = async (url, options) => {
@@ -147,7 +147,7 @@ test('paid landing opens the dinner onboarding with its own attribution and stab
   try { await handleMessage({ from: sender, chat: { id: sender.id, type: 'private' }, text: `/start ${payload}` }); }
   finally { globalThis.fetch = original; }
   const user = upsertTelegramUser(sender);
-  assert.notEqual(getPendingIntent(user.id)?.kind, 'recipe-save');
+  assert.equal(getPendingIntent(user.id)?.collectionOnboarding, true);
   assert.equal(db.prepare('SELECT campaign FROM acquisition_starts WHERE user_id=?').get(user.id).campaign, slug);
   assert.equal(landingReport(slug).starts, 1);
   const { campaignPriceAssignment } = await import('../src/campaign-prices.js');
@@ -155,12 +155,12 @@ test('paid landing opens the dinner onboarding with its own attribution and stab
   assert.ok(funnelReport(slug).priceExperiment);
   assert.ok(!messages.some(message => message.text?.startsWith('<b>Сохранить рецепт</b>')));
   const page = await browserFixture({ dinner: true });
-  assert.equal(page.title.textContent, 'Что приготовить на ужин?');
+  assert.equal(page.title.textContent, undefined);
   assert.equal(page.link.textContent, 'Попробовать в Telegram');
   assert.equal(page.maxLink.textContent, 'Попробовать в MAX');
   assert.match(page.link.href, /^\/landing\/go\//);
   const offline = await browserFixture({ dinner: true, fails: true });
-  assert.equal(startFrom(offline.link.href), 'dinner');
+  assert.equal(startFrom(offline.link.href), 'collection');
 });
 
 test('MAX landing clicks are idempotent, filtered and separate from Telegram starts and redirects', async () => {
@@ -183,7 +183,7 @@ test('MAX landing clicks are idempotent, filtered and separate from Telegram sta
     assert.equal(landingReport('ya-dinner-202610').maxClicks, 0);
     assert.equal(db.prepare('SELECT click_token FROM landing_visits WHERE id=?').get(id).click_token, null);
     const destination = await fetch(`${base}/open/recipe-bot/max`, { redirect: 'manual' });
-    assert.match(destination.headers.get('location'), /^https:\/\/max.ru\/[A-Za-z0-9_]+\?start=dinner$/);
+    assert.match(destination.headers.get('location'), /^https:\/\/max.ru\/[A-Za-z0-9_]+\?start=collection$/);
     landingRedirect(id);
     assert.equal(landingReport('landing-platforms').telegramClicks, 1);
     assert.equal(landingReport('landing-platforms').maxClicks, 1);
@@ -198,6 +198,6 @@ test('MAX telemetry write failure keeps navigation available and cross-platform 
   finally { db.exec('DROP TRIGGER fail_max_click'); }
   assert.equal(db.prepare('SELECT max_clicked_at FROM landing_visits WHERE id=?').get(id).max_clicked_at, null);
   const page = await browserFixture({ platform: 'max' });
-  assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=save');
+  assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=collection');
   assert.match(page.maxLink.href, /^\/landing\/go\/[a-f0-9]{32}\?platform=max$/);
 });
