@@ -55,7 +55,7 @@ test('Telegram welcomes a new trial only after its complete chosen recipe and of
     assert.equal(welcome.method, 'sendMessage');
     assert.equal(welcome.chat_id, value.from.id);
     assert.match(welcome.text, /Вкусы и предпочтения/);
-    assert.match(welcome.text, /Напоминания/);
+    assert.doesNotMatch(welcome.text, /Напоминания/);
     assert.match(welcome.text, /Коллекция/);
     assert.match(welcome.text, /открыть позже/);
     assert.ok(!/\p{Extended_Pictographic}/u.test(welcome.text));

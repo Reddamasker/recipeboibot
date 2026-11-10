@@ -4700,6 +4700,12 @@ async function notificationSettingsPage() {
   state.notificationSchedule = await api('/api/notifications/schedule', { signal: AbortSignal.timeout(12000) });
   if (guideWasActive && !state.trialGuideActive) return;
   const schedule = state.notificationSchedule;
+  if (schedule.available === false) {
+    root.innerHTML = `${header()}<main class="notification-page"><h1>Подборки по расписанию отключены</h1><p class="notification-intro">Рецепты и ваша коллекция доступны в приложении.</p><button class="primary accent" id="notifications-collection">Открыть мою коллекцию</button></main>`;
+    bindCommon();
+    document.querySelector('#notifications-collection').onclick = () => { location.href = '/app?view=collection'; };
+    return;
+  }
   const hasAccess = schedule.access?.active === true;
   const timezone = schedule.timezone || deviceTimezone;
   const saveTimezone = schedule.dailyDigest ? timezone : deviceTimezone;

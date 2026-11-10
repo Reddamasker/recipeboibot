@@ -6,6 +6,7 @@ import {
   markChoiceFailed, markChoiceSent, markReminderFailed, markReminderSent
 } from './notification-store.js';
 import { log } from './log.js';
+import { config } from './config.js';
 import { getSubscriptionAccess, requireNotificationSubscription } from './subscriptions.js';
 import { digestMember, cancelDigestParts } from './trial-digest-store.js';
 
@@ -54,6 +55,7 @@ export function selectNotificationDinner(userId, id, recommendationId) {
 
 let cycleRunning = false;
 export async function runNotificationCycle({ sendReminder, sendChoice }, at) {
+  if (!config.legacyDinnerNotificationsEnabled) return;
   if (cycleRunning) return;
   cycleRunning = true;
   const currentTime = () => at || new Date();
@@ -96,6 +98,7 @@ export async function runNotificationCycle({ sendReminder, sendChoice }, at) {
 
 let notificationTimer = null;
 export function startNotificationScheduler(adapters) {
+  if (!config.legacyDinnerNotificationsEnabled) return;
   if (notificationTimer) return;
   const tick = () => runNotificationCycle(adapters).catch((error) => log('error', 'notification_cycle_failed', { error }));
   void tick();

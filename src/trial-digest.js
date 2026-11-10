@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { config } from './config.js';
 import { getFoodProfile, getDinnerHistory } from './dinner-store.js';
 import { SEED_RECIPES, rankCandidates, totalMinutes, isDinnerCandidate } from './dinner.js';
 import { getTrialStatus, getSubscriptionAccess } from './subscriptions.js';
@@ -11,6 +12,7 @@ const button = (text,url) => ({text,web_app:{url}});
 const controls = url => [button('Изменить время',url({view:'notifications'})),{text:'Отключить',callback_data:'digest:stop'}];
 
 export async function sendDigestWelcome(userId, chatId, trial, {send,url}, at=new Date()) {
+  if (!config.legacyDinnerNotificationsEnabled) return false;
   const member=digestMember(userId);
   if (!member) return false;
   const schedule=getNotificationSchedule(userId,at);
@@ -48,6 +50,7 @@ export function digestRecipes(userId, at=new Date()) {
 }
 
 export async function sendDigestBatch(delivery,{send,url},fixedTime) {
+  if (!config.legacyDinnerNotificationsEnabled) throw digestTerminal('scenario_retired');
   const now=()=>fixedTime||new Date(),at=now();
   const userId=delivery.userId,member=digestMember(userId);
   if (!member) return false;

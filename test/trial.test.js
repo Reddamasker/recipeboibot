@@ -1,3 +1,5 @@
+// Explicit compatibility mode: these tests exercise the archived scheduling implementation.
+process.env.LEGACY_DINNER_NOTIFICATIONS_ENABLED = 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

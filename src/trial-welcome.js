@@ -80,6 +80,7 @@ export function startTrialWelcomeScheduler(sendFn) {
 export function stopTrialWelcomeScheduler(){if(timer)clearInterval(timer);timer=null;sender=undefined;}
 
 export function recoverDigestWelcomes(at=new Date()) {
+ if(!config.legacyDinnerNotificationsEnabled)return;
  if(config.botPlatform!=='telegram')return;
  const since=db.prepare('SELECT started_at FROM trial_digest_rollout WHERE id=1').get()?.started_at;
  if(!since)return;

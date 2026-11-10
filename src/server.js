@@ -320,7 +320,7 @@ async function api(request, response, url) {
     const botUsername = config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
     return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
   }
-  if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, {...getNotificationSchedule(user.id),dailyDigest:Boolean(digestMember(user.id))});
+  if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, {...getNotificationSchedule(user.id),dailyDigest:config.legacyDinnerNotificationsEnabled && Boolean(digestMember(user.id))});
   if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));
   const notificationAction = url.pathname.match(/^\/api\/notifications\/([0-9a-f-]{36})\/(open|select)$/i);
   if (request.method === 'POST' && notificationAction) {

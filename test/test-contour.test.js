@@ -119,7 +119,7 @@ test('test contour retains current tastes, specific recipe requests and mock che
   const payment = await (await call('/api/test/payment')).json();
   assert.equal(payment.hasFirstRecipe, true);
   const schedule = { enabled: true, weekdays: [1], time: '18:00', timezone: 'Europe/Moscow' };
-  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 200);
+  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 410);
   db.prepare('UPDATE user_trials SET starts_at=?,expires_at=? WHERE user_id=?').run('2026-01-01', '2026-01-08', user.id);
   const created = await call('/api/test/orders', 'POST', { method: 'sbp' });
   assert.equal(created.status, 201);
@@ -127,7 +127,7 @@ test('test contour retains current tastes, specific recipe requests and mock che
   const completed = await call(`/api/test/orders/${order.id}/result`, 'POST', { result: 'success' });
   assert.equal(completed.status, 200);
   assert.equal((await completed.json()).payment.active, true);
-  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 200);
+  assert.equal((await call('/api/notifications/schedule', 'PUT', schedule)).status, 410);
   const access = getSubscriptionAccess(user.id);
   assert.equal(access.source, 'test_payment');
   assert.equal(getSubscriptionAccess(user.id, new Date(access.expiresAt)).active, false);

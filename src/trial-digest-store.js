@@ -25,6 +25,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS trial_digest_rollout (
  PRIMARY KEY(user_id,part_key));`);
 
 export function initializeTrialDigest(at = new Date()) {
+  if (!config.legacyDinnerNotificationsEnabled) return null;
   if (config.botPlatform !== 'telegram') return null;
   db.prepare('INSERT OR IGNORE INTO trial_digest_rollout VALUES(1,?)').run(at.toISOString());
   return digestStartedAt();
@@ -32,6 +33,7 @@ export function initializeTrialDigest(at = new Date()) {
 export const digestStartedAt = () => db.prepare('SELECT started_at FROM trial_digest_rollout WHERE id=1').get()?.started_at || null;
 export const digestMember = userId => config.botPlatform === 'telegram' && typeof userId==='string' ? db.prepare('SELECT * FROM trial_digest_members WHERE user_id=?').get(userId) : null;
 export function eligibleDigestUser(userId, at = new Date()) {
+  if (!config.legacyDinnerNotificationsEnabled) return false;
   const since = digestStartedAt();
   if (config.botPlatform !== 'telegram' || !since) return false;
   return Boolean(db.prepare(`SELECT 1 FROM users u JOIN user_trials t ON t.user_id=u.id
@@ -41,6 +43,7 @@ export function eligibleDigestUser(userId, at = new Date()) {
     .get(userId,since,since,at.toISOString()));
 }
 export function enrollTrialDigest(userId, timezone, at = new Date()) {
+  if (!config.legacyDinnerNotificationsEnabled) return false;
   if (digestMember(userId)) return true;
   if (!eligibleDigestUser(userId,at) || !getSubscriptionAccess(userId,at).active) return false;
   const trial = getTrialStatus(userId,at);
@@ -83,6 +86,7 @@ export function cancelDigestParts(deliveryId, userId=null) {
 
 // Checkpoint each confirmed message. An ambiguous network result is never replayed.
 export async function sendDigestPart({userId,key,kind,deliveryId=null,dueAt}, send, at = new Date()) {
+  if (!config.legacyDinnerNotificationsEnabled) throw digestTerminal('scenario_retired');
   const timestamp = at.toISOString();
   db.prepare(`INSERT OR IGNORE INTO trial_digest_parts(user_id,part_key,kind,delivery_id,created_at,due_at,status)
     VALUES(?,?,?,?,?,?,'pending')`).run(userId,key,kind,deliveryId,timestamp,dueAt||timestamp);

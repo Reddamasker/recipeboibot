@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import './dinner-store.js'; // Create referenced session/recommendation tables even in report-only entrypoints.
 import { db } from './db.js';
+import { config } from './config.js';
 import { getSubscriptionAccess, requireNotificationSubscription } from './subscriptions.js';
 
 db.exec(`
@@ -94,10 +95,12 @@ function parseSchedule(row) {
 export function getNotificationSchedule(userId, at = new Date()) {
   const schedule = parseSchedule(db.prepare('SELECT * FROM notification_schedules WHERE user_id=?').get(userId));
   const access = getSubscriptionAccess(userId, at);
+  if (!config.legacyDinnerNotificationsEnabled) return { ...schedule, enabled: false, nextDueAt: null, access, paused: false, available: false };
   return { ...schedule, nextDueAt: access.active ? schedule.nextDueAt : null, access, paused: schedule.enabled && !access.active };
 }
 
 export function saveNotificationSchedule(userId, input, at = new Date()) {
+  if (input?.enabled === true && !config.legacyDinnerNotificationsEnabled) throw Object.assign(new Error('Подборки по расписанию отключены'), { status: 410 });
   const schedule = validateNotificationSchedule(input);
   if (schedule.enabled) requireNotificationSubscription(userId, at);
   const nextDueAt = nextNotificationAt(schedule, at)?.toISOString() || null;
@@ -115,6 +118,7 @@ export function saveNotificationSchedule(userId, input, at = new Date()) {
 }
 
 export function enqueueDueNotifications(at = new Date()) {
+  if (!config.legacyDinnerNotificationsEnabled) return [];
   const due = db.prepare(`SELECT * FROM notification_schedules WHERE enabled=1 AND next_due_at IS NOT NULL AND next_due_at<=?
     ORDER BY next_due_at LIMIT 100`).all(nowIso(at));
   const created = [];

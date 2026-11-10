@@ -117,9 +117,9 @@ async function sendUnlockedFirstRecipe(chatId, userId) {
 
 export async function sendTrialWelcomeMessage(userId, chatId, trial) {
   if (!trial?.active) throw new Error('Пробный период уже не активен');
-  if (digestMember(userId)) return sendDigestWelcome(userId,chatId,trial,{send:telegram,url:webAppUrl});
+  if (config.legacyDinnerNotificationsEnabled && digestMember(userId)) return sendDigestWelcome(userId,chatId,trial,{send:telegram,url:webAppUrl});
   const url = webAppUrl({ view: 'trial-guide' });
-  const text = '<b>Спасибо, что запустил пробный период!</b>\n\nПознакомься с возможностями «Рецептов» — они помогут проще решать, что приготовить.\n\n<b>Вкусы и предпочтения</b>\nУкажи любимые блюда и то, что тебе не по вкусу — подбор станет точнее.\n\n<b>Напоминания</b>\nВыбери удобное время, чтобы не вспоминать об ужине в последний момент.\n\n<b>Коллекция</b>\nСохраняй понравившиеся блюда и возвращайся к ним, когда захочется повторить.\n\nЗнакомство можно пройти сейчас или открыть позже.';
+  const text = '<b>Спасибо, что запустил пробный период!</b>\n\nПознакомься с возможностями «Рецептов» — они помогут проще решать, что приготовить.\n\n<b>Вкусы и предпочтения</b>\nУкажи любимые блюда и то, что тебе не по вкусу — подбор станет точнее.\n\n<b>Коллекция</b>\nСохраняй понравившиеся блюда и возвращайся к ним, когда захочется повторить.\n\nЗнакомство можно пройти сейчас или открыть позже.';
   return send(chatId, text, url ? { reply_markup: { inline_keyboard: [[{ text: 'Познакомиться с возможностями', web_app: { url } }]] } } : {});
 }
 
@@ -534,6 +534,7 @@ export async function sendFeedbackNotification(row) {
 }
 
 export async function sendNotificationReminder(delivery) {
+  if (!config.legacyDinnerNotificationsEnabled) throw Object.assign(new Error('Подборки по расписанию отключены'), { status: 410 });
   if (digestMember(delivery.userId)) return sendDigestBatch(delivery,{send:telegram,url:webAppUrl});
   const url = webAppUrl({ view: 'dinner', notification: delivery.id });
   if (!url) throw new Error('APP_URL is not configured for notifications');

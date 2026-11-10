@@ -18,7 +18,7 @@ import { initializeTrialDigest } from './trial-digest-store.js';
 import { startCatalogHandoffScheduler, stopCatalogHandoffScheduler } from './catalog-handoff-transport.js';
 
 assertConfig();
-if (config.telegramPolling) initializeTrialDigest();
+if (config.telegramPolling && config.legacyDinnerNotificationsEnabled) initializeTrialDigest();
 let maxBotId;
 if (config.botPlatform === 'max') {
   const bot = await maxApiCall('/me');
@@ -43,7 +43,7 @@ server.listen(config.port, '0.0.0.0', () => {
     // MAX has not opted into this separate reminder rollout.
     if(config.botPlatform==='telegram')startTrialReminderScheduler(sendTrialRecipeReminder);
     startFeedbackScheduler(sendFeedbackNotification);
-    startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
+    if (config.legacyDinnerNotificationsEnabled) startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
     if (config.telegramPolling) startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));
   }
 });
