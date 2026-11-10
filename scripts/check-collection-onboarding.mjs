@@ -52,6 +52,7 @@ try{
   failImport=true;await send('Семейный омлет');assert.equal(listRecipes(user.id).length,0);assert.equal(getPendingIntent(user.id).collectionOnboarding,true);
   failImport=false;await send('Семейный омлет');assert.equal(listRecipes(user.id).length,1);assert.equal(getSubscriptionAccess(user.id).active,false);
   const accessCalls=calls;await send('Ещё один рецепт');assert.equal(calls,accessCalls);
+  await send('/cancel');assert.deepEqual(getPendingIntent(user.id),previous);
   await send('/start collection');assert.equal(messages.at(-1).text,collectionWelcome);
   startTrial(user.id);await send('Другой семейный рецепт');assert.equal(listRecipes(user.id).length,2);
   assert.ok(messages.some(m=>m.text?.includes(collectionSaved)));assert.equal(getPendingIntent(user.id).collectionOnboarding,true);

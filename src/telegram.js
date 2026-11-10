@@ -1285,7 +1285,7 @@ export async function handleMessage(message) {
     await sendCatalogContinuation(chatId, user.id, latestPublicCatalogRecipe(user.id));
     return;
   }
-  if (awaitingFirstRecipe(user.id) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text) && !(text === '/collection' && hasCatalogFirstRecipe(user.id))) {
+  if (awaitingFirstRecipe(user.id) && !(text === '/cancel' && getPendingIntent(user.id)?.collectionOnboarding) && !['/help', '/delete_data', '/delete_data CONFIRM'].includes(text) && !(text === '/collection' && hasCatalogFirstRecipe(user.id))) {
     if (getPendingIntent(user.id)?.collectionOnboarding && !text.startsWith('/')) { identifyProductStep('import'); productError(402); }
     if (text.startsWith('/start') && !user.is_allowed) allowUser(user.id);
     await sendFirstRecipeBenefits(chatId, user.id);

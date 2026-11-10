@@ -28,7 +28,7 @@ test('product campaign imports its own spend and keeps landing visits and platfo
   const input = { visitId, query: '?campaign=' + slug + '&utm_source=ya&campaign_id=715100099' };
   recordLandingView(input); recordLandingView(input);
   const row = db.prepare('SELECT campaign,intent FROM landing_visits WHERE id=?').get(visitId);
-  assert.equal(row.campaign, slug); assert.equal(row.intent, 'save');
+  assert.equal(row.campaign, slug); assert.equal(row.intent, 'collection');
   const tg = landingRedirect(visitId);
   assert.match(tg, /start=lp_[A-Za-z0-9_-]{24}$/);
   assert.equal(landingRedirect(visitId), tg);

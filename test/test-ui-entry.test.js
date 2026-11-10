@@ -16,7 +16,7 @@ test('all bot entry addresses use the shared shell with contour identity; anonym
         const server=createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
         const origin='http://127.0.0.1:'+server.address().port,documents=[];
         for(const route of ['/?recipe=personal-id','/index.html?view=collection&recipe=personal-id','/?view=menu','/review/recime-20261109/index.html?recipe=personal-id','/share/'+'a'.repeat(32),'/recipes','/','/app','/app/?view=groceries']) {
-          const response=await fetch(origin+route),html=await response.text();documents.push({route,status:response.status,cache:response.headers.get('cache-control'),review:html.includes('/shell.js?v=production-1'),platform:html.includes('"name":"max"'),testBot:html.includes('"botUsername":"recipeboi_test_bot"'),maxSdk:html.includes('https://st.max.ru/js/max-web-app.js')});
+          const response=await fetch(origin+route),html=await response.text();documents.push({route,status:response.status,cache:response.headers.get('cache-control'),review:html.includes('/shell.js?v=collection-onboarding-1'),platform:html.includes('"name":"max"'),testBot:html.includes('"botUsername":"recipeboi_test_bot"'),maxSdk:html.includes('https://st.max.ru/js/max-web-app.js')});
         }
         const head=await fetch(origin+'/index.html?recipe=personal-id',{method:'HEAD'});
         const links=[webAppUrl({recipe:'personal id'}),webAppUrl({view:'results',q:'курица с рисом',notification:'fixture-id'}),webAppUrl({view:'payment-result',order:'order-id'}),webAppUrl({view:'benefits'})];
