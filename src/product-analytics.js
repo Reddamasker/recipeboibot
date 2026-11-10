@@ -26,7 +26,7 @@ db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_ben
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_latency_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('photo_imports_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_since',?)").run(new Date().toISOString());
-if (config.testContour) db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_interactions_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_interactions_since',?)").run(new Date().toISOString());
 export const productTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='tracking_since'").get().value;
 export const workspaceTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_since'").get().value;
 export const workspaceInteractionsTrackingSince = () => db.prepare("SELECT value FROM product_analytics_metadata WHERE key='workspace_interactions_since'").get()?.value || null;
