@@ -51,6 +51,7 @@ export const config = Object.freeze({
   maxFunnelOrigin: process.env.MAX_FUNNEL_ORIGIN || '',
   dashboardPreview: process.env.DASHBOARD_PREVIEW === 'true' && process.env.NODE_ENV !== 'production',
   yandexDirectToken: process.env.YANDEX_DIRECT_TOKEN || '',
+  yandexMetrikaCounterId: integer('YANDEX_METRIKA_COUNTER_ID', 0),
   yandexDirectLogin: process.env.YANDEX_DIRECT_LOGIN || '',
   yandexDirectCampaignId: process.env.YANDEX_DIRECT_CAMPAIGN_ID || '715053149',
   yandexDirectLandingCampaignId: process.env.YANDEX_DIRECT_LANDING_CAMPAIGN_ID || '',
