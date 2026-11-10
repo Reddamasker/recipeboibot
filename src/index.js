@@ -41,9 +41,8 @@ server.listen(config.port, '0.0.0.0', () => {
     for (const item of listGeneratedRecipesWithoutImages()) await ensureRecipeImage(item.userId, getRecipe(item.userId, item.id));
   })().catch((error) => log('warn', 'recipe_image_backfill_failed', { error }));
   if (config.telegramPolling || config.botPlatform === 'max') {
-    startTrialWelcomeScheduler(sendTrialWelcomeMessage);
-    // MAX has not opted into this separate reminder rollout.
-    if(config.botPlatform==='telegram')startTrialReminderScheduler(sendTrialRecipeReminder);
+    if (config.legacyRecipeFlowsEnabled) startTrialWelcomeScheduler(sendTrialWelcomeMessage);
+    startTrialReminderScheduler(sendTrialRecipeReminder);
     startFeedbackScheduler(sendFeedbackNotification);
     if (config.legacyDinnerNotificationsEnabled) startNotificationScheduler({ sendReminder: sendNotificationReminder, sendChoice: sendNotificationRecipeLink });
     if (config.telegramPolling) startTelegramPolling().catch((error) => log('error', 'telegram_fatal', { error }));

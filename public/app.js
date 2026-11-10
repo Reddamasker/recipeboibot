@@ -154,6 +154,7 @@ async function activateTrial(event) {
       await openRecipe(unlocked.recipeId, true);
       return;
     }
+    if (!state.me?.legacyRecipeFlowsEnabled) { setTrialOnboardingStep(null); setRoute({ view: 'collection' }, { replace: true }); await render(); return; }
     setRoute({ view: 'dinner' });
     if (state.payment.accessSource === 'trial') {
       setTrialOnboardingStep('taste');
@@ -205,7 +206,7 @@ function offerBanner() {
   if (payment?.trial?.eligible || payment?.trial?.used) {
     if (payment.active && payment.accessSource !== 'trial') return '';
     const active = payment.active;
-    return `<section class="offer-banner"><h2>${active ? 'Пробный период активен' : payment.trial.used ? 'Пробный период закончился' : '7 дней бесплатно'}</h2><p>${active ? `Полный доступ до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}.` : payment.trial.used ? 'Сохранённые рецепты остаются в коллекции. Для продолжения оформите подписку.' : 'Подбирайте новые блюда, сохраняйте рецепты и настройте напоминания. Один клик — семь суток полного доступа. Карта не нужна, списаний нет.'}</p><button class="primary accent" type="button" ${!active && payment.trial.eligible ? 'data-start-trial' : 'data-open-offer'}>${active ? 'Условия пробного периода' : payment.trial.used ? 'Продолжить с подпиской' : 'Попробовать 7 дней бесплатно'}</button></section>`;
+    return `<section class="offer-banner"><h2>${active ? 'Пробный период активен' : payment.trial.used ? 'Пробный период закончился' : '7 дней бесплатно'}</h2><p>${active ? `Полный доступ до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}.` : payment.trial.used ? 'Сохранённые рецепты остаются в коллекции. Для продолжения оформите подписку.' : 'Сохраняйте рецепты, составляйте меню и список покупок. Один клик — семь суток полного доступа. Карта не нужна, списаний нет.'}</p><button class="primary accent" type="button" ${!active && payment.trial.eligible ? 'data-start-trial' : 'data-open-offer'}>${active ? 'Условия пробного периода' : payment.trial.used ? 'Продолжить с подпиской' : 'Попробовать 7 дней бесплатно'}</button></section>`;
   }
   if (!payment?.available || !payment?.hasFirstRecipe || payment.active) return '';
   const mock = payment.mode === 'mock';
@@ -213,13 +214,13 @@ function offerBanner() {
     <div class="offer-banner-lead">
       <span class="offer-kicker">${payment.firstValue === 'cooked' ? 'Первый ужин готов' : 'Первый рецепт сохранён'}</span>
       <h2>Мы умеем ещё много полезного</h2>
-      <p>${mock ? 'Попробуй бесплатно — бот поможет сохранять рецепты, выбирать ужин и не забывать о нём.' : 'Оформи месячный доступ, чтобы сохранять рецепты, выбирать ужин и получать напоминания.'}</p>
+      <p>${mock ? 'Попробуй бесплатно — бот поможет сохранять рецепты, составлять меню и список покупок.' : 'Оформи месячный доступ, чтобы сохранять рецепты, составлять меню и список покупок.'}</p>
       <small class="offer-trial-price">Месячный доступ · ${payment.offer.priceRub} ₽</small>
     </div>
     <div class="offer-feature-grid" aria-label="Возможности подписки">
       <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.</p></div></article>
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>Идеи с учётом твоих вкусов, ограничений и любимых рецептов.</p></div></article>
-      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>Бот напомнит об ужине и сразу предложит, что приготовить.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Планируем меню</h3><p>Добавляй любимые блюда в меню на нужные дни.</p></div></article>
+      <article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Собираем покупки</h3><p>Ингредиенты из меню складываются в список покупок.</p></div></article>
     </div>
     <button class="primary accent" type="button" data-open-offer>${mock ? 'Попробовать бесплатно' : 'Оформить доступ'}</button>
     <small class="offer-disclaimer">${mock ? 'Тестовый сценарий · деньги не списываются' : 'Оплата на защищённой странице Robokassa'}</small>
@@ -243,6 +244,7 @@ function returnFromTrialGuide() {
   void render();
 }
 async function startTrialGuide() {
+  if (!state.me?.legacyRecipeFlowsEnabled) { state.trialOnboarding = null; state.trialGuideActive = false; setRoute({ view: 'collection' }, { replace: true }); return render(); }
   if (!state.payment?.active) {
     state.trialGuideActive = false; state.onboarding = null;
     setRoute({ view: 'pricing' }, { replace: true }); providerOfferPage(); return;
@@ -277,7 +279,7 @@ function benefitsPage() {
   const trialAction = chosen ? 'Начать 7 дней бесплатно и открыть рецепт' : 'Попробовать 7 дней бесплатно';
   const chosenImage = chosen && safeImage(pending.imageUrl);
   const copy = chosen ? 'Начни 7 дней полного доступа и открой выбранный рецепт.' : 'Меньше хлопот с рецептами.<br>Больше удовольствия от ужина.';
-  root.innerHTML = `${header()}<main class="offer-page benefits-page${chosen ? ' first-recipe-gate' : ''}"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>${title}</h1>${chosen ? `<p class="first-recipe-preview">${chosenImage ? `<img src="${chosenImage}" alt="" referrerpolicy="no-referrer">` : ''}<strong>${esc(pending.title || 'Выбранный рецепт')}</strong></p>` : ''}<p>${copy}</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>${chosen ? 'Рецепты из ссылок, фото и голосовых' : 'Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.'}</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Подбираем на вечер</h3><p>${chosen ? 'Под твои вкусы и ограничения' : 'Идеи с учётом твоих вкусов, ограничений и любимых рецептов.'}</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Напоминаем вовремя</h3><p>${chosen ? 'Когда пора готовить' : 'Бот напомнит об ужине и сразу предложит, что приготовить.'}</p></div></article></div><button class="primary accent" type="button" data-start-trial>${trialAction}</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
+  root.innerHTML = `${header()}<main class="offer-page benefits-page${chosen ? ' first-recipe-gate' : ''}"><button class="back-link" id="benefits-back">← К рецептам</button><div class="offer-hero"><h1>${title}</h1>${chosen ? `<p class="first-recipe-preview">${chosenImage ? `<img src="${chosenImage}" alt="" referrerpolicy="no-referrer">` : ''}<strong>${esc(pending.title || 'Выбранный рецепт')}</strong></p>` : ''}<p>${copy}</p></div><section class="offer-banner"><div class="offer-feature-grid" aria-label="Возможности бота"><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-save" aria-hidden="true"></span><div><h3>Сохраняем за тебя</h3><p>${chosen ? 'Рецепты из ссылок, фото и голосовых' : 'Пришли ссылку, видео, фото, текст или голосовое — получишь готовую карточку.'}</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-dinner" aria-hidden="true"></span><div><h3>Планируем меню</h3><p>${chosen ? 'Любимые блюда на нужные дни' : 'Добавляй любимые блюда в меню на нужные дни.'}</p></div></article><article class="offer-feature"><span class="offer-feature-icon offer-feature-icon-reminder" aria-hidden="true"></span><div><h3>Собираем покупки</h3><p>${chosen ? 'Список ингредиентов из меню' : 'Ингредиенты из меню складываются в список покупок.'}</p></div></article></div><button class="primary accent" type="button" data-start-trial>${trialAction}</button><small class="offer-disclaimer">Без карты и автоматического списания.</small><button class="secondary benefits-pricing" type="button" id="benefits-pricing">Тарифы и промокод</button></section></main>`;
   bindCommon();
   document.querySelector('#benefits-back').onclick = () => { setRoute({ view: chosen ? 'menu' : 'dinner' }); void render(); };
   document.querySelector('#benefits-pricing').onclick = () => { setRoute({ view: 'pricing' }); void render(); };
@@ -416,6 +418,7 @@ async function toggleRequestRecording(event) {
 }
 
 async function beginDinner(forceOnboarding = false, startTrialTastePreferences = false, prepared = null) {
+  if (!state.me?.legacyRecipeFlowsEnabled) { state.trialOnboarding = null; state.trialGuideActive = false; setRoute({ view: 'collection' }, { replace: true }); return render(); }
   clearTimeout(dinnerPollTimer);
   try {
     const notificationId = !forceOnboarding ? new URLSearchParams(location.search).get('notification') : null;
@@ -433,6 +436,7 @@ async function beginDinner(forceOnboarding = false, startTrialTastePreferences =
 }
 
 async function resumePendingTrialTastePreferences() {
+  if (!state.me?.legacyRecipeFlowsEnabled) return false;
   if (!state.payment?.active || state.payment.firstRecipe?.trialGateUsed) return false;
   const savedStep = savedTrialOnboardingStep();
   if (savedStep && savedStep !== 'taste') {
@@ -500,6 +504,7 @@ function tastePreferencesView() {
 }
 
 function trialOnboardingPage() {
+  if (!state.me?.legacyRecipeFlowsEnabled) { state.trialOnboarding = null; state.trialGuideActive = false; setRoute({ view: 'collection' }, { replace: true }); return render(); }
   if (root.dataset) root.dataset.analyticsStep = 'taste';
   const step = state.trialOnboarding === 'collection' ? 'collection' : 'notifications';
   resetPageScroll();
@@ -1002,6 +1007,11 @@ async function notificationSettingsPage() {
 }
 
 async function render() {
+  const legacyParams = new URLSearchParams(location.search);
+  if (!state.me?.legacyRecipeFlowsEnabled && ['dinner','request','search','tastes','trial-guide','trial-onboarding','notifications'].includes(legacyParams.get('view'))) {
+    state.trialOnboarding = null; state.trialGuideActive = false; state.dinner = null;
+    setRoute({ view: 'collection', recipe: legacyParams.get('recipe') }, { replace: true });
+  }
   const params = new URLSearchParams(location.search); const view = params.get('view'); state.query = params.get('q') || '';
   if (state.trialGuideActive && view !== 'trial-guide') { state.trialGuideActive = false; state.trialOnboarding = null; state.onboarding = null; }
   const publicRecipeRoute = publicCatalogRouteReadable(view,params.get('recipe'));
@@ -1334,7 +1344,7 @@ function recipeDetail(r, { shared = false, suggestion = null, engagement = null 
     : shared
     ? `<div class="detail-actions shared-actions"><button class="primary accent" id="cook" ${r.steps?.length ? '' : 'disabled'}>Начать готовить</button></div>`
     : window.RecipeDetail.actions(r);
-  const context = shopping + (!shared && state.payment?.active ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : '') + (editButton ? `<div class="detail-management">${editButton}</div>` : '');
+  const context = shopping + (!shared && state.payment?.active && state.me?.legacyRecipeFlowsEnabled ? '<p class="trial-guide-entry"><button class="secondary" type="button" data-open-trial-guide>Познакомиться с возможностями</button></p>' : '') + (editButton ? `<div class="detail-management">${editButton}</div>` : '');
   const el = overlay(window.RecipeDetail.render(r, {
     imagePending, interactiveTags: !shared && !catalog,
     warningLabel: suggestion || r.origin === 'generated' ? 'Автоматический рецепт' : 'Автоматическое извлечение',
@@ -1451,14 +1461,14 @@ function cookMode(r, onComplete = null) {
   return window.RecipeCooking.open(r, { mount: mountModal, unmount: unmountModal, onComplete, onStep: index => { state.cookStep = index; } });
 }
 function settingsSheet() {
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему аккаунту ${globalThis.window?.RecipePlatform?.label || 'Telegram'} и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p><button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="secondary" id="promo-settings">Ввести промокод</button><button class="ghost" id="delete-account">Удалить мои данные</button>`);
+  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">ПРОФИЛЬ</div><h2>${esc(state.me.displayName)}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">Коллекция привязана к вашему аккаунту ${globalThis.window?.RecipePlatform?.label || 'Telegram'} и недоступна другим пользователям. Закрытые источники могут не обработаться; отсутствующие сведения не додумываются.</p>${state.me?.legacyRecipeFlowsEnabled ? '<button class="secondary" id="notification-settings">Напоминания об ужине</button><button class="secondary" id="dinner-preferences">Предпочтения для ужина</button>' : ''}${(state.payment?.available || state.payment?.trial) ? '<button class="secondary" id="subscription-settings">Подписка и оплата</button>' : ''}${state.me.testContour ? '<button class="ghost" id="test-reset">Сбросить тестовый профиль</button>' : ''}<button class="secondary" id="promo-settings">Ввести промокод</button><button class="ghost" id="delete-account">Удалить мои данные</button>`);
   el.querySelector('[data-close]').onclick = closeOverlay;
-  el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
+  if (state.me?.legacyRecipeFlowsEnabled) el.querySelector('#notification-settings').onclick = () => { closeOverlay(); state.notificationSchedule = null; setRoute({ view: 'notifications' }); void render(); };
   const feedbackLink = document.createElement('button');
   feedbackLink.className = 'secondary'; feedbackLink.textContent = 'Обратная связь';
   el.querySelector('#delete-account').before(feedbackLink);
   feedbackLink.onclick = () => { closeOverlay(); setRoute({ view: 'feedback' }); feedbackPage(); };
-  el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
+  if (state.me?.legacyRecipeFlowsEnabled) el.querySelector('#dinner-preferences').onclick = () => { closeOverlay(); setRoute({ view: 'dinner' }); beginDinner(true); };
   el.querySelector('#subscription-settings')?.addEventListener('click', openOffer);
   el.querySelector('#promo-settings').onclick = () => { closeOverlay(); setRoute({ view: 'promo' }); promoPage(); };
   el.querySelector('#test-reset')?.addEventListener('click', async () => {
@@ -1729,7 +1739,7 @@ function legacyProviderOfferPage() {
   const price = payment?.offer?.priceRub;
   const recurring = payment?.recurring;
   const activeCopy = recurring?.enabled ? `Автопродление включено. Следующее списание — ${recurring.nextChargeAt ? new Date(recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.` : 'Автопродление выключено.';
-  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${payment.active ? 'Доступ открыт' : payment.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}. ${activeCopy}` : payment.hasFirstRecipe ? 'Сохраняйте следующие рецепты из ссылок, фото, текста и голосовых. Настройте напоминания об ужине и получайте готовые подборки.' : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ПЛЮС</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Напоминания об ужине по вашему расписанию</li></ul>${payment.active ? `<div class="offer-active">✓ Доступ активен</div>${recurring?.enabled ? '<button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>' : '<button class="primary accent" id="go-checkout">Продлить доступ</button>'}` : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Оплата проходит на защищённой странице Robokassa. Автопродление подключается только с отдельного согласия и отключается здесь в любой момент.</p></section>` : ''}<p class="offer-support"><a href="/?view=promo">У меня есть промокод</a></p><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  root.innerHTML = `${header()}<main class="offer-page"><button class="back-link" id="offer-back">← На главную</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${payment.active ? 'Доступ открыт' : payment.hasFirstRecipe ? 'Первый рецепт готов. Продолжим?' : 'Сначала попробуйте первый рецепт'}</h1><p>${payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}. ${activeCopy}` : payment.hasFirstRecipe ? 'Сохраняйте следующие рецепты из ссылок, фото, текста и голосовых. Составляйте меню и список покупок.' : 'После первого сохранённого или приготовленного рецепта здесь появится предложение.'}</p></div>${payment.hasFirstRecipe ? `<section class="offer-plan"><div class="offer-plan-top"><span>Месячный доступ</span><span class="offer-test-pill">ПЛЮС</span></div><div class="offer-price">${price} ₽ <small>/ месяц</small></div><ul><li>Автоматическое сохранение рецептов</li><li>Вся коллекция и уже сохранённые рецепты под рукой</li><li>Меню и список покупок из любимых блюд</li></ul>${payment.active ? `<div class="offer-active">✓ Доступ активен</div>${recurring?.enabled ? '<button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>' : '<button class="primary accent" id="go-checkout">Продлить доступ</button>'}` : '<button class="primary accent" id="go-checkout">Перейти к оплате →</button>'}<p class="offer-fineprint">Оплата проходит на защищённой странице Robokassa. Автопродление подключается только с отдельного согласия и отключается здесь в любой момент.</p></section>` : ''}<p class="offer-support"><a href="/?view=promo">У меня есть промокод</a></p><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
   document.querySelector('#offer-back').onclick = () => { setRoute({}); void render(); };
   document.querySelector('#go-checkout')?.addEventListener('click', () => { setRoute({ view: 'checkout' }); providerCheckoutPage(); });
@@ -1763,7 +1773,7 @@ function providerOfferPage() {
   const activeCopy = expiredTrial ? 'Ваши рецепты сохранены. Выберите срок подписки, чтобы продолжить.' : activeTrial ? `Полный доступ действует до ${esc(new Date(payment.trial.expiresAt).toLocaleString('ru-RU'))}. Оплаченный период начнётся после окончания пробного периода.` : payment.active ? `Доступ действует до ${payment.expiresAt ? new Date(payment.expiresAt).toLocaleDateString('ru-RU') : 'окончания оплаченного периода'}.` : eligibleTrial ? 'Семь суток полного доступа с момента нажатия кнопки. Без карты и автоматического списания.' : 'Выберите срок доступа.';
   const trialAction = eligibleTrial ? '<button class="primary accent" id="start-trial">Попробовать 7 дней бесплатно</button>' : '';
   const trialReturn = activeTrial ? '<button class="secondary trial-return" id="trial-return">Продолжить пробный период</button>' : '';
-  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Идеи ужина с учётом ваших вкусов</li><li>Напоминания, когда пора готовить</li></ul><section class="offer-plan">${trialAction}${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : requiresTrial ? 'Сначала начните пробный период' : 'Оплата пока подключается'}</button>${trialReturn}${payment.active ? '<button class="secondary trial-guide-entry" type="button" data-open-trial-guide>Познакомиться с возможностями</button>' : ''}<p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
+  root.innerHTML = `${header()}<main class="offer-page paywall"><button class="back-link paywall-close" id="offer-back" aria-label="Вернуться к рецептам">Закрыть</button><div class="offer-hero"><span class="offer-kicker">Твои рецепты Плюс</span><h1>${title}</h1><p>${activeCopy}</p></div><ul class="paywall-benefits"><li>Рецепты из ссылок, фото и голосовых</li><li>Меню из любимых рецептов</li><li>Список покупок из меню</li></ul><section class="offer-plan">${trialAction}${paymentPlanChoices()}${renewalConsent}<button class="primary accent" id="offer-pay"${canProceed ? '' : ' disabled'}>${canProceed ? quote?.discountPercent === 100 ? freePromoAction(quote.periodMonths) : `Оплатить ${paymentMoney(price)} ₽` : requiresTrial ? 'Сначала начните пробный период' : 'Оплата пока подключается'}</button>${trialReturn}${payment.active && state.me?.legacyRecipeFlowsEnabled ? '<button class="secondary trial-guide-entry" type="button" data-open-trial-guide>Познакомиться с возможностями</button>' : ''}<p class="offer-fineprint">Нажимая кнопку, вы принимаете <a href="/offer.html" target="_blank" rel="noopener">условия оферты</a>. Оплата проходит на защищённой странице Robokassa.${!payment.recurringSupported && !quote ? ' Без автоматического продления.' : ''}</p>${payment.recurring?.enabled ? `<p class="offer-fineprint">Автопродление включено: ${paymentMoney(payment.recurring.priceRub)} ₽ за ${paymentPeriodLabel(payment.recurring.periodMonths)}. Следующее списание: ${payment.recurring.nextChargeAt ? new Date(payment.recurring.nextChargeAt).toLocaleDateString('ru-RU') : 'перед окончанием периода'}.</p><button class="secondary" id="cancel-auto-renew">Отключить автопродление</button>` : ''}<details class="paywall-promo"${quote || state.paymentPromoMessage || payment.campaignPromotion ? ' open' : ''}><summary>У меня есть промокод</summary>${paymentPromoControls()}</details></section><p class="offer-support"><a href="/offer.html" target="_blank" rel="noopener">Публичная оферта</a> · <a href="/privacy.html" target="_blank" rel="noopener">Обработка данных</a></p></main>`;
   bindCommon();
   document.querySelector('#trial-return')?.addEventListener('click', () => { setRoute({}); void render(); });
   document.querySelector('#start-trial')?.addEventListener('click', event => activateTrial(event));
@@ -1846,7 +1856,7 @@ function providerPaymentResultPage() {
   const status = order?.status || state.paymentResult || 'pending';
   const success = status === 'paid';
   if (success && state.payment?.active) { paymentSuccessPage(); return; }
-  root.innerHTML = `${header()}<main class="payment-result"><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : '…'}</span><h1>${success ? 'Оплата подтверждена' : 'Ожидаем подтверждение'}</h1><p>${success ? 'Доступ открыт. Теперь можно сохранять следующие рецепты и включить напоминания.' : 'Завершите оплату в открывшемся окне и вернитесь сюда. Доступ появится только после серверного подтверждения Robokassa.'}</p><div class="payment-result-price">Твои рецепты Плюс · ${order?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / ${paymentPeriodLabel(order?.periodMonths || 1)}</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Проверить оплату'}</button>${!success && window.RecipePlatform?.name === 'max' && order?.id ? '<button class="secondary" id="resume-provider-payment">Открыть оплату</button>' : ''}<small>${order?.autoRenew ? 'Автопродление включится после успешной оплаты.' : 'Автопродление не подключено.'}</small></main>`;
+  root.innerHTML = `${header()}<main class="payment-result"><span class="payment-result-icon ${success ? 'success' : ''}">${success ? '✓' : '…'}</span><h1>${success ? 'Оплата подтверждена' : 'Ожидаем подтверждение'}</h1><p>${success ? 'Доступ открыт. Теперь можно сохранять следующие рецепты, составлять меню и список покупок.' : 'Завершите оплату в открывшемся окне и вернитесь сюда. Доступ появится только после серверного подтверждения Robokassa.'}</p><div class="payment-result-price">Твои рецепты Плюс · ${order?.priceRub || state.payment?.offer?.priceRub || '—'} ₽ / ${paymentPeriodLabel(order?.periodMonths || 1)}</div><button class="primary accent" id="result-next">${success ? 'Вернуться к рецептам' : 'Проверить оплату'}</button>${!success && window.RecipePlatform?.name === 'max' && order?.id ? '<button class="secondary" id="resume-provider-payment">Открыть оплату</button>' : ''}<small>${order?.autoRenew ? 'Автопродление включится после успешной оплаты.' : 'Автопродление не подключено.'}</small></main>`;
   bindCommon();
   document.querySelector('#result-next').onclick = async (event) => {
     if (success) { setRoute({}); await render(); return; }
@@ -1877,6 +1887,7 @@ window.addEventListener('popstate', async (event) => {
 if (globalThis.window?.RecipeAnalytics && typeof MutationObserver !== 'undefined') {
   const seen = new WeakSet();
   const scan = () => {
+    if (!state.me || !window.__miniRendered) return;
     const screen = root.querySelector('main, .dinner-onboarding, .dinner-page');
     if (screen && !seen.has(screen) && (!screen.matches('.dish-taste-page') || screen.querySelector('#taste-save'))) {
       seen.add(screen);

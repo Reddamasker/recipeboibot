@@ -24,6 +24,7 @@ function ownsRecipient(userId, chatId) {
  WHERE p.test_user_id=? AND u.telegram_id=?`).get(userId,id,userId,id));
 }
 export function queueTrialWelcome(userId, chatId, {ready=false,timezone}={}) {
+ if(!config.legacyRecipeFlowsEnabled)return false;
  const trial=getTrialStatus(userId);
  if(!trial.active||!getSubscriptionAccess(userId).active||!ownsRecipient(userId,chatId))return false;
  const digest=enrollTrialDigest(userId,timezone);
@@ -32,9 +33,11 @@ export function queueTrialWelcome(userId, chatId, {ready=false,timezone}={}) {
  .run(userId,String(chatId),trial.startsAt,ready?1:0,new Date().toISOString()).changes);
 }
 export function markTrialWelcomeReady(userId) {
+ if(!config.legacyRecipeFlowsEnabled)return false;
  return Boolean(db.prepare("UPDATE trial_welcome_messages SET ready=1 WHERE user_id=? AND status='pending'").run(userId).changes);
 }
 export async function deliverTrialWelcome(userId, sendFn=sender) {
+ if(!config.legacyRecipeFlowsEnabled)return false;
  if(typeof sendFn!=='function')return false;
  let row=rowFor(userId);if(!row||!row.ready||['sent','cancelled'].includes(row.status))return false;
  const now=new Date(),trial=getTrialStatus(userId,now);
@@ -66,12 +69,15 @@ export async function deliverTrialWelcome(userId, sendFn=sender) {
  }
 }
 export function markFirstRecipeReadForWelcome(userId, recipeId) {
+ if(!config.legacyRecipeFlowsEnabled)return false;
  const chosen=selectionRecord(userId);
  if(!chosen||!chosen.unlocked_at||![chosen.recipe_id,chosen.recipe_key].includes(String(recipeId))||!getSubscriptionAccess(userId).active)return false;
  const marked=markTrialWelcomeReady(userId);void deliverTrialWelcome(userId);return marked;
 }
 export function startTrialWelcomeScheduler(sendFn) {
- stopTrialWelcomeScheduler();sender=sendFn;
+ stopTrialWelcomeScheduler();
+ if(!config.legacyRecipeFlowsEnabled)return;
+ sender=sendFn;
  const tick=async()=>{
   if(running)return;running=true;
   try{

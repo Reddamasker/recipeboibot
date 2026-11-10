@@ -74,15 +74,15 @@ test('HTTP feedback requires authentication, works without subscription, and can
 
 test('chat feedback accepts plain text before onboarding, preserves pending work, and cancels without AI', async () => {
   const { sender, user } = fixture(), calls = [], original = globalThis.fetch;
-  setPendingIntent(user.id, { kind: 'dinner-intake', intake: { servings: 3 } });
+  setPendingIntent(user.id, { kind: 'recipe-save' });
   globalThis.fetch = async (_url, options) => { calls.push(JSON.parse(options.body)); return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } })); };
   const message = text => ({ from: sender, chat: { id: sender.id, type: 'private' }, message_id: 42, text });
   try {
     await handleMessage(message('/feedback')); assert.equal(getPendingIntent(user.id).kind, 'feedback');
     await handleMessage({ ...message(undefined), voice: { file_id: 'never-transcribe' } }); assert.ok(calls.at(-1).text.includes('текстом'));
-    await handleMessage(message('/cancel')); assert.equal(getPendingIntent(user.id).kind, 'dinner-intake');
+    await handleMessage(message('/cancel')); assert.equal(getPendingIntent(user.id).kind, 'recipe-save');
     await handleMessage(message('/feedback')); await handleMessage(message('Не открывается рецепт'));
-    assert.equal(getPendingIntent(user.id).kind, 'dinner-intake');
+    assert.equal(getPendingIntent(user.id).kind, 'recipe-save');
     assert.equal(calls.filter(call => call.chat_id === '6971956699').length, 1);
     assert.ok(calls.at(-1).text.includes('отправлено владельцу'));
     await handleMessage({ ...message('/feedback'), chat: { id: -1, type: 'channel' } });

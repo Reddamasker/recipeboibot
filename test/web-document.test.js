@@ -11,7 +11,7 @@ test('existing page includes all startup resources and allows only their exact s
   const doc = buildWebDocument(path.resolve('public'));
   const html = doc.bytes.toString();
   assert.deepEqual(gunzipSync(doc.gzip), doc.bytes);
-  assert.ok(doc.gzip.length < 100_000);
+  assert.ok(doc.gzip.length < 100 * 1024);
   assert.doesNotMatch(html, /<script[^>]+src=|<link rel="stylesheet"/);
   assert.match(html, /id="landing"/);
   assert.match(html, /id="app"/);

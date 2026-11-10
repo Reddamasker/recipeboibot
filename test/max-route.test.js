@@ -150,8 +150,8 @@ test('invalid MAX payload preserves direct recipe URL and no payload preserves r
     assert.equal(f.navigations.length, 0);
   }
   const f = await bootFixture();
-  assert.deepEqual(f.pages, ['dinner']);
-  assert.equal(f.navigations.length, 0);
+  assert.deepEqual(f.pages, ['collection']);
+  assert.equal(f.navigations.length, 1);
 });
 
 test('failed MAX authentication never applies payload or requests recipe', async () => {
@@ -232,23 +232,23 @@ test('confirmed first trial reopens the same recipe from a stale benefits or off
 });
 
 
-test('explicit feature-guide route starts the old screens on both platforms after authentication without trial or recipe generation', async () => {
+test('retired feature-guide route opens collection on both platforms without old API calls', async () => {
   for (const platform of ['max', 'telegram']) {
     const f = await bootFixture({ platform, search: '?view=trial-guide', pendingTrial: true, guide: true });
-    assert.deepEqual(f.pages, ['guide:notifications']);
+    assert.deepEqual(f.pages, ['collection']);
     assert.deepEqual(f.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
-    assert.equal(f.location.searchParams.get('view'), 'trial-guide');
+    assert.equal(f.location.searchParams.get('view'), 'collection');
     const fresh = await bootFixture({ platform, search: '?view=trial-guide', firstUnlocked: true, guide: true });
-    assert.deepEqual(fresh.pages, ['guide:taste']);
-    assert.deepEqual(fresh.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer', '/api/dinner/profile']);
+    assert.deepEqual(fresh.pages, ['collection']);
+    assert.deepEqual(fresh.requests.map(r => r.path), ['/api/me', '/api/library', '/api/billing/offer']);
     assert.equal(fresh.details.length, 0);
   }
 });
 
 test('MAX signed feature-guide launch is retained independently of generic recipe resume', async () => {
   const f = await bootFixture({ route: { view: 'trial-guide' }, firstUnlocked: true, guide: true, unsafe: false });
-  assert.deepEqual(f.pages, ['guide:taste']);
-  assert.equal(f.location.searchParams.get('view'), 'trial-guide');
+  assert.deepEqual(f.pages, ['collection']);
+  assert.equal(f.location.searchParams.get('view'), 'collection');
   assert.equal(f.details.length, 0);
 });
 
@@ -263,9 +263,9 @@ test('MAX app-first entry opens collection from registered base without changing
   const linked = await bootFixture({ route: { recipe: generatedKey }, chatStarted: false });
   assert.equal(linked.details[0].recipe.id, generatedKey);
   const returning = await bootFixture({ chatStarted: true });
-  assert.deepEqual(returning.pages, ['dinner']);
+  assert.deepEqual(returning.pages, ['collection']);
   const telegram = await bootFixture({ platform: 'telegram', chatStarted: false });
-  assert.deepEqual(telegram.pages, ['dinner']);
+  assert.deepEqual(telegram.pages, ['collection']);
 });
 
 test('entry failure has retry and a platform chat link without discarding requested route', async () => {

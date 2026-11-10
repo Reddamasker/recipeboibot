@@ -97,7 +97,8 @@ test('MAX reset command and cancel preserve profile, recipes and trial until exp
   assert.equal(getTrialStatus(owner.id).expiresAt, trial.expiresAt);
   await handleChatUpdate(normalizeMaxUpdate(callbackEvent(17, `mid.reset-${serial}`, 'test:reset:cancel'), { botId: 777 }));
   assert.equal(getFoodProfile(owner.id).onboardingCompleted, true);
-  assert.equal(getPendingIntent(owner.id).kind, 'dinner-confirm');
+  assert.equal(getPendingIntent(owner.id), null);
+  assert.equal(JSON.parse(db.prepare('SELECT payload_json FROM pending_intents WHERE user_id=?').get(owner.id).payload_json).kind, 'dinner-confirm');
   assert.equal(getTrialStatus(owner.id).expiresAt, trial.expiresAt);
 });
 

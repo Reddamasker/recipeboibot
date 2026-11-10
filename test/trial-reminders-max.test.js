@@ -12,10 +12,20 @@ const {sendTrialRecipeReminder,handleChatUpdate}=await import('../src/telegram.j
 const {normalizeMaxUpdate}=await import('../src/max-events.js');
 const {maxStore}=await import('../src/max-store.js');
 test.after(()=>{db.close();fs.rmSync(directory,{recursive:true,force:true});});
+test('MAX rollout excludes older trials and retains its start timestamp across reads',async()=>{
+ const at=new Date('2032-01-02T09:00:00Z'),before=new Date('2032-01-01T09:00:00Z');
+ db.prepare("UPDATE trial_reminder_rollout SET started_at=? WHERE platform='max'").run(before.toISOString());
+ const old=resolvePrivateTelegramUser({id:'max:87655',first_name:'Before rollout'});
+ allowUser(old.id);maxStore.bind('98766','87655');startTrial(old.id,new Date(before.getTime()-3600000));
+ await runTrialReminderCycle(assert.fail,at);
+ assert.equal(db.prepare('SELECT 1 FROM trial_reminder_members WHERE user_id=?').get(old.id),undefined);
+ assert.equal(db.prepare("SELECT started_at FROM trial_reminder_rollout WHERE platform='max'").get().started_at,before.toISOString());
+});
 test('MAX trial reminder uses owned callback buttons and persists add and opt-out actions', async () => {
   const at = new Date('2026-11-01T09:00:00Z'), owner = resolvePrivateTelegramUser({ id:'max:87654',first_name:'Trial test' });
   allowUser(owner.id);startTrial(owner.id,at);
   db.prepare('UPDATE trial_reminder_settings SET started_at=?').run(at.toISOString());
+  db.prepare("UPDATE trial_reminder_rollout SET started_at=? WHERE platform='max'").run(at.toISOString());
   maxStore.bind('98765','87654');
   const messages=[],original=global.fetch;
   global.fetch=async(url,options)=>{

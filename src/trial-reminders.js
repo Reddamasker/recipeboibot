@@ -3,6 +3,7 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { getSubscriptionAccess } from './subscriptions.js';
 import { log } from './log.js';
+import { getMaxChatBinding } from './max-store.js';
 import { eligibleDigestUser, digestMember } from './trial-digest-store.js';
 
 // Delivery state is also the analytics source. No message contents are stored.
@@ -21,6 +22,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS trial_reminder_settings (
  sent_at TEXT, clicked_at TEXT, opted_out_at TEXT, error_code TEXT,
  UNIQUE(user_id,sequence));`);
 db.prepare('INSERT OR IGNORE INTO trial_reminder_settings(id,started_at) VALUES(1,?)').run(new Date().toISOString());
+// MAX starts a prospective cohort at this deployment, without a backlog or invented history.
+db.exec('CREATE TABLE IF NOT EXISTS trial_reminder_rollout (platform TEXT PRIMARY KEY, started_at TEXT NOT NULL)');
+if(config.botPlatform==='max')db.prepare('INSERT OR IGNORE INTO trial_reminder_rollout(platform,started_at) VALUES(?,?)').run('max',new Date().toISOString());
+const reminderSince = () => config.botPlatform === 'max'
+  ? db.prepare("SELECT started_at FROM trial_reminder_rollout WHERE platform='max'").get().started_at
+  : trialReminderSettings().started_at;
 export const trialReminderSettings = () => db.prepare('SELECT * FROM trial_reminder_settings WHERE id=1').get();
 export function configureTrialReminders({ delayHours, intervalHours, maxMessages, enabled }) {
   if (!Number.isInteger(delayHours) || delayHours < 1 || delayHours > 144
@@ -68,13 +75,14 @@ export async function runTrialReminderCycle(send, at = new Date()) {
       SELECT t.user_id,?,t.starts_at,strftime('%Y-%m-%dT%H:%M:%fZ',t.starts_at,'+' || ? || ' hours')
       FROM user_trials t JOIN users u ON u.id=t.user_id
       WHERE t.starts_at>=? AND t.starts_at<=? AND t.expires_at>? AND u.is_allowed=1
-      AND NOT EXISTS(SELECT 1 FROM trial_digest_rollout r WHERE u.created_at>r.started_at AND t.starts_at>=r.started_at)
+      AND (?=0 OR NOT EXISTS(SELECT 1 FROM trial_digest_rollout r WHERE u.created_at>r.started_at AND t.starts_at>=r.started_at))
       AND NOT EXISTS(SELECT 1 FROM private_test_profiles p WHERE p.test_user_id=t.user_id OR p.owner_user_id=t.user_id)`)
-      .run(timestamp,settings.delay_hours,settings.started_at,timestamp,timestamp);
-    const members = db.prepare('SELECT * FROM trial_reminder_members WHERE stopped_at IS NULL ORDER BY next_due_at LIMIT 500').all();
+      .run(timestamp,settings.delay_hours,reminderSince(),timestamp,timestamp,Number(config.legacyDinnerNotificationsEnabled));
+    const connected = config.botPlatform === 'max' ? " AND EXISTS(SELECT 1 FROM users u JOIN max_chat_bindings b ON u.telegram_id='max:'||b.user_id WHERE u.id=m.user_id)" : '';
+    const members = db.prepare('SELECT * FROM trial_reminder_members m WHERE stopped_at IS NULL'+connected+' ORDER BY next_due_at LIMIT 500').all();
     let dispatched = 0;
     for (const member of members) {
-      if (digestMember(member.user_id) || eligibleDigestUser(member.user_id,at)) { stop(member.user_id,'daily_digest',timestamp); continue; }
+      if (config.legacyDinnerNotificationsEnabled && (digestMember(member.user_id) || eligibleDigestUser(member.user_id,at))) { stop(member.user_id,'daily_digest',timestamp); continue; }
       const added = ownRecipe(member.user_id);
       if (added) {
         db.prepare('UPDATE trial_reminder_members SET added_at=? WHERE user_id=?').run(added.created_at,member.user_id);
@@ -84,6 +92,7 @@ export async function runTrialReminderCycle(send, at = new Date()) {
       if (!access.active || access.source !== 'trial') { stop(member.user_id,'access_changed',timestamp); continue; }
       const chatId = recipient(member.user_id);
       if (!chatId) { stop(member.user_id,'recipient_unavailable',timestamp); continue; }
+      if (config.botPlatform === 'max' && !getMaxChatBinding(chatId)) continue;
       const count = db.prepare('SELECT COUNT(*) n FROM trial_reminder_deliveries WHERE user_id=?').get(member.user_id).n;
       if (count >= settings.max_messages) { stop(member.user_id,'limit',timestamp); continue; }
       if (member.next_due_at > timestamp || dispatched >= 20) continue;
@@ -144,7 +153,7 @@ export function trialReminderReport(cohort, campaign = false, at = new Date().to
     values.sort((a,b)=>a-b);
     return { samples:values.length,p50:values.length?values[Math.ceil(values.length*.5)-1]:null,p95:values.length?values[Math.ceil(values.length*.95)-1]:null };
   };
-  return { trackingSince:trialReminderSettings().started_at, enrolled:members.length,
+  return { trackingSince:reminderSince(), enrolled:members.length,
     deliveries:deliveries.length, sent:sent.length, sentUsers:firstSent.size,
     clicked:deliveries.filter(d=>d.clicked_at).length, optedOut:members.filter(m=>m.stop_reason==='opt_out').length,
     failed:deliveries.filter(d=>d.status==='failed').length, unknown:deliveries.filter(d=>d.status==='unknown').length,

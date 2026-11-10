@@ -1,3 +1,5 @@
+// Historical compatibility; current retired behavior is covered separately.
+process.env.LEGACY_RECIPE_FLOWS_ENABLED = 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

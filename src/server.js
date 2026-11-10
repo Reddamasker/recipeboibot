@@ -1,3 +1,4 @@
+import { isRetiredRecipeRoute } from './retired-flows.js';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -174,6 +175,7 @@ async function api(request, response, url) {
   const previewGroceries = url.pathname === '/api/workspace/groceries-preview';
   const user = authenticate(request, { readOnly: previewGroceries });
   identifyProductUser(user.id);
+  if (!config.legacyRecipeFlowsEnabled && isRetiredRecipeRoute(url.pathname, request.method)) throw Object.assign(new Error('Этот сценарий отключён. Откройте коллекцию или каталог рецептов.'), { status: 410 });
   if (previewGroceries) {
     if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });
     try {
@@ -326,7 +328,7 @@ async function api(request, response, url) {
   }
   if (request.method === 'GET' && url.pathname === '/api/me') {
     const botUsername = config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot';
-    return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, chatStarted: Boolean(user.is_allowed), testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
+    return json(response, 200, { id: user.id, displayName: user.display_name, username: user.username, chatStarted: Boolean(user.is_allowed), legacyRecipeFlowsEnabled: config.legacyRecipeFlowsEnabled, testContour: config.testContour, platform: config.botPlatform, botUsername, botUrl: `${config.botPlatform === 'max' ? 'https://max.ru' : 'https://t.me'}/${botUsername}` });
   }
   if (request.method === 'GET' && url.pathname === '/api/notifications/schedule') return json(response, 200, {...getNotificationSchedule(user.id),dailyDigest:config.legacyDinnerNotificationsEnabled && Boolean(digestMember(user.id))});
   if (request.method === 'PUT' && url.pathname === '/api/notifications/schedule') return json(response, 200, saveNotificationSchedule(user.id, await bodyJson(request, 2000)));
@@ -557,8 +559,9 @@ function serveStatic(request, response, pathname) {
 export function createServer() {
   return http.createServer(async (request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
-    const step = apiStep(pathname);
-    if (step && (request.method !== 'GET' || step === 'boot')) {
+    const retired = !config.legacyRecipeFlowsEnabled && isRetiredRecipeRoute(pathname, request.method);
+    const step = apiStep(pathname) || (retired ? 'request' : null);
+    if (step && (request.method !== 'GET' || step === 'boot' || retired)) {
       return productOperation(step, async context => {
         await handleRequest(request, response);
         context.status = response.statusCode;

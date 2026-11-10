@@ -123,7 +123,7 @@ test('MAX optional aggregate is checked, unavailable stays unavailable and corru
   assert.equal(validProductReport({ ...product, catalogJourney: { ...product.catalogJourney, secret: 'private' } }), false);
 });
 
-test('unreleased MAX reminder scenario remains unavailable with common code while Telegram keeps its report', () => {
+test('MAX reminder report has its own rollout boundary and accepts unavailable older bridge versions', () => {
   const telegram = productReport([]);
   assert.notEqual(telegram.trialReminders, null);
   assert.equal(telegram.catalogBenefits, null, 'production Telegram keeps the previous catalogue without the sales dialog');
@@ -135,7 +135,8 @@ test('unreleased MAX reminder scenario remains unavailable with common code whil
     const r = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', source], {
       env: { ...process.env, DATABASE_PATH: file, BOT_PLATFORM: 'max' }, encoding: 'utf8', stdio: ['ignore','pipe','pipe']
     }));
-    assert.deepEqual(r, { platform: 'max', reminders: null, benefits: null, valid: true });
+    assert.equal(r.platform,'max'); assert.equal(r.valid,true); assert.equal(r.benefits,null);
+    assert.equal(r.reminders.sent,0); assert.ok(Date.parse(r.reminders.trackingSince)>Date.now()-60000);
     const max = maxFunnelSnapshot().all.productAnalytics.platforms[0];
     assert.equal(validProductReport({ ...max, trialReminders: null }), true);
     assert.equal(validProductReport({ ...max, trialReminders: { ...max.trialReminders, enrolled: -1 } }), false);

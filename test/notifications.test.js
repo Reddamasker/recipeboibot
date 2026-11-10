@@ -1,3 +1,5 @@
+// Historical compatibility only; deployed defaults are covered by retired-flows.test.js.
+process.env.LEGACY_RECIPE_FLOWS_ENABLED = 'true';
 // Explicit compatibility mode: these tests exercise the archived scheduling implementation.
 process.env.LEGACY_DINNER_NOTIFICATIONS_ENABLED = 'true';
 import test from 'node:test';

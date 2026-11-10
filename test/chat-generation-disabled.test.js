@@ -1,3 +1,5 @@
+// Historical compatibility only; deployed defaults are covered by retired-flows.test.js.
+process.env.LEGACY_RECIPE_FLOWS_ENABLED = 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
