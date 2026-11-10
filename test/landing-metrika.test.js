@@ -21,6 +21,8 @@ function fixture(options={}) {
 }
 test('Metrika starts once, masks private elements and emits each messenger goal once without capturing URLs as goal data',()=>{
  const p=fixture();assert.equal(p.scripts.length,1);assert.ok(p.masked.includes('ym-disable-keys'));
+ assert.equal(new URL(p.scripts[0].src).searchParams.get('id'),'123456789','server selects the recorder bundle for this counter');
+ assert.equal(p.window.ym.a[0][2].ssr,true);
  assert.equal(p.window.ym.a[0][1],'init');assert.equal(p.window.ym.a[0][2].webvisor,true);assert.equal(p.window.ym.a[0][2].disableYtm,true);
  assert.equal(p.window.ym.a[1][3].referer,'https://example.com/');assert.equal(p.window.ym.a[1][1],'hit');
  p.click('telegram',false);p.click('telegram');p.click('telegram');p.click('max');p.click('other');

@@ -25,10 +25,10 @@ export function start() {
   let disabled = false;
   window.ym ||= function(...args) { if (!disabled) { window.ym.a ||= []; if (window.ym.a.length < 40) window.ym.a.push(args); } };
   window.ym.l ||= Date.now();
-  const script = document.createElement('script'); script.async = true; script.src = 'https://mc.yandex.ru/metrika/tag.js';
+  const script = document.createElement('script'); script.async = true; script.src = `https://mc.yandex.ru/metrika/tag.js?id=${id}`;
   script.onerror = () => { disabled = true; if (Array.isArray(window.ym.a)) window.ym.a.length = 0; };
   document.head.append(script);
-  window.ym(id, 'init', { defer:true, webvisor:true, clickmap:true, trackLinks:false, accurateTrackBounce:true, disableYtm:true, sendTitle:false });
+  window.ym(id, 'init', { ssr:true, defer:true, webvisor:true, clickmap:true, trackLinks:false, accurateTrackBounce:true, disableYtm:true, sendTitle:false });
   const url = new URL(location.pathname, location.origin); url.search = new URLSearchParams([...query].filter(([key]) => allowed.has(key))).toString();
   let referer = ''; try { referer = new URL(document.referrer).origin + '/'; } catch {}
   window.ym(id, 'hit', url.href, { title:'Твои рецепты — лендинг', referer });
