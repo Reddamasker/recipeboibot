@@ -14,6 +14,8 @@ Object.assign(process.env, { DATABASE_PATH:path.join(directory,'test.sqlite'), B
 const fromRoot = file => import(pathToFileURL(path.join(process.cwd(), 'src', file)));
 const {db,resolvePrivateTelegramUser,getPendingIntent,setPendingIntent,listRecipes,claimUpdate,completeUpdate} = await fromRoot('db.js');
 const {startTrial,getSubscriptionAccess} = await fromRoot('subscriptions.js');
+// A live container may configure a CONNECT proxy which bypasses global fetch.
+delete process.env.OPENAI_HTTPS_PROXY;
 const {handleChatUpdate} = await fromRoot('telegram.js');
 const {collectionWelcome,collectionSaved,collectionButtonText} = await fromRoot('collection-onboarding.js');
 const {normalizeMaxUpdate} = await fromRoot('max-events.js');
