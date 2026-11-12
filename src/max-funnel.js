@@ -21,9 +21,10 @@ export function maxFunnelSnapshot(requestedCampaign = null) {
   }
   const placement = requestedCampaign || MAX_AD_PLACEMENT;
   const exists = db.prepare('SELECT 1 FROM acquisition_campaigns WHERE slug=?').get(placement);
-  const all = funnelReport('all');
-  const campaign = exists ? funnelReport(placement) : {
-    ...all, productAnalytics: { platforms: [productReport([], true, new Date().toISOString(), placement)] }, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
+  const snapshot = {};
+  const all = funnelReport('all', snapshot);
+  const campaign = exists ? funnelReport(placement, snapshot) : {
+    ...all, productAnalytics: { platforms: [productReport([], true, new Date().toISOString(), placement, snapshot)] }, totals: Object.fromEntries(stages.map(k => [k, 0])), ordered: Object.fromEntries(stages.map(k => [k, 0])), recipeActivity: { ...emptyRecipeActivity(), returnRate: null },
     trialJourney: { ...emptyTrialJourney(), trackingSince: engagementSince() },
     convertedClicks: 0, selectedTrials: 0, returningStarts: 0, testPaidUsers: 0, unclassifiedPaidUsers: 0, historicalStartsWithoutDate: 0, priceExperiment: null
   };
@@ -97,15 +98,7 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
   const scopedCampaign = report.campaign && !specific ? report.campaign.slug : null;
   const result = structuredClone(report);
   try {
-    if (origin !== 'https://recipeboibot-max.89-223-123-75.sslip.io' || !/^[A-Za-z0-9_-]{43,128}$/.test(token)) throw new Error('MAX bridge unconfigured');
-    if (scopedCampaign && (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(scopedCampaign) || scopedCampaign === 'all')) throw new Error('Invalid MAX campaign');
-    const response = await transport(origin + '/api/internal/max-funnel' + (scopedCampaign ? '?campaign=' + encodeURIComponent(scopedCampaign) : ''), {
-      headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000), redirect: 'error'
-    });
-    if (!response.ok) throw new Error('MAX bridge unavailable');
-    const text = await response.text();
-    if (text.length > 64000) throw new Error('MAX aggregate too large');
-    const data = validateSnapshot(JSON.parse(text), scopedCampaign);
+    const data = await readMaxFunnelSnapshot({transport, origin, token, scopedCampaign});
     const remote = specific || scopedCampaign ? data.campaign : data.all;
     for (const product of remote.productAnalytics.platforms) {
       product.latency ??= null;
@@ -183,4 +176,17 @@ export async function mergeMaxFunnelReport(report, { transport = fetch, origin =
     } else unavailable.conversions.startFromClick = null;
     return unavailable;
   }
+}
+
+// Monitoring validates the actual remote aggregate without calculating Telegram history.
+export async function readMaxFunnelSnapshot({transport = fetch, origin = config.maxFunnelOrigin, token = config.maxFunnelToken, scopedCampaign = null} = {}) {
+    if (origin !== 'https://recipeboibot-max.89-223-123-75.sslip.io' || !/^[A-Za-z0-9_-]{43,128}$/.test(token)) throw new Error('MAX bridge unconfigured');
+    if (scopedCampaign && (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(scopedCampaign) || scopedCampaign === 'all')) throw new Error('Invalid MAX campaign');
+    const response = await transport(origin + '/api/internal/max-funnel' + (scopedCampaign ? '?campaign=' + encodeURIComponent(scopedCampaign) : ''), {
+      headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(5000), redirect: 'error'
+    });
+    if (!response.ok) throw new Error('MAX bridge unavailable');
+    const text = await response.text();
+    if (text.length > 64000) throw new Error('MAX aggregate too large');
+    return validateSnapshot(JSON.parse(text), scopedCampaign);
 }

@@ -256,3 +256,24 @@ test('public benefits queue retries original event and flow IDs without storage 
  for(let i=0;i<4;i++)await timer();
  assert.ok(sent.at(-1).events.some(r=>r.event==='telemetry_health'&&r.dropped>=5),'bounded queue exposes lost events');
 });
+
+
+test('shared report inputs preserve values and avoid reloading history across scopes',()=>{
+ const u=user(),at=new Date(Date.now()+1000).toISOString();
+ record(u.id,'screen_view',{step:'home'});
+ const cohort=[{...u,started_at:'2020-01-01T00:00:00.000Z'}];
+ const all=report(cohort,false,at), campaign=report(cohort,true,at);
+ const snapshot={};
+ assert.deepEqual(report(cohort,false,at,null,snapshot),all);
+ assert.deepEqual(report(cohort,true,at,null,snapshot),campaign);
+ assert.ok(snapshot.rows.length>0);
+ record(u.id,'screen_view',{step:'import'});
+ assert.equal(report(cohort,false,at).steps.find(r=>r.step==='import').viewed,1);
+ assert.deepEqual(report(cohort,false,at,null,snapshot),all);
+});
+
+test('MAX snapshot reads product history once and a subsequent request sees new data',()=>{
+ const prepare=db.prepare.bind(db);let reads=0;
+ db.prepare=sql=>{if(sql==='SELECT * FROM product_events ORDER BY created_at,rowid')reads++;return prepare(sql);};
+ try{maxFunnelSnapshot();assert.equal(reads,1);maxFunnelSnapshot();assert.equal(reads,2);}finally{db.prepare=prepare;}
+});

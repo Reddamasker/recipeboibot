@@ -126,10 +126,8 @@ if ! timeout 20 docker exec "$container" node --input-type=module -e '
   try {
     const {config} = await import("./src/config.js");
     if (config.botPlatform === "telegram" && !config.testContour && config.yandexDirectMaxCampaignId) {
-      const {mergeMaxFunnelReport} = await import("./src/max-funnel.js");
-      const {funnelReport} = await import("./src/funnel.js");
-      const report = await mergeMaxFunnelReport(funnelReport("all"));
-      if (report.remoteFunnel?.status !== "ready") process.exit(1);
+      const {readMaxFunnelSnapshot} = await import("./src/max-funnel.js");
+      await readMaxFunnelSnapshot();
     }
   } catch { process.exit(1); }
 '; then

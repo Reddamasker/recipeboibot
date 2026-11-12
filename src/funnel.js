@@ -173,7 +173,7 @@ function priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, class
   return { ...experiment, allocationPercent: 50, promoOneTime: true, promoPublic: true, rows };
 }
 
-export function funnelReport(slug = 'all') {
+export function funnelReport(slug = 'all', snapshot = {}) {
   const campaign = slug === 'all' ? null : getCampaign(slug);
   const cohort = campaign
     ? db.prepare(`SELECT u.id,s.started_at,s.click_token FROM acquisition_starts s JOIN users u ON u.id=s.user_id
@@ -241,7 +241,7 @@ export function funnelReport(slug = 'all') {
     impressions, reach: campaign?.reach ?? null, clicks, totals, ordered, selectedTrials,
     recipeActivity: recipeActivityReport(cohort, Boolean(campaign)),
     trialJourney: trialJourneyReport(cohort, Boolean(campaign)),
-    productAnalytics: { platforms: [productReport(productCohort, Boolean(campaign), new Date().toISOString(), campaign?.slug || null)] },
+    productAnalytics: { platforms: [productReport(productCohort, Boolean(campaign), new Date().toISOString(), campaign?.slug || null, snapshot)] },
     attribution: [...groups.values()].sort((a, b) => b.clicks - a.clicks),
     priceExperiment: !campaign || DINNER_PRICE_EXPERIMENT.campaigns.includes(campaign.slug)
       ? priceExperimentReport(cohort, recipeTimes, trialTimes, paidTimes, classifiedPayments, new Date().toISOString()) : null,

@@ -128,3 +128,16 @@ test('MAX aggregation counts trial after a result even without choice and keeps 
  snapshot.campaign.selectedTrials=2;
  assert.equal((await mergeMaxFunnelReport(report(),{...options,transport:async()=>Response.json(snapshot)})).remoteFunnel.status,'error');
 });
+
+
+test('monitor uses the dashboard validator without reading local report history',async()=>{
+ const {readMaxFunnelSnapshot}=await import('../src/max-funnel.js');
+ const snapshot=maxFunnelSnapshot();
+ const prepare=db.prepare.bind(db);
+ db.prepare=()=>{throw new Error('Monitoring must not calculate local reports');};
+ try{
+  assert.deepEqual(await readMaxFunnelSnapshot({...options,transport:async()=>Response.json(snapshot)}),snapshot);
+  await assert.rejects(readMaxFunnelSnapshot({...options,transport:async()=>Response.json({...snapshot,version:999})}),/Invalid MAX/);
+  await assert.rejects(readMaxFunnelSnapshot({...options,transport:async()=>{throw new Error('timeout');}}),/timeout/);
+ }finally{db.prepare=prepare;}
+});

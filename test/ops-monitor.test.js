@@ -32,7 +32,7 @@ if (command === 'curl') {
   } else if (scenario.healthFailure) process.exit(7);
 } else if (command === 'docker') {
   if (args[0] === 'inspect') console.log(scenario.container);
-  else if (args.some(arg => arg.includes('mergeMaxFunnelReport'))) process.exit(scenario.bridgeFailure ? 1 : 0);
+  else if (args.some(arg => arg.includes('readMaxFunnelSnapshot'))) process.exit(scenario.bridgeFailure ? 1 : 0);
   else {
     const result = spawnSync(process.execPath, args.slice(args.indexOf('node') + 1), {input: fs.readFileSync(0), encoding:'utf8'});
     process.stdout.write(result.stdout || '');

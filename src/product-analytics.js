@@ -247,15 +247,18 @@ function requestLatencyReport(events) {
     visible:group(['selection','full','preview'],shown,r => JSON.parse(r.detail_json).presentation),
     stages:group(['interpretation','generation','validation','nutrition','catalog'],events.filter(r => r.event === 'request_stage' && r.created_at >= trackingSince),r => JSON.parse(r.detail_json).stage)};
 }
-export function productReport(cohort, campaign = false, at = new Date().toISOString(), catalogCampaign = null) {
+export function productReport(cohort, campaign = false, at = new Date().toISOString(), catalogCampaign = null, snapshot = {}) {
   const users = new Map(cohort.map(u => [u.id, u]));
   const eligible = row => users.has(row.user_id) && (!campaign || row.created_at >= users.get(row.user_id).started_at);
-  const rows = db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
+  // Share inputs only within one synchronous report request, never across requests.
+  const rows = snapshot.rows ??= db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
+  const details = snapshot.details ??= new WeakMap();
+  const detail = row => { if (!details.has(row)) details.set(row, JSON.parse(row.detail_json)); return details.get(row); };
   const events = rows.filter(r => r.user_id && eligible(r));
   const entrySince=db.prepare("SELECT value FROM product_analytics_metadata WHERE key='app_entry_since'").get()?.value;
   const boot=events.filter(r=>r.event==='operation_finished'&&r.step==='boot'&&r.created_at>=entrySince&&r.created_at<=at);
-  const successfulBoot=boot.filter(r=>{const status=JSON.parse(r.detail_json).status;return status>=200&&status<400;});
-  const failedBoot=boot.filter(r=>JSON.parse(r.detail_json).status>=400);
+  const successfulBoot=boot.filter(r=>{const status=detail(r).status;return status>=200&&status<400;});
+  const failedBoot=boot.filter(r=>detail(r).status>=400);
   const anonymousBoot=campaign?[]:rows.filter(r=>!r.user_id&&r.event==='auth_error'&&r.step==='boot'&&r.created_at>=entrySince&&r.created_at<=at);
   const entered=new Map();for(const r of successfulBoot)if(!entered.has(r.user_id))entered.set(r.user_id,r.created_at);
   const entryDurations=boot.map(r=>r.duration_ms).filter(n=>Number.isFinite(n)&&n>=0);
@@ -277,9 +280,14 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     if (time > (lastRecipeOpen.get(row.user_id) ?? -Infinity)) lastRecipeOpen.set(row.user_id, time);
   }
   const countUsers = (list, event) => new Set(list.filter(r => r.event === event).map(r => r.user_id || r.subject)).size;
+  const eventsByStep = new Map();
+  for (const row of events) {
+    if (!eventsByStep.has(row.step)) eventsByStep.set(row.step, []);
+    eventsByStep.get(row.step).push(row);
+  }
   const stepRows = steps.filter(s => s !== 'catalog').map(step => {
-    const list = events.filter(r => r.step === step), operations = list.filter(r => r.event === 'operation_finished');
-    const errors = operations.filter(r => JSON.parse(r.detail_json).status >= 400);
+    const list = eventsByStep.get(step) || [], operations = list.filter(r => r.event === 'operation_finished');
+    const errors = operations.filter(r => detail(r).status >= 400);
     const lastViews = new Map(list.filter(r=>r.event==='screen_view').map(r=>[r.user_id,r]));
     const abandoned = new Set([...lastViews.values()].filter(r => Date.parse(at)-Date.parse(r.created_at)>=86400000
       && !eventsByUser.get(r.user_id).some(s=>positions.get(s)>positions.get(r)
@@ -295,7 +303,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const quality = Object.fromEntries(['onboarding_started','onboarding_completed','taste_preferences_completed','taste_preferences_skipped','dinner_intake_confirmed','recommendation_accepted','recommendation_rejected','dinner_retry','recipe_cooked'].map(event => [event, countUsers(dinner, event)]));
   const reasons = {};
   for (const r of dinner.filter(r => r.event === 'dinner_rejection_reason')) {
-    const reason = JSON.parse(r.detail_json).reason;
+    const reason = detail(r).reason;
     const safe = ['dislike','recently_ate','ingredients','time','complexity','other'].includes(reason) ? reason : 'other';
     reasons[safe] = (reasons[safe] || 0) + 1;
   }
@@ -311,7 +319,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     pending: photoJobs.filter(r => !['ready','failed','interrupted'].includes(r.status)).length,
     drafts: photoDraftFlows.size,
     cancelled: new Set(events.filter(r => r.event === 'photo_draft_cancelled' && photoDraftFlows.has(r.flow_id)).map(r => r.flow_id)).size,
-    assemblyTiming: timing(events.filter(r => r.event === 'operation_finished' && r.step === 'import' && Number.isInteger(JSON.parse(r.detail_json).photoCount)))
+    assemblyTiming: timing(events.filter(r => r.event === 'operation_finished' && r.step === 'import' && Number.isInteger(detail(r).photoCount)))
   };
   const notifications = exists('notification_deliveries') ? db.prepare('SELECT user_id,created_at,status FROM notification_deliveries').all().filter(eligible) : [];
   const groupStatuses = list => Object.fromEntries([...new Set(list.map(r => r.status))].map(status => [status,list.filter(r => r.status === status).length]));
@@ -322,8 +330,8 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   checkout.orders = new Set(orders.map(r => r.user_id)).size;
   checkout.paid = new Set(orders.filter(r => r.status === 'paid').map(r => r.user_id)).size;
   checkout.statuses = groupStatuses(orders);
-  checkout.returnSuccess = countUsers(events.filter(r=>JSON.parse(r.detail_json).outcome==='success'),'provider_return');
-  checkout.returnFail = countUsers(events.filter(r=>JSON.parse(r.detail_json).outcome==='fail'),'provider_return');
+  checkout.returnSuccess = countUsers(events.filter(r=>detail(r).outcome==='success'),'provider_return');
+  checkout.returnFail = countUsers(events.filter(r=>detail(r).outcome==='fail'),'provider_return');
   // Ordered conversion only uses the new observation window. Never divide old payments by new impressions.
   checkout.ordered = [0,0,0,0,0];
   for (const user of cohort) {
@@ -332,8 +340,8 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const offer = list[offerIndex];
     const click = offer && list.find((r,i) => i>offerIndex && r.event === 'checkout_requested' && r.created_at >= offer.created_at);
     const ready = click && list.find(r => r.event === 'order_ready' && r.created_at >= click.created_at);
-    const order = ready && orders.find(r => r.user_id === user.id && r.id === JSON.parse(ready.detail_json).orderId);
-    const redirect = order && list.find(r => r.event === 'provider_handoff' && JSON.parse(r.detail_json).orderId === order.id && r.created_at >= ready.created_at);
+    const order = ready && orders.find(r => r.user_id === user.id && r.id === detail(ready).orderId);
+    const redirect = order && list.find(r => r.event === 'provider_handoff' && detail(r).orderId === order.id && r.created_at >= ready.created_at);
     const paid = redirect && order.status === 'paid' && order.paid_at >= redirect.created_at;
     [offer,click,order,redirect,paid].forEach((v,i) => { if(v) checkout.ordered[i]++; });
   }
@@ -379,15 +387,15 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   };
   const health = list => {
     const reports = list.filter(r => r.event === 'telemetry_health');
-    const last = new Map(); for (const r of reports) {const d=JSON.parse(r.detail_json);last.set(r.subject+':'+d.session,d);}
+    const last = new Map(); for (const r of reports) {const d=detail(r);last.set(r.subject+':'+d.session,d);}
     const details = [...last.values()];
-    return { reports: reports.length, dropped: details.reduce((n,d)=>n+(d.dropped||0),0), pending:details.reduce((n,d)=>n+(d.pending||0),0), retried: list.filter(r => {const d=JSON.parse(r.detail_json);return (d.attempts||0)>1||(d.recoveredAttempts||0)>1;}).length,
+    return { reports: reports.length, dropped: details.reduce((n,d)=>n+(d.dropped||0),0), pending:details.reduce((n,d)=>n+(d.pending||0),0), retried: list.filter(r => {const d=detail(r);return (d.attempts||0)>1||(d.recoveredAttempts||0)>1;}).length,
       clientErrors:list.filter(r=>r.event==='client_error').length, authErrors:list.filter(r=>r.event==='auth_error').length, lastEvent:list.at(-1)?.created_at || null,
-      versions:[...new Set(list.map(r=>JSON.parse(r.detail_json).version).filter(Boolean))].slice(-10) };
+      versions:[...new Set(list.map(r=>detail(r).version).filter(Boolean))].slice(-10) };
   };
   const errorGroups = new Map();
   for (const r of events) {
-    const d=JSON.parse(r.detail_json);
+    const d=detail(r);
     if(r.event!=='client_error' && !(r.event==='operation_finished' && d.status>=400)) continue;
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
