@@ -1226,7 +1226,7 @@ async function handleCatalogHandoff(message, user, payload) {
   await sendCatalogContinuation(message.chat.id, user.id, result.recipe, { saved: true, duplicate: !result.created });
 }
 
-export async function handleMessage(message) {
+export async function handleMessage(message, updateId = null) {
   if (!message.from || message.from.is_bot) return;
   if (['group', 'supergroup'].includes(message.chat?.type)) { await handleGroupMessage(message); return; }
   if (message.chat?.type !== 'private') return;
@@ -1248,9 +1248,9 @@ export async function handleMessage(message) {
   const catalogPayload = text.match(/^\/start(?:@[A-Za-z0-9_]+)?\s+(ch_[\s\S]*)$/i)?.[1].trim();
   if (catalogPayload) { identifyProductStep('catalog'); await handleCatalogHandoff(message, user, catalogPayload); return; }
   const maxLandingEntry = config.botPlatform === 'max' && parseMaxLandingPayload(text);
-  if (maxLandingEntry) {
-    try { recordBotStart(user, text); } catch { log('warn', 'landing_max_start_failed'); }
-  } else recordBotStart(user, text);
+  const startDeliveryId = updateId ?? (message.message_id == null ? null : `${chatId}:${message.message_id}`);
+  try { recordBotStart(user, text, new Date(), startDeliveryId); }
+  catch { log('warn', 'tagged_bot_start_failed'); }
   if (hasCatalogFirstRecipe(user.id) && /^\/start(?:@[A-Za-z0-9_]+)?(?:\s+dinner)?\s*$/i.test(text)) {
     if (!user.is_allowed) allowUser(user.id);
     await sendCatalogContinuation(chatId, user.id, latestPublicCatalogRecipe(user.id));
@@ -1586,7 +1586,7 @@ export async function handleChatUpdate(update) {
 async function handleChatWorkflow(update) {
   if (update.callback_query) {
     if (!await handlePhotoDraftCallback(update.callback_query) && !await handleTrialReminderCallback(update.callback_query) && !await handleTrialCallback(update.callback_query) && !await handleMainMenuCallback(update.callback_query) && !await handleTestResetCallback(update.callback_query) && !await handleDinnerIntakeCallback(update.callback_query) && !await handleRecipeDialogueCallback(update.callback_query)) await handleSuggestionCallback(update.callback_query);
-  } else if (update.message) await handleMessage(update.message);
+  } else if (update.message) await handleMessage(update.message, update.update_id);
 }
 
 export async function handleTestResetCallback(callback) {

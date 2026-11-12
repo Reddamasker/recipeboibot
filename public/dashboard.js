@@ -101,6 +101,19 @@ function renderLandingStats(data) {
   $('#landing-panel').hidden = !stats;
   if (!stats) return;
   const metrics = [['Открытия лендинга', stats.totalViews, 'Видимая страница в браузере'], [data.campaign ? 'Из этого размещения' : 'С рекламными метками', data.campaign ? stats.views : stats.taggedViews, 'По меткам страницы'], ['Переходы в Telegram', stats.telegramClicks, 'С лендинга, по выбранному фильтру'], ['Переходы в MAX', stats.maxClicks ?? null, 'Нажатия, не старты. Подтверждённые старты, trial и оплаты — в результатах размещения по платформам. Привязка новых переходов с ' + (stats.maxAttributionSince ? new Date(stats.maxAttributionSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' МСК' : 'недоступной даты')], ['Запустили Telegram-бота', stats.starts, 'Подтверждённый новый запуск после перехода']];
+  for (const item of stats.startOutcomes || []) {
+    const label=item.platform==='max'?'MAX':'Telegram';
+    const since=item.trackingSince ? new Date(item.trackingSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК' : 'нет данных';
+    const platformMetrics = [
+      [`${label}: к новым пользователям`,item.newUsers,'Переходы с первым запуском чата. Считаются метки, а не аккаунты.'],
+      [`${label}: к прежним пользователям`,item.existingUsers,'Переходы только с повторными запусками; первый рекламный источник аккаунта сохранён.'],
+      [`${label}: без запуска`,item.withoutStart,`Пока нет подтверждения. Полный учёт с ${since}. Из них моложе суток: ${number(item.pending24h)}. Это не доказанный отказ.`],
+      [`${label}: старая история без подтверждения`,item.historicalUnknown,'Переходы до полного учёта повторов. Причина неизвестна.'],
+      [`${label}: все запуски по меткам лендинга`,item.launches,`Включая повторные, с ${since}. Повторная доставка того же события не увеличивает счётчик.`],
+      [`${label}: исключения и неполные данные`,item.status==='ready'?item.excludedInternal+item.missingToken:null,`Внутренние проверки: ${number(item.excludedInternal)}. Без метки: ${number(item.missingToken)}. Метки с новым и повторным запуском: ${number(item.bothKinds)} — включены в новые.`]
+    ];
+    metrics.push(...platformMetrics.map(([title,value,note])=>[title,value,item.status==='ready'?note:'Подтверждения запусков сейчас недоступны. Отсутствие данных не означает ноль запусков.']));
+  }
   $('#landing-metrics').replaceChildren(...metrics.map(([label, value, note]) => { const card = node('article', 'metric'); card.append(node('p', 'metric-label', label), node('p', 'metric-number', number(value)), node('p', 'metric-note', note)); return card; }));
   $('#landing-status').textContent = `Учёт начат ${new Date(stats.trackingSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК. Предыдущие открытия неизвестны. Повторное открытие страницы считается отдельно. Mini App не считается открытием лендинга.`;
   if (stats.maxTrackingSince) $('#landing-status').textContent += ` Переходы в MAX считаются с ${new Date(stats.maxTrackingSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК, прежние переходы неизвестны. Одно посещение может перейти в обе платформы; их счётчики не складываются в уникальных посетителей.`;

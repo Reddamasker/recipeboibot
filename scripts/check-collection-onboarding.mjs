@@ -63,6 +63,13 @@ try{
     const report=funnelReport('ya-product-landing-202611');
     assert.equal(report.totals.starts,1);assert.equal(report.totals.firstRecipe,1);assert.equal(report.totals.trial,1);
     assert.equal(db.prepare('SELECT click_token FROM acquisition_starts WHERE user_id=?').get(user.id).click_token,'L'.repeat(24));
+    const {taggedStartSnapshot}=await fromRoot('tagged-bot-starts.js');
+    await handleChatUpdate(initial); // Same MAX message identity, even after the account became allowed.
+    assert.equal(taggedStartSnapshot(['L'.repeat(24)]).rows[0].launches,1);
+    const repeated=normalizeMaxUpdate({update_type:'bot_started',timestamp:2,chat_id:id,user:{user_id:id,first_name:'QA'},payload:landingPayload});
+    await handleChatUpdate(repeated);
+    const starts=taggedStartSnapshot(['L'.repeat(24)]).rows[0];
+    assert.equal(starts.launches,2);assert.ok(starts.newAt);assert.ok(starts.returningAt);
   }
   assert.ok(messages.some(m=>m.text?.includes(collectionSaved)));assert.equal(getPendingIntent(user.id).collectionOnboarding,true);
   const before=calls;await send('Другой семейный рецепт');assert.equal(calls,before);assert.equal(listRecipes(user.id).length,2);

@@ -44,6 +44,8 @@ import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, recordLandingIdentity, landingRedirect, landingReport } from './landing-funnel.js';
+import { taggedStartSnapshot } from './tagged-bot-starts.js';
+import { landingStartOutcomes } from './landing-start-outcomes.js';
 import { recordLandingHeatmap, landingHeatmapReport, landingHeatmapPreview } from './landing-heatmap.js';
 import { landingMetrikaCounter, metrikaSources, metrikaConnections, metrikaFrames } from './landing-metrika.js';
 import { telegramOpenDocument } from './telegram-open.js';
@@ -591,6 +593,11 @@ async function handleRequest(request, response) {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
         return json(response, 200, maxFunnelSnapshot(url.searchParams.has('campaign') ? url.searchParams.get('campaign') : null));
       }
+      if (url.pathname === '/api/internal/tagged-starts') {
+        if (request.method !== 'POST' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response,404,{error:'Не найдено'});
+        const input=await bodyJson(request,16000);
+        return json(response,200,taggedStartSnapshot(input.tokens));
+      }
       if (url.pathname === '/api/internal/catalog-visits') {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
         return json(response, 200, catalogDetailReport(catalogDetailFilters(url.searchParams,'max')));
@@ -684,6 +691,7 @@ async function handleRequest(request, response) {
         if (request.method === 'GET' && url.pathname === '/api/dashboard/funnel') {
           const report = await mergeMaxFunnelReport(dashboardFunnelReport(url.searchParams.get('campaign') || 'all'));
           report.landingStats = report.campaign?.slug === MAX_AD_PLACEMENT ? null : landingReport(report.campaign?.slug || 'all');
+          if (report.landingStats) report.landingStats.startOutcomes = await landingStartOutcomes(report.campaign?.slug || 'all');
           return json(response, 200, report);
         }
         if (request.method === 'POST' && url.pathname === '/api/dashboard/direct-sync') {

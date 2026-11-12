@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'max-landing-'));
-Object.assign(process.env, { DATABASE_PATH:path.join(dir,'qa.sqlite'), BOT_PLATFORM:'max', MAX_BOT_TOKEN:'fixture', MAX_BOT_USERNAME:'id500912857935_bot', MAX_TEST_RESET_USER_ID:'500', TELEGRAM_POLLING:'false', TEST_CONTOUR:'false', ROBOKASSA_TEST:'false' });
+Object.assign(process.env, { DATABASE_PATH:path.join(dir,'qa.sqlite'), BOT_PLATFORM:'max', MAX_BOT_TOKEN:'fixture', MAX_BOT_USERNAME:'id500912857935_bot', MAX_TEST_RESET_USER_ID:'500', TELEGRAM_POLLING:'false', TEST_CONTOUR:'false', ROBOKASSA_TEST:'false', MAX_FUNNEL_TOKEN:'a'.repeat(43) });
 Object.assign(process.env, {ROBOKASSA_MERCHANT_LOGIN:'fixture',ROBOKASSA_PASSWORD1:'fixture1',ROBOKASSA_PASSWORD2:'fixture2',ROBOKASSA_HASH_ALGORITHM:'md5',PAYMENT_TAX:'none'});
 const { db, upsertTelegramUser } = await import('../src/db.js');
 const { recordBotStart, funnelReport } = await import('../src/funnel.js');
@@ -52,4 +52,35 @@ test('malformed/unregistered sources cannot create cohorts; cross-source token r
   const reused=token();recordBotStart(user(505),'/start '+maxLandingPayload('ya-product-rsya-202611',reused));
   assert.throws(()=>recordBotStart(user(506),'/start '+maxLandingPayload('ya-product-landing-202611',reused)));
   assert.equal(db.prepare('SELECT * FROM acquisition_starts WHERE user_id=?').get(user(506).id),undefined);
+});
+test('MAX repeated tagged events retain new tokens and deduplicate the same delivery', async () => {
+  const {taggedStartSnapshot}=await import('../src/tagged-bot-starts.js');
+  const u=user(507),a=token(),b=token(),slug='ya-product-landing-202611';
+  const text='/start '+maxLandingPayload(slug,a);
+  recordBotStart(u,text,new Date(),'max:event1');
+  const first=db.prepare('SELECT * FROM acquisition_starts WHERE user_id=?').get(u.id);
+  recordBotStart(u,text,new Date(),'max:event1');
+  recordBotStart(u,text,new Date(),'max:event2');
+  recordBotStart(u,'/start '+maxLandingPayload(slug,b),new Date(),'max:event3');
+  const snapshot=taggedStartSnapshot([a,b]);
+  assert.equal(snapshot.rows[0].launches,2);assert.ok(snapshot.rows[0].newAt);assert.ok(snapshot.rows[0].returningAt);
+  assert.equal(snapshot.rows[1].launches,1);assert.equal(snapshot.rows[1].newAt,null);
+  assert.deepEqual(db.prepare('SELECT * FROM acquisition_starts WHERE user_id=?').get(u.id),first);
+  assert.throws(()=>recordBotStart(u,'/start '+maxLandingPayload('ya-product-rsya-202611',a),new Date(),'max:bad'));
+  assert.equal(taggedStartSnapshot([a]).rows[0].launches,2);
+});
+test('MAX start bridge authenticates, bounds requests, and returns a validated minimal snapshot',async()=>{
+  const {createServer}=await import('../src/server.js');
+  const {validateTaggedSnapshot}=await import('../src/landing-start-outcomes.js');
+  const server=createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  const url=`http://127.0.0.1:${server.address().port}/api/internal/tagged-starts`,t=token();
+  const options={method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+'a'.repeat(43)},body:JSON.stringify({tokens:[t]})};
+  try {
+    assert.equal((await fetch(url)).status,404);
+    assert.equal((await fetch(url,{...options,headers:{'content-type':'application/json'}})).status,404);
+    const result=await fetch(url,options);assert.equal(result.status,200);
+    const body=await result.json();validateTaggedSnapshot(body,[t],'max');
+    assert.equal(JSON.stringify(body).includes('user_id'),false);
+    assert.equal((await fetch(url,{...options,body:JSON.stringify({tokens:[t,t]})})).status,400);
+  } finally {await new Promise(r=>server.close(r));}
 });

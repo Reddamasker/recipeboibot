@@ -1,4 +1,5 @@
 import { productReport } from './product-analytics.js';
+import { recordTaggedStart } from './tagged-bot-starts.js';
 import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { randomBytes } from 'node:crypto';
 import { parseMaxLandingPayload } from './max-landing-acquisition.js';
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS acquisition_starts (
   campaign TEXT REFERENCES acquisition_campaigns(slug),
   click_token TEXT REFERENCES acquisition_clicks(token), started_at TEXT NOT NULL,
   is_returning INTEGER NOT NULL DEFAULT 0
-);`);
+);
+CREATE INDEX IF NOT EXISTS acquisition_starts_click_token ON acquisition_starts(click_token);`);
 if (!db.prepare('PRAGMA table_info(acquisition_clicks)').all().some(column => column.name === 'tags_json')) {
   db.exec("ALTER TABLE acquisition_clicks ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{}'");
 }
@@ -80,14 +82,13 @@ export function advertisingRedirect(slug, { method = 'GET', userAgent = '', purp
   return `https://t.me/${botUsername()}?start=ad_${token}`;
 }
 
-export function recordBotStart(user, text, at = new Date()) {
+export function recordBotStart(user, text, at = new Date(), deliveryId = null) {
   const match = String(text).match(/^\/start(?:@[A-Za-z0-9_]+)?(?:\s+([A-Za-z0-9_-]{1,64}))?\s*$/i);
   if (!match) return;
   const payload = match[1] || '';
   const maxLanding = config.botPlatform === 'max' ? parseMaxLandingPayload(text) : null;
   if (maxLanding) {
     // First touch and timestamp stay immutable, including organic/returning users.
-    if (db.prepare('SELECT 1 FROM acquisition_starts WHERE user_id=?').get(user.id)) { recordChatAdvertising(user); return; }
     db.exec('SAVEPOINT max_landing_start');
     try {
       createCampaign(maxLanding.campaign);
@@ -95,6 +96,7 @@ export function recordBotStart(user, text, at = new Date()) {
         .run(maxLanding.token, maxLanding.campaign, at.toISOString());
       const click = db.prepare('SELECT campaign FROM acquisition_clicks WHERE token=?').get(maxLanding.token);
       if (click.campaign !== maxLanding.campaign) throw new Error('MAX landing token campaign mismatch');
+      recordTaggedStart(user, maxLanding.campaign, maxLanding.token, at, deliveryId);
       db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
         .run(user.id, maxLanding.campaign, maxLanding.token, at.toISOString(), user.is_allowed ? 1 : 0);
       db.exec('RELEASE max_landing_start');
@@ -110,8 +112,13 @@ export function recordBotStart(user, text, at = new Date()) {
   const maxCampaign = config.botPlatform === 'max' && payload === MAX_AD_PAYLOAD
     ? createCampaign(MAX_AD_PLACEMENT, MAX_AD_NAME).slug : null;
   // First start attribution is immutable; existing accounts are is_returning visits.
-  db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
-    .run(user.id, maxCampaign || click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);
+  db.exec('SAVEPOINT tagged_start');
+  try {
+    recordTaggedStart(user, maxCampaign || click?.campaign, click?.token, at, deliveryId);
+    db.prepare('INSERT OR IGNORE INTO acquisition_starts(user_id,campaign,click_token,started_at,is_returning) VALUES(?,?,?,?,?)')
+      .run(user.id, maxCampaign || click?.campaign || null, click?.token || null, at.toISOString(), user.is_allowed ? 1 : 0);
+    db.exec('RELEASE tagged_start');
+  } catch (error) { db.exec('ROLLBACK TO tagged_start'); db.exec('RELEASE tagged_start'); throw error; }
   recordChatAdvertising(user);
   campaignPriceAssignment(user.id, at);
 }
