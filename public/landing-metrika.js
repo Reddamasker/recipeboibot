@@ -17,7 +17,9 @@ export function start(visitId = null) {
   const diagnostic = query.get('_ym_status-check') === String(id) || ['1','2'].includes(query.get('_ym_debug'));
   try { if (!diagnostic && Number(localStorage.getItem('recipe-landing-internal-until')) > Date.now()) return; } catch {}
   // Do not load a third-party recorder on app/auth links or unrecognized query data.
-  const valid = (key,value) => allowed.has(key) ? value.length <= 200 : key === '_ym_status-check' ? value === String(id) : key === '_ym_debug' ? ['0','1','2'].includes(value) : key === '_ym_lang' && /^[a-z]{2}$/.test(value);
+  // Advertising transport parameters must not disable the counter. They are
+  // deliberately excluded from the explicit hit URL and our stored tags.
+  const valid = (key,value) => key === 'etext' ? /^[A-Za-z0-9._~-]{1,2048}$/.test(value) : key === 'ybaip' ? value === '1' : allowed.has(key) ? value.length <= 200 : key === '_ym_status-check' ? value === String(id) : key === '_ym_debug' ? ['0','1','2'].includes(value) : key === '_ym_lang' && /^[a-z]{2}$/.test(value);
   if ([...query].some(([key,value]) => !valid(key,value))) return;
   window.__landingMetrikaStarted = true;
   document.querySelectorAll('#app, input, textarea, select, [contenteditable]').forEach(node => node.classList.add('ym-hide-content','ym-disable-keys'));

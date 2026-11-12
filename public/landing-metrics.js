@@ -11,10 +11,10 @@
       const allowed = new Set(['campaign', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'campaign_id', 'adgroup_id', 'phrase_id', 'device', 'yclid']);
       for (const key of [...query.keys()]) if (!allowed.has(key)) query.delete(key);
       const response = await fetch('/api/landing/view', { method: 'POST', credentials: 'omit', headers: { 'content-type': 'application/json', 'x-landing-request': '1' }, body: JSON.stringify({ visitId, query: query.toString() }), keepalive: true });
-      if (!response.ok) { void import('/landing-metrika.js?v=4').then(module => module.start()).catch(() => {}); return; }
+      if (!response.ok) { void import('/landing-metrika.js?v=5').then(module => module.start()).catch(() => {}); return; }
       const data = await response.json();
       if (!/^\/landing\/go\/[a-f0-9]{32}$/.test(data.href || '')) return;
-      void import('/landing-metrika.js?v=4').then(module => module.start(visitId)).catch(() => {});
+      void import('/landing-metrika.js?v=5').then(module => module.start(visitId)).catch(() => {});
       void import('/landing-heatmap.js?v=1').then(module => module.start(visitId)).catch(() => {});
       for (const link of root.querySelectorAll('a[href]')) {
         const url = new URL(link.href, location.origin);
@@ -23,7 +23,7 @@
       }
     } catch {
       // Keep the existing unlinked Metrika view if our own collection is down.
-      void import('/landing-metrika.js?v=4').then(module => module.start()).catch(() => {});
+      void import('/landing-metrika.js?v=5').then(module => module.start()).catch(() => {});
     }
   };
   document.addEventListener('visibilitychange', track);

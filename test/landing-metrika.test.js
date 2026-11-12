@@ -74,3 +74,15 @@ test('Metrika identity failures retry at most once and late hidden/private callb
  const invalid=fixture({visitId:'d'.repeat(32)});invalid.window.ym.a.find(call=>call[1]==='getClientID')[2]('https://private.example/token');
  assert.equal(invalid.identityRequests.length,0);
 });
+
+test('real advertising transport parameters permit tracking without entering hit data',()=>{
+ const query='?campaign=ya-product-landing-202611&yclid=123&etext=2202.'+'a'.repeat(380)+'&ybaip=1';
+ const p=fixture({query,visitId:'e'.repeat(32)});
+ assert.equal(p.scripts.length,1);
+ assert.equal(p.window.ym.a[1][2],'https://dishfinder.ru/?campaign=ya-product-landing-202611&yclid=123');
+ p.click('telegram');p.click('telegram');p.click('max');
+ assert.equal(p.window.ym.a.filter(x=>x[1]==='reachGoal').length,2);
+ for(const extra of ['&token=private','&view=collection','&etext=%3Cprivate%3E','&ybaip=secret']) assert.equal(fixture({query:query+extra}).scripts.length,0);
+ assert.equal(fixture({query,internal:true}).scripts.length,0);
+ assert.equal(fixture({query,mini:true}).scripts.length,0);
+});
