@@ -21,7 +21,7 @@ if (!['--check', '--apply'].includes(mode) || process.argv.length !== 3) {
   console.error('Usage: node scripts/deploy-test.js --check | --apply'); process.exit(2);
 }
 const target = 'root@89.223.123.75';
-const options = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes'];
+const options = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4'];
 const identity = process.env.DEPLOY_IDENTITY || path.join(homedir(), '.ssh', 'recipeboibot_ed25519');
 if (existsSync(identity)) options.push('-i', identity);
 function run(command, args, capture = false) {

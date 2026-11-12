@@ -67,7 +67,7 @@ function main() {
   const { mode, enablePayments } = parseDeployMaxArgs(process.argv.slice(2));
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24+ required');
   const target = 'root@89.223.123.75';
-  const options = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes'];
+  const options = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4'];
   const identity = process.env.DEPLOY_IDENTITY || path.join(homedir(), '.ssh', 'recipeboibot_ed25519');
   if (existsSync(identity)) options.push('-i', identity);
   function run(command, args, { capture = false, input } = {}) {

@@ -24,7 +24,7 @@ function run(command, args, capture = false) {
   if (r.status !== 0) throw new Error(`${command} failed (${r.status})${capture ? ': ' + r.stderr.trim() : ''}`);
   return capture ? r.stdout.trim() : '';
 }
-const sshOptions = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes'];
+const sshOptions = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4'];
 const identity = process.env.DEPLOY_IDENTITY || path.join(homedir(), '.ssh', 'recipeboibot_ed25519');
 if (existsSync(identity)) sshOptions.push('-i', identity);
 try {
