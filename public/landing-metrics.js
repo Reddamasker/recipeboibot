@@ -5,6 +5,7 @@
   const track = async () => {
     if (sent || document.visibilityState !== 'visible' || root.hidden || !root.getClientRects().length || window.__miniLaunch || window.Telegram?.WebApp?.initData) return;
     sent = true;
+    void import('/landing-metricool.js?v=1').then(module => module.start()).catch(() => {});
     try {
       const visitId = [...crypto.getRandomValues(new Uint8Array(16))].map(value => value.toString(16).padStart(2, '0')).join('');
       const query = new URLSearchParams(location.search);

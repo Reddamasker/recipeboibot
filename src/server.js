@@ -85,7 +85,7 @@ function securityHeaders(response, scriptHashes = '', metrika = false) {
   const sdkOrigin = config.botPlatform === 'max' ? 'https://st.max.ru' : 'https://telegram.org';
   const frameOrigins = config.botPlatform === 'max' ? 'https://max.ru https://web.max.ru https://*.max.ru' : 'https://web.telegram.org https://*.telegram.org';
   response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors ${frameOrigins}`);
-  if (metrika) response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes} ${metrikaSources} https://yastatic.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ${metrikaConnections}; child-src 'self' blob: ${metrikaSources}; frame-src 'self' blob: ${metrikaSources}; frame-ancestors 'self' ${frameOrigins} ${metrikaFrames}`);
+  if (metrika) response.setHeader('content-security-policy', `default-src 'self'; script-src 'self' ${sdkOrigin} ${scriptHashes} ${metrikaSources} https://yastatic.net https://tracker.metricool.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ${metrikaConnections}; child-src 'self' blob: ${metrikaSources}; frame-src 'self' blob: ${metrikaSources}; frame-ancestors 'self' ${frameOrigins} ${metrikaFrames}`);
 }
 function json(response, status, value) {
   if(response.recipeGateUserId)value=protectFirstRecipeResponse(response.recipeGateUserId,value);
