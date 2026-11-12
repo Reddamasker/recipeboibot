@@ -251,7 +251,9 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const users = new Map(cohort.map(u => [u.id, u]));
   const eligible = row => users.has(row.user_id) && (!campaign || row.created_at >= users.get(row.user_id).started_at);
   // Share inputs only within one synchronous report request, never across requests.
-  const rows = snapshot.rows ??= db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all();
+  // SQLite returns dictionary-shaped rows. Normalize once so repeated metric
+  // passes use ordinary objects with a shared property layout.
+  const rows = snapshot.rows ??= db.prepare('SELECT * FROM product_events ORDER BY created_at,rowid').all().map(row=>({...row}));
   const details = snapshot.details ??= new WeakMap();
   const detail = row => { if (!details.has(row)) details.set(row, JSON.parse(row.detail_json)); return details.get(row); };
   const events = rows.filter(r => r.user_id && eligible(r));
@@ -265,11 +267,15 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   const appEntry=entrySince?{trackingSince:entrySince,attempts:successfulBoot.length+failedBoot.length+anonymousBoot.length,successes:successfulBoot.length,errors:failedBoot.length+anonymousBoot.length,
     users:entered.size,visibleUsers:new Set(events.filter(r=>r.event==='screen_view'&&entered.has(r.user_id)&&r.created_at>=entered.get(r.user_id)&&r.created_at<=at).map(r=>r.user_id)).size,
     unidentifiedErrors:anonymousBoot.length,timing:{samples:entryDurations.length,p50:percentile(entryDurations,.5),p95:percentile(entryDurations,.95)}}:null;
-  const positions = new Map(events.map((r,i)=>[r,i]));
+  const positions = new Map(), lastNavigation = new Map();
+  const atMillis = Date.parse(at), timestamps = new Map();
+  const millis = value => { if (!timestamps.has(value)) timestamps.set(value, Date.parse(value)); return timestamps.get(value); };
   // Partition once: scanning every account's events for every other account made
   // the MAX bridge exceed its request deadline as the account cohort grew.
   const eventsByUser = new Map();
-  for (const row of events) {
+  for (const [index,row] of events.entries()) {
+    positions.set(row,index);
+    if (row.event==='screen_view' || row.event==='step_submit') lastNavigation.set(row.user_id,index);
     if (!eventsByUser.has(row.user_id)) eventsByUser.set(row.user_id, []);
     eventsByUser.get(row.user_id).push(row);
   }
@@ -279,21 +285,32 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const time = Date.parse(row.created_at);
     if (time > (lastRecipeOpen.get(row.user_id) ?? -Infinity)) lastRecipeOpen.set(row.user_id, time);
   }
-  const countUsers = (list, event) => new Set(list.filter(r => r.event === event).map(r => r.user_id || r.subject)).size;
+  const countUsers = (list, event) => {
+    const ids=new Set();for(const row of list)if(row.event===event)ids.add(row.user_id || row.subject);return ids.size;
+  };
   const eventsByStep = new Map();
   for (const row of events) {
     if (!eventsByStep.has(row.step)) eventsByStep.set(row.step, []);
     eventsByStep.get(row.step).push(row);
   }
   const stepRows = steps.filter(s => s !== 'catalog').map(step => {
-    const list = eventsByStep.get(step) || [], operations = list.filter(r => r.event === 'operation_finished');
+    const list = eventsByStep.get(step) || [], operations = [], lastViews = new Map(), submitted = new Set(), prompted = new Set();
+    for (const row of list) {
+      if(row.event==='screen_view')lastViews.set(row.user_id,row);
+      else if(row.event==='step_submit')submitted.add(row.user_id);
+      else if(row.event==='chat_prompt_delivered')prompted.add(row.user_id);
+      else if(row.event==='operation_finished')operations.push(row);
+    }
     const errors = operations.filter(r => detail(r).status >= 400);
-    const lastViews = new Map(list.filter(r=>r.event==='screen_view').map(r=>[r.user_id,r]));
-    const abandoned = new Set([...lastViews.values()].filter(r => Date.parse(at)-Date.parse(r.created_at)>=86400000
-      && !eventsByUser.get(r.user_id).some(s=>positions.get(s)>positions.get(r)
-        && (s.event==='step_submit' || s.event==='screen_view' && s.step!==step))
-      && !((lastRecipeOpen.get(r.user_id) ?? -Infinity) >= Date.parse(r.created_at))).map(r=>r.user_id));
-    return { step, viewed: countUsers(list, 'screen_view'), submitted: countUsers(list, 'step_submit'), prompts:countUsers(list,'chat_prompt_delivered'), inactive:abandoned.size, operations: operations.length,
+    let inactive=0;
+    for (const row of lastViews.values()) {
+      // This is already the user's LAST view of this step. Any later view is
+      // therefore another step; a later submission also proves progression.
+      const viewedAt=millis(row.created_at);
+      if(atMillis-viewedAt>=86400000 && !(lastNavigation.get(row.user_id)>positions.get(row))
+        && !((lastRecipeOpen.get(row.user_id) ?? -Infinity)>=viewedAt))inactive++;
+    }
+    return { step, viewed: lastViews.size, submitted: submitted.size, prompts:prompted.size, inactive, operations: operations.length,
       errors: errors.length, errorUsers: new Set(errors.map(r => r.user_id)).size,
       p50: percentile(operations.map(r => r.duration_ms), .5), p95: percentile(operations.map(r => r.duration_ms), .95) };
   });
@@ -330,8 +347,8 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   checkout.orders = new Set(orders.map(r => r.user_id)).size;
   checkout.paid = new Set(orders.filter(r => r.status === 'paid').map(r => r.user_id)).size;
   checkout.statuses = groupStatuses(orders);
-  checkout.returnSuccess = countUsers(events.filter(r=>detail(r).outcome==='success'),'provider_return');
-  checkout.returnFail = countUsers(events.filter(r=>detail(r).outcome==='fail'),'provider_return');
+  checkout.returnSuccess = countUsers(events.filter(r=>r.event==='provider_return' && detail(r).outcome==='success'),'provider_return');
+  checkout.returnFail = countUsers(events.filter(r=>r.event==='provider_return' && detail(r).outcome==='fail'),'provider_return');
   // Ordered conversion only uses the new observation window. Never divide old payments by new impressions.
   checkout.ordered = [0,0,0,0,0];
   for (const user of cohort) {
@@ -395,6 +412,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
   };
   const errorGroups = new Map();
   for (const r of events) {
+    if(r.event!=='client_error' && r.event!=='operation_finished')continue;
     const d=detail(r);
     if(r.event!=='client_error' && !(r.event==='operation_finished' && d.status>=400)) continue;
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');

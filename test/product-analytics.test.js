@@ -124,6 +124,21 @@ test('abandonment requires a day and a missing subsequent action on the same ste
  recordEngagement(u.id,'recipe_opened',{at:'2026-10-01T00:04:00Z'});
  assert.equal(report([u],false,'2026-10-02T00:05:00Z').steps.find(r=>r.step==='collection').inactive,0,'reading a saved recipe is progress without posting a form');
 });
+test('inactivity uses the last same-step view and stable event order when timestamps tie',()=>{
+ const a=user(),b=user(),c=user(),at='2026-10-01T00:00:00Z';
+ for(const step of ['home','offer','home'])record(a.id,'screen_view',{step,at});
+ for(let i=0;i<2;i++)record(b.id,'screen_view',{step:'home',at});
+ record(c.id,'screen_view',{step:'home',at});record(c.id,'chat_prompt_delivered',{step:'home',at});
+ let result=report([a,b,c],false,'2026-10-02T00:00:01Z');
+ assert.equal(result.steps.find(r=>r.step==='home').viewed,3);
+ assert.equal(result.steps.find(r=>r.step==='home').inactive,3);
+ assert.equal(result.steps.find(r=>r.step==='home').prompts,1);
+ assert.equal(result.steps.find(r=>r.step==='offer').inactive,0);
+ record(b.id,'step_submit',{step:'home',at});
+ result=report([a,b,c],false,'2026-10-02T00:00:01Z');
+ assert.equal(result.steps.find(r=>r.step==='home').inactive,2);
+ assert.equal(result.steps.find(r=>r.step==='home').submitted,1);
+});
 test('operation context isolates concurrent users and links delivery without exposing messages',async()=>{
  const a=user(),b=user();
  await Promise.all([a,b].map(u=>productOperation('request',async c=>{identifyProductUser(u.id);await new Promise(r=>setTimeout(r,5));productMilestone('recipe_delivered');if(u===b)c.status=402;})));
