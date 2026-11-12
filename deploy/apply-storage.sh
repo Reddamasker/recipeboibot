@@ -53,5 +53,6 @@ python3 deploy/storage.py check "$scope"
 [[ $(docker inspect --format '{{.Id}} {{.State.StartedAt}}' "$name") = "$before" ]]
 [[ $(docker inspect --format '{{.State.Health.Status}}' "$name") = healthy ]]
 printf '%s\n' "$revision" > STORAGE_DEPLOYED_REVISION
+rm -- "$archive"
 df -h "$root"
 printf 'Storage release verified without runtime restart: %s %s\n' "$name" "$revision"
