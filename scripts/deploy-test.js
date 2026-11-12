@@ -41,7 +41,7 @@ try {
     const archive = path.join(temp, 'release.tgz'), script = path.join(temp, 'apply.sh');
     run('git', ['archive', '--format=tar.gz', '-o', archive, 'HEAD',
       'src', 'public', 'Dockerfile', 'package.json', 'test', 'scripts',
-      'deploy/enable-persistent-logs.py', 'deploy/enable-monitor.sh', 'deploy/apply-release.sh', 'deploy/apply-test-release.sh', 'deploy/apply-max-release.sh', 'deploy/ops-monitor.sh', 'deploy/storage.py', 'deploy/retention.sh', 'deploy/backup.sh',
+      'deploy/enable-persistent-logs.py', 'deploy/enable-monitor.sh', 'deploy/apply-release.sh', 'deploy/apply-test-release.sh', 'deploy/apply-max-release.sh', 'deploy/ops-monitor.sh', 'deploy/storage.py', 'deploy/apply-storage.sh', 'deploy/retention.sh', 'deploy/backup.sh',
       'deploy/recipeboibot-retention.service', 'deploy/recipeboibot-retention.timer']);
     const hash = createHash('sha256').update(readFileSync(archive)).digest('hex');
     copyFileSync(path.join(root, 'deploy', 'apply-test-release.sh'), script);

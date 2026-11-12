@@ -13,7 +13,7 @@ test('real encrypted backup migration, restore validation, time/byte limits and 
  assert.equal(r.status,0,r.stdout+r.stderr);
 });
 test('ordinary releases ship storage tooling and gate space before builds; daily backup covers all contours',()=>{
- for(const file of ['scripts/deploy.js','scripts/deploy-test.js'])assert.ok(fs.readFileSync(file,'utf8').includes("'deploy/storage.py'"));
+ for(const file of ['scripts/deploy.js','scripts/deploy-test.js'])for(const required of ['deploy/storage.py','deploy/apply-storage.sh'])assert.ok(fs.readFileSync(file,'utf8').includes("'"+required+"'"),file+' must ship '+required);
  for(const file of ['deploy/apply-release.sh','deploy/apply-test-release.sh','deploy/apply-max-release.sh']){
   const s=fs.readFileSync(file,'utf8');assert.ok(s.indexOf('storage.py preflight')<s.indexOf(' build '));assert.match(s,/storage.py/);
  }

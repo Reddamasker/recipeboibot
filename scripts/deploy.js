@@ -45,7 +45,7 @@ try {
   run('git', ['archive', '--format=tar.gz', '-o', archive, revision,
     'src', 'public', 'Dockerfile', 'package.json',
     'deploy/enable-persistent-logs.py', 'deploy/ops-monitor.sh', 'deploy/enable-monitor.sh',
-    'deploy/storage.py', 'deploy/retention.sh', 'deploy/backup.sh',
+    'deploy/storage.py', 'deploy/apply-storage.sh', 'deploy/retention.sh', 'deploy/backup.sh',
     'deploy/recipeboibot-retention.service', 'deploy/recipeboibot-retention.timer',
     'deploy/recipeboibot-monitor.service', 'deploy/recipeboibot-monitor.timer']);
   copyFileSync(path.join(root, 'deploy', 'apply-release.sh'), script);
