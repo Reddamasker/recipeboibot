@@ -33,6 +33,7 @@ retention_config() {
       ;;
     *) echo 'Unknown retention contour' >&2; return 2;;
   esac
+  retention_scope="$1"
   retention_upload_directories=(/root)
   if [[ "$1" = production ]]; then retention_upload_directories+=(/home/nikita); fi
 }
@@ -114,10 +115,17 @@ retention_dangling_images() {
   done <<< "$listing"
 }
 
+retention_database() {
+  local action=check
+  [[ "$1" != --apply ]] || action=apply
+  python3 "$(dirname "${BASH_SOURCE[0]}")/storage.py" "$action" "$retention_scope"
+}
+
 retention_policy() {
   local mode=$1 directory upload_age=60
   retention_trim_files "$retention_root/backups" "$retention_source_pattern" 5 "$mode" || return 1
-  retention_trim_files "$retention_root/backups" "$retention_database_pattern" 30 "$mode" || return 1
+  retention_trim_files "$retention_root/backups" 'storage-tools-before-*.tgz' 5 "$mode" || return 1
+  retention_database "$mode" || return 1
   retention_trim_files "$retention_root/backups" 'tests-*.log' 10 "$mode" || return 1
   retention_trim_images "$mode" || return 1
   retention_dangling_images "$mode" || return 1
@@ -137,10 +145,10 @@ retention_execute() {
   [[ -d "$retention_root/backups" && ! -L "$retention_root" && ! -L "$retention_root/backups" ]] || return 1
   if [[ "$mode" = --database-only ]]; then
     # Daily backups must stay bounded even when no releases happen.
-    retention_trim_files "$retention_root/backups" "$retention_database_pattern" 30 --apply || return 1
-    retention_trim_files "$retention_root/backups" "$retention_database_pattern" 30 --check || return 1
+    retention_database --apply || return 1
+    retention_database --check || return 1
   elif [[ "$mode" = --check ]]; then
-    if [[ -e "$retention_root/backups/retention-error" ]]; then
+    if [[ -e "$retention_root/backups/retention-error" || -e "$retention_root/backups/backup-error" ]]; then
       printf 'Previous retention run failed or did not finish: %s\n' "$retention_root" >&2
       return 1
     fi
@@ -152,7 +160,7 @@ retention_execute() {
     docker builder prune --all --force --keep-storage 1GB || return 1
     retention_policy --check || return 1
     rm -- "$retention_root/backups/retention-error" || return 1
-    printf 'Retention verified: %s (up to 3 distinct rollback images, 5 source archives, 30 DB backups, 10 test logs)\n' "$retention_root"
+    printf 'Retention verified: %s (up to 3 distinct rollback images, 5 source archives, bounded verified compressed DB backups, 10 test logs)\n' "$retention_root"
   fi
 }
 
@@ -166,6 +174,7 @@ retention_main() {
       [[ -d "$retention_root" ]] || continue
       retention_execute "$mode" || failed=1
     done
+    python3 "$(dirname "${BASH_SOURCE[0]}")/storage.py" space production || failed=1
     return "$failed"
   fi
   [[ "$#" = 2 ]] || { echo 'Usage: retention.sh production|test|max --check|--apply|--database-only; or --check-all|--apply-all' >&2; return 2; }

@@ -6,6 +6,12 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
+  const {deployStorage} = await import('./deploy-storage.js');
+  deployStorage('test', process.argv[2]);
+  process.exit(0);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mode = process.argv[2];
 if (!['--check', '--apply'].includes(mode) || process.argv.length !== 3) {
@@ -27,6 +33,7 @@ function run(command, args, capture = false) {
 try {
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24+ required');
   run('ssh', [...options, target, 'cd /opt/recipeboibot-test && docker compose -f compose.test.yaml ps && curl -fsS http://127.0.0.1:3088/healthz']);
+  run('ssh', [...options, target, 'if test -f /opt/recipeboibot-test/deploy/storage.py; then python3 /opt/recipeboibot-test/deploy/storage.py preflight test; fi']);
   if (mode === '--apply') {
     if (run('git', ['status', '--porcelain'], true)) throw new Error('Commit project changes before deploying. Only committed files are published.');
     run(process.execPath, ['--test', '--test-concurrency=1']);
@@ -34,7 +41,7 @@ try {
     const archive = path.join(temp, 'release.tgz'), script = path.join(temp, 'apply.sh');
     run('git', ['archive', '--format=tar.gz', '-o', archive, 'HEAD',
       'src', 'public', 'Dockerfile', 'package.json', 'test', 'scripts',
-      'deploy/enable-persistent-logs.py', 'deploy/enable-monitor.sh', 'deploy/apply-release.sh', 'deploy/apply-test-release.sh', 'deploy/apply-max-release.sh', 'deploy/ops-monitor.sh', 'deploy/retention.sh', 'deploy/backup.sh',
+      'deploy/enable-persistent-logs.py', 'deploy/enable-monitor.sh', 'deploy/apply-release.sh', 'deploy/apply-test-release.sh', 'deploy/apply-max-release.sh', 'deploy/ops-monitor.sh', 'deploy/storage.py', 'deploy/retention.sh', 'deploy/backup.sh',
       'deploy/recipeboibot-retention.service', 'deploy/recipeboibot-retention.timer']);
     const hash = createHash('sha256').update(readFileSync(archive)).digest('hex');
     copyFileSync(path.join(root, 'deploy', 'apply-test-release.sh'), script);

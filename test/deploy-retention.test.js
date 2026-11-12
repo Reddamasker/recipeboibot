@@ -81,6 +81,8 @@ function fixture(policy = policies[2], overrides = {}) {
         retention_config ${scope}
         retention_root=${quote(base)}
         retention_upload_directories=(${quote(uploads)})
+        # Real encrypted database behavior is exercised in storage_test.py.
+        retention_database() { printf '%s\n' "$1" >> ${quote(path.join(directory,'database-calls'))}; }
         retention_execute ${mode}
       `], {encoding: 'utf8', env: {...process.env, RETENTION_FIXTURE_STATE: stateFile}});
     },
@@ -98,7 +100,8 @@ for (const policy of policies) test(`${policy[0]} actually bounds files/images, 
     assert.equal(result.status, 0, result.stderr);
     const files = fs.readdirSync(context.backups);
     assert.equal(files.filter(name => name.startsWith(policy[3])).length, 5);
-    assert.equal(files.filter(name => name.startsWith(policy[4]) && name.endsWith('.sqlite.enc')).length, 30);
+    assert.equal(files.filter(name => name.startsWith(policy[4]) && name.endsWith('.sqlite.enc')).length, 33);
+    assert.match(fs.readFileSync(path.join(context.base,'../database-calls'),'utf8'), /--apply[\s\S]*--check/);
     assert.equal(files.filter(name => name.startsWith('tests-')).length, 10);
     assert.ok(files.includes(`${policy[3]}0008.tgz`), 'Newest source backup survives');
     assert.ok(!files.includes(`${policy[3]}0001.tgz`), 'Oldest source backup is removed');
@@ -148,13 +151,13 @@ test('daily database rotation preserves source archives, images and unfinished r
     const result = context.run('--database-only');
     assert.equal(result.status, 0, result.stderr);
     const files = fs.readdirSync(context.backups);
-    assert.equal(files.filter(name => name.endsWith('.sqlite.enc')).length, 30);
+    assert.equal(files.filter(name => name.endsWith('.sqlite.enc')).length, 33);
     assert.equal(files.filter(name => name.endsWith('.tgz')).length, 9);
     assert.equal(fs.readFileSync(path.join(context.backups, 'retention-error'), 'utf8'), 'previous release failed');
     assert.deepEqual(context.state().calls, []);
     const backup = fs.readFileSync('deploy/backup.sh', 'utf8');
     assert.match(backup, /flock -w 60 9/);
-    assert.ok(backup.indexOf('production --database-only') > backup.indexOf('Encrypted backup created'));
+    assert.ok(backup.indexOf('"$scope" --database-only') > backup.indexOf('storage.py create'));
     assert.match(fs.readFileSync('deploy/apply-release.sh', 'utf8'), /backups --during-deploy/);
   } finally {context.cleanup();}
 });

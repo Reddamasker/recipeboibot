@@ -6,6 +6,12 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
+  const {deployStorage} = await import('./deploy-storage.js');
+  deployStorage('max', process.argv[2]);
+  process.exit(0);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const MAX_HOST = 'recipeboibot-max.89-223-123-75.sslip.io';
 export const LOCAL_ENV_KEYS = Object.freeze(['MAX_BOT_TOKEN', 'MAX_WEBHOOK_SECRET']);
@@ -74,6 +80,7 @@ function main() {
   const checkMode = mode.startsWith('--setup') ? '--setup-check' : '--check';
   if (checkMode === '--setup-check') validateMaxEnvironment(readFileSync(path.join(root, '.env.max.local'), 'utf8'));
   run('ssh', [...options, target, `bash -s -- ${checkMode}`], { input: script });
+  if (checkMode === '--check') run('ssh', [...options, target, 'if test -f /opt/recipeboibot-max/deploy/storage.py; then python3 /opt/recipeboibot-max/deploy/storage.py preflight max; fi']);
   if (mode.endsWith('check')) return;
   if (run('git', ['status', '--porcelain'], { capture: true })) throw new Error('Commit project changes before deploying. Only committed files are published.');
   const revision = run('git', ['rev-parse', 'HEAD'], { capture: true });

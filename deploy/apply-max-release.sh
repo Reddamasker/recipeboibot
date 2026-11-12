@@ -111,6 +111,7 @@ flock -n 9 || { echo 'Another MAX deployment is running' >&2; exit 1; }
 exec 8>/tmp/recipeboibot-docker-deploy.lock
 flock -n 8 || { echo 'Another Docker deployment is running' >&2; exit 1; }
 check_tools
+if [ -f "$root/deploy/storage.py" ]; then python3 "$root/deploy/storage.py" preflight max; fi
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 previous="$image:before-max-$stamp"
 nginx_created=false
@@ -239,10 +240,7 @@ docker compose -f compose.max.yaml run --rm --no-deps --entrypoint node app --in
   '
 
 if [[ "$existing" = true ]]; then
-  docker exec "$container" node --input-type=module -e 'import {DatabaseSync,backup} from "node:sqlite";const db=new DatabaseSync("/app/data/recipes.sqlite",{readOnly:true});await backup(db,"/app/data/deploy-backup.sqlite");db.close();'
-  docker exec "$container" node -e 'process.stdout.write(require("node:fs").readFileSync("/app/data/deploy-backup.sqlite"))' |
-    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -pass file:backups/backup.key -out "backups/recipes-before-max-$stamp.sqlite.enc"
-  docker exec "$container" node -e 'require("node:fs").unlinkSync("/app/data/deploy-backup.sqlite")'
+  python3 deploy/storage.py create max
 fi
 
 if [[ "$mode" = --setup ]]; then
@@ -332,6 +330,7 @@ done
 [[ "$healthy" = true ]]
 assert_runtime
 assert_endpoints
+if [[ "$existing" = false ]]; then python3 deploy/storage.py create max; fi
 docker exec -e EXPECTED_REVISION="$revision" "$container" node -e 'if(process.env.RELEASE_REVISION!==process.env.EXPECTED_REVISION)process.exit(1)'
 runtime_tree=$(runtime_hash)
 [[ "$runtime_tree" = "$expected_tree" ]]

@@ -9,6 +9,7 @@ exec 9>/tmp/recipeboibot-test-deploy.lock
 flock -n 9 || { echo 'Another test deployment is running' >&2; exit 1; }
 exec 8>/tmp/recipeboibot-docker-deploy.lock
 flock -n 8 || { echo 'Another Docker deployment is running' >&2; exit 1; }
+if [ -f deploy/storage.py ]; then python3 deploy/storage.py preflight test; fi
 test -f .env.local
 test -f backups/backup.key
 docker exec recipeboibot-test node --input-type=module -e "import {config} from './src/config.js'; if(!config.testContour || config.testBotUsername!=='recipeboi_test_bot') process.exit(1)"
@@ -50,22 +51,8 @@ docker compose -f compose.test.yaml build app
 docker run --rm --network none -e BOT_PLATFORM=telegram -e TELEGRAM_POLLING=false -v "$PWD/test:/app/test:ro" -v "$PWD/deploy:/app/deploy:ro" -v "$PWD/scripts:/app/scripts:ro" recipeboibot-test-app node --test --test-concurrency=1 > "backups/tests-$stamp.log" 2>&1
 tail -n 10 "backups/tests-$stamp.log"
 docker compose -f compose.test.yaml stop app
-BACKUP_STAMP="$stamp" python3 - <<'PY'
-import os,pathlib,sqlite3,subprocess
-root=pathlib.Path('/opt/recipeboibot-test')
-volume=pathlib.Path('/var/lib/docker/volumes/recipeboibot-test_recipeboibot-test-data/_data')
-source=sqlite3.connect(f'file:{volume}/recipes.sqlite?mode=ro',uri=True)
-temporary=root/'backups'/('recipes-before-parity-'+os.environ['BACKUP_STAMP']+'.sqlite')
-assert not temporary.exists()
-destination=sqlite3.connect(temporary)
-source.backup(destination)
-assert destination.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
-destination.close();source.close()
-encrypted=temporary.with_suffix('.sqlite.enc')
-subprocess.run(['openssl','enc','-aes-256-cbc','-salt','-pbkdf2','-iter','200000','-pass',f'file:{root}/backups/backup.key','-in',str(temporary),'-out',str(encrypted)],check=True)
-temporary.unlink()
-print('Encrypted database backup:',encrypted)
-PY
+python3 deploy/storage.py create test
+
 python3 deploy/enable-persistent-logs.py recipeboibot-test compose.test.yaml
 docker compose -f compose.test.yaml up -d --no-build app
 for attempt in $(seq 1 30); do

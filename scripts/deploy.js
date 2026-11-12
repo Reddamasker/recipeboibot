@@ -5,6 +5,12 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
+  const {deployStorage} = await import('./deploy-storage.js');
+  deployStorage('production', process.argv[2]);
+  process.exit(0);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = process.env.DEPLOY_TARGET || 'root@89.223.123.75';
 const healthUrl = process.env.DEPLOY_URL || 'https://dishfinder.ru';
@@ -28,6 +34,7 @@ try {
   const revision = run('git', ['rev-parse', 'HEAD'], true);
   if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Invalid Git revision');
   run('ssh', [...sshOptions, target, 'cd /opt/recipeboibot && test -f .env.local && sudo -n docker compose ps && curl -fsS http://127.0.0.1:3087/healthz']);
+  run('ssh', [...sshOptions, target, 'if test -f /opt/recipeboibot/deploy/storage.py; then sudo -n python3 /opt/recipeboibot/deploy/storage.py preflight production; fi']);
   if (mode === '--check') { console.log(`\nSSH and server ready. Local revision: ${revision}`); process.exit(0); }
   if (run('git', ['status', '--porcelain'], true)) throw new Error('Commit project changes before deploying. Only committed files are published.');
   run(process.execPath, ['--test', '--test-concurrency=1']);
@@ -38,7 +45,7 @@ try {
   run('git', ['archive', '--format=tar.gz', '-o', archive, revision,
     'src', 'public', 'Dockerfile', 'package.json',
     'deploy/enable-persistent-logs.py', 'deploy/ops-monitor.sh', 'deploy/enable-monitor.sh',
-    'deploy/retention.sh', 'deploy/backup.sh',
+    'deploy/storage.py', 'deploy/retention.sh', 'deploy/backup.sh',
     'deploy/recipeboibot-retention.service', 'deploy/recipeboibot-retention.timer',
     'deploy/recipeboibot-monitor.service', 'deploy/recipeboibot-monitor.timer']);
   copyFileSync(path.join(root, 'deploy', 'apply-release.sh'), script);

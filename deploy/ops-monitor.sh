@@ -69,7 +69,7 @@ fi
 disk_used="$(df -P "$base_dir" | awk 'NR==2 { gsub(/%/,"",$5); print $5 }')"
 if [ -z "$disk_used" ]; then add_failure "Не удалось прочитать заполнение диска"
 elif [ "$disk_used" -ge 90 ]; then add_failure "Критически заполнен диск: ${disk_used}%"
-elif [ "$disk_used" -ge 80 ]; then add_failure "Диск заполнен на ${disk_used}%"
+elif [ "$disk_used" -ge 75 ]; then add_failure "Диск заполнен на ${disk_used}%"
 fi
 
 # The same policy audits every contour, including MAX. A deployment holds this
@@ -91,7 +91,7 @@ else
   esac
 fi
 
-latest_backup="$(find "$base_dir/backups" -maxdepth 1 -type f -name 'recipes-*.sqlite.enc' -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1 | cut -d. -f1)"
+latest_backup="$(find "$base_dir/backups" -maxdepth 1 -type f \( -name 'recipes-*.sqlite.enc' -o -name 'recipes-*.sqlite.gz.enc' \) -printf '%T@\n' 2>/dev/null | sort -nr | head -n 1 | cut -d. -f1)"
 now="$(date +%s)"
 if [ -z "$latest_backup" ]; then add_failure "Нет зашифрованной резервной копии БД"
 elif [ $((now - latest_backup)) -gt 108000 ]; then add_failure "Локальная резервная копия старше 30 часов"

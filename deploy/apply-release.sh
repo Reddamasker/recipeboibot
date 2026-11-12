@@ -16,6 +16,7 @@ exec 9>/tmp/recipeboibot-deploy.lock
 flock -n 9 || { echo 'Another deployment is running' >&2; exit 1; }
 exec 8>/tmp/recipeboibot-docker-deploy.lock
 flock -n 8 || { echo 'Another Docker deployment is running' >&2; exit 1; }
+if [ -f deploy/storage.py ]; then python3 deploy/storage.py preflight production; fi
 test -f .env.local
 sudo -n sh deploy/backup.sh /opt/recipeboibot/backups --during-deploy
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
