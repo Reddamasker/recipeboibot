@@ -31,3 +31,10 @@ test('diet and cooking conditions inspect ingredients and actual steps',()=>{
  assert.equal(matchesDiscovery({...r,ingredients:[{name:'картофель'}],steps:['Отварите картофель.']},new URLSearchParams({method:'no_cook'})),false);
  assert.equal(matchesDiscovery({...r,ingredients:[{name:'огурец'}],steps:['Нарежьте огурец.']},new URLSearchParams({method:'no_cook',diet:'plant'})),true);
 });
+test('no-cook never includes warming, pan cooking or a cooked tortilla from the real catalog',()=>{
+ const found=all({method:'no_cook'});
+ assert.ok(found.length>0);
+ for(const r of found)assert.doesNotMatch(catalogRecipe(r.id).steps.join(' '),/прогре|готовьте|огне|сковород|кип|вари|жар|духов|запек/iu,r.title);
+ assert.ok(found.some(r=>r.title.includes('греческий салат')));
+ assert.ok(!found.some(r=>/тортилья|Пхали|Тёплый|райта|Суномоно|Капуста/iu.test(r.title)));
+});

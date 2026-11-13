@@ -24,7 +24,7 @@ function classifications(r) {
   const snack=/закуск|хумус|паштет|бутерброд|брускет|намазк/iu.test(title+' '+tags);
   const noMeat=!meat.test(names)&&!fish.test(names)&&!/(?:^|\s)бульон/iu.test(names.replace(/овощной бульон/giu,''));
   const noDairy=!dairy.test(names);
-  const heated=/жар|вари|варит|варк|кип|туш|запек|выпек|духов|нагре|разогре|грил|мангал|микроволн|мультиварк|на пару/iu.test(steps);
+  const heated=/жар|вари|варит|варк|кип|туш|запек|выпек|духов|грей|грев|грет|огне|огонь|готовьте|томите|сковород|грил|мангал|микроволн|мультиварк|на пару/iu.test(steps);
   const result = {
     meal:{breakfast,soup,main:!soup&&!salad&&!dessert&&!snack&&!side&&!breakfast, salad,side,snack,baking,dessert},
     diet:{vegetarian:noMeat,plant:noMeat&&noDairy&&!/яйц|яич|мед|мёд|майонез/iu.test(names),dairy_free:noDairy},
