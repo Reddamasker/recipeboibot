@@ -1,4 +1,5 @@
 import { SEED_RECIPES, recipeCategories, hasExcludedIngredient } from './dinner.js';
+import { discoveryGroups, matchesDiscovery } from './catalog-discovery.js';
 
 export const cuisines = [['everyday','Домашняя'],['italian','Итальянская'],['georgian','Грузинская'],['russian','Русская'],['ukrainian','Украинская'],['belarusian','Белорусская'],['greek','Греческая'],['indian','Индийская'],['hungarian','Венгерская'],['japanese','Японская'],['chinese','Китайская'],['uzbek','Узбекская'],['eastern','Восточная'],['asian','Азиатская'],['european','Европейская'],['caucasian','Кавказская']];
 export const categories = [['noodles','Лапша'],['rice','Рис'],['pasta','Паста'],['soup','Супы'],['salad','Салаты'],['baking','Выпечка'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['pizza','Пицца'],['home','Домашняя еда']];
@@ -10,6 +11,9 @@ const normalize = value => String(value || '').toLocaleLowerCase('ru').replaceAl
 const noodleIngredient = name => /лапш|удон|соба|сомен|рамен|фунчоз|макароны широкие/iu.test(name);
 function hasCookingProduct(recipe,product) {
   const selected=normalize(product);
+  // Inclusion chooses the actual product, unlike broad allergy exclusion families.
+  const precise={творог:/творог|творож/iu,молоко:/молоко|молока/iu,сыр:/сыр|брынз|моцарел|пармезан|фета/iu,фарш:/фарш/iu};
+  if(precise[selected])return recipe.ingredients.some(i=>precise[selected].test(i.name));
   if(selected==='лапша')return recipe.ingredients.some(i=>noodleIngredient(i.name));
   if(selected==='макароны')return recipe.ingredients.some(i=>!noodleIngredient(i.name)&&(/макарон|спагетт|пенне|фузилли|феттуч|тальятелл|фарфалл|лингвин|вермишел|каннеллон|лазан|паста (?:сух|пшенич)/iu.test(i.name)||normalize(i.name)==='паста'));
   // An inclusive ingredient family: any vegetable, rather than all vegetables pictured.
@@ -53,6 +57,7 @@ const entries = SEED_RECIPES.map(recipe => {
   ingredients: recipe.ingredients.map(({name,quantity,unit,comment})=>({name,quantity,unit,...(comment ? {comment} : {})})),
   steps: recipe.steps.map(step=>step.text), nutrition: recipe.nutrition
 }; });
+const availableDiscoveryGroups=discoveryGroups.map(g=>({...g,choices:g.choices.map(c=>({...c,count:entries.filter(r=>g.id==='include'?hasCookingProduct(r,c.id):matchesDiscovery(r,new URLSearchParams({[g.id]:c.id}))).length}))}));
 export function catalogRecipe(id) { return entries.find(recipe=>recipe.id === id) || null; }
 // A stable cycle through the whole public catalog, independent of search pages,
 // viewer timezone, process restarts and the order of recipes in the source file.
@@ -64,7 +69,7 @@ export function catalogDaily(now = new Date()) {
   const selected = dailyEntries[((day % dailyEntries.length) + dailyEntries.length) % dailyEntries.length];
   const {ingredients,steps,nutrition,...summary} = selected || {};
   return {
-    date: new Date(day * dayMs).toISOString().slice(0,10), timeZone: 'Europe/Moscow',
+    discoveryGroups:availableDiscoveryGroups, date: new Date(day * dayMs).toISOString().slice(0,10), timeZone: 'Europe/Moscow',
     serverTime: now.toISOString(), nextChangeAt: new Date((day + 1) * dayMs - moscowOffset).toISOString(),
     recipe: selected ? {...summary,ingredientCount:ingredients.length} : null,
   };
@@ -82,7 +87,7 @@ export function catalogSearch(params = new URLSearchParams()) {
     return words.every(word=>text.includes(word)) && (!cuisine || (exactCuisine ? recipe.cuisineId===cuisine : recipe.categories.includes(cuisine))) &&
       (!category || recipe.categories.includes(category)) && recipe.minutes <= max &&
       include.every(ingredient=>hasCookingProduct(recipe,ingredient)) &&
-      !hasExcludedIngredient(recipe,exclude) && (!saved || saved.has(recipe.id));
+      !hasExcludedIngredient(recipe,exclude) && (!saved || saved.has(recipe.id)) && matchesDiscovery(recipe,params);
   });
   if (params.get('sort') === 'fast') recipes.sort((a,b)=>a.minutes-b.minutes);
   else if (params.get('sort') === 'name') recipes.sort((a,b)=>a.title.localeCompare(b.title,'ru'));
@@ -90,7 +95,7 @@ export function catalogSearch(params = new URLSearchParams()) {
   const total = recipes.length, pages = Math.max(1,Math.ceil(total/24));
   const page = Math.min(pages,Math.max(1,Math.floor(Number(params.get('page')))||1));
   const facets = list => list.map(([id,label])=>({id,label,count:entries.filter(r=>r.categories.includes(id)).length})).filter(f=>f.count);
-  return { total, page, pages, catalogTotal: entries.length, cuisines: facets(cuisines), categories: facets(categories),
+  return { discoveryGroups:availableDiscoveryGroups, total, page, pages, catalogTotal: entries.length, cuisines: facets(cuisines), categories: facets(categories),
     cuisineChoices: cuisineChoices.map(([id,label])=>({id,label,count:entries.filter(r=>r.cuisineId===id).length})).filter(c=>c.count),
     recipes: recipes.slice((page-1)*24,page*24).map(({ingredients,steps,nutrition,...recipe})=>({...recipe,ingredientCount:ingredients.length})) };
 }
