@@ -412,14 +412,16 @@
       ui.catalog=daily?{recipes:response.recipe?[response.recipe]:[],daily:response}:response;ui.catalogBusy=false;ui.discoveryGroups=response.discoveryGroups||ui.discoveryGroups;
       if(daily)ui.catalogExpiresAt=started+Math.max(0,Date.parse(response.nextChangeAt)-Date.parse(response.serverTime));
       if(ui.section==='discover'){
-        discover();const el=document.querySelector('#r-catalog-content');
+        // Populate initial facets without replacing a search field being edited.
+        if(!document.querySelector('.d-discovery'))document.querySelector('#r-catalog-form')?.insertAdjacentHTML('afterend',RecipeDiscovery.render(ui.discoveryGroups,ui.discoverySelected));
+        const el=document.querySelector('#r-catalog-content');
         if(el){el.innerHTML=catalogContent();if(flow&&ui.catalog.recipes.length)RecipeAnalytics?.requestVisible(el,flow,false,'selection');if(flow&&!ui.catalog.recipes.length)RecipeAnalytics?.observe(el,'screen_view','other',{flowId:flow,results:0});}
       }
       if(daily)scheduleDailyCatalog();
     }catch(error){
       if(rev!==ui.catalogRevision)return;
       ui.catalogError=error.message;ui.catalogBusy=false;
-      RecipeAnalytics?.event('client_error','other',{code:'network'});
+      if(observed)RecipeAnalytics?.event('client_error','other',{code:'network'});
       if(daily)ui.catalogExpiresAt=Date.now()+60000;
       if(ui.section==='discover')discover();
     }
