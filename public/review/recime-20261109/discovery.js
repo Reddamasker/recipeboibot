@@ -1,7 +1,7 @@
 (() => {
   const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const descriptions={include:'Что есть дома',meal:'От завтрака до десерта',diet:'По составу блюда',cuisines:'Знакомые и новые вкусы',occasion:'На каждый день и для гостей',method:'Выбери удобный способ'};
-  const photos={курица:'ingredients-v2/chicken',яйца:'ingredients-v2/egg',картофель:'ingredients-v2/potato',рис:'ingredients-v2/rice',макароны:'ingredients-v3/pasta',фарш:'variant2/mince',грибы:'ingredients-v2/mushroom',помидоры:'ingredients-v2/tomato',свинина:'ingredients-v2/pork',говядина:'ingredients-v2/beef',рыба:'ingredients-v2/fish',сыр:'ingredients-v2/cheese'};
+  const photos={курица:'ingredients-v2/chicken',яйца:'ingredients-v2/egg',картофель:'ingredients-v2/potato',гречка:'ingredients-v4/buckwheat',рис:'ingredients-v2/rice',макароны:'ingredients-v3/pasta',фарш:'variant2/mince',творог:'ingredients-v4/curd',капуста:'ingredients-v4/cabbage',морковь:'variant2/carrot',свёкла:'ingredients-v4/beet',кабачок:'ingredients-v4/zucchini',грибы:'ingredients-v2/mushroom',помидоры:'ingredients-v2/tomato',огурцы:'ingredients-v4/cucumber',свинина:'ingredients-v2/pork',говядина:'ingredients-v2/beef',рыба:'ingredients-v2/fish',молоко:'ingredients-v4/milk',сыр:'ingredients-v2/cheese',фасоль:'ingredients-v4/beans',горох:'ingredients-v4/peas',чечевица:'ingredients-v4/lentils',яблоки:'ingredients-v4/apple'};
   function render(groups, selected){
     if(!groups?.length)return '';
     const count=Object.values(selected).reduce((n,v)=>n+v.length,0);
@@ -16,7 +16,7 @@
       const query=input.value.toLocaleLowerCase('ru').replaceAll('ё','е').trim();
       const choices=group.choices.filter(c=>c.label.toLocaleLowerCase('ru').replaceAll('ё','е').includes(query));
       const row=(c,photo=false)=>`<label>${photo?`<img src="/assets/filters/${photos[c.id]}.webp" width="72" height="64" alt="">`:''}<span>${esc(c.label)}${c.count===0?'<small>Рецептов пока нет</small>':''}</span><input type="checkbox" value="${esc(c.id)}" ${draft.has(c.id)?'checked':''} ${c.count===0&&!draft.has(c.id)?'disabled':''}></label>`;
-      list.innerHTML=group.id==='include'&&!query?`<h3>Популярные</h3><div class="d-products">${choices.filter(c=>photos[c.id]).map(c=>row(c,true)).join('')}</div><h3>Ещё продукты</h3>${choices.filter(c=>!photos[c.id]).map(c=>row(c)).join('')}`:choices.map(c=>row(c)).join('')||'<p>Ничего не найдено. Попробуй другое название.</p>';
+      list.innerHTML=!choices.length?'<p>Ничего не найдено. Попробуй другое название.</p>':group.id==='include'?`<div class="d-products">${choices.map(c=>row(c,true)).join('')}</div>`:choices.map(c=>row(c)).join('');
       dialog.querySelector('[data-apply]').textContent=draft.size?`Применить (${draft.size})`:'Применить';
     };
     list.onchange=e=>{if(e.target.checked){if(draft.size>=12){e.target.checked=false;return;}draft.add(e.target.value);}else draft.delete(e.target.value);dialog.querySelector('[data-apply]').textContent=draft.size?`Применить (${draft.size})`:'Применить';};
