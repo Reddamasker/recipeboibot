@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runReleaseTests } from './release-validation.js';
 
 if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
@@ -85,7 +86,7 @@ function main() {
   if (run('git', ['status', '--porcelain'], { capture: true })) throw new Error('Commit project changes before deploying. Only committed files are published.');
   const revision = run('git', ['rev-parse', 'HEAD'], { capture: true });
   if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Invalid Git revision');
-  run(process.execPath, ['--test', '--test-concurrency=1']);
+  runReleaseTests(root);
   const temporary = mkdtempSync(path.join(tmpdir(), 'recipeboibot-max-release-'));
   try {
     const archive = path.join(temporary, 'release.tgz');

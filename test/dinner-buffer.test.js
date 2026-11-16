@@ -575,7 +575,7 @@ test('generation abstraction creates independent roles concurrently using strict
     const input = JSON.parse(body.input[0].content[0].text); assert.equal(input.count, 1); assert.deepEqual(input.profile.excludedIngredients, ['орехи']);
     assert.deepEqual(input.profile.preferredCategories, { fish: 1, pasta: -1 });
     assert.deepEqual(input.requestedCategories, ['asian', 'rice']);
-    assert.deepEqual(body.text.format.schema.properties.recipes.items.properties.role.enum, [input.role]);
+    assert.deepEqual(body.text.format.schema.properties.result.anyOf[0].properties.recipes.items.properties.role.enum, [input.role]);
     assert.match(body.instructions, /рецепт должен одновременно соответствовать всем перечисленным категориям/);
     assert.match(body.instructions, /pizza означает пиццу, italian — итальянскую кухню, georgian — грузинскую/);
     if (input.pantry.length) assert.match(body.instructions, /Используй названные продукты как основу/);
@@ -590,7 +590,7 @@ test('generation abstraction creates independent roles concurrently using strict
     else { assert.match(body.instructions, /Продукты дома не указаны/); assert.doesNotMatch(body.instructions, /привычное блюдо из имеющихся продуктов/); }
     calls.push(input);
     const source = batch()[input.candidateIndex];
-    const response = new Promise((resolve) => pending.push(() => resolve(new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ recipes: [{ ...source, role: input.role }] }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 }))));
+    const response = new Promise((resolve) => pending.push(() => resolve(new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ safetyRefusal:'none',result:{recipes: [{ ...source, role: input.role }]} }), usage: { input_tokens: 100, output_tokens: 200 } }), { status: 200 }))));
     if (pending.length === 6) pending.splice(0).forEach((resolve) => resolve());
     return response;
   };

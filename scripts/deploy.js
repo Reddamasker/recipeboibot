@@ -4,6 +4,7 @@ import { mkdtempSync, copyFileSync, existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runReleaseTests } from './release-validation.js';
 
 if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
@@ -37,7 +38,7 @@ try {
   run('ssh', [...sshOptions, target, 'if test -f /opt/recipeboibot/deploy/storage.py; then sudo -n python3 /opt/recipeboibot/deploy/storage.py preflight production; fi']);
   if (mode === '--check') { console.log(`\nSSH and server ready. Local revision: ${revision}`); process.exit(0); }
   if (run('git', ['status', '--porcelain'], true)) throw new Error('Commit project changes before deploying. Only committed files are published.');
-  run(process.execPath, ['--test', '--test-concurrency=1']);
+  runReleaseTests(root);
   const temp = mkdtempSync(path.join(tmpdir(), 'recipeboibot-release-'));
   const archive = path.join(temp, 'release.tgz'), script = path.join(temp, 'apply.sh');
   const remoteHome = target.startsWith('root@') ? '/root' : '/home/nikita';

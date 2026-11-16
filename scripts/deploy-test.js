@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runReleaseTests } from './release-validation.js';
 
 if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
@@ -36,7 +37,7 @@ try {
   run('ssh', [...options, target, 'if test -f /opt/recipeboibot-test/deploy/storage.py; then python3 /opt/recipeboibot-test/deploy/storage.py preflight test; fi']);
   if (mode === '--apply') {
     if (run('git', ['status', '--porcelain'], true)) throw new Error('Commit project changes before deploying. Only committed files are published.');
-    run(process.execPath, ['--test', '--test-concurrency=1']);
+    runReleaseTests(root);
     const temp = mkdtempSync(path.join(tmpdir(), 'recipeboibot-test-release-'));
     const archive = path.join(temp, 'release.tgz'), script = path.join(temp, 'apply.sh');
     run('git', ['archive', '--format=tar.gz', '-o', archive, 'HEAD',

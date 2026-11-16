@@ -140,6 +140,7 @@ async function interpretedContext(userId, query, interpret) {
     const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${understood}`).requestedCategories;
     return { ...interpreted, understood, requestedCategories };
   } catch (error) {
+    if(error.code==='RECIPE_SAFETY_REFUSAL'||error.errorCode==='provider_refusal')throw error;
     log('warn', 'meal_request_interpretation_fallback', { userId, status: error?.status, code: error?.code });
     return fallback;
   }
