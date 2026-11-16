@@ -1,5 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
-import {validateOnce} from '../scripts/release-validation.js';
+import {validateOnce,validationEnvironment} from '../scripts/release-validation.js';
+test('environment identity includes dynamic config helper settings and ignores unrelated launch metadata',()=>{
+ const sources=["process.env.BOT_PLATFORM; integer('AI_MAX_INPUT_CHARS',30000); csvIntegers('OWNER_IDS','')"];
+ const env={BOT_PLATFORM:'telegram',AI_MAX_INPUT_CHARS:'30000',OWNER_IDS:'1',NODE_OPTIONS:'--no-warnings',PATH:'runtime',LAUNCH_NONCE:'a'};
+ const before=validationEnvironment(sources,env);
+ assert.deepEqual(before,validationEnvironment(sources,{...env,LAUNCH_NONCE:'b'}));
+ for(const key of ['BOT_PLATFORM','AI_MAX_INPUT_CHARS','OWNER_IDS','NODE_OPTIONS','PATH'])assert.notDeepEqual(before,validationEnvironment(sources,{...env,[key]:'changed'}));
+});
 test('release validation reuses only a successful identical unexpired tree/environment',()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'release-receipt-'));let runs=0;const run=()=>runs++;
  try{
