@@ -22,7 +22,10 @@ export function runReleaseTests(root) {
   const fingerprint=()=>{
     if(command('git',['status','--porcelain']))throw Error('Commit project changes before validation');
     const python=spawnSync('python',['--version'],{encoding:'utf8'});
-    return JSON.stringify({tree:command('git',['rev-parse','HEAD^{tree}']),node:process.version,platform:process.platform,arch:process.arch,python:python.status===0?python.stdout.trim():'unavailable',environment:createHash('sha256').update(JSON.stringify(Object.entries(process.env).sort())).digest('hex'),args:['--test','--test-concurrency=1']});
+    const tracked=command('git',['ls-files','*.js','*.mjs']).split('\n');
+    const used=new Set(tracked.flatMap(file=>[...fs.readFileSync(path.join(root,file),'utf8').matchAll(/process\.env\.([A-Za-z_][A-Za-z_0-9]*)/g)].map(m=>m[1])));
+    const environment=Object.entries(process.env).filter(([name])=>used.has(name)||/^(NODE_|PYTHON|LC_|LANG$|TZ$|PATH$|Path$|PATHEXT$|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NO_PROXY$|CI$)/i.test(name)).sort();
+    return JSON.stringify({tree:command('git',['rev-parse','HEAD^{tree}']),node:process.version,platform:process.platform,arch:process.arch,python:python.status===0?python.stdout.trim():'unavailable',environment:createHash('sha256').update(JSON.stringify(environment)).digest('hex'),args:['--test','--test-concurrency=1']});
   };
   const key=fingerprint(),directory=path.resolve(root,command('git',['rev-parse','--git-common-dir']),'release-validation');
   return validateOnce({directory,key,currentKey:fingerprint,run:()=>{
