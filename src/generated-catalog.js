@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 import { recipeNutrition, normalizeNutrition } from './nutrition.js';
 
 export const CATALOG_SCHEMA = 1;
+export async function readCatalogInput(stream, limit=32*1024*1024) {
+  const chunks=[];let size=0;
+  for await(const chunk of stream){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>limit)throw Error('Payload too large');chunks.push(bytes);}
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
 const hash = text => createHash('sha256').update(text).digest('hex');
 const now = () => new Date().toISOString();
 const states = ['pending','published','duplicate','rejected','error'];
@@ -129,5 +134,5 @@ export function createGeneratedCatalogStore(db) {
   return {read,enqueue,ingest,pending,finish,publish,report,snapshot,applySnapshot,
     diagnostics:()=>{const saved=db.prepare("SELECT value FROM generated_catalog_meta WHERE key='report'").get();return saved?JSON.parse(saved.value):null;},
     acknowledge:ids=>{if(!Array.isArray(ids)||ids.length>1000||ids.some(id=>!/^\w{64}$/.test(id)))throw Error('Invalid receipt');for(const id of ids)db.prepare('UPDATE generated_catalog_candidates SET forwarded_at=? WHERE id=?').run(now(),id);},
-    exportCandidates:()=>db.prepare("SELECT id,platform,recipe_json FROM generated_catalog_candidates WHERE forwarded_at IS NULL AND state IN ('pending','error') ORDER BY created_at,id LIMIT 1000").all().map(r=>({id:r.id,platform:r.platform,recipe:JSON.parse(r.recipe_json)}))};
+    exportCandidates:()=>db.prepare("SELECT id,platform,recipe_json FROM generated_catalog_candidates WHERE forwarded_at IS NULL AND state IN ('pending','error') ORDER BY created_at,id LIMIT 200").all().map(r=>({id:r.id,platform:r.platform,recipe:JSON.parse(r.recipe_json)}))};
 }

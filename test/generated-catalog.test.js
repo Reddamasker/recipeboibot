@@ -4,7 +4,8 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createGeneratedCatalogStore, catalogProjection, publicationProblems, validateCatalogSnapshot, exactCatalogDuplicate } from '../src/generated-catalog.js';
+import { Readable } from 'node:stream';
+import { createGeneratedCatalogStore, catalogProjection, publicationProblems, validateCatalogSnapshot, exactCatalogDuplicate, readCatalogInput } from '../src/generated-catalog.js';
 import { reviewCatalogCandidate } from '../src/catalog-review.js';
 import { SEED_RECIPES } from '../src/dinner-seeds.js';
 
@@ -12,6 +13,11 @@ const dish=()=>({title:'Тыквенная каша с пшеном',description
   ingredients:[{name:'пшено',quantity:150,unit:'г'},{name:'тыква',quantity:300,unit:'г'},{name:'вода',quantity:600,unit:'мл'}],
   steps:[{position:1,text:'Промойте пшено несколько раз горячей водой.'},{position:2,text:'Нарежьте очищенную тыкву небольшими кубиками.'},{position:3,text:'Залейте тыкву и пшено водой и варите на слабом огне 30 минут до мягкости, помешивая.'}],tags:['каша']});
 function fixture(){const db=new DatabaseSync(':memory:');return {db,store:createGeneratedCatalogStore(db)};}
+test('replication preserves Cyrillic across arbitrary byte boundaries and bounds the actual byte payload',async()=>{
+  const value={title:'Щи со свёклой'},bytes=Buffer.from(JSON.stringify(value));
+  assert.deepEqual(await readCatalogInput(Readable.from([...bytes].map(b=>Buffer.from([b])))),value);
+  await assert.rejects(()=>readCatalogInput(Readable.from([bytes]),bytes.length-1),/Payload too large/);
+});
 
 test('only trusted generation enters the durable queue; screenshots, imports and personal fields are excluded',()=>{
   const {db,store}=fixture();

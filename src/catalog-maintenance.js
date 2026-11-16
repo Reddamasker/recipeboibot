@@ -5,9 +5,10 @@ import { config } from './config.js';
 import { publicCatalogRecipes } from './public-catalog.js';
 import { reviewCatalogCandidate } from './catalog-review.js';
 import { reviewPublicCatalogRecipe } from './openai.js';
+import { readCatalogInput } from './generated-catalog.js';
 
 const action=process.argv[2];
-const input=async()=>{let data='';for await(const chunk of process.stdin){data+=chunk;if(data.length>32*1024*1024)throw Error('Payload too large');}return JSON.parse(data);};
+const input=()=>readCatalogInput(process.stdin);
 function scan(history=false){
   if(config.testContour)return;
   const since=history?'1970-01-01':db.prepare("SELECT value FROM generated_catalog_meta WHERE key='since'").get().value;
