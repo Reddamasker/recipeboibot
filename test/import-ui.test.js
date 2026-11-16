@@ -142,3 +142,15 @@ test('a first imported recipe waits at benefits without fetching its full conten
   assert.equal(f.sandbox.state.payment.pendingFirstRecipe.recipeId, pending.recipeId);
   assert.deepEqual(f.notices, []);
 });
+
+test('Pinterest short link follows the real import form and opens the saved recipe', async () => {
+  const f = fixture('url'); f.text.value = 'https://pin.it/6Tbynf1ND'; await f.submit();
+  assert.deepEqual(f.requests[0], ['/api/import', {kind:'url',value:'https://pin.it/6Tbynf1ND'}]);
+  assert.deepEqual(f.opened,['saved']); assert.equal(f.closed,1);
+});
+
+test('Pinterest source error preserves the link and shows screenshot recovery in the form', async () => {
+  const f=fixture('url');f.text.value='https://pin.it/6Tbynf1ND';
+  f.sandbox.api=async()=>{throw Object.assign(new Error('Не удалось прочитать этот пин Pinterest. Пришлите скриншот с ингредиентами и шагами или текст рецепта.'),{status:422});};
+  await f.submit();assert.equal(f.closed,0);assert.equal(f.text.value,'https://pin.it/6Tbynf1ND');assert.equal(f.message.hidden,false);assert.match(f.message.textContent,/скриншот/);assert.deepEqual(f.opened,[]);
+});

@@ -103,9 +103,10 @@ export async function safePostJson(input, payload, maxBytes) {
   return JSON.parse(result.text);
 }
 
-export async function safeFetchText(input, maxBytes) {
+export async function safeFetchText(input, maxBytes, { allowUrl = () => true } = {}) {
   let url = await assertSafeRemoteUrl(input);
   for (let i = 0; i <= 3; i++) {
+    if (!allowUrl(url)) throw Object.assign(new Error('Источник переадресовал на неподдерживаемый адрес.'), { status: 422, code: 'SOURCE_UNAVAILABLE' });
     const result = await pinnedRequest(url, maxBytes);
     if (!result.redirect) return result;
     url = await assertSafeRemoteUrl(new URL(result.redirect, url).toString());
@@ -115,9 +116,10 @@ export async function safeFetchText(input, maxBytes) {
 
 // Download incoming MAX media without bot credentials, with DNS pinning and
 // public-address validation again on every redirect.
-export async function safeFetchBuffer(input, maxBytes) {
+export async function safeFetchBuffer(input, maxBytes, { allowUrl = () => true } = {}) {
   let url = await assertSafeRemoteUrl(input);
   for (let i = 0; i <= 3; i++) {
+    if (!allowUrl(url)) throw Object.assign(new Error('Неподдерживаемый адрес вложения.'), { status: 422, code: 'SOURCE_UNAVAILABLE' });
     if (url.protocol !== 'https:') throw Object.assign(new Error('Вложение требует HTTPS'), { status: 400 });
     const result = await pinnedRequest(url, maxBytes, null, true);
     if (!result.redirect) return { ...result, path: url.pathname };

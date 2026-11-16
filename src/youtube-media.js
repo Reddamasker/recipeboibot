@@ -69,6 +69,13 @@ export function mediaPlan(probe) {
 export async function downloadYoutubeMedia(input, adapters = {}) {
   const video = youtubeVideo(input);
   if (!video) throw error('Нужна ссылка на отдельный ролик YouTube.', 'INVALID_YOUTUBE_URL');
+  return downloadRecipeVideo(video, adapters);
+}
+
+// Shared processing accepts only canonical identities, never an arbitrary media URL.
+export async function downloadRecipeVideo(video, adapters = {}) {
+  const pinterest = /^\d+$/.test(video?.id || '') && video.url === `https://www.pinterest.com/pin/${video.id}/`;
+  if (!video?.id || (!pinterest && youtubeVideo(video.url)?.id !== video.id)) throw error('Неверный источник видео.', 'INVALID_MEDIA_URL');
   const execute = adapters.run || run;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'recipe-youtube-'));
   try {
@@ -77,6 +84,7 @@ export async function downloadYoutubeMedia(input, adapters = {}) {
       '--js-runtimes', `node:${process.execPath}`,
       '--socket-timeout', '15', '--retries', '1', '--fragment-retries', '1', '--extractor-retries', '1',
       '--max-filesize', String(MAX_BYTES), '--match-filters', 'duration <= 600 & !is_live',
+      ...(pinterest ? ['--use-extractors', 'Pinterest'] : []),
       '--format', 'bestvideo[height<=480]+worstaudio/best[height<=480]/bestvideo[height<=480]',
       '--merge-output-format', 'mkv', '--output', path.join(directory, 'media.%(ext)s'), '--print-json', video.url
     ], { directory });
