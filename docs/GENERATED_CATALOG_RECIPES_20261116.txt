@@ -1,0 +1,248 @@
+Результат проверки рецептов — 16 ноября 2026
+
+Проверено 134 сохранённых рецепта, созданных через бота: Telegram — 64, MAX — 70.
+Добавлено в общий каталог: 97. Дубли: 33. Не прошли проверку: 4.
+Теперь в каталоге 437 рецептов (прежние 340 + новые 97).
+Личные коллекции не изменяются. Скриншоты и другие импорты не публикуются.
+
+ДОБАВЛЕННЫЕ РЕЦЕПТЫ
+
+1. Ароматный яблочный кекс
+   https://dishfinder.ru/recipes/community-f6f3a14e79b7e580ee74c72c
+2. Белая рыба в аэрогриле с лимоном и чесноком
+   https://dishfinder.ru/recipes/community-9e4eaa0b75f14410d0c338a4
+3. Блинный пирог с творожно-сметанным кремом и ягодами
+   https://dishfinder.ru/recipes/community-64ba90f21b214fd40480f494
+4. Блинчики на молоке и воде
+   https://dishfinder.ru/recipes/community-5ea465ec70b3199601be229d
+5. Булочки на кефире без дрожжей
+   https://dishfinder.ru/recipes/community-52f064879c6f272f2b111c0e
+6. Быстрая пицца на лаваше с курицей и перцем
+   https://dishfinder.ru/recipes/community-514ee4825815cb4dc224ed7b
+7. Венские вафли из рисовой муки
+   https://dishfinder.ru/recipes/community-d00fcd504602c8ef587f978e
+8. Говяжьи стейки в аэрогриле
+   https://dishfinder.ru/recipes/community-fd41501ed84c6e4283e0ef76
+9. Гратен из цветной капусты под сырной корочкой
+   https://dishfinder.ru/recipes/community-8c33555d88bde00c31b3dec2
+10. Гречка со свининой и овощами на сковороде
+   https://dishfinder.ru/recipes/community-c69ea255801c107ad0ef3243
+11. Домашние наггетсы в аэрогриле
+   https://dishfinder.ru/recipes/community-09faf916d2644e447241b12b
+12. Домашние роллы с запечённой красной рыбой и огурцом
+   https://dishfinder.ru/recipes/community-f50f8d4ccb3a61f7c7729f63
+13. Домашний стейк с запечённым картофелем
+   https://dishfinder.ru/recipes/community-b15958ea8c59a056d07f38c2
+14. Донбури со свининой, капустой и морковью
+   https://dishfinder.ru/recipes/community-4b3f8d599cd4fa3d7740c3a2
+15. Жареные шампиньоны с луком
+   https://dishfinder.ru/recipes/community-4d94e726911d135d7ab18b6e
+16. Запечённая картошка с овощами под соевым соусом
+   https://dishfinder.ru/recipes/community-8ac064194549f3f64c791f21
+17. Запечённая тыква с фетой и тыквенными семечками
+   https://dishfinder.ru/recipes/community-494541c8e6d356b69b440de8
+18. Запечённая фриттата с картофелем, шпинатом и сыром
+   https://dishfinder.ru/recipes/community-e5b1886b98debc968ead5d6c
+19. Запечённый картофель с морковью и луком
+   https://dishfinder.ru/recipes/community-0fedd5dd3ff8ca601039dca9
+20. Картофель по-деревенски
+   https://dishfinder.ru/recipes/community-d4a74ba7a88f5aa6739a01bc
+21. Классический манник на кефире
+   https://dishfinder.ru/recipes/community-612230bdae503016270592c6
+22. Колбаски с картофелем на сковороде
+   https://dishfinder.ru/recipes/community-6adeeebe97056100389ded11
+23. Колканнон
+   https://dishfinder.ru/recipes/community-e4a68cdc7f475b08cb32578e
+24. Компот из боярышника
+   https://dishfinder.ru/recipes/community-3f867e3d07d925332e1a4cf9
+25. Котлеты в аэрогриле
+   https://dishfinder.ru/recipes/community-7aee7f0b6a3639e640b33a38
+26. Котлеты из утиного фарша
+   https://dishfinder.ru/recipes/community-2317ae440540cb812245dc14
+27. Куриные бёдра на сковороде с чесноком
+   https://dishfinder.ru/recipes/community-087e2539326a5be6e63035cb
+28. Куриные голени в слоёном тесте
+   https://dishfinder.ru/recipes/community-06167728218e373c1106fd8c
+29. Куриные крылышки с медово-соевым соусом
+   https://dishfinder.ru/recipes/community-e3f7adee2a8ef47c09fb922c
+30. Куриные митболы с рисом в сметанном соусе
+   https://dishfinder.ru/recipes/community-47a5cf9ff76fbb450fa95533
+31. Куриные роллы в лаваше с овощами
+   https://dishfinder.ru/recipes/community-0c6feb7a1a5d9fb817e9bcf6
+32. Куриный суп с гречкой и картофелем
+   https://dishfinder.ru/recipes/community-259dce98f4241cd31c019881
+33. Курица адобо с рисом
+   https://dishfinder.ru/recipes/community-fc9db4e7eb1bff7111d36fff
+34. Курица в лимонно-йогуртовом маринаде
+   https://dishfinder.ru/recipes/community-b5e3e7ebecc898d6dff20213
+35. Курица по-охотничьи с грибами и томатами
+   https://dishfinder.ru/recipes/community-cd3b6cda32cd9d1130fbf585
+36. Курица с редькой в сметанном соусе
+   https://dishfinder.ru/recipes/community-f35399dad2ced466039be262
+37. Курица с сырными макаронами на сковороде
+   https://dishfinder.ru/recipes/community-731bd1ff8da0c4f06c9bf8fb
+38. Кускус с курицей, морковью и луком
+   https://dishfinder.ru/recipes/community-265f19f7bbf24694eb854ea6
+39. Лагман с говядиной и овощами
+   https://dishfinder.ru/recipes/community-0d3f46ad0bd1659db583fdb0
+40. Макароны с мясным соусом
+   https://dishfinder.ru/recipes/community-627935f4eafd203a42e41faa
+41. Макароны с яйцом и чесночным маслом
+   https://dishfinder.ru/recipes/community-54208bbba589ec23ca446a7d
+42. Маринованная капуста с морковью
+   https://dishfinder.ru/recipes/community-3143ecee348d7763899bd1f0
+43. Маринованная капуста со свёклой
+   https://dishfinder.ru/recipes/community-b70fca885c13efca74a22972
+44. Маринованные баклажаны с чесноком и укропом
+   https://dishfinder.ru/recipes/community-383a0eedcf4e4ae14fbcb0ce
+45. Марокканская кефта в томатном соусе с кускусом
+   https://dishfinder.ru/recipes/community-87f83534382252ee4ec7926d
+46. Настойка из калины
+   https://dishfinder.ru/recipes/community-c881127ab4b80cb31de392ed
+47. Нежная курица с картофелем и овощами в духовке
+   https://dishfinder.ru/recipes/community-0f3be4708f6afed1aa0b1d56
+48. Нежные куриные фрикадельки в сливочном соусе
+   https://dishfinder.ru/recipes/community-4106e5a96222fecccb938eae
+49. Нежные куриные фрикадельки в соусе из кабачка
+   https://dishfinder.ru/recipes/community-e976f419181f5a99d79a2c73
+50. Омлет с сыром на сковороде
+   https://dishfinder.ru/recipes/community-1e2ae6535c89e4b9035110ee
+51. Осётр, запечённый с лимоном и укропом
+   https://dishfinder.ru/recipes/community-ec3aa808f5deb5fc1d988c93
+52. Отбивные из свинины
+   https://dishfinder.ru/recipes/community-19d5486845a189d63fcd7ee0
+53. Отварной говяжий язык в сметанном соусе
+   https://dishfinder.ru/recipes/community-1ba645e06f3d90317d13ee03
+54. Панкейки на молоке
+   https://dishfinder.ru/recipes/community-aea9268b91ee75e1ebcc4e32
+55. Перловая каша с морковью и луком
+   https://dishfinder.ru/recipes/community-33d9c5b40716963fdb87803e
+56. Печень по-строгановски с гречкой
+   https://dishfinder.ru/recipes/community-dad80623757a5f21ab473dbe
+57. Пирожки с капустой
+   https://dishfinder.ru/recipes/community-564fbc9b76ab037d84d58b00
+58. Поке-боул с запечённой красной рыбой
+   https://dishfinder.ru/recipes/community-03392023c1b1ee778003b3c6
+59. Простой гречневый суп с морковью и луком
+   https://dishfinder.ru/recipes/community-9fc4f59a343b61018b065c88
+60. Простой яблочный пирог на скорую руку
+   https://dishfinder.ru/recipes/community-9532517bd4c2d6f8b9d182ae
+61. Пшенное молочко
+   https://dishfinder.ru/recipes/community-78f562abcdb6e1306d76132b
+62. Рис с грибами и сыром
+   https://dishfinder.ru/recipes/community-5b4efaa3b77ff85af6810432
+63. Рис с индейкой и яйцами на сковороде
+   https://dishfinder.ru/recipes/community-16f1fac30abce3ca0e783bb5
+64. Румяные кабачки с яйцом на сковороде
+   https://dishfinder.ru/recipes/community-e08895153e8b3137c809e133
+65. Салат из огурцов, помидоров и зелени
+   https://dishfinder.ru/recipes/community-40e0311f43169186d7754aad
+66. Салат крабовый с кукурузой и огурцом
+   https://dishfinder.ru/recipes/community-a39d7284c607cd2bc4e02be9
+67. Салат Обжорка
+   https://dishfinder.ru/recipes/community-8a5ccadaa313cd3ed10404e3
+68. Салат с жареными баклажанами, огурцом и томатами
+   https://dishfinder.ru/recipes/community-7b0810fae08e7fde3f6ca086
+69. Салат с курицей, картофелем, морковью и огурцом
+   https://dishfinder.ru/recipes/community-4b332aaeed835b3351758ddf
+70. Салат Цезарь с курицей и домашними гренками
+   https://dishfinder.ru/recipes/community-3ee0584cb5c68a88ab0af78a
+71. Свиная печень по-строгановски с горчичным соусом
+   https://dishfinder.ru/recipes/community-3bdf1f62206fa92040fb3209
+72. Свиная щековина, отваренная в пряном бульоне
+   https://dishfinder.ru/recipes/community-8172640ca503a906880fd02a
+73. Свинина по-китайски с капустой
+   https://dishfinder.ru/recipes/community-37b4d5cf1febde6bcc046789
+74. Свиные отбивные с макаронами в сливочно-горчичном соусе
+   https://dishfinder.ru/recipes/community-3765af60d9f19b3d56e7519f
+75. Скьяччата из кабачков
+   https://dishfinder.ru/recipes/community-2b98e2846183add065278d3a
+76. Сливочный суп с вешенками
+   https://dishfinder.ru/recipes/community-6e83aafdc581f4dee2b2c84f
+77. Солянка сборная мясная
+   https://dishfinder.ru/recipes/community-ca390d2a080a612da6bddc1c
+78. Спагетти наполитан по-японски со свининой
+   https://dishfinder.ru/recipes/community-55def1a5c271f369a56f26c0
+79. Сырники из творога
+   https://dishfinder.ru/recipes/community-ed5e106aeeb3b9731060a361
+80. Сэндвич с индейкой и сыром, сок и чай
+   https://dishfinder.ru/recipes/community-069ef26ad143e8cc9dfad310
+81. Тайская курица с кешью и рисом
+   https://dishfinder.ru/recipes/community-3a97165920363a0619aa1764
+82. Тартифлет с картофелем, беконом и сыром
+   https://dishfinder.ru/recipes/community-47ff4b6a586f617a853079ed
+83. Творожная запеканка с изюмом
+   https://dishfinder.ru/recipes/community-eb51392416a078b83784fe64
+84. Тёплый салат с курицей, фетой и кускусом
+   https://dishfinder.ru/recipes/community-fe45710b48b25537e9bb2e2f
+85. Тефтели из индейки с пастой в медово-соевом соусе
+   https://dishfinder.ru/recipes/community-91fc32bc3ce05d072171b09e
+86. Тушёная говядина с картофелем и овощами
+   https://dishfinder.ru/recipes/community-150a4b30256e86e8558c2a4e
+87. Тушёные свиные рёбрышки с баклажанами, помидорами и сладким перцем
+   https://dishfinder.ru/recipes/community-f7f42968400c67c869015053
+88. Тыквенный крем-суп
+   https://dishfinder.ru/recipes/community-e3ebdbaaab369ce392e43bac
+89. Утка с перловкой и овощами
+   https://dishfinder.ru/recipes/community-88bb918119562dc36c7683b4
+90. Хрустящие куриные крылья в панировке без соевого соуса
+   https://dishfinder.ru/recipes/community-47bd5cf6c87f627ac4820e76
+91. Хрустящий салат с копчёной колбасой и свежими овощами
+   https://dishfinder.ru/recipes/community-a9f942379b816fcc192c6f1f
+92. Целая курица в скороварке с лимоном и морковью
+   https://dishfinder.ru/recipes/community-6252d393ef6fd3d4f8a90c9e
+93. Шоколадная колбаса без выпечки
+   https://dishfinder.ru/recipes/community-42406ed3b0a86b50d37e49a5
+94. Яблочный штрудель с творогом
+   https://dishfinder.ru/recipes/community-16e59f0af966c668a86e3c48
+95. Яичница-скрэмбл с зелёными помидорами
+   https://dishfinder.ru/recipes/community-40ed82eb7a0dbd93fd2f8546
+96. Ячневая молочная каша
+   https://dishfinder.ru/recipes/community-918be893983a965cab50cab9
+97. Patatas a lo pobre с морковью и болгарским перцем
+   https://dishfinder.ru/recipes/community-f4a6bcd2d3fe37b8d18ad733
+
+ДУБЛИ — НЕ ПУБЛИКУЮТСЯ ПОВТОРНО
+
+1. Индейка с овощами и рисом в мягком соевом соусе (Telegram) → Индейка с овощами на сковороде
+2. Свинина в кисло-сладком соусе с овощами и лапшой (Telegram) → Якисоба со свининой
+3. Нежные котлеты из трески в духовке (Telegram) → Рыбные котлеты
+4. Курица с картофелем на одной сковороде (Telegram) → Курица с картофелем на сковороде
+5. Свинина по-французски с картофелем в горчичном соусе (Telegram) → Свинина с картофелем
+6. Курица с томатами и шпинатом в сливочной пасте (Telegram) → Паста с курицей в томатном соусе
+7. Куриное филе с гречкой, морковью и луком (Telegram) → Курица с гречкой
+8. Cottage pie — британская запеканка с фаршем и картофелем (Telegram) → Пастуший пирог с говядиной
+9. Оякодон (Telegram) → Оякодон с курицей
+10. Азиатский рис с курицей и овощами (Telegram) → Курица с рисом и овощами
+11. Оякодон с курицей (Telegram) → Оякодон с курицей
+12. Гречка с фаршем (Telegram) → Говядина с гречкой
+13. Сковородка с мясом, пастой и томатным соусом (Telegram) → Макароны с мясным соусом
+14. Говядина с яблоками и горчичным соусом (Telegram) → Говядина с яблоком и красным луком
+15. Корейка из свинины (Telegram) → Свинина с картофелем
+16. Ляжки курицы с картофелем и томатами на сковороде (Telegram) → Курица с картофелем на сковороде
+17. Омлет с помидором и сыром (MAX) → Омлет с овощами
+18. Курица с рисом, морковью и луком (MAX) → Курица с рисом и овощами
+19. Картошка по-деревенски на противне (MAX) → Картофельные дольки с лимоном и чесноком
+20. Паста с курицей и томатным соусом (MAX) → Паста с курицей в томатном соусе
+21. Тартифлетка с картофелем, беконом и сыром (MAX) → Тартифлет с картофелем, беконом и сыром
+22. Картофель с курицей на одной сковороде (MAX) → Курица с картофелем на сковороде
+23. Отбивная из свинины с картошкой (MAX) → Отбивные из свинины
+24. Курица с рисом и овощами в духовке (MAX) → Курица с рисом и овощами
+25. Курица с картофелем по-баскски (MAX) → Курица с картофелем на сковороде
+26. Филе минтая с лимонно-йогуртовой корочкой (MAX) → Рыба с картофелем в духовке
+27. Рис с овощами на сковороде (MAX) → Рис с овощами
+28. Макароны с мясным соусом (MAX) → Макароны с мясным соусом
+29. Салат из крабовых палочек с кукурузой и огурцом (MAX) → Салат крабовый с кукурузой и огурцом
+30. Салат из крабовых палочек с кукурузой и огурцом (MAX) → Салат крабовый с кукурузой и огурцом
+31. Фрикадельки в томатном соусе (MAX) → Фрикадельки в томатном соусе
+32. Макароны с говядиной в томатном соусе (MAX) → Паста с говядиной и томатами
+33. Стерлядь, запечённая с картофелем (MAX) → Рыба с картофелем в духовке
+
+НЕ ПРОШЛИ ПРОВЕРКУ
+
+1. Немецкий айнтопф с мясом и картофелем — не указан вид мяса, от которого зависят приготовление и время.
+2. Солёная скумбрия в чайном рассоле с картофелем — рецепт не прошёл проверку безопасности обработки рыбы.
+3. Жареная чешуйчатка с картофелем и луком — рецепт не прошёл проверку безопасности грибов.
+4. Кабачковая икра на зиму — рецепт не прошёл проверку способа консервирования.
+
+В принятых рецептах исправлены найденные неточности состава, шагов, порций и времени. Для настойки учтено полное время ожидания. КБЖУ — приблизительная оценка.
