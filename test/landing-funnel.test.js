@@ -102,14 +102,15 @@ test('untagged visits stay separate; returning users and owner do not inflate ne
 
 async function browserFixture({ hidden = false, mini = false, background = false, fails = false, dinner = false, platform = 'telegram' } = {}) {
   const link = { href: 'https://t.me/Recipeboibot?start=collection', textContent: 'Попробовать в Telegram', dataset: { landingPlatform: 'telegram' } }, calls = [], events = {};
-  const maxLink = { href: 'https://site.example/open/recipe-bot/max', textContent: 'Попробовать в MAX', dataset: { landingPlatform: 'max' } };
+  const maxLink = { href: 'https://max.ru/id500912857935_bot?start=collection', textContent: 'Попробовать в MAX', dataset: { landingPlatform: 'max' } };
   const title = {};
-  const root = { hidden, getClientRects: () => [{}], querySelector: selector => selector === '#lp-title' ? title : null, querySelectorAll: () => [link, maxLink] };
+  const root = { hidden, addEventListener:()=>{}, getClientRects: () => [{}], querySelector: selector => selector === '#lp-title' ? title : null, querySelectorAll: () => [link, maxLink] };
   const document = { visibilityState: background ? 'hidden' : 'visible', readyState: 'complete', getElementById: () => root, addEventListener: (name, fn) => { events[name] = fn; } };
   vm.runInNewContext(fs.readFileSync('public/landing-metrics.js', 'utf8'), {
-    document, window: { __miniLaunch: mini, __recipePlatform: { name: platform } }, location: { origin: 'https://site.example', search: dinner ? '?campaign=ya-dinner-landing-202610&secret=private' : '?utm_campaign=ya_dinner_search_202610&secret=private' },
+    document, window: { addEventListener:()=>{}, __miniLaunch: mini, __recipePlatform: { name: platform } }, location: { origin: 'https://site.example', search: dinner ? '?campaign=ya-dinner-landing-202610&secret=private' : '?utm_campaign=ya_dinner_search_202610&secret=private' },
+    sessionStorage:{getItem:()=>null,setItem:()=>{}},performance:{now:()=>0},navigator:{onLine:true},setTimeout,clearTimeout,AbortSignal,
     crypto: { getRandomValues: bytes => bytes.fill(1) }, Uint8Array, Set, URL, URLSearchParams,
-    fetch: async (url, options) => { calls.push({ url, options }); if (fails) throw new Error('offline'); return { ok: true, json: async () => ({ href: '/landing/go/' + '01'.repeat(16) }) }; }
+    fetch: async (url, options) => { calls.push({ url, options }); if (fails) throw new Error('offline'); return { ok: true, json: async () => ({ links:{telegram:'https://t.me/Recipeboibot?start=lp_'+'a'.repeat(24),max:'https://max.ru/id500912857935_bot?start=lc_site-landing_'+'b'.repeat(24)},linkAgesMs:{telegram:0,max:0} }) }; }
   });
   await new Promise(resolve => setImmediate(resolve));
   return { link, maxLink, calls, events, document, title };
@@ -121,13 +122,13 @@ test('client records only a visible landing, skips Mini App, and sends one event
   const page = await browserFixture(); assert.equal(page.calls.length, 1);
   await page.events.visibilitychange(); assert.equal(page.calls.length, 1);
   assert.equal(JSON.parse(page.calls[0].options.body).query, 'utm_campaign=ya_dinner_search_202610');
-  assert.match(page.link.href, /^\/landing\/go\/[a-f0-9]{32}$/);
-  assert.equal(page.maxLink.href, page.link.href + '?platform=max');
+  assert.match(page.link.href, /^https:\/\/t.me\/Recipeboibot\?start=lp_/);
+  assert.match(page.maxLink.href, /^https:\/\/max.ru\/id500912857935_bot\?start=lc_/);
 });
 test('analytics failure leaves the original Telegram link available', async () => {
   const page = await browserFixture({ fails: true });
   assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=collection');
-  assert.equal(page.maxLink.href, 'https://site.example/open/recipe-bot/max');
+  assert.equal(page.maxLink.href, 'https://max.ru/id500912857935_bot?start=collection');
 });
 
 test('paid landing opens the same collection onboarding with its own attribution and stable price experiment', async () => {
@@ -158,7 +159,7 @@ test('paid landing opens the same collection onboarding with its own attribution
   assert.equal(page.title.textContent, undefined);
   assert.equal(page.link.textContent, 'Попробовать в Telegram');
   assert.equal(page.maxLink.textContent, 'Попробовать в MAX');
-  assert.match(page.link.href, /^\/landing\/go\//);
+  assert.match(page.link.href, /^https:\/\/t.me\//);
   const offline = await browserFixture({ dinner: true, fails: true });
   assert.equal(startFrom(offline.link.href), 'collection');
 });
@@ -199,7 +200,7 @@ test('MAX telemetry write failure keeps navigation available and cross-platform 
   assert.equal(db.prepare('SELECT max_clicked_at FROM landing_visits WHERE id=?').get(id).max_clicked_at, null);
   const page = await browserFixture({ platform: 'max' });
   assert.equal(page.link.href, 'https://t.me/Recipeboibot?start=collection');
-  assert.match(page.maxLink.href, /^\/landing\/go\/[a-f0-9]{32}\?platform=max$/);
+  assert.match(page.maxLink.href, /^https:\/\/max.ru\//);
 });
 
 test('registered landing sources carry stable separate MAX tokens without inflating Telegram clicks', () => {

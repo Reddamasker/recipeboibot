@@ -102,6 +102,11 @@ function renderLandingStats(data) {
   $('#landing-panel').hidden = !stats;
   if (!stats) return;
   const metrics = [['Открытия лендинга', stats.totalViews, 'Видимая страница в браузере'], [data.campaign ? 'Из этого размещения' : 'С рекламными метками', data.campaign ? stats.views : stats.taggedViews, 'По меткам страницы'], ['Переходы в Telegram', stats.telegramClicks, 'С лендинга, по выбранному фильтру'], ['Переходы в MAX', stats.maxClicks ?? null, 'Нажатия, не старты. Подтверждённые старты, trial и оплаты — в результатах размещения по платформам. Привязка новых переходов с ' + (stats.maxAttributionSince ? new Date(stats.maxAttributionSince).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' МСК' : 'недоступной даты')], ['Запустили Telegram-бота', stats.starts, 'Подтверждённый новый запуск после перехода']];
+  for(const item of stats.directLinks||[]) {
+    const label=item.platform==='max'?'MAX':'Telegram';
+    metrics.push([`${label}: доставка нажатий`,item.received,`Прямые ссылки с ${stats.directLinksSince?new Date(stats.directLinksSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК':'неизвестной даты'}. Подготовка ссылки не считается нажатием. Доставка дольше 5 секунд: ${number(item.delayed)}; сообщения о потере очереди: ${number(item.dropped)}; недоступное хранилище: ${number(item.storageErrors)}. Полностью недоставленные события неизвестны.`]);
+    if(item.platform==='telegram')metrics.push(['Telegram: переход подтверждён запуском',item.recoveredWithoutReceipt,'Запуск пришёл без события нажатия. Включён в переходы один раз; время перехода ограничено временем запуска.']);
+  }
   for (const item of stats.startOutcomes || []) {
     const label=item.platform==='max'?'MAX':'Telegram';
     const since=item.trackingSince ? new Date(item.trackingSince).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК' : 'нет данных';

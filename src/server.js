@@ -34,7 +34,7 @@ import { queueTrialWelcome, deliverTrialWelcome, markFirstRecipeReadForWelcome }
 import { digestMember } from './trial-digest-store.js';
 import { youtubePlaylist } from './youtube.js';
 import { ensureNutrition } from './nutrition-service.js';
-import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats } from './funnel.js';
+import { advertisingRedirect, campaignLink, createCampaign, setCampaignStats, isAdvertisingProbe } from './funnel.js';
 import { recordCampaignPriceExposure } from './campaign-prices.js';
 import { mergeMaxFunnelReport, maxFunnelSnapshot, maxFunnelAuthorized } from './max-funnel.js';
 import { catalogDetailFilters, catalogDetailReport, dashboardCatalogDetails } from './catalog-detail-analytics.js';
@@ -44,6 +44,7 @@ import { MAX_AD_PLACEMENT } from './max-acquisition.js';
 import { openDashboardSession, closeDashboardSession, dashboardSessionValid } from './funnel-auth.js';
 import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from './yandex-direct.js';
 import { recordLandingHtmlLoad, recordLandingView, recordLandingIdentity, landingRedirect, landingReport } from './landing-funnel.js';
+import { recordDirectLandingClick } from './landing-direct-links.js';
 import { taggedStartSnapshot } from './tagged-bot-starts.js';
 import { landingStartOutcomes } from './landing-start-outcomes.js';
 import { campaignJourneySnapshot, campaignJourneyReport, campaignJourneyFilters } from './campaign-journey.js';
@@ -727,6 +728,13 @@ async function handleRequest(request, response) {
         if (request.headers['x-landing-request'] !== '1' || (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host)) return json(response, 403, { error: 'Запрос отклонён' });
         const input = await bodyJson(request, 6000);
         return json(response, 200, recordLandingView(input, { userAgent: request.headers['user-agent'] || '', purpose: `${request.headers.purpose || ''} ${request.headers['sec-purpose'] || ''}` }));
+      }
+      if (url.pathname === '/api/landing/click') {
+        if (request.method !== 'POST') return json(response,405,{error:'Метод не поддерживается'});
+        if(request.headers['x-landing-request']!=='1'||(request.headers.origin&&new URL(request.headers.origin).host!==request.headers.host))return json(response,403,{error:'Запрос отклонён'});
+        const input=await bodyJson(request,1000);
+        rateLimit(`landing-click:${input?.visitId}`,30,60000);
+        return json(response,200,recordDirectLandingClick(input,{probe:isAdvertisingProbe({userAgent:request.headers['user-agent']||'',purpose:`${request.headers.purpose||''} ${request.headers['sec-purpose']||''}`})}));
       }
       if (url.pathname === '/api/landing/identity') {
         if (request.method !== 'POST') return json(response, 405, { error: 'Метод не поддерживается' });

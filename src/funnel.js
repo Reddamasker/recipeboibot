@@ -1,5 +1,6 @@
 import { productReport } from './product-analytics.js';
 import { recordTaggedStart } from './tagged-bot-starts.js';
+import { recoverDirectTelegramClick } from './landing-direct-links.js';
 import { analyticsExcludedIds, analyticsUserCondition } from './analytics-exclusions.js';
 import { randomBytes } from 'node:crypto';
 import { parseMaxLandingPayload } from './max-landing-acquisition.js';
@@ -105,6 +106,7 @@ export function recordBotStart(user, text, at = new Date(), deliveryId = null) {
     campaignPriceAssignment(user.id, at);
     return;
   }
+  if(payload.startsWith('lp_'))recoverDirectTelegramClick(payload.slice(3),at);
   const fromLanding = payload.startsWith('lp_') && exists('landing_visits') && db.prepare('SELECT 1 FROM landing_visits WHERE click_token=?').get(payload.slice(3));
   const click = payload.startsWith('ad_') || fromLanding ? db.prepare('SELECT * FROM acquisition_clicks WHERE token=?').get(payload.slice(3)) : null;
   // Static MAX deep links identify the campaign, not an individual advertising click.

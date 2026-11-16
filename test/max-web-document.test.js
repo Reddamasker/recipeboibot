@@ -25,7 +25,7 @@ test('MAX document loads its SDK before app, with platform bootstrap before boot
   assert.match(choiceLabels, /Попробовать бесплатно в Telegram/);
   assert.match(choiceLabels, /Попробовать бесплатно в MAX/);
   assert.match(choices, /href="https:\/\/t\.me\/Recipeboibot\?start=collection"/);
-  assert.match(choices, /href="\/open\/recipe-bot\/max"/);
+  assert.match(choices, /href="https:\/\/max.ru\/id500912857935_bot\?start=collection"/);
   assert.doesNotMatch(html.replace(/<div class="lp-platforms"[\s\S]*?<\/div>/g, ''), /TelegramWebviewProxy=function|href="https:\/\/t\.me\/Recipeboibot\?start=/);
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
   assert.ok(inline[0][1].indexOf('window.__recipePlatform=') < inline[0][1].indexOf("report('boot-script')"));

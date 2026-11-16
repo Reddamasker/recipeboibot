@@ -5,6 +5,7 @@ import { maxLandingPayload } from './max-landing-acquisition.js';
 import { config } from './config.js';
 import { log } from './log.js';
 import { advertisingRedirect, createCampaign, isAdvertisingProbe } from './funnel.js';
+import { prepareLandingLinks, recordDirectLandingClick, directLandingDiagnostics } from './landing-direct-links.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS landing_html_loads (
   id INTEGER PRIMARY KEY, created_at TEXT NOT NULL
@@ -57,7 +58,12 @@ export function recordLandingView(input, options = {}) {
   const campaign = campaignFrom(tags);
   db.prepare('INSERT OR IGNORE INTO landing_visits(id,campaign,tags_json,opened_at,intent) VALUES(?,?,?,?,?)')
     .run(input.visitId, campaign, JSON.stringify(tags), new Date().toISOString(), 'collection');
-  return { href: `/landing/go/${input.visitId}` };
+  const visit=db.prepare('SELECT * FROM landing_visits WHERE id=?').get(input.visitId);
+  const links=prepareLandingLinks(visit);
+  const linkAgesMs=Object.fromEntries(db.prepare('SELECT platform,prepared_at FROM landing_direct_links WHERE visit_id=?').all(input.visitId)
+    .map(row=>[row.platform,Math.max(0,Date.now()-Date.parse(row.prepared_at))]));
+  db.prepare("INSERT OR IGNORE INTO acquisition_metadata(key,value) VALUES('landing_direct_links_since',?)").run(new Date().toISOString());
+  return { href: `/landing/go/${input.visitId}`, links, linkAgesMs };
 }
 export function recordLandingIdentity(input, options = {}) {
   if (!/^[a-f0-9]{32}$/.test(input?.visitId || '') || !/^[0-9]{1,32}$/.test(input?.clientId || '') || typeof input.clientId !== 'string') throw fail('Неверная метка посещения');
@@ -76,6 +82,12 @@ export function landingRedirect(id, options = {}) {
   if (!visit) throw fail('Переход с лендинга не найден', 404);
   const username = config.testContour ? config.testBotUsername : 'Recipeboibot';
   if (!['GET', 'HEAD'].includes(options.method || 'GET')) throw fail('Метод не поддерживается', 405);
+  const reserved=db.prepare('SELECT prepared_at FROM landing_direct_links WHERE visit_id=? AND platform=?').get(id,platform);
+  if(reserved&&!isAdvertisingProbe(options)) {
+    try{recordDirectLandingClick({visitId:id,platform,elapsedMs:Math.min(86400000,Math.max(0,Date.now()-Date.parse(reserved.prepared_at)))});}
+    catch(error){if(platform!=='max')throw error;log('warn','landing_max_click_failed');return '/open/recipe-bot/max';}
+    return prepareLandingLinks(visit)[platform];
+  }
   if (platform === 'max') {
     if (!isAdvertisingProbe(options)) {
       try {
@@ -125,5 +137,7 @@ export function landingReport(slug = 'all') {
     totalViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits').get().n,
     taggedViews: db.prepare('SELECT COUNT(*) AS n FROM landing_visits WHERE campaign IS NOT NULL').get().n,
     htmlLoads: db.prepare('SELECT COUNT(*) AS n FROM landing_html_loads').get().n,
+    directLinksSince: db.prepare("SELECT value FROM acquisition_metadata WHERE key='landing_direct_links_since'").get()?.value||null,
+    directLinks: directLandingDiagnostics(slug),
     views: counts.views, telegramClicks: counts.telegramClicks, maxClicks: counts.maxClicks, starts };
 }
