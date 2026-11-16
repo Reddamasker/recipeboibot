@@ -50,6 +50,10 @@ test('reviewed nutrition survives publication for ingredients outside the local 
   assert.equal(store.read()[0].nutrition.calories,250);
   assert.ok(!JSON.stringify(store.snapshot()).includes('private user note'));db.close();
 });
+test('long preparation retains the full waiting time instead of appearing as a quick meal',()=>{
+  assert.deepEqual(publicationProblems({...dish(),cookMinutes:17*1440}),[]);
+  assert.ok(publicationProblems({...dish(),cookMinutes:525601}).includes('timing'));
+});
 test('lost replication replies do not duplicate candidates/cards; schema errors do not erase published data',()=>{
   const a=fixture(),b=fixture();a.store.enqueue('max',dish(),'generated');
   const rows=a.store.exportCandidates();b.store.ingest(rows);b.store.ingest(rows);assert.equal(b.store.pending().length,1);

@@ -26,7 +26,9 @@ export function publicationProblems(raw) {
   const r=catalogProjection(raw), problems=[];
   if(r.title.length<3 || !r.description)problems.push('incomplete');
   if(!Number.isInteger(r.servings)||r.servings<1||r.servings>30)problems.push('servings');
-  if(![r.prepMinutes,r.cookMinutes].every(n=>Number.isInteger(n)&&n>=0&&n<=4320)||r.prepMinutes+r.cookMinutes<1)problems.push('timing');
+  // Public recipes also include infusions and marinated dishes. Keep their real
+  // elapsed time rather than forcing a dinner-only limit or hiding waiting days.
+  if(![r.prepMinutes,r.cookMinutes].every(n=>Number.isInteger(n)&&n>=0&&n<=525600)||r.prepMinutes+r.cookMinutes<1)problems.push('timing');
   if(r.ingredients.length<2||r.ingredients.some(i=>!i.name||!Number.isFinite(i.quantity)||i.quantity<=0||!i.unit))problems.push('ingredients');
   if(r.steps.length<3||r.steps.some(s=>s.text.length<12))problems.push('steps');
   if(sensitive.test(JSON.stringify(r)))problems.push('private_or_invalid_text');
