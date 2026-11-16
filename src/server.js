@@ -1,3 +1,4 @@
+import { generatedCatalog } from './db.js';
 import { isRetiredRecipeRoute } from './retired-flows.js';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -673,6 +674,10 @@ async function handleRequest(request, response) {
           return json(response, 200, { ok: true });
         }
         if (!dashboardSessionValid(cookie)) return json(response, 401, { error: 'Войдите в дашборд' });
+        if (request.method === 'GET' && url.pathname === '/api/dashboard/generated-catalog') {
+          const report=generatedCatalog.diagnostics();
+          return json(response,200,{version:1,available:Boolean(report)&&Date.now()-Date.parse(report.generatedAt)<15*60000,report,count:generatedCatalog.read().length});
+        }
         if (url.pathname === '/api/dashboard/campaign-journey') {
           if (request.method !== 'GET') return json(response,405,{error:'Метод не поддерживается'});
           return json(response,200,await campaignJourneyReport(campaignJourneyFilters(url.searchParams)));

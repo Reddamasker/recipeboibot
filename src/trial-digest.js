@@ -1,3 +1,4 @@
+import { publicCatalogRecipes } from './public-catalog.js';
 import { db } from './db.js';
 import { config } from './config.js';
 import { getFoodProfile, getDinnerHistory } from './dinner-store.js';
@@ -41,7 +42,7 @@ export function digestRecipes(userId, at=new Date()) {
     JOIN notification_deliveries d ON d.id=b.delivery_id WHERE b.user_id=? AND b.created_at>=?
     AND EXISTS(SELECT 1 FROM trial_digest_parts p WHERE p.delivery_id=b.delivery_id AND p.status IN ('sent','unknown','sending'))`)
     .all(userId,new Date(at.getTime()-7*86400000).toISOString()).flatMap(r=>JSON.parse(r.recipe_ids_json)));
-  const ranked=rankCandidates(SEED_RECIPES.filter(r=>r.thumbnailUrl && isDinnerCandidate(r)),{profile,history,now:at.getTime()});
+  const ranked=rankCandidates(publicCatalogRecipes().filter(r=>r.thumbnailUrl && isDinnerCandidate(r)),{profile,history,now:at.getTime()});
   const familiarOrder=new Map(getTasteCatalog().order.map((id,index)=>[id,index]));
   ranked.sort((a,b)=>b.score-a.score || familiarOrder.get(a.recipe.id)-familiarOrder.get(b.recipe.id));
   // Never fill empty slots with recipes rejected by allergies, dislikes or cooking limits.
@@ -65,7 +66,7 @@ export async function sendDigestBatch(delivery,{send,url},fixedTime) {
     batch=db.prepare('SELECT * FROM trial_digest_batches WHERE delivery_id=?').get(delivery.id);
     if (!batch) throw digestTerminal('already_sent_today');
   }
-  const recipes=JSON.parse(batch.recipe_ids_json).map(id=>SEED_RECIPES.find(r=>r.id===id));
+  const recipes=JSON.parse(batch.recipe_ids_json).map(id=>publicCatalogRecipes().find(r=>r.id===id));
   const profile=getFoodProfile(userId);
   if (recipes.some(r=>!r||!rankCandidates([r],{profile}).length)) throw digestTerminal('preferences_changed');
   const firstBatch=!db.prepare('SELECT 1 FROM trial_digest_batches WHERE user_id=? AND created_at<? LIMIT 1').get(userId,batch.created_at);

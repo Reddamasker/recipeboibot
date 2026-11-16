@@ -1,3 +1,4 @@
+import { publicCatalogRecipes } from './public-catalog.js';
 import { validateDishRatings, withoutCatalogDishes, legacyDishRatings } from './taste-profile.js';
 import { listRecipes, saveDinnerRecipe, withNutrition } from './db.js';
 import { config } from './config.js';
@@ -274,7 +275,7 @@ export function rejectDinnerBatch(userId, ids) {
 }
 
 function recipeForDecision(userId, key) {
-  if (key.startsWith('seed:')) return SEED_RECIPES.find((recipe) => recipe.id === key) || null;
+  if (key.startsWith('seed:')) return publicCatalogRecipes().find((recipe) => recipe.id === key) || null;
   if (key.startsWith('dinner:')) return getDinnerOption(userId, key.slice(7))?.recipe || null;
   return listRecipes(userId).find((recipe) => recipe.id === key && recipe.status === 'ready') || null;
 }

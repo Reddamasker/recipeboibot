@@ -1,5 +1,6 @@
 import { SEED_RECIPES, recipeCategories, hasExcludedIngredient } from './dinner.js';
 import { discoveryGroups, matchesDiscovery } from './catalog-discovery.js';
+import { publicCatalogRecipes } from './public-catalog.js';
 
 export const cuisines = [['everyday','Домашняя'],['italian','Итальянская'],['georgian','Грузинская'],['russian','Русская'],['ukrainian','Украинская'],['belarusian','Белорусская'],['greek','Греческая'],['indian','Индийская'],['hungarian','Венгерская'],['japanese','Японская'],['chinese','Китайская'],['uzbek','Узбекская'],['eastern','Восточная'],['asian','Азиатская'],['european','Европейская'],['caucasian','Кавказская']];
 export const categories = [['noodles','Лапша'],['rice','Рис'],['pasta','Паста'],['soup','Супы'],['salad','Салаты'],['baking','Выпечка'],['chicken','Курица'],['meat','Мясо'],['fish','Рыба'],['pizza','Пицца'],['home','Домашняя еда']];
@@ -40,7 +41,12 @@ function catalogCategories(recipe) {
   if(!result.some(id=>cuisines.some(([c])=>c===id))) result.push('everyday');
   return result;
 }
-const entries = SEED_RECIPES.map(recipe => {
+let entries=[], availableDiscoveryGroups=[], dailyEntries=[], catalogKey='';
+function refreshCatalog() {
+const recipes=publicCatalogRecipes(), key=recipes.map(r=>r.id).join('|');
+if(key===catalogKey)return;
+catalogKey=key;
+entries = recipes.map(recipe => {
   const assigned = catalogCategories(recipe);
   const cuisineId = sourceCuisine[recipe.id.slice(5)] || cuisineChoices.find(([id])=>assigned.includes(id))?.[0] || null;
   if (recipe.ingredients.some(i=>noodleIngredient(i.name))) {
@@ -57,12 +63,14 @@ const entries = SEED_RECIPES.map(recipe => {
   ingredients: recipe.ingredients.map(({name,quantity,unit,comment})=>({name,quantity,unit,...(comment ? {comment} : {})})),
   steps: recipe.steps.map(step=>step.text), nutrition: recipe.nutrition
 }; });
-const availableDiscoveryGroups=discoveryGroups.map(g=>({...g,choices:g.choices.map(c=>({...c,count:entries.filter(r=>g.id==='include'?hasCookingProduct(r,c.id):matchesDiscovery(r,new URLSearchParams({[g.id]:c.id}))).length}))}));
-export function catalogRecipe(id) { return entries.find(recipe=>recipe.id === id) || null; }
+availableDiscoveryGroups=discoveryGroups.map(g=>({...g,choices:g.choices.map(c=>({...c,count:entries.filter(r=>g.id==='include'?hasCookingProduct(r,c.id):matchesDiscovery(r,new URLSearchParams({[g.id]:c.id}))).length}))}));
+dailyEntries = [...entries].sort((a,b)=>a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+export function catalogRecipe(id) { refreshCatalog(); return entries.find(recipe=>recipe.id === id) || null; }
 // A stable cycle through the whole public catalog, independent of search pages,
 // viewer timezone, process restarts and the order of recipes in the source file.
-const dailyEntries = [...entries].sort((a,b)=>a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 export function catalogDaily(now = new Date()) {
+  refreshCatalog();
   const timestamp = now.getTime(), dayMs = 86400000, moscowOffset = 3 * 3600000;
   if (!Number.isFinite(timestamp)) throw new RangeError('Invalid catalog date');
   const day = Math.floor((timestamp + moscowOffset) / dayMs);
@@ -75,6 +83,7 @@ export function catalogDaily(now = new Date()) {
   };
 }
 export function catalogSearch(params = new URLSearchParams()) {
+  refreshCatalog();
   const words = normalize(params.get('q')).slice(0,160).split(/\s+/).filter(Boolean);
   const split = key => String(params.get(key)||'').slice(0,250).split(',').map(s=>s.trim()).filter(Boolean).slice(0,12);
   const include = split('include'), exclude = split('exclude');

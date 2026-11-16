@@ -5,10 +5,22 @@ import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { recipeNutrition, normalizeNutrition, nutritionKey } from './nutrition.js';
 import { withSeedImage } from './dinner-seeds.js';
+import { createGeneratedCatalogStore } from './generated-catalog.js';
+import { setPublicCatalogProvider } from './public-catalog.js';
 
 fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
 export const db = new DatabaseSync(config.databasePath);
 db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+export const generatedCatalog = createGeneratedCatalogStore(db);
+setPublicCatalogProvider(generatedCatalog.read);
+
+export function queueGeneratedCatalog(userId, recipe) {
+  if (config.testContour || process.env.NODE_TEST_CONTEXT) return;
+  const user = db.prepare('SELECT telegram_id FROM users WHERE id=?').get(userId);
+  if (!user || /private-test|preview|sandbox|test:/i.test(user.telegram_id)) return;
+  try { generatedCatalog.enqueue(config.botPlatform, recipe, 'generated'); }
+  catch { console.error('generated_catalog_queue_failed'); }
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -448,6 +460,7 @@ export function createRecipeSuggestion(userId, query, recipe, mealRequest = null
   const id = randomUUID();
   db.prepare('DELETE FROM recipe_suggestions WHERE created_at<?').run(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
   db.prepare('INSERT INTO recipe_suggestions(id,user_id,query,request_json,recipe_json,created_at) VALUES(?,?,?,?,?,?)').run(id, userId, query, mealRequest ? JSON.stringify(mealRequest) : null, JSON.stringify(recipe), now());
+  queueGeneratedCatalog(userId, recipe);
   recordRecipeRequestResult(userId, `suggestion:${id}`, 'generated');
   return getRecipeSuggestion(userId, id);
 }

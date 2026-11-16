@@ -1,6 +1,7 @@
 import { db, getRecipe, saveDinnerRecipe } from './db.js';
 import { catalogRecipe } from './web-catalog.js';
 import { SEED_RECIPES } from './dinner.js';
+import { publicCatalogRecipes } from './public-catalog.js';
 import { randomUUID } from 'node:crypto';
 
 // These grants are issued only after a trusted public catalog lookup. Editable
@@ -53,7 +54,7 @@ export function saveCatalogRecipeForUser(userId, catalogId, { flowId = null } = 
   if (!db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) throw invalid('Пользователь не найден', 404);
   // Reuse the original authored recipe and its stable key, also used by dinner
   // saving. A public catalog projection must never become an AI import input.
-  const trusted = SEED_RECIPES.find(recipe => recipe.id === `seed:${catalogId}`);
+  const trusted = publicCatalogRecipes().find(recipe => recipe.id === `seed:${catalogId}`);
   if (!trusted) throw invalid('Рецепт больше не доступен в каталоге', 404);
   const safeFlow = typeof flowId === 'string' && /^[A-Za-z0-9_-]{16,80}$/.test(flowId) ? flowId : null;
   db.exec('SAVEPOINT save_public_catalog_recipe');

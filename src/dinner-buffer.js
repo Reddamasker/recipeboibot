@@ -1,3 +1,5 @@
+import { queueGeneratedCatalog } from './db.js';
+import { publicCatalogRecipes } from './public-catalog.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { config } from './config.js';
 import { log } from './log.js';
@@ -125,7 +127,7 @@ function fallbackFill(userId, sessionId, context, target = DINNER_BUFFER.total) 
   // semantic request when the validator or generator is unavailable.
   if (needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
   const previous = listDinnerOptions(userId, sessionId), excluded = [...context.rejected, ...previous.map((o) => o.recipe.id)];
-  const candidates = [...context.saved, ...SEED_RECIPES].filter((r) => !duplicateDinner(r, previous.map((o) => o.recipe)));
+  const candidates = [...context.saved, ...publicCatalogRecipes()].filter((r) => !duplicateDinner(r, previous.map((o) => o.recipe)));
   let ranked = rotateDinnerCandidates(rankCandidates(candidates, { ...context, rejected: excluded }), context.recentShownRecipes);
   if (!context.pantry.length) ranked.sort((a, b) => Number(b.recipe.userSaved) - Number(a.recipe.userSaved) || b.score - a.score);
   while (ranked.length && activeCount(userId, sessionId) < target) {
@@ -145,7 +147,7 @@ async function validatedCatalogFill(userId, sessionId, context, key, getContext,
   if (!needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
   const previous = listDinnerOptions(userId, sessionId);
   // Use the same objective exclusions, pantry limits and recent-dish rules as generation.
-  const ranked = rotateDinnerCandidates(rankCandidates([...context.saved, ...SEED_RECIPES]
+  const ranked = rotateDinnerCandidates(rankCandidates([...context.saved, ...publicCatalogRecipes()]
     .filter(recipe => !duplicateDinner(recipe, previous.map(o => o.recipe))), {
       ...context, rejected: [...context.rejected, ...previous.map(o => o.recipe.id)]
     }), context.recentShownRecipes);
@@ -268,7 +270,7 @@ function fill(userId, sessionId, getContext, { generate = generateDinnerRecipes,
             continue;
           }
           const id = randomUUID(); valid.recipe.id = `dinner:${id}`;
-          if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; }
+          if (insertDinnerOption(userId, sessionId, { ...valid, id }, titleKey(valid.recipe))) { existing.push(valid.recipe); added++; queueGeneratedCatalog(userId, valid.recipe); }
           else filteredCandidates.push({ title: valid.recipe.title, reason: 'signature_conflict' });
         }
         publish();

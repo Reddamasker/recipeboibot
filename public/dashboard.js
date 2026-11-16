@@ -176,6 +176,7 @@ async function load(slug, { sync = false } = {}) {
     if (initial) { const preferred=data.campaigns.some(c=>c.slug==='ya-product-landing-202611')?'ya-product-landing-202611':data.defaultCampaign; if(preferred)data=await api(`funnel?campaign=${encodeURIComponent(preferred)}`); }
     render(data);
     void loadWebLoginDiagnostics();
+    void loadGeneratedCatalog();
   }
   catch (error) { if (error.status === 401) showLogin(); else if (!report) { showLogin(); $('#login-error').textContent = error.message; } else { $('#page-error').textContent = error.message; $('#page-error').hidden = false; } }
   finally { busy = false; $('#refresh').disabled = false; $('#direct-sync').disabled = !report || report.preview || report.contour !== 'main'; }
@@ -370,4 +371,16 @@ function renderProductAnalytics(data) {
       'Очередь ограничена 80 событиями и 24 часами, повторная отправка не удваивает события. Показатели потерь — нижняя оценка: полностью закрытая вкладка или клиент без связи может не прислать диагностику. «Ожидают» — последняя известная очередь, не её текущее состояние. Версии клиента: '+(a.health.versions.join(', ')||'пока нет')+'.');
   };
   select.onchange=draw;draw();
+}
+
+async function loadGeneratedCatalog() {
+  const target=$('#generated-catalog-report');
+  if(!target)return;
+  try{
+    const data=await api('generated-catalog');
+    target.replaceChildren();
+    if(!data.available){target.textContent='Нет актуальных данных: синхронизация ещё не выполнена или задерживается.';return;}
+    target.append(node('p','', 'Опубликовано новых карточек: '+number(data.count)+'. Обновлено: '+new Date(data.report.generatedAt).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК.'));
+    for(const p of data.report.platforms)target.append(node('p','', (p.platform==='max'?'MAX':'Telegram')+': кандидатов '+number(p.total)+', опубликовано '+number(p.published)+', повторов '+number(p.duplicate)+', отклонено '+number(p.rejected)+', ожидают '+number(p.pending)+', ошибок проверки '+number(p.error)+'. Среднее время последней проверки: '+(p.meanReviewMs===null?'нет данных':Math.round(p.meanReviewMs/1000)+' с')+'. Начало учёта: '+new Date(p.since).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'})+' МСК.'));
+  }catch{target.textContent='Не удалось получить данные пополнения каталога.';}
 }

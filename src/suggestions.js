@@ -1,3 +1,4 @@
+import { publicCatalogRecipes } from './public-catalog.js';
 import { dishTasteScore } from './taste-profile.js';
 import { createHash } from 'node:crypto';
 import { createRecipeSuggestion, findRecipeSuggestion, listRecipes, searchRecipes, withNutrition, recordRecipeRequestResult } from './db.js';
@@ -36,7 +37,7 @@ function requestContext(userId, query, mealRequestOverride = null, rejectedRecip
   const excluded = [...profile.excludedIngredients, ...mealRequest.excludedIngredients];
   const maxMinutes = Math.min(profile.preferredMaxCookingTime || Infinity, mealRequest.maxMinutes || Infinity);
   const requestedCategories = parseDinnerIntakeFallback(`сегодня хочу ${understood}`).requestedCategories;
-  const knownRecipes = [...SEED_RECIPES, ...listRecipes(userId)];
+  const knownRecipes = [...publicCatalogRecipes(), ...listRecipes(userId)];
   const cookingHistory = getDinnerHistory(userId).filter(item => item.event === 'recipe_cooked' && typeof item.recipeKey === 'string').slice(0, 20)
     .map(item => ({ recipeKey: item.recipeKey, title: (knownRecipes.find(recipe => recipe.id === item.recipeKey)
       || (item.recipeKey.startsWith('dinner:') ? getDinnerOption(userId, item.recipeKey.slice(7))?.recipe : null))?.title || null, cookedAt: item.createdAt }));
@@ -67,7 +68,7 @@ export function assertSuggestionCurrent(userId, suggestion) {
 
 async function requestedRecipes(userId, query, contextOverride = null) {
   const context = contextOverride || requestContext(userId, query);
-  const candidates = [...listRecipes(userId).filter((recipe) => recipe.status === 'ready'), ...SEED_RECIPES.map(withNutrition)];
+  const candidates = [...listRecipes(userId).filter((recipe) => recipe.status === 'ready'), ...publicCatalogRecipes().map(withNutrition)];
   if (context.mealRequest?.nutritionLimits) {
     const withoutLimits = { ...context, mealRequest: { ...context.mealRequest, nutritionLimits: null } };
     const missing = candidates.filter(recipe => !recipe.nutrition && validRecipe(recipe, withoutLimits) && matchesMealRequest(recipe, withoutLimits.mealRequest)).slice(0, 8);
