@@ -10,9 +10,10 @@ async function api(path, method = 'GET', body) {
   return data;
 }
 function toast(text) { clearTimeout(toastTimer); $('#toast').textContent = text; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 3500); }
-function showLogin() { webLoginDiagnosticsRevision++; window.UserAdJourneysDashboard?.clear(); window.CatalogVisitsDashboard?.clear(); window.LandingHeatmapDashboard?.clear(); $('#web-login-diagnostics').hidden = true; $('#dashboard').hidden = true; $('#login').hidden = false; }
+function showLogin() { window.CampaignJourneyDashboard?.clear(); webLoginDiagnosticsRevision++; window.UserAdJourneysDashboard?.clear(); window.CatalogVisitsDashboard?.clear(); window.LandingHeatmapDashboard?.clear(); $('#web-login-diagnostics').hidden = true; $('#dashboard').hidden = true; $('#login').hidden = false; }
 function render(data) {
   report = data;
+  window.CampaignJourneyDashboard?.refresh(data);
   window.UserAdJourneysDashboard?.refresh(data);
   window.CatalogVisitsDashboard?.refresh(data);
   window.LandingHeatmapDashboard?.refresh(data);
@@ -167,7 +168,7 @@ async function load(slug, { sync = false } = {}) {
       try { await api('direct-sync', 'POST', { campaign: slug }); } catch (error) { if (error.status === 401) throw error; toast(error.message); }
     }
     let data = await api(`funnel?campaign=${encodeURIComponent(slug)}`);
-    if (initial && data.defaultCampaign) data = await api(`funnel?campaign=${encodeURIComponent(data.defaultCampaign)}`);
+    if (initial) { const preferred=data.campaigns.some(c=>c.slug==='ya-product-landing-202611')?'ya-product-landing-202611':data.defaultCampaign; if(preferred)data=await api(`funnel?campaign=${encodeURIComponent(preferred)}`); }
     render(data);
     void loadWebLoginDiagnostics();
   }

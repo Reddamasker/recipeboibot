@@ -46,6 +46,7 @@ import { directImportStatus, syncDirectCampaigns, dashboardFunnelReport } from '
 import { recordLandingHtmlLoad, recordLandingView, recordLandingIdentity, landingRedirect, landingReport } from './landing-funnel.js';
 import { taggedStartSnapshot } from './tagged-bot-starts.js';
 import { landingStartOutcomes } from './landing-start-outcomes.js';
+import { campaignJourneySnapshot, campaignJourneyReport, campaignJourneyFilters } from './campaign-journey.js';
 import { recordLandingHeatmap, landingHeatmapReport, landingHeatmapPreview } from './landing-heatmap.js';
 import { landingMetrikaCounter, metrikaSources, metrikaConnections, metrikaFrames } from './landing-metrika.js';
 import { telegramOpenDocument } from './telegram-open.js';
@@ -593,6 +594,11 @@ async function handleRequest(request, response) {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response, 404, { error: 'Не найдено' });
         return json(response, 200, maxFunnelSnapshot(url.searchParams.has('campaign') ? url.searchParams.get('campaign') : null));
       }
+      if (url.pathname === '/api/internal/campaign-journey') {
+        if (request.method !== 'POST' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response,404,{error:'Не найдено'});
+        const input=await bodyJson(request,100000);
+        return json(response,200,campaignJourneySnapshot(input.visits,input.now));
+      }
       if (url.pathname === '/api/internal/tagged-starts') {
         if (request.method !== 'POST' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response,404,{error:'Не найдено'});
         const input=await bodyJson(request,16000);
@@ -666,6 +672,10 @@ async function handleRequest(request, response) {
           return json(response, 200, { ok: true });
         }
         if (!dashboardSessionValid(cookie)) return json(response, 401, { error: 'Войдите в дашборд' });
+        if (url.pathname === '/api/dashboard/campaign-journey') {
+          if (request.method !== 'GET') return json(response,405,{error:'Метод не поддерживается'});
+          return json(response,200,await campaignJourneyReport(campaignJourneyFilters(url.searchParams)));
+        }
         if (url.pathname === '/api/dashboard/landing-heatmap') {
           if (request.method !== 'GET') return json(response,405,{error:'Метод не поддерживается'});
           return json(response,200,landingHeatmapReport(url.searchParams));
