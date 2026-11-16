@@ -6,6 +6,7 @@ import { safeFetchText } from './security.js';
 import { youtubePlaylist, youtubeVideo, extractYoutubePlaylist, YOUTUBE_PLAYLIST_LIMIT } from './youtube.js';
 import { socialVideo, extractSocialVideoSource } from './social-video.js';
 import { extractYoutubeRecipe } from './youtube-recipe.js';
+import { pinterestPin, extractPinterestRecipe } from './pinterest.js';
 import { withFirstRecipe } from './subscriptions.js';
 import { recipePhotos, photoSourceKey } from './photo-sources.js';
 import { db } from './db.js';
@@ -51,6 +52,8 @@ function metaContent(html, names) {
 }
 
 export function normalizeSourceUrl(input) {
+  const pin = pinterestPin(input);
+  if (pin) return pin;
   if (youtubePlaylist(input)) throw Object.assign(new Error('Плейлист нужно обрабатывать пакетным импортом.'), { status: 422, code: 'YOUTUBE_PLAYLIST_BATCH_REQUIRED' });
   const youtube = youtubeVideo(input);
   if (youtube) return { sourceKey: `youtube:${youtube.id}`, url: youtube.url, thumbnailUrl: `https://i.ytimg.com/vi/${youtube.id}/hqdefault.jpg`, label: 'YouTube' };
@@ -140,6 +143,13 @@ export async function importUrl(userId, input) {
   const job = claim.job;
   try {
     updateJob(job.id, 'fetching');
+    const pin = pinterestPin(normalizedSource.url);
+    if (pin) {
+      const { source, recipe: normalized } = await extractPinterestRecipe(pin.url, { userId, onPhase: phase => updateJob(job.id, phase) });
+      const recipe = createRecipe(userId, { ...normalized, warnings: [...new Set([...(normalized.warnings || []), ...source.warnings])], status: 'ready', origin: 'imported', sourceType: 'url', sourceUrl: source.url, sourceKey: normalizedSource.sourceKey, sourceName: 'Pinterest', thumbnailUrl: source.thumbnailUrl });
+      updateJob(job.id, 'ready', { recipeId: recipe.id, thumbnailUrl: source.thumbnailUrl });
+      return { state: 'created', recipe, job: { ...job, status: 'ready', recipeId: recipe.id, thumbnailUrl: source.thumbnailUrl } };
+    }
     const youtube = youtubeVideo(normalizedSource.url);
     const social = socialVideo(normalizedSource.url);
     const youtubeResult = youtube ? await extractYoutubeRecipe(normalizedSource.url, { userId, onPhase: phase => updateJob(job.id, phase) }) : null;
