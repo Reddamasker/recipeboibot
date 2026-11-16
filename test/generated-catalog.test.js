@@ -43,6 +43,13 @@ test('quality rejects incomplete publication and untrusted model responses; prov
   db.prepare('UPDATE generated_catalog_candidates SET next_attempt_at=?').run('2000-01-01');assert.equal(store.pending().length,1);
   db.close();
 });
+test('reviewed nutrition survives publication for ingredients outside the local reference table without copying private assumptions',()=>{
+  const {db,store}=fixture();
+  const recipe={...dish(),ingredients:[{name:'кешью жареный',quantity:80,unit:'г'},{name:'финики',quantity:100,unit:'г'}],nutrition:{calories:250,protein:6,fat:12,carbs:30,basis:'serving',source:'calculated',servings:3,weightGrams:null,assumptions:['private user note']}};
+  assert.deepEqual(publicationProblems(recipe),[]);store.publish(null,recipe);
+  assert.equal(store.read()[0].nutrition.calories,250);
+  assert.ok(!JSON.stringify(store.snapshot()).includes('private user note'));db.close();
+});
 test('lost replication replies do not duplicate candidates/cards; schema errors do not erase published data',()=>{
   const a=fixture(),b=fixture();a.store.enqueue('max',dish(),'generated');
   const rows=a.store.exportCandidates();b.store.ingest(rows);b.store.ingest(rows);assert.equal(b.store.pending().length,1);

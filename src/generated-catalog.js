@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { recipeNutrition } from './nutrition.js';
+import { recipeNutrition, normalizeNutrition } from './nutrition.js';
 
 export const CATALOG_SCHEMA = 1;
 const hash = text => createHash('sha256').update(text).digest('hex');
@@ -12,12 +12,14 @@ const sensitive = /https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]+|\bBearer\s|\bsk-[a
 // Positive allowlist: never copy notes, prompts, source text, user IDs, URLs,
 // private photos, attribution or personal profile constraints into publication.
 export function catalogProjection(raw) {
+  const nutrition=normalizeNutrition(raw?.nutrition,raw||{});
   return {
     title: clean(raw?.title,160), description: clean(raw?.description,600),
     servings: raw?.servings, prepMinutes: raw?.prepMinutes, cookMinutes: raw?.cookMinutes,
     ingredients: Array.isArray(raw?.ingredients) ? raw.ingredients.slice(0,40).map(i=>({name:clean(i.name,120),quantity:i.quantity,unit:clean(i.unit,30),comment:clean(i.comment,200)})) : [],
     steps: Array.isArray(raw?.steps) ? raw.steps.slice(0,30).map((s,i)=>({position:i+1,text:clean(typeof s==='string'?s:s.text,1800)})) : [],
     tags: Array.isArray(raw?.tags) ? raw.tags.slice(0,12).map(t=>clean(t,50)).filter(Boolean) : [],
+    ...(nutrition?{nutrition:{...nutrition,assumptions:['Приблизительная оценка по составу и числу порций.']}}:{}),
   };
 }
 export function publicationProblems(raw) {
@@ -28,7 +30,8 @@ export function publicationProblems(raw) {
   if(r.ingredients.length<2||r.ingredients.some(i=>!i.name||!Number.isFinite(i.quantity)||i.quantity<=0||!i.unit))problems.push('ingredients');
   if(r.steps.length<3||r.steps.some(s=>s.text.length<12))problems.push('steps');
   if(sensitive.test(JSON.stringify(r)))problems.push('private_or_invalid_text');
-  if(!recipeNutrition(r))problems.push('nutrition');
+  const nutrition=recipeNutrition(r);
+  if(!nutrition||nutrition.calories<=0)problems.push('nutrition');
   return [...new Set(problems)];
 }
 export function compositionKey(raw) {
