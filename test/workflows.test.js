@@ -198,7 +198,7 @@ test('private Telegram request generates only after no ready recipe and waits fo
       generated = true;
       assert.match(body.instructions, /preferredCategories/);
       assert.deepEqual(JSON.parse(body.input[0].content[0].text).profile.preferredCategories, { soup: 1, fish: -1 });
-      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ ...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20, ingredients: [{ name: 'тыква', raw: 'тыква' }], discovery: null }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
+      return new Response(JSON.stringify({ status: 'completed', model: 'test-model', output_text: JSON.stringify({ safetyRefusal:'none',result:{...normalizedRecipe('Суп с тыквой'), servings: 2, prepMinutes: 10, cookMinutes: 20, ingredients: [{ name: 'тыква', raw: 'тыква' }], discovery: null} }), usage: { input_tokens: 10, output_tokens: 20 } }), { status: 200 });
     }
     sent.push(JSON.parse(options.body));
     return { json: async () => ({ ok: true, result: { message_id: 12 } }) };
@@ -244,7 +244,7 @@ test('screenshot Telegram wording delivers steak and refuses a substituted dish'
           generated = true;
           assert.equal(input.query, 'дай рецепт стейка');
           assert.equal(input.mealRequest.dish, 'стейка');
-          return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ ...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'], discovery: null }) }), { status: 200 });
+          return new Response(JSON.stringify({ status: 'completed', output_text: JSON.stringify({ safetyRefusal:'none',result:{...normalizedRecipe(title), servings: 2, prepMinutes: 5, cookMinutes: 20, ingredients: [{ name: 'говядина', raw: 'говядина', quantity: 400, unit: 'г' }], tags: ['мясо'], discovery: null} }) }), { status: 200 });
         }
         sent.push(JSON.parse(options.body));
         return { json: async () => ({ ok: true, result: { message_id: 71 } }) };

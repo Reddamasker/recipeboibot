@@ -62,7 +62,7 @@ async function withProvider(run, { generatedTitles = ['Кефтедес с мя�
           ingredients: [...recipe('').ingredients, { name: ['морковь', 'лук', 'баклажан'][Math.min(generations.length - 1, 2)], quantity: 100, unit: 'г' }] };
     } else if (operation === 'recipe_dialogue') output = typeof dialogueResponse === 'function' ? dialogueResponse(input) : dialogueResponse;
     else assert.fail(`Unexpected operation: ${operation}`);
-    return Response.json({ status: 'completed', output_text: JSON.stringify(output), usage: { input_tokens: 1, output_tokens: 1 } });
+    return Response.json({ status: 'completed', output_text: JSON.stringify(operation==='requested_recipe_generation'?{safetyRefusal:'none',result:output}:output), usage: { input_tokens: 1, output_tokens: 1 } });
   };
   try { await run({ calls, sent, generations }); } finally { globalThis.fetch = original; }
 }

@@ -743,7 +743,8 @@ async function sendSearchResults(chatId, user, query, { groupMode = false, sourc
     } catch (error) {
       log('error', 'telegram_requested_recipe_failed', { error, userId: user.id });
       if (error.status === 402) { await sendTestOffer(chatId, user.id, true); return []; }
-      await send(chatId, `Не получилось составить рецепт: ${escapeHtml(error.message)}`);
+      productError(error.status || 500);
+      await send(chatId, error.code==='RECIPE_SAFETY_REFUSAL' || error.errorCode==='provider_refusal' ? escapeHtml(error.message) : `Не получилось составить рецепт: ${escapeHtml(error.message)}`);
     }
     return [];
   }
@@ -969,7 +970,8 @@ export async function handleSuggestionCallback(callback) {
       await sendSuggestion(chat.id, suggestion, { groupMode, userId });
     } catch (error) {
       log('error', 'telegram_suggestion_failed', { error, userId });
-      await send(chat.id, `Не получилось составить рецепт: ${escapeHtml(error.message)}`);
+      productError(error.status || 500);
+      await send(chat.id, error.code==='RECIPE_SAFETY_REFUSAL' || error.errorCode==='provider_refusal' ? escapeHtml(error.message) : `Не получилось составить рецепт: ${escapeHtml(error.message)}`);
     }
     return;
   }

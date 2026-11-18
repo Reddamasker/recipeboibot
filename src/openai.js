@@ -10,6 +10,7 @@ import { rejectionCriteria, rejectionScope } from './recipe-rejection.js';
 import { photoDetailImages } from './photo-detail.js';
 import { recipePhotos } from './photo-sources.js';
 import { measureProductStage } from './product-context.js';
+import { generationSchema, checkedGeneration, safetyInstructions } from './recipe-safety.js';
 
 const recipeSchema = {
   type: 'object', additionalProperties: false,
@@ -120,6 +121,7 @@ function diagnosticSuffix(details) {
 }
 
 export function providerFailureMessage(details, operation = 'recipe_extraction', timeoutMs = null) {
+  if(details.errorCode==='provider_refusal')return 'Не могу выполнить этот запрос: модель отказалась выдавать ответ. Попробуйте другое блюдо или измените запрос.';
   const suffix = diagnosticSuffix(details);
   if (details.errorCode === 'request_timeout') {
     const seconds = Number.isFinite(timeoutMs) ? Math.ceil(timeoutMs / 1000) : null;
@@ -157,7 +159,8 @@ async function requestResponse({ userId, operation, input, schema = recipeSchema
     ? ' semanticCriteria хранит открытые смысловые требования, которые нельзя надёжно проверить полями рецепта; required обязательны, preferred учитываются при ранжировании.' : '';
   const nutritionGuidance = ['recipe_extraction', 'recipe_generation', 'requested_recipe_generation', 'dinner_generation', 'recipe_nutrition'].includes(operation) ? ` ${nutritionInstructions}`
     : ['meal_request_interpretation', 'dinner_intake'].includes(operation) ? ' nutritionLimits хранит явные числовые границы КБЖУ на одну порцию: calories в ккал, protein/fat/carbs в граммах; min/max или null. Не теряй ни одну границу, не путай минимумы и максимумы, ограничения на 100 г не выдавай за ограничения на порцию. Для отсутствующих ограничений null. Пожелания «полегче», «больше белка» без числа сохраняй как semanticCriteria.' : '';
-  const body = { model, store: false, instructions: `${baseInstructions}${semanticGuidance}${nutritionGuidance}`, input, max_output_tokens: maxOutputTokens, text: { format: { type: 'json_schema', name: operation, strict: true, schema } } };
+  const checksSafety = ['recipe_generation','requested_recipe_generation','dinner_generation'].includes(operation);
+  const body = { model, store: false, instructions: `${baseInstructions}${semanticGuidance}${nutritionGuidance}${checksSafety ? ' '+safetyInstructions : ''}`, input, max_output_tokens: maxOutputTokens, text: { format: { type: 'json_schema', name: operation, strict: true, schema:checksSafety ? generationSchema(schema) : schema } } };
   if (reasoningEffort) body.reasoning = { effort: reasoningEffort };
   if (verbosity) body.text.verbosity = verbosity;
   const clientRequestId = randomUUID();
@@ -168,11 +171,13 @@ async function requestResponse({ userId, operation, input, schema = recipeSchema
     if (!response.ok) throw taggedError(payload.error?.message || `OpenAI HTTP ${response.status}`, { providerCode: payload.error?.code, providerType: payload.error?.type, providerMessage: payload.error?.message });
     if (payload.error || payload.status === 'failed') throw taggedError(payload.error?.message || 'OpenAI не сформировал ответ', { providerCode: payload.error?.code || 'response_failed', providerType: payload.error?.type, providerMessage: payload.error?.message });
     if (payload.status === 'incomplete') throw taggedError('OpenAI не завершил ответ', { providerCode: 'response_incomplete', incompleteReason: payload.incomplete_details?.reason });
+    if(payload.output?.some(item=>item.content?.some(part=>part.type==='refusal')))throw taggedError('Модель отказалась выполнить запрос',{providerCode:'provider_refusal'});
     const outputText = payload.output_text || payload.output?.flatMap((item) => item.content || []).find((item) => item.type === 'output_text')?.text;
     if (!outputText) throw taggedError('OpenAI не вернул текст', { providerCode: 'missing_output' });
     let result;
     try { result = JSON.parse(outputText); }
     catch { throw taggedError('OpenAI вернул невалидный структурированный ответ', { providerCode: 'invalid_structured_output' }); }
+    if(checksSafety)result=checkedGeneration(result);
     const usage = usageDetails(payload);
     const requestId = response.headers.get('x-request-id') || payload.id || null;
     recordProviderRequest({ userId, operation, model: payload.model || model, ...usage, status: 'ok', providerStatus: response.status, requestId, clientRequestId });
@@ -183,7 +188,8 @@ async function requestResponse({ userId, operation, input, schema = recipeSchema
     const usage = usageDetails(payload);
     recordProviderRequest({ userId, operation, model: payload?.model || model, ...usage, status: 'error', ...details });
     log('error', 'openai_response_failed', { operation, model: payload?.model || model, ...usage, ...details });
-    throw Object.assign(new Error(providerFailureMessage(details, operation, timeoutMs)), { status: 502, ...details });
+    if(error.code==='RECIPE_SAFETY_REFUSAL')throw Object.assign(error,details);
+    throw Object.assign(new Error(providerFailureMessage(details, operation, timeoutMs)), { status: details.errorCode==='provider_refusal'?422:502, ...details });
   }
   });
 }
