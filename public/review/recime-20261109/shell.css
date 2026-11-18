@@ -228,3 +228,6 @@ body:has(.review-shell){background:var(--review-bg)}
 .overlay:has(.r-source-picker),.overlay:has(.r-import-form){backdrop-filter:blur(4px)}
 .overlay:has(.r-import-form){align-items:center;padding:12px}.r-import-form.sheet{margin:auto;border-radius:18px;max-height:calc(100dvh - 28px);overflow:auto}.r-import-form .sheet-handle{display:none}
 .r-import-form details{font-size:14px}.r-import-form summary{cursor:pointer}.r-import-form .photo-select{min-height:76px;border:1px dashed currentColor}
+
+.r-source-icon svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.r-source>span:last-child{font-size:22px;color:#766b7b}.r-import-form [data-paste]{margin:8px 0}.r-import-form details{margin:8px 0}

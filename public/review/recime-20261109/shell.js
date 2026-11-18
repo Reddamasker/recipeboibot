@@ -324,6 +324,8 @@
     plus:'<path d="M12 4v16M4 12h16"/>',
     settings:'<path d="M3 5h5m4 0h9M3 12h10m4 0h4M3 19h3m4 0h11"/><rect x="8" y="3" width="4" height="4" rx="1"/><rect x="13" y="10" width="4" height="4" rx="1"/><rect x="6" y="17" width="4" height="4" rx="1"/>',
     magic:'<path d="M7 2v5m10-5v5M3 10h18M12 21H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6m-2 2 1.4 3.6L24 19l-3.6 1.4L19 24l-1.4-3.6L14 19l3.6-1.4Z"/>',
+    camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',
+    link:'<path d="m10 14 4-4m-6 2-2 2a3.5 3.5 0 0 0 5 5l3-3m-4-8 3-3a3.5 3.5 0 1 1 5 5l-2 2"/>',
     share:'<path d="M8 8H5v13h14V8h-3M12 15V2m-4 4 4-4 4 4"/>'
   };
   const ico=(n)=>`<svg class="r-icon r-i-${n}" viewBox="0 0 24 24" aria-hidden="true">${paths[n]||paths.plus}</svg>`;
@@ -360,9 +362,9 @@
   }
   const importSources = [
     ['social','share','Соцсети','Ссылка на публикацию или видео'],
-    ['image','grid','Фото','Страницы книги, записи и скриншоты'],
+    ['image','camera','Фото','Страницы книги, записи и скриншоты'],
     ['text','list','Текст','Из заметок, сообщений или документа'],
-    ['url','book','Ссылка на сайт','Рецепт из блога или с сайта']
+    ['url','link','Ссылка на сайт','Рецепт из блога или с сайта']
   ];
   function chooseImportSource(){
     const rows=importSources.map(([key,icon,label,hint])=>
