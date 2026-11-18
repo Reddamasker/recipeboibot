@@ -39,7 +39,7 @@
         const input = JSON.parse(new TextDecoder().decode(bytes));
         if (!input || typeof input !== 'object' || Array.isArray(input)) continue;
         const route = {};
-        if (['menu', 'dinner', 'collection', 'discover', 'offer', 'benefits', 'pricing', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding', 'trial-guide', 'tastes'].includes(input.view)) route.view = input.view;
+        if (['menu', 'dinner', 'collection', 'discover', 'offer', 'benefits', 'pricing', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding', 'trial-guide', 'tastes', 'import-errors'].includes(input.view)) route.view = input.view;
         if (input.entry === 'welcome' && ['collection', 'discover'].includes(route.view)) route.entry = 'welcome';
         if (['results', 'request', 'search'].includes(route.view) && typeof input.q === 'string' && input.q.length <= 500 && !/[\u0000-\u001f\u007f]/.test(input.q)) route.q = input.q;
         if (typeof input.recipe === 'string' && /^(?:(?:seed|dinner):)?[A-Za-z0-9_-]{1,100}$/.test(input.recipe)) route.recipe = input.recipe;

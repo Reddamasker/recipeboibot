@@ -1052,7 +1052,7 @@ async function saveContent(message, user, content, options = {}) {
   await send(chatId, 'Получено. Извлекаю рецепт — статус уже сохранён, можно закрыть чат.');
   let outcome;
   if (content.url) outcome = await importUrl(user.id, content.url);
-  else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : `Сообщение в ${chatPlatformLabel}`, label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey });
+  else outcome = await importText(user.id, content.text, { sourceType: content.sourceType || 'text', sourceName: content.sourceType === 'audio' ? 'Ваше голосовое' : `Сообщение в ${chatPlatformLabel}`, label: content.sourceType === 'audio' ? 'Ваше голосовое' : 'Текстовый рецепт', sourceKey: content.sourceKey, diagnosticsDisabled: Boolean(options.groupMode) });
   await finishImport(chatId, outcome, options);
   if (!options.groupMode && outcome.state === 'created' && !awaitingFirstRecipe(user.id)) await sendTestOffer(chatId, user.id);
   return true;
@@ -1237,6 +1237,12 @@ export async function handleMessage(message, updateId = null) {
   if (['group', 'supergroup'].includes(message.chat?.type)) { await handleGroupMessage(message); return; }
   if (message.chat?.type !== 'private') return;
   const chatId = message.chat.id;
+  if (/^\/import_errors(?:@[A-Za-z0-9_]+)?\s*$/.test(message.text || '')) {
+    if (String(message.from.id) !== String(config.analyticsOwnerId)) return;
+    const url = webAppUrl({ view:'import-errors' });
+    await send(chatId,'Неудачные импорты: тексты хранятся до 7 дней. Просмотр доступен только вашему аккаунту.',url ? {reply_markup:{inline_keyboard:[[{text:'Посмотреть ошибки импорта',web_app:{url}}]]}} : {});
+    return;
+  }
   if (message.maxUnsupportedMedia?.length && !message.text && !message.photo?.length && !message.audio) {
     await send(chatId, 'Этот формат вложения пока не поддерживается. Пришлите текст, фото, голосовое сообщение или ссылку на рецепт.');
     return;

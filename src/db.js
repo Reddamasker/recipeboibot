@@ -7,6 +7,7 @@ import { recipeNutrition, normalizeNutrition, nutritionKey } from './nutrition.j
 import { withSeedImage } from './dinner-seeds.js';
 import { createGeneratedCatalogStore } from './generated-catalog.js';
 import { setPublicCatalogProvider } from './public-catalog.js';
+import { forgetImportFailures } from './import-failures.js';
 
 fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
 export const db = new DatabaseSync(config.databasePath);
@@ -733,6 +734,7 @@ export function markUpdate(updateId) { if (!claimUpdate(updateId)) return false;
 export function deleteUserData(userId) {
   const user = getUserById(userId);
   if (!user) return false;
+  forgetImportFailures(userId);
   db.exec('BEGIN IMMEDIATE');
   try {
     if (user.telegram_id.startsWith('max:') && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='max_inbox'").get()) {

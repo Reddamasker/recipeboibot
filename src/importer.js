@@ -11,6 +11,12 @@ import { withFirstRecipe } from './subscriptions.js';
 import { recipePhotos, photoSourceKey } from './photo-sources.js';
 import { db } from './db.js';
 import { setPhotoImportCount } from './product-context.js';
+import { captureImportFailure, resolveImportFailure } from './import-failures.js';
+
+function rememberFailedText(userId, text, options, error) {
+  // An account may have been deleted while its AI request was in flight.
+  if (db.prepare('SELECT 1 FROM users WHERE id=?').get(userId)) captureImportFailure(userId, text, options, error);
+}
 
 export function importTextWithAccess(userId, text, options = {}) {
   const photos = recipePhotos(options);
@@ -114,13 +120,16 @@ function outcomeFromClaim(claim) {
 export async function importText(userId, text, options = {}) {
   const photos = recipePhotos(options);
   setPhotoImportCount(photos.length);
-  if (!photos.length && String(text).trim().length < 10) throw Object.assign(new Error('Добавьте сам рецепт: ингредиенты или шаги.'), { status: 400, code: 'SOURCE_TOO_SHORT' });
+  if (!photos.length && String(text).trim().length < 10) {
+    const error = Object.assign(new Error('Добавьте сам рецепт: ингредиенты или шаги.'), { status: 400, code: 'SOURCE_TOO_SHORT' });
+    rememberFailedText(userId, text, options, error); throw error;
+  }
   const sourceType = options.sourceType || 'text';
   const contentKey = photos.length ? photoSourceKey(photos) : sourceKeyForText(text, sourceType);
   const sourceKey = options.sourceKey || contentKey;
   const label = options.label || options.sourceName || (sourceType === 'audio' ? 'Ваше голосовое' : sourceType === 'image' ? 'Фото' : 'Текстовый рецепт');
   const claim = claimImport(userId, { sourceType, sourceKey, sourceUrl: options.sourceUrl || null, label, thumbnailUrl: options.thumbnailUrl || null });
-  const existing = outcomeFromClaim(claim); if (existing) return existing;
+  const existing = outcomeFromClaim(claim); if (existing) { if (existing.state === 'existing') resolveImportFailure(userId, text); return existing; }
   const job = claim.job;
   if (photos.length) db.prepare('UPDATE import_jobs SET image_count=? WHERE id=?').run(photos.length, job.id);
   try {
@@ -129,8 +138,10 @@ export async function importText(userId, text, options = {}) {
     const normalized = await normalize({ userId, text, ...(photos.length > 1 ? { photos } : { image: photos[0] }), sourceName: options.sourceName || label });
     const recipe = createRecipe(userId, { ...normalized, status: options.status || 'ready', origin: 'imported', sourceType, sourceUrl: options.sourceUrl || null, sourceKey, sourceName: normalized.sourceName || options.sourceName || label, thumbnailUrl: options.thumbnailUrl || null });
     updateJob(job.id, 'ready', { recipeId: recipe.id });
+    resolveImportFailure(userId, text);
     return { state: 'created', recipe, job: { ...job, status: 'ready', recipeId: recipe.id } };
   } catch (error) {
+    rememberFailedText(userId, text, options, error);
     updateJob(job.id, 'failed', { errorCode: error.code || 'IMPORT_FAILED', errorMessage: error.message });
     throw error;
   }
