@@ -71,8 +71,12 @@ async function sendCollectionEntry(chatId, userId, importEntry = false) {
   const previous = getPendingIntent(userId);
   setPendingIntent(userId, { kind: 'recipe-save', collectionOnboarding: true, resumeIntent: previous?.kind === 'recipe-save' ? previous.resumeIntent : previous });
   const url = webAppUrl({ view: 'collection' });
+  const buttons = importEntry
+    ? [[{ text: collectionButtonText, web_app: { url } }]]
+    : [[{ text: 'Моя коллекция', web_app: { url: webAppUrl({ view: 'collection', entry: 'welcome' }) } }],
+       [{ text: 'Подобрать рецепт', web_app: { url: webAppUrl({ view: 'discover', entry: 'welcome' }) } }]];
   identifyProductStep(importEntry ? 'import' : 'home');
-  await send(chatId, importEntry ? '<b>Добавить рецепт</b>\n\nПришли ссылку, фото или текст рецепта. Можно переслать сообщение или продиктовать рецепт голосом.\n\nЯ обработаю его и добавлю в твою коллекцию.\n\nДля отмены — /cancel.' : collectionWelcome, url ? { reply_markup: { inline_keyboard: [[{ text: collectionButtonText, web_app: { url } }]] } } : {});
+  await send(chatId, importEntry ? '<b>Добавить рецепт</b>\n\nПришли ссылку, фото или текст рецепта. Можно переслать сообщение или продиктовать рецепт голосом.\n\nЯ обработаю его и добавлю в твою коллекцию.\n\nДля отмены — /cancel.' : collectionWelcome, url ? { reply_markup: { inline_keyboard: buttons } } : {});
   recordProduct(userId, 'chat_prompt_delivered', { step: importEntry ? 'import' : 'home' });
 }
 

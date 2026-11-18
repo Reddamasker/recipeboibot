@@ -78,7 +78,7 @@ test('landing start opens the shared collection onboarding and campaign attribut
   assert.equal(db.prepare('SELECT campaign FROM acquisition_starts WHERE user_id=?').get(user.id).campaign, 'ya-dinner-202610');
   assert.equal(landingReport('ya-dinner-202610').starts, 1);
   assert.equal(funnelReport('ya-dinner-202610').totals.starts, 1);
-  assert.ok(messages.some(message => message.text?.includes('Сохрани свой первый рецепт')));
+  assert.ok(messages.some(message => message.text?.includes('Сохраняй рецепты из соцсетей')));
   assert.equal(landingStartIntent('/start lp_not_a_real_token'), null);
 });
 

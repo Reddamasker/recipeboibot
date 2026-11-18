@@ -3443,7 +3443,8 @@ window.__recipePlatform ||= {name:'telegram',botUsername:'Recipeboibot'};
         const input = JSON.parse(new TextDecoder().decode(bytes));
         if (!input || typeof input !== 'object' || Array.isArray(input)) continue;
         const route = {};
-        if (['menu', 'dinner', 'collection', 'offer', 'benefits', 'pricing', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding', 'trial-guide', 'tastes'].includes(input.view)) route.view = input.view;
+        if (['menu', 'dinner', 'collection', 'discover', 'offer', 'benefits', 'pricing', 'feedback', 'notifications', 'results', 'request', 'search', 'add', 'promo', 'checkout', 'payment-result', 'trial-onboarding', 'trial-guide', 'tastes'].includes(input.view)) route.view = input.view;
+        if (input.entry === 'welcome' && ['collection', 'discover'].includes(route.view)) route.entry = 'welcome';
         if (['results', 'request', 'search'].includes(route.view) && typeof input.q === 'string' && input.q.length <= 500 && !/[\u0000-\u001f\u007f]/.test(input.q)) route.q = input.q;
         if (typeof input.recipe === 'string' && /^(?:(?:seed|dinner):)?[A-Za-z0-9_-]{1,100}$/.test(input.recipe)) route.recipe = input.recipe;
         if (route.view === 'payment-result' && typeof input.order === 'string' && /^[0-9a-f-]{36}$/i.test(input.order)) route.order = input.order;
@@ -3853,7 +3854,7 @@ let requestRecorder = null;
 function setRoute(values, { replace = false, historyState = {} } = {}) {
   if (values.view && requestRecorder?.state === 'recording') requestRecorder.stop();
   const url = new URL(location.href);
-  for (const key of ['view', 'q', 'recipe', 'notification', 'order']) url.searchParams.delete(key);
+  for (const key of ['view', 'entry', 'q', 'recipe', 'notification', 'order']) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(values)) if (value) url.searchParams.set(key, value);
   history[replace ? 'replaceState' : 'pushState'](historyState, '', url);
 }
@@ -4905,11 +4906,22 @@ function overlay(content, sheetClass = '', dismissible = true) {
   return el;
 }
 
-function importSheet() {
+function importSheet(source = 'url') {
   if (root.dataset) root.dataset.analyticsStep = 'import';
-  state.tab = 'text';
-  const firstRecipe = state.recipes.length === 0;
-  const el = overlay(`<div class="sheet-head"><div><div class="eyebrow">${firstRecipe ? 'Первый рецепт' : 'Дополнительный способ'}</div><h2>${firstRecipe ? 'Добавить первый рецепт' : 'Сохранить вручную'}</h2></div><button class="icon-btn" data-close>✕</button></div><p class="help">${firstRecipe ? 'Вставьте текст или ссылку на рецепт либо выберите фото. Голосовое можно отправить боту в чате.' : 'Обычно проще поделиться источником в чат бота. Здесь можно вставить текст, ссылку или выбрать фото.'}</p><div class="source-tabs" role="group" aria-label="Источник рецепта"><button data-tab="text" class="active" aria-pressed="true">Текст</button><button data-tab="url" aria-pressed="false">Ссылка</button><button data-tab="image" aria-pressed="false">Фото</button></div><form id="import-form" class="form-stack"><div id="import-field"><label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Вставьте ингредиенты и шаги…"></textarea></div><p class="help">После обработки рецепт сразу появится в коллекции. Проверяйте неизвестные количества и температуры.</p><button class="primary accent" type="submit">Сохранить</button></form>`);
+  state.tab = source === 'social' ? 'url' : source;
+  const titles = {social:'Рецепт из соцсети',url:'Рецепт с сайта',image:'Рецепт с фотографии',text:'Рецепт из текста'};
+  const hints = {social:'Вставь ссылку на публикацию или видео с рецептом.',url:'Вставь ссылку на страницу с одним рецептом.',image:'Выбери фото ингредиентов и шагов одного рецепта.',text:'Вставь ингредиенты и шаги из заметки или переписки.'};
+  const link = state.tab === 'url';
+  const field = source === 'image' ? '' : link
+    ? '<label class="label" for="source-value">Ссылка на рецепт</label><input class="field" id="source-value" type="url" inputmode="url" placeholder="https://" required><button type="button" class="secondary" data-paste>Вставить ссылку</button><details><summary>Как сохранить из другого приложения</summary><p>В меню «Поделиться» скопируй ссылку и вставь её сюда. Можно также отправить ссылку боту в чат.</p></details>'
+    : '<label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Ингредиенты и шаги приготовления"></textarea>';
+  const el = overlay('<div class="sheet-head"><h2>'+titles[source]+'</h2><button class="icon-btn" data-close aria-label="Закрыть">×</button></div><p class="help">'+hints[source]+'</p><form id="import-form" novalidate class="form-stack"><div id="import-field">'+field+'</div><button class="primary accent" type="submit">Сохранить</button></form>','r-import-form');
+  const paste = el.querySelector('[data-paste]');
+  if (paste) paste.onclick = async () => {
+    const input = el.querySelector('#source-value'); input.focus();
+    try { const value = await navigator.clipboard.readText(); if (value && input.isConnected) { input.value=value; input.dispatchEvent(new Event('input',{bubbles:true})); } }
+    catch { if(input.isConnected)toast('Нажми на поле и выбери «Вставить».'); }
+  };
   el.querySelector('[data-close]').onclick = closeOverlay;
   const form = el.querySelector('#import-form');
   form.recipePhotoFiles = [];
@@ -4920,15 +4932,10 @@ function importSheet() {
     // A field correction clears validation, but a server error stays until retry.
     if (form.querySelector('[aria-invalid="true"]')) clearImportError(form);
   });
-  el.querySelectorAll('[data-tab]').forEach((button) => button.onclick = () => {
-    clearImportError(form);
-    state.tab = button.dataset.tab;
-    el.querySelectorAll('[data-tab]').forEach((tab) => { tab.classList.toggle('active', tab === button); tab.setAttribute('aria-pressed', String(tab === button)); });
-    el.querySelector('#import-field').innerHTML = state.tab === 'image'
-      ? '<label class="label" for="source-file">Фото одного рецепта</label><input id="source-file" type="file" hidden multiple accept="image/jpeg,image/png,image/webp" aria-describedby="photo-help"><button id="photo-add" class="secondary" type="button" aria-controls="source-file">Добавить фото</button><p class="help" id="photo-help">Выберите все части рецепта или добавляйте по одной. До 10 фото, вместе до 6 МБ. Проверьте порядок чтения перед сохранением.</p><div id="photo-pages" class="photo-pages" aria-label="Порядок фото"></div><p class="help" id="photo-count" role="status"></p><label class="label" for="source-caption">Подпись к фото (необязательно)</label><input class="field" id="source-caption" placeholder="Например, название блюда">'
-      : `<label class="label" for="source-value">${state.tab === 'url' ? 'Ссылка на рецепт' : 'Текст рецепта'}</label><textarea class="field" id="source-value" placeholder="${state.tab === 'url' ? 'https://сайт/рецепт' : 'Вставьте ингредиенты и шаги…'}"></textarea>`;
-    if (state.tab === 'image') setupImportPhotos(form);
-  });
+  if (source === 'image') {
+    el.querySelector('#import-field').innerHTML = '<label class="label" for="source-file">Фото одного рецепта</label><button type="button" class="secondary" id="take-photo">Снять фото</button><input id="camera-file" type="file" hidden accept="image/*" capture="environment"><input id="source-file" type="file" hidden multiple accept="image/jpeg,image/png,image/webp" aria-describedby="photo-help"><button id="photo-add" class="secondary photo-select" type="button" aria-controls="source-file">Выбрать фото</button><p class="help" id="photo-help">Выберите все части рецепта или добавляйте по одной. До 10 фото, вместе до 6 МБ. Проверьте порядок чтения перед сохранением.</p><div id="photo-pages" class="photo-pages" aria-label="Порядок фото"></div><p class="help" id="photo-count" role="status"></p><label class="label" for="source-caption">Подпись к фото (необязательно)</label><input class="field" id="source-caption" placeholder="Например, название блюда">';
+    setupImportPhotos(form);
+  }
   el.querySelector('#import-form').onsubmit = submitImport;
 }
 
@@ -4948,11 +4955,13 @@ function setupImportPhotos(form) {
       list.querySelector(`[data-photo-index="${Math.min(index, items.length - 1)}"][data-photo-action="remove"]`)?.focus();
     });
   };
-  field.onchange = () => {
+  const camera = form.querySelector('#camera-file');
+  form.querySelector('#take-photo').onclick = () => camera.click();
+  camera.onchange = field.onchange = (event) => {
     if (form.querySelector('button[type=submit]').disabled) return;
-    const files = [...field.files], combined = [...form.recipePhotoFiles.map(item => item.file), ...files];
+    const files = [...event.target.files], combined = [...form.recipePhotoFiles.map(item => item.file), ...files];
     const error = combined.length > 10 ? 'Можно добавить до 10 фото одного рецепта.' : combined.reduce((sum, file) => sum + file.size, 0) > 6 * 1024 * 1024 ? 'Общий размер фото превышает 6 МБ. Выберите файлы поменьше.' : files.some(file => !/^image\/(jpeg|png|webp)$/.test(file.type)) ? 'Разрешены JPEG, PNG и WEBP.' : null;
-    field.value = '';
+    event.target.value = '';
     if (error) { const message = form.querySelector('#import-error'); message.textContent = error; message.hidden = false; message.focus(); return; }
     clearImportError(form);
     form.recipePhotoFiles.push(...files.map(file => ({ file, url: URL.createObjectURL(file) })));
@@ -4980,7 +4989,7 @@ async function submitImport(event) {
   button.disabled = true; button.innerHTML = '<span class="loader"></span>Обрабатываю…';
   form.setAttribute('aria-busy', 'true');
   tabs.forEach((control) => { control.disabled = true; });
-  const photoControls = [...form.querySelectorAll('[data-photo-action], #photo-add, #source-file, #source-caption')].map(control => [control, control.disabled]);
+  const photoControls = [...form.querySelectorAll('[data-photo-action], #photo-add, #source-file, #source-caption, #take-photo, #camera-file, [data-paste]')].map(control => [control, control.disabled]);
   photoControls.forEach(([control]) => { control.disabled = true; });
   try {
     let body;

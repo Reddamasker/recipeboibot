@@ -331,7 +331,11 @@
   const button=(action,label,name,cls='r-action',extra='')=>`<button type="button" class="${cls}" data-review="${action}" ${extra}>${name?ico(name):''}<span>${esc(label)}</span>${cls.includes('r-action')?ico('chevron'):''}</button>`;
   function dayList(){const now=new Date(),date=new Date(Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()));const weekday=(date.getUTCDay()+6)%7;date.setUTCDate(date.getUTCDate()-weekday+ui.week*7);return Array.from({length:7},(_,i)=>new Date(date.getTime()+i*86400000));}
   function navigation(){return `<nav class="r-nav" aria-label="Разделы приложения">${[['collection','Рецепты','bookmark'],['meal-plan','Меню','calendar'],['groceries','Покупки','basket'],['discover','Подобрать','compass']].map(([v,t,i])=>`<button type="button" data-review-view="${v}" aria-current="${ui.section===v?'page':'false'}">${ico(i)}<span>${t}</span></button>`).join('')}</nav>`;}
-  function setMarkup(content,step='other'){ui.disposePlanner?.();ui.disposePlanner=null;root.classList.add('review-shell');root.dataset.analyticsStep=step;root.innerHTML=content+navigation();window.__miniRendered=true;}
+  function setMarkup(content,step='other'){ui.disposePlanner?.();ui.disposePlanner=null;root.classList.add('review-shell');root.dataset.analyticsStep=step;root.innerHTML=content+navigation();window.__miniRendered=true;
+    const query=new URLSearchParams(location.search);
+    if(query.get('entry')==='welcome' && query.get('view')===ui.section && ['collection','discover'].includes(ui.section)){
+      try{window.RecipeAnalytics?.observe(root.querySelector('header')||root.querySelector('main'),'screen_view','welcome_'+ui.section);}catch{}
+    }}
   function title(text,action=null,cls=''){return `<header class="r-header ${cls}"><h1>${text}</h1>${action?button(action,'Настройки','settings','r-round','aria-label="Настройки"'):''}</header>`;}
   function searchField(id,value,placeholder){return `<label class="r-search">${ico('search')}<input id="${id}" type="search" value="${esc(value)}" placeholder="${placeholder}" aria-label="${placeholder}" autocomplete="off"></label>`;}
   function books(){
@@ -354,10 +358,26 @@
     all=all.slice().sort((a,b)=>Number(Boolean(ui.workspace?.recipeCards?.[b.id]?.pinned))-Number(Boolean(ui.workspace?.recipeCards?.[a.id]?.pinned)));
     return all.map(recipe=>'<article class="r-recipe-tile"><button class="r-book" data-review="recipe" data-recipe-id="'+esc(recipe.id)+'">'+(safeImage(recipe.thumbnailUrl)?'<img class="r-recipe-cover" src="'+safeImage(recipe.thumbnailUrl)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'<span class="r-recipe-cover"></span>')+'<span><strong>'+esc(recipe.title)+'</strong><small>'+esc(recipe.status==='draft'?'Черновик':cookingTimeLabel(recipe))+'</small></span></button><button type="button" class="r-card-more" data-review="recipe-actions" data-recipe-id="'+esc(recipe.id)+'" aria-label="Действия с рецептом '+esc(recipe.title)+'">'+ico('settings')+'</button></article>').join('')||'<p class="r-empty-library">'+(query?'Ничего не найдено':'В этой подборке пока нет рецептов')+'</p>';
   }
+  const importSources = [
+    ['social','share','Соцсети','Ссылка на публикацию или видео'],
+    ['image','grid','Фото','Страницы книги, записи и скриншоты'],
+    ['text','list','Текст','Из заметок, сообщений или документа'],
+    ['url','book','Ссылка на сайт','Рецепт из блога или с сайта']
+  ];
+  function chooseImportSource(){
+    const rows=importSources.map(([key,icon,label,hint])=>
+      '<button type="button" class="r-source" data-source="'+key+'"><span class="r-source-icon">'+ico(icon)+'</span><span><strong>'+label+'</strong><small>'+hint+'</small></span><span aria-hidden="true">›</span></button>').join('');
+    const panel=overlay('<div class="sheet-head"><h2>Добавить рецепт</h2><button class="icon-btn" data-close aria-label="Закрыть">×</button></div>'+rows,'r-source-picker');
+    panel.querySelector('[data-close]').onclick=closeOverlay;
+    try{window.RecipeAnalytics?.observe(panel.querySelector('h2'),'screen_view','import_sources');}catch{}
+    for(const button of panel.querySelectorAll('[data-source]'))button.onclick=()=>{
+      try{window.RecipeAnalytics?.event('step_submit','import_sources');}catch{}
+      closeOverlay();importSheet(button.dataset.source);
+    };
+  }
   function collectionOnboarding(){
     if(state.recipes.length||state.jobs.length||ui.query||ui.book)return '';
-    const url=window.RecipePlatform.botUrl('collection_save');
-    return '<section class="r-collection-onboarding" aria-labelledby="collection-onboarding-title"><h1 id="collection-onboarding-title">Здесь будут твои рецепты</h1><p>Начни с одного любимого блюда. Перешли рецепт в чат с ботом — ссылкой, сообщением, фото или голосом. После обработки он появится здесь.</p><a class="r-onboarding-button" data-review="send-recipe" href="'+esc(url)+'">Отправить рецепт боту</a></section>';
+    return '<section class="r-collection-onboarding" aria-labelledby="collection-onboarding-title"><h1 id="collection-onboarding-title">Здесь будут твои рецепты</h1><p>Добавь рецепт по ссылке, с фотографии или из текста.</p><button type="button" class="r-onboarding-button" data-review="import">Добавить рецепт</button><p class="r-forward-hint">Нашёл рецепт в переписке или соцсети? Перешли сообщение или ссылку боту — рецепт появится здесь.</p></section>';
   }
   function recipesPage(){
     ui.section='collection';const book=books().find(item=>item.key===ui.book);
@@ -562,13 +582,7 @@
     case 'book':ui.book=el.dataset.book;ui.query='';recipesPage();resetPageScroll();break;
     case 'all-books':ui.book=null;ui.query='';recipesPage();break;
     case 'recipe':await openRecipe(el.dataset.recipeId,true);break;
-    case 'send-recipe':
-      event.preventDefault();
-      try{RecipeAnalytics?.event('step_submit','import');RecipeAnalytics?.flushBeforeNavigate?.();}catch{}
-      try{if(window.RecipePlatform.openBot('collection_save'))break;}catch{}
-      location.assign(window.RecipePlatform.botUrl('collection_save'));
-      break;
-    case 'import':importSheet();break;
+    case 'import':chooseImportSource();break;
     case 'profile':settingsSheet();break;
     case 'quick':importSheet();break;
     case 'new-book':if(await canEdit())collectionForm();break;

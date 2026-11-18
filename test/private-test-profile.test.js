@@ -60,7 +60,7 @@ test('private fresh profile shares authenticated bot/API identity and preserves 
     await handleMessage({ from: tg, chat: { id: tg.id, type: 'private' }, text: '/start' });
     assert.equal(messages.length, 1);
     assert.equal(messages[0].chat_id, tg.id);
-    assert.match(messages[0].text, /Сохрани свой первый рецепт/);
+    assert.match(messages[0].text, /Сохраняй рецепты из соцсетей/);
     assert.equal(store.getPendingIntent(mode.testUserId).kind, 'recipe-save');
     assert.doesNotMatch(messages[0].text, /возвращением|назовите продукты/i);
     assert.equal(store.getUserById(mode.testUserId).is_allowed, 1);

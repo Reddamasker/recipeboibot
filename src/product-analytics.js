@@ -12,7 +12,7 @@ import { workspaceClientEvents, workspaceEventFields, workspaceSavedFields, work
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt', ...workspaceClientEvents];
 const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
 export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, ...catalogJourneyPublicEvents, ...catalogDetailPublicEvents, 'client_error', 'telemetry_health'];
-export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
+export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'welcome_collection', 'welcome_discover', 'import_sources', 'catalog', 'other'];
 const idPattern = /^[a-zA-Z0-9_-]{16,80}$/;
 const exists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 db.exec(`CREATE TABLE IF NOT EXISTS product_events (

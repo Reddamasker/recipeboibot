@@ -46,7 +46,11 @@ try{
   await handleChatUpdate(initial);
   assert.equal(messages.at(-1).text,collectionWelcome);assert.equal(calls,0);assert.equal(getSubscriptionAccess(user.id).active,false);
   const buttons=platform==='max'?messages.at(-1).attachments[0].payload.buttons:messages.at(-1).reply_markup.inline_keyboard;
-  assert.equal(buttons[0][0].text,collectionButtonText);
+  assert.deepEqual(buttons.map(row=>row.map(b=>b.text)),[['Моя коллекция'],['Подобрать рецепт']]);
+  for(const [index,view] of ['collection','discover'].entries()){
+    const b=buttons[index][0], route=platform==='telegram'?Object.fromEntries(new URL(b.web_app.url).searchParams):JSON.parse(Buffer.from(b.payload,'base64url'));
+    assert.equal(route.view,view);assert.equal(route.entry,'welcome');
+  }
   if(platform==='telegram')assert.equal(new URL(buttons[0][0].web_app.url).searchParams.get('view'),'collection');
   else assert.equal(JSON.parse(Buffer.from(buttons[0][0].payload,'base64url')).view,'collection');
   await send('/start collection');assert.deepEqual(getPendingIntent(user.id).resumeIntent,null);
