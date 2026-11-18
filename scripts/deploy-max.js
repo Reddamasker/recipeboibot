@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deployFromCloud } from './cloud-deploy.js';
 
 if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
@@ -65,6 +66,11 @@ export function archiveSourceHash(archive) {
 
 function main() {
   const { mode, enablePayments } = parseDeployMaxArgs(process.argv.slice(2));
+  if (process.env.RECIPEBOIBOT_CLOUD_DEPLOY_HOST) {
+    if (enablePayments) throw new Error('MAX payment configuration requires server administration');
+    deployFromCloud('max', mode);
+    return;
+  }
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24+ required');
   const target = 'root@89.223.123.75';
   const options = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4'];

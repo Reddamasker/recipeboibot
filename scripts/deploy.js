@@ -4,6 +4,7 @@ import { mkdtempSync, copyFileSync, existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deployFromCloud } from './cloud-deploy.js';
 
 if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
@@ -28,6 +29,10 @@ const sshOptions = ['-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-
 const identity = process.env.DEPLOY_IDENTITY || path.join(homedir(), '.ssh', 'recipeboibot_ed25519');
 if (existsSync(identity)) sshOptions.push('-i', identity);
 try {
+  if (process.env.RECIPEBOIBOT_CLOUD_DEPLOY_HOST && !process.env.NODE_TEST_CONTEXT) {
+    deployFromCloud('production', mode);
+    process.exit(0);
+  }
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24+ required');
   if (!['nikita@72.56.97.79', 'root@89.223.123.75'].includes(target)) throw new Error('Unknown deployment target');
   if (!['https://recipes.spas-sky.ru', 'https://dishfinder.ru', 'https://recipeboibot.72-56-97-79.sslip.io', 'https://recipeboibot.89-223-123-75.sslip.io'].includes(healthUrl)) throw new Error('Unknown health URL');
