@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deployFromCloud } from './cloud-deploy.js';
 
 if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
@@ -31,6 +32,10 @@ function run(command, args, capture = false) {
   return capture ? result.stdout.trim() : '';
 }
 try {
+  if (process.env.RECIPEBOIBOT_CLOUD_DEPLOY_HOST && !process.env.NODE_TEST_CONTEXT) {
+    deployFromCloud('test', mode);
+    process.exit(0);
+  }
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24+ required');
   run('ssh', [...options, target, 'cd /opt/recipeboibot-test && docker compose -f compose.test.yaml ps && curl -fsS http://127.0.0.1:3088/healthz']);
   run('ssh', [...options, target, 'if test -f /opt/recipeboibot-test/deploy/storage.py; then python3 /opt/recipeboibot-test/deploy/storage.py preflight test; fi']);

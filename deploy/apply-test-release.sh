@@ -1,7 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 release=${1:?Missing archive SHA-256}
+expected_source=${2:-}
 [[ "$release" =~ ^[0-9a-f]{64}$ ]] || exit 2
+if [[ -n "$expected_source" ]]; then
+  [[ "$expected_source" =~ ^[0-9a-f]{64}$ ]] || exit 2
+  source_verifier="$(dirname "$0")/release-source-hash.js"
+fi
 archive="/root/recipeboibot-test-release-$release.tgz"
 printf '%s  %s\n' "$release" "$archive" | sha256sum -c -
 cd /opt/recipeboibot-test
@@ -60,6 +65,10 @@ for attempt in $(seq 1 30); do
   if [ "$health" = healthy ]; then
     curl -fsS --max-time 15 https://recipeboibot-test.89-223-123-75.sslip.io/healthz
     curl -fsS --max-time 15 http://127.0.0.1:3088/readyz | grep -F '"ok":true' >/dev/null
+    if [[ -n "$expected_source" ]]; then
+      actual_source=$(docker exec -i recipeboibot-test node --input-type=module < "$source_verifier")
+      [[ "$actual_source" == "$expected_source" ]]
+    fi
     printf '%s\n' "$release" > DEPLOYED_ARCHIVE_SHA256
     trap - ERR HUP INT TERM
     bash deploy/retention.sh test --apply || { echo 'Runtime published, but retention failed; see backups/retention-error' >&2; exit 1; }
