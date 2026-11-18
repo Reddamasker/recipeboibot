@@ -60,6 +60,7 @@ import { acceptProductEvents, apiStep, identifyProductUser, productOperation, re
 import { createRecipeWorkspace } from './recipe-workspace.js';
 import { createRecipeCardStore } from './recipe-card.js';
 import { workspaceFeature } from './workspace-analytics.js';
+import { isImportFailureOwner, importFailureReport, removeImportFailure } from './import-failures.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
@@ -615,6 +616,18 @@ async function handleRequest(request, response) {
         return json(response,200,userAdJourneyReport(userAdJourneyFilters(url.searchParams,'max')));
       }
       if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
+      if (url.pathname === '/api/owner/import-failures' || url.pathname.startsWith('/api/owner/import-failures/')) {
+        const header = request.headers.authorization || '', scheme = config.botPlatform === 'max' ? 'mxa ' : 'tma ';
+        if (!header.startsWith(scheme)) return json(response,401,{error:'Откройте этот раздел из своего аккаунта в боте'});
+        const identity = config.botPlatform === 'max' ? validateMaxInitData(header.slice(4),config.maxToken) : validateTelegramInitData(header.slice(4),config.telegramToken);
+        if (!isImportFailureOwner(identity.id)) return json(response,403,{error:'Доступ только владельцу'});
+        if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) return json(response,403,{error:'Запрос отклонён'});
+        rateLimit(`import-failures:${identity.id}`,30);
+        if (request.method === 'GET' && url.pathname === '/api/owner/import-failures') return json(response,200,importFailureReport());
+        const id = url.pathname.slice('/api/owner/import-failures/'.length);
+        if (request.method === 'DELETE' && /^[a-f0-9-]{36}$/.test(id)) { removeImportFailure(id); return json(response,200,{ok:true}); }
+        return json(response,405,{error:'Метод не поддерживается'});
+      }
       if (url.pathname.startsWith('/api/internal/catalog-handoff/')) {
         const action=url.pathname.slice('/api/internal/catalog-handoff/'.length);
         if(action==='key'&&request.method==='GET')return json(response,200,catalogHandoffPublicKey());

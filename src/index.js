@@ -17,6 +17,7 @@ import { startTrialReminderScheduler, stopTrialReminderScheduler } from './trial
 import { sendTrialRecipeReminder } from './telegram.js';
 import { initializeTrialDigest } from './trial-digest-store.js';
 import { startCatalogHandoffScheduler, stopCatalogHandoffScheduler } from './catalog-handoff-transport.js';
+import { startImportFailureCleanup, stopImportFailureCleanup } from './import-failures.js';
 
 assertConfig();
 if (config.telegramPolling && config.legacyDinnerNotificationsEnabled) initializeTrialDigest();
@@ -34,6 +35,7 @@ const maxWorker = config.botPlatform === 'max' ? startMaxWorker(handleChatUpdate
 server.listen(config.port, '0.0.0.0', () => {
   log('info', 'server_started', { port: config.port, appUrlConfigured: Boolean(config.appUrl) });
   startBillingScheduler();
+  startImportFailureCleanup();
   startDirectScheduler();
   startJourneyEnrichmentScheduler();
   startCatalogHandoffScheduler();
@@ -58,5 +60,6 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
   stopTrialWelcomeScheduler(); stopDirectScheduler(); stopFeedbackScheduler(); stopBillingScheduler(); stopNotificationScheduler(); stopTelegramPolling();
   const deadline = setTimeout(() => process.exit(1), 80000); deadline.unref();
   await Promise.all([maxWorker?.stop(), new Promise(resolve => server.close(resolve))]);
+  stopImportFailureCleanup();
   clearTimeout(deadline); process.exit(0);
 });

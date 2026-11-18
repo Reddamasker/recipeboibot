@@ -83,4 +83,10 @@ try{
   const operations=db.prepare("SELECT step,duration_ms,detail_json FROM product_events WHERE event='operation_finished' AND user_id=?").all(user.id);
   assert.ok(operations.some(o=>o.step==='import'&&o.duration_ms>=0));assert.ok(operations.some(o=>JSON.parse(o.detail_json).status>=400));
   console.log(JSON.stringify({platform,checks:['entry','collection-button','no-auto-trial','resume-cancel','explicit-import','access-denial','failed-import-retry','saved-confirmation','duplicate-import','duplicate-update','delivery-failure','analytics'],recipes:listRecipes(user.id).length,operations:operations.length,network:'intercepted',database:'temporary'}));
-} finally {globalThis.fetch=originalFetch;db.close();for(const suffix of ['','-wal','-shm'])fs.rmSync(path.join(directory,'test.sqlite')+suffix,{force:true});fs.rmdirSync(directory);}
+} finally {
+  globalThis.fetch=originalFetch;db.close();
+  for(const suffix of ['','-wal','-shm'])fs.rmSync(path.join(directory,'test.sqlite')+suffix,{force:true});
+  const diagnosticDirectory=path.resolve(directory,'test.sqlite.failed-imports');
+  assert.equal(path.dirname(diagnosticDirectory),path.resolve(directory));
+  fs.rmSync(diagnosticDirectory,{recursive:true,force:true});fs.rmdirSync(directory);
+}
