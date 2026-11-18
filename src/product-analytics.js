@@ -12,7 +12,8 @@ import { workspaceClientEvents, workspaceEventFields, workspaceSavedFields, work
 export const clientEvents = ['screen_view', 'step_submit', 'plan_selected', 'checkout_clicked', 'provider_opened', 'client_error', 'request_started', 'request_visible', 'request_preview_visible', 'telemetry_health', 'telemetry_receipt', ...workspaceClientEvents];
 const benefitsEvents = ['benefits_view', 'benefits_close', 'benefits_cta'];
 export const publicEvents = ['catalog_list', 'catalog_search', 'catalog_empty', 'catalog_filter', 'catalog_open', 'catalog_favorite_add', 'catalog_favorite_remove', 'catalog_share', 'catalog_print', ...benefitsEvents, ...catalogJourneyPublicEvents, ...catalogDetailPublicEvents, 'client_error', 'telemetry_health'];
-export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'welcome_collection', 'welcome_discover', 'import_sources', 'catalog', 'other'];
+const welcomeSteps = ['welcome_collection', 'welcome_discover', 'import_sources'];
+export const steps = ['boot', 'home', 'request', 'onboarding', 'household', 'time', 'exclusions', 'taste', 'intake', 'confirmation', 'notifications', 'collection', 'benefits', 'trial', 'offer', 'checkout', 'payment_result', 'recipe', 'import', 'catalog', 'other'];
 const idPattern = /^[a-zA-Z0-9_-]{16,80}$/;
 const exists = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 db.exec(`CREATE TABLE IF NOT EXISTS product_events (
@@ -49,7 +50,7 @@ export function acceptProductEvents(userId, input) {
   // Validate the entire batch before writing; retries use the same event IDs.
   const rows = input.events.map(row => {
     if (!idPattern.test(row.id || '') || !(userId ? clientEvents : publicEvents).includes(row.event)
-      || !steps.includes(row.step) || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
+      || (!steps.includes(row.step) && !welcomeSteps.includes(row.step)) || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
     if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
     const detail = { ...catalogDetailEventFields(row), ...workspaceEventFields(row) };
@@ -147,6 +148,7 @@ export function validProductReport(value, { legacy = false } = {}) {
   }
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
+  if (value.welcomeSteps != null && (!Array.isArray(value.welcomeSteps) || value.welcomeSteps.length !== welcomeSteps.length || !welcomeSteps.every(step=>value.welcomeSteps.some(r=>r?.step===step && ['viewed','submitted','inactive','operations','prompts','errors'].every(k=>Number.isSafeInteger(r[k]) && r[k]>=0))))) return false;
   if (value.latency != null && !validLatencyReport(value.latency)) return false;
   if (value.appEntry != null) {
     const r=value.appEntry,t=r.timing;
@@ -293,7 +295,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     if (!eventsByStep.has(row.step)) eventsByStep.set(row.step, []);
     eventsByStep.get(row.step).push(row);
   }
-  const stepRows = steps.filter(s => s !== 'catalog').map(step => {
+  const stepRows = [...steps,...welcomeSteps].filter(s => s !== 'catalog').map(step => {
     const list = eventsByStep.get(step) || [], operations = [], lastViews = new Map(), submitted = new Set(), prompted = new Set();
     for (const row of list) {
       if(row.event==='screen_view')lastViews.set(row.user_id,row);
@@ -418,7 +420,7 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
   }
-  return { platform: config.botPlatform, trackingSince: productTrackingSince(), appEntry, workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows, errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
+  return { platform: config.botPlatform, trackingSince: productTrackingSince(), appEntry, workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows.filter(r=>steps.includes(r.step)), welcomeSteps:stepRows.filter(r=>welcomeSteps.includes(r.step)), errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
     imports:groupStatuses(imports),photoImports,notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
     catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),
