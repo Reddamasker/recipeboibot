@@ -156,6 +156,7 @@ test('MAX aggregate validates extended analytics and never exports identities',(
  const snapshot=maxFunnelSnapshot();assert.equal(snapshot.version,8);
  const result=snapshot.all.productAnalytics.platforms[0];assert.equal(validProductReport(result),true);
  assert.equal(validProductReport({...result,retention:[{date:'2026-10-01',users:1,d1Eligible:0,d1:1,d7Eligible:0,d7:0,d1Rate:100,d7Rate:null}]}),false);
+ assert.ok(result.forwardGuide.trackingSince);assert.equal(validProductReport({...result,forwardGuide:{...result.forwardGuide,opened:-1}}),false);
  assert.equal(validProductReport({...result,user_id:'private'}),false);
  assert.equal(validProductReport({...result,catalogBenefits:undefined}),false);
  assert.equal(validProductReport({...result,catalogBenefits:{...result.catalogBenefits,ctas:result.catalogBenefits.views+1}}),false);

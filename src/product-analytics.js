@@ -25,6 +25,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS product_events (
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('tracking_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('catalog_benefits_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('request_latency_since',?)").run(new Date().toISOString());
+db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('forward_guide_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('photo_imports_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_since',?)").run(new Date().toISOString());
 db.prepare("INSERT OR IGNORE INTO product_analytics_metadata VALUES('workspace_interactions_since',?)").run(new Date().toISOString());
@@ -50,7 +51,7 @@ export function acceptProductEvents(userId, input) {
   // Validate the entire batch before writing; retries use the same event IDs.
   const rows = input.events.map(row => {
     if (!idPattern.test(row.id || '') || !(userId ? clientEvents : publicEvents).includes(row.event)
-      || (!steps.includes(row.step) && !welcomeSteps.includes(row.step)) || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
+      || (!steps.includes(row.step) && !welcomeSteps.includes(row.step) && row.step!=='forward_guide') || (row.flowId != null && !idPattern.test(row.flowId))) return invalid();
     if (benefitsEvents.includes(row.event) && (row.step !== 'catalog' || !idPattern.test(row.flowId || '')
       || row.event !== 'benefits_view' && row.durationMs == null)) return invalid();
     const detail = { ...catalogDetailEventFields(row), ...workspaceEventFields(row) };
@@ -149,6 +150,7 @@ export function validProductReport(value, { legacy = false } = {}) {
   }
   if (!Array.isArray(value.steps) || value.steps.length !== steps.length-1 || value.steps.some(r => !steps.includes(r.step) || !['viewed','submitted','operations','errors','errorUsers','p50','p95'].every(k => numeric(r[k])) || r.errors>r.operations)) return false;
   if (value.welcomeSteps != null && (!Array.isArray(value.welcomeSteps) || value.welcomeSteps.length !== welcomeSteps.length || !welcomeSteps.every(step=>value.welcomeSteps.some(r=>r?.step===step && ['viewed','submitted','inactive','operations','prompts','errors'].every(k=>Number.isSafeInteger(r[k]) && r[k]>=0))))) return false;
+  if (value.forwardGuide != null && (!Number.isFinite(Date.parse(value.forwardGuide.trackingSince)) || !['opened','visible','errors'].every(key=>Number.isSafeInteger(value.forwardGuide[key]) && value.forwardGuide[key]>=0) || !numeric(value.forwardGuide.p95))) return false;
   if (value.latency != null && !validLatencyReport(value.latency)) return false;
   if (value.appEntry != null) {
     const r=value.appEntry,t=r.timing;
@@ -420,7 +422,11 @@ export function productReport(cohort, campaign = false, at = new Date().toISOStr
     const code=d.code || 'http_'+d.status, version=d.version || 'server-product-1', key=[r.step,code,version].join(':');
     if(!errorGroups.has(key))errorGroups.set(key,{step:r.step,code,version,count:0});errorGroups.get(key).count++;
   }
-  return { platform: config.botPlatform, trackingSince: productTrackingSince(), appEntry, workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows.filter(r=>steps.includes(r.step)), welcomeSteps:stepRows.filter(r=>welcomeSteps.includes(r.step)), errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
+  const guideEvents=eventsByStep.get('forward_guide') || [];
+  const forwardGuide={trackingSince:db.prepare("SELECT value FROM product_analytics_metadata WHERE key='forward_guide_since'").get().value,
+    opened:countUsers(guideEvents,'step_submit'),visible:countUsers(guideEvents,'screen_view'),errors:countUsers(guideEvents,'client_error'),
+    p95:percentile(guideEvents.filter(r=>r.event==='screen_view' && Number.isInteger(r.duration_ms)).map(r=>r.duration_ms),.95)};
+  return { platform: config.botPlatform, trackingSince: productTrackingSince(), forwardGuide, appEntry, workspace:workspaceReport(events, workspaceTrackingSince(), workspaceInteractionsTrackingSince()), latency:requestLatencyReport(events), steps:stepRows.filter(r=>steps.includes(r.step)), welcomeSteps:stepRows.filter(r=>welcomeSteps.includes(r.step)), errors:[...errorGroups.values()].sort((a,b)=>b.count-a.count).slice(0,50), timing:{visible:timing(visible),preview:timing(events.filter(r=>r.event==='request_preview_visible')),delivered:timing(delivered)}, quality, reasons,
     provider:{calls:provider.length,errors:provider.filter(r=>r.status!=='ok').length,input:provider.reduce((n,r)=>n+r.input_units,0),output:provider.reduce((n,r)=>n+r.output_units,0),complete:provider.filter(r=>r.usage_complete).length},
     imports:groupStatuses(imports),photoImports,notifications:groupStatuses(notifications), trialReminders:trialReminderReport(cohort,campaign,at), trialDigest:trialDigestReport(cohort,campaign), checkout,retention,catalog,catalogBenefits,
     catalogJourney: campaign && !catalogCampaign ? null : catalogJourneyReport(rows,{campaign:catalogCampaign,at}),

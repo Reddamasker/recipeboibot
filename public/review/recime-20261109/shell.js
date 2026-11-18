@@ -379,7 +379,7 @@
   }
   function collectionOnboarding(){
     if(state.recipes.length||state.jobs.length||ui.query||ui.book)return '';
-    return '<section class="r-collection-onboarding" aria-labelledby="collection-onboarding-title"><h1 id="collection-onboarding-title">Здесь будут твои рецепты</h1><p>Добавь рецепт по ссылке, с фотографии или из текста.</p><button type="button" class="r-onboarding-button" data-review="import">Добавить рецепт</button><p class="r-forward-hint">Нашёл рецепт в переписке или соцсети? Перешли сообщение или ссылку боту — рецепт появится здесь.</p></section>';
+    return '<section class="r-collection-onboarding" aria-labelledby="collection-onboarding-title"><h1 id="collection-onboarding-title">Здесь будут твои рецепты</h1><p>Добавь рецепт по ссылке, с фотографии или из текста.</p><button type="button" class="r-onboarding-button" data-review="import">Добавить рецепт</button><button type="button" class="forward-guide-link" data-review="forward-guide">Как переслать рецепт боту</button></section>';
   }
   function recipesPage(){
     ui.section='collection';const book=books().find(item=>item.key===ui.book);
@@ -584,6 +584,7 @@
     case 'book':ui.book=el.dataset.book;ui.query='';recipesPage();resetPageScroll();break;
     case 'all-books':ui.book=null;ui.query='';recipesPage();break;
     case 'recipe':await openRecipe(el.dataset.recipeId,true);break;
+    case 'forward-guide':showForwardGuide();break;
     case 'import':chooseImportSource();break;
     case 'profile':settingsSheet();break;
     case 'quick':importSheet();break;

@@ -4906,6 +4906,28 @@ function overlay(content, sheetClass = '', dismissible = true) {
   return el;
 }
 
+function showForwardGuide() {
+  const platform = state.me.platform;
+  const isMax = platform === 'max';
+  const messenger = isMax ? 'MAX' : 'Telegram';
+  const steps = [
+    ['share','Нажми «Поделиться»','Открой меню отправки у рецепта.'],
+    [platform+'-app','Выбери '+messenger,'Нажми на '+messenger+' в списке приложений.'],
+    isMax ? ['max-chat','Найди «Твои рецепты»','Нажми на лупу, выбери чат бота и отправь рецепт.']
+          : ['telegram-chat','Отправь боту','Выбери чат «Твои рецепты» и подтверди отправку.'],
+    ['recipe','Открой рецепт','В коллекции появятся ингредиенты и шаги.']
+  ];
+  const rows = steps.map(([image,title,caption],i) => '<li><img src="/assets/forward-guide/'+image+'.webp" alt=""><div><strong>'+(i+1)+'. '+title+'</strong><p>'+caption+'</p></div></li>').join('');
+  const started = Date.now();
+  const panel = overlay('<div class="sheet-head"><h2>Как переслать рецепт боту</h2><button class="icon-btn" data-close aria-label="Закрыть">×</button></div><ol>'+rows+'</ol>','forward-guide');
+  panel.querySelector('[data-close]').onclick = () => unmountModal(panel);
+  const analytics = window.RecipeAnalytics;
+  analytics?.event('step_submit','forward_guide');
+  Promise.all([...panel.querySelectorAll('img')].map(img => img.decode())).then(() => {
+    if (panel.isConnected) analytics?.observe(panel.querySelector('h2'),'screen_view','forward_guide',{_started:started});
+  }).catch(() => { if(panel.isConnected) analytics?.event('client_error','forward_guide',{code:'network'}); });
+}
+
 function importSheet(source = 'url') {
   if (root.dataset) root.dataset.analyticsStep = 'import';
   state.tab = source === 'social' ? 'url' : source;
@@ -4913,9 +4935,11 @@ function importSheet(source = 'url') {
   const hints = {social:'Вставь ссылку на публикацию или видео с рецептом.',url:'Вставь ссылку на страницу с одним рецептом.',image:'Выбери фото ингредиентов и шагов одного рецепта.',text:'Вставь ингредиенты и шаги из заметки или переписки.'};
   const link = state.tab === 'url';
   const field = source === 'image' ? '' : link
-    ? '<label class="label" for="source-value">Ссылка на рецепт</label><input class="field" id="source-value" type="url" inputmode="url" placeholder="https://" required><button type="button" class="secondary" data-paste>Вставить ссылку</button><details><summary>Как сохранить из другого приложения</summary><p>В меню «Поделиться» скопируй ссылку и вставь её сюда. Можно также отправить ссылку боту в чат.</p></details>'
+    ? '<label class="label" for="source-value">Ссылка на рецепт</label><input class="field" id="source-value" type="url" inputmode="url" placeholder="https://" required><button type="button" class="secondary" data-paste>Вставить ссылку</button><button type="button" class="forward-guide-link" data-forward>Как переслать рецепт боту</button>'
     : '<label class="label" for="source-value">Текст рецепта</label><textarea class="field" id="source-value" placeholder="Ингредиенты и шаги приготовления"></textarea>';
   const el = overlay('<div class="sheet-head"><h2>'+titles[source]+'</h2><button class="icon-btn" data-close aria-label="Закрыть">×</button></div><p class="help">'+hints[source]+'</p><form id="import-form" novalidate class="form-stack"><div id="import-field">'+field+'</div><button class="primary accent" type="submit">Сохранить</button></form>','r-import-form');
+  const guide = el.querySelector('[data-forward]');
+  if (guide) guide.onclick = showForwardGuide;
   const paste = el.querySelector('[data-paste]');
   if (paste) paste.onclick = async () => {
     const input = el.querySelector('#source-value'); input.focus();
