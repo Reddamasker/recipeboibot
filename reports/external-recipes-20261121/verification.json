@@ -1,0 +1,133 @@
+{
+  "checkedAt": "2026-11-21T15:16:35.301Z",
+  "contours": {
+    "recipeboibot-test": {
+      "count": 64,
+      "hash": "6380b92f3ba55109e981b78f61cd074dcf980d258ce92f1b827793ddca2113d5",
+      "catalogTotal": 501,
+      "missingDuplicates": [],
+      "dbCheck": "ok"
+    },
+    "recipeboibot": {
+      "count": 64,
+      "hash": "6380b92f3ba55109e981b78f61cd074dcf980d258ce92f1b827793ddca2113d5",
+      "catalogTotal": 501,
+      "missingDuplicates": [],
+      "dbCheck": "ok"
+    },
+    "recipeboibot-max": {
+      "count": 64,
+      "hash": "6380b92f3ba55109e981b78f61cd074dcf980d258ce92f1b827793ddca2113d5",
+      "catalogTotal": 501,
+      "missingDuplicates": [],
+      "dbCheck": "ok"
+    }
+  },
+  "publicChecks": [
+    {
+      "contour": "recipeboibot-test",
+      "platform": "YouTube",
+      "segment": "RU",
+      "id": "community-457776eb2d0860ddad6cdbcb",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "YouTube",
+      "segment": "EN",
+      "id": "community-f65d88f338016bb28b41263c",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "TikTok",
+      "segment": "RU",
+      "id": "community-9e44d46f74ea28aa403183cd",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "TikTok",
+      "segment": "EN",
+      "id": "community-16e5ea8928b9820a6a5bce2c",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "RU",
+      "id": "community-926a574878b6777a40a96520",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "YouTube",
+      "segment": "RU",
+      "id": "community-457776eb2d0860ddad6cdbcb",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "YouTube",
+      "segment": "EN",
+      "id": "community-f65d88f338016bb28b41263c",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "TikTok",
+      "segment": "RU",
+      "id": "community-9e44d46f74ea28aa403183cd",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "TikTok",
+      "segment": "EN",
+      "id": "community-16e5ea8928b9820a6a5bce2c",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "RU",
+      "id": "community-926a574878b6777a40a96520",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "YouTube",
+      "segment": "RU",
+      "id": "community-457776eb2d0860ddad6cdbcb",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "YouTube",
+      "segment": "EN",
+      "id": "community-f65d88f338016bb28b41263c",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "TikTok",
+      "segment": "RU",
+      "id": "community-9e44d46f74ea28aa403183cd",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "TikTok",
+      "segment": "EN",
+      "id": "community-16e5ea8928b9820a6a5bce2c",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "RU",
+      "id": "community-926a574878b6777a40a96520",
+      "foundInSearch": true
+    }
+  ]
+}

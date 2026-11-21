@@ -1,0 +1,124 @@
+{
+  "instagram": {
+    "profiles": [
+      {
+        "author": "renat_agzamov",
+        "segment": "RU",
+        "status": "115_listed_0_delivered"
+      },
+      {
+        "author": "momotova.katya",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped",
+        "browserOverview": "12_recent_reels_no_archive"
+      },
+      {
+        "author": "ivlevchef",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "sonn_eta",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "nasti_kitchen",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "zovite_proninu",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "batonobelka",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "olganoskovaa",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "kulik_ova",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "elena_gnut_cake",
+        "segment": "RU",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "gordongram",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped",
+        "browserOverview": "12_recent_reels_no_archive"
+      },
+      {
+        "author": "amauryguichon",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "jamieoliver",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "the_pastaqueen",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "nick.digiovanni",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "halfbakedharvest",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "feelgoodfoodie",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "inagarten",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "marthastewart",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      },
+      {
+        "author": "albert_cancook",
+        "segment": "EN",
+        "status": "not_read_after_actor_stopped"
+      }
+    ],
+    "firstRun": "S01PUz2B4EWRc1asX",
+    "firstRunReason": "instagram_failing",
+    "retry": "Apify monthly Free plan allowance exhausted"
+  },
+  "vkEnglish": {
+    "status": "no_verified_top_ten",
+    "examples": [
+      {
+        "source": "https://www.gordon-ramsay.ru/faq.html",
+        "reason": "Русскоязычное сообщество поклонников"
+      },
+      {
+        "source": "https://yandex.ru/video/preview/1977881815696797603",
+        "reason": "У найденной публикации Wilderness Cooking русскоязычное название. Принадлежность канала автору и англоязычная аудитория не подтверждены."
+      }
+    ]
+  }
+}
