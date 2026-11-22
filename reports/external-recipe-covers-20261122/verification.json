@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-22",
+  "sources": {
+    "Instagram": 42,
+    "VK": 38,
+    "YouTube": 28,
+    "TikTok": 5
+  },
+  "publicChecks": [
+    {
+      "base": "https://recipeboibot-test.89-223-123-75.sslip.io",
+      "count": 113,
+      "fail": []
+    },
+    {
+      "base": "https://dishfinder.ru",
+      "count": 113,
+      "fail": []
+    },
+    {
+      "base": "https://recipeboibot-max.89-223-123-75.sslip.io",
+      "count": 113,
+      "fail": []
+    }
+  ],
+  "verification": "Unauthenticated card ID, title, image URL, non-generated flag and byte-for-byte SHA-256 match for each JPEG.",
+  "sharedRuntimeSha256": "8cbafc90eee523af01e86cac98ecb395322064c8838e7b2f9fffa3ee44f82a1e",
+  "telegramRelease": "af89517f18271a953b4d07a2f657c6ec0aa36fac",
+  "maxRelease": "c08d37b12c70d69ba3621a86ca983c8b34807f68",
+  "tests": {
+    "localFinal": {
+      "passed": 1133,
+      "skipped": 0,
+      "failed": 0
+    },
+    "testContainer": {
+      "passed": 1130,
+      "skipped": 2,
+      "failed": 0
+    },
+    "maxContainer": {
+      "passed": 1131,
+      "skipped": 2,
+      "failed": 0
+    }
+  },
+  "browserChecks": [
+    "Instagram Napoleon cake detail at 390px on test, production and MAX",
+    "VK chicken soup detail at 1200px on test, production and MAX",
+    "Napoleon cake cover in public search results on production"
+  ],
+  "notes": [
+    "Selected stills from the linked public videos. Some covers show preparation. JPEG files are shipped from first-party storage.",
+    "Existing saved recipes can resolve frames by catalog key. User-supplied photos retain priority.",
+    "Test HTTP rate limit returned 429 during initial audit. Retried the remaining cards at a slower rate.",
+    "Included the previously deployed iPhone forwarding guide and preserved the concurrent operational monitoring release."
+  ]
+}
