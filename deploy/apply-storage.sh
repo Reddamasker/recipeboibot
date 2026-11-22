@@ -26,6 +26,23 @@ flock -n 8 || { echo 'Another release or backup is running' >&2; exit 1; }
 cd "$root"
 before=$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' "$name")
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
+if [[ ${5:-storage} = monitor ]]; then
+  file=deploy/ops-monitor.sh
+  [[ -f "$file" && ! -L "$file" ]]
+  tmp=$(mktemp deploy/.ops-monitor.XXXXXXXX)
+  trap 'rm -f -- "$tmp"' EXIT
+  tar -xOzf "$archive" "$file" > "$tmp"
+  test -s "$tmp"
+  sh -n "$tmp"
+  expected=$(sha256sum "$tmp" | cut -d' ' -f1)
+  cp -p -- "$file" "backups/ops-monitor-before-$stamp.sh"
+  chmod 700 "$tmp"
+  mv -f -- "$tmp" "$file"
+  printf '%s  %s\n' "$expected" "$file" | sha256sum -c -
+  rm -- "$archive"
+  printf 'Monitor installed: %s %s\n' "$name" "$revision"
+  exit 0
+fi
 files=(deploy/storage.py deploy/backup.sh deploy/retention.sh deploy/ops-monitor.sh deploy/apply-release.sh deploy/apply-test-release.sh deploy/apply-max-release.sh)
 existing=()
 for file in "${files[@]}"; do [[ ! -f "$file" ]] || existing+=("$file"); done

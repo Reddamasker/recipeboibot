@@ -17,14 +17,15 @@ export function deployStorage(contour,mode){
   process.stdout.write(run('ssh',[...ssh,target,`bash -s -- '${contour}' --check`],{input:script}));
   if(mode==='--check')return;
   if(run('git',['status','--porcelain']).trim())throw Error('Storage release requires a clean committed tree');
+  const monitorOnly = process.argv[3] === '--monitor-only';
   const revision=run('git',['rev-parse','HEAD']).trim();
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'recipe-storage-'));
   const archive=path.join(temp,'storage.tgz');
-  run('git',['archive','--format=tar.gz','-o',archive,revision,...storageFiles]);
+  run('git',['archive','--format=tar.gz','-o',archive,revision,...(monitorOnly ? ['deploy/ops-monitor.sh'] : storageFiles)]);
   const hash=createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
   const remote=`/root/recipeboibot-storage-${hash}.tgz`;
   run('scp',[...ssh,archive,`${target}:${remote}`]);
   // Streaming progress plus keep-alives survive restore validation of many old files.
-  const r=spawnSync('ssh',[...ssh,target,`bash -s -- '${contour}' --apply '${revision}' '${hash}'`],{cwd:root,input:script,stdio:['pipe','inherit','inherit']});
+  const r=spawnSync('ssh',[...ssh,target,`bash -s -- '${contour}' --apply '${revision}' '${hash}' '${monitorOnly ? 'monitor' : 'storage'}'`],{cwd:root,input:script,stdio:['pipe','inherit','inherit']});
   if(r.status!==0)throw Error(`Storage deployment failed (${r.status}); inspect retained diagnostics before retry`);
 }

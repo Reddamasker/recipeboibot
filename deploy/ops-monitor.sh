@@ -142,28 +142,39 @@ if [ "$mode" = "--test-alert" ]; then
   send_alert "Твои рецепты: тест оповещений мониторинга успешно доставлен."
 fi
 
-if [ "$failures" != "$previous" ]; then
-  if [ -n "$failures" ]; then
-    resolved=""
-    while IFS= read -r issue; do
-      [ -n "$issue" ] || continue
-      if ! printf '%s\n' "$failures" | grep -Fxq -- "$issue"; then
-        resolved="${resolved}${issue}
-"
-      fi
-    done <<EOF
-$previous
-EOF
-    recovery=""
-    if [ -n "$resolved" ]; then recovery="
-Устранено:
-${resolved}"; fi
-    send_alert "Твои рецепты: требуется внимание.
-$failures${recovery}"
-  elif [ -n "$previous" ]; then
-    send_alert "Твои рецепты: все контролируемые показатели снова в норме."
+# current-status contains only delivered incidents. Keep it compatible with
+# releases that already notified the owner, including the offsite warning.
+history="$state_dir/observations"
+touch "$history"
+: > "$history.next"
+: > "$state_file.next"
+new_issues=""
+while IFS= read -r issue; do
+  [ -n "$issue" ] || continue
+  # Measurements can change while the underlying incident remains open.
+  key="$(printf '%s' "$issue" | sed -E 's/[0-9]+%$/%/;s/(перезапускался:) [0-9]+$/\1/')"
+  if printf '%s\n' "$previous" | sed -E 's/[0-9]+%$/%/;s/(перезапускался:) [0-9]+$/\1/' | grep -Fxq -- "$key"; then
+    printf '%s\n' "$issue" >> "$state_file.next"
+    continue
   fi
-  printf '%s' "$failures" > "$state_file"
+  first="$(awk -F '\t' -v key="$key" -v now="$now" '$3 == key && now >= $2 && now - $2 <= 600 {print $1}' "$history")"
+  first="${first:-$now}"
+  printf '%s\t%s\t%s\n' "$first" "$now" "$key" >> "$history.next"
+  case "$issue" in
+    'Нарушена ротация резервов или Docker в Telegram/MAX') delay=3600 ;;
+    *) delay=600 ;;
+  esac
+  if [ $((now - first)) -ge "$delay" ]; then
+    printf '%s\n' "$issue" >> "$state_file.next"
+    new_issues="${new_issues}${new_issues:+
+}$issue"
+  fi
+done <<EOF
+$failures
+EOF
+mv "$history.next" "$history"
+if [ -n "$new_issues" ]; then
+  send_alert "Твои рецепты: требуется внимание.
+$new_issues"
 fi
-
-exit 0
+mv "$state_file.next" "$state_file"

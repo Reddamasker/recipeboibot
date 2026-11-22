@@ -39,8 +39,11 @@ if (command === 'curl') {
     process.stderr.write(result.stderr || '');
     process.exit(result.status ?? 1);
   }
+} else if (command === 'date') {
+  if (args[0] === '+%s') console.log(scenario.start + (scenario.elapsed || 0));
+  else process.exit(2);
 } else if (command === 'df') {
-  console.log('Filesystem 1024-blocks Used Available Capacity Mounted on\\nmock 100 20 80 20% /');
+  console.log('Filesystem 1024-blocks Used Available Capacity Mounted on\\nmock 100 20 80 ' + (scenario.disk || 20) + '% /');
 } else if (command === 'find') {
   console.log(Date.now() / 1000);
 } else if (command === 'stat') {
@@ -63,6 +66,7 @@ function fixture(options = {}) {
   for (const command of ['curl', 'docker', 'df', 'find', 'stat', 'flock']) {
     writeFileSync(path.join(bin, command), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(helper)} ${command} "$@"\n`, { mode: 0o755 });
   }
+  writeFileSync(path.join(bin, 'date'), `#!/bin/sh\nif [ "$1" = "+%s" ]; then exec ${shellQuote(process.execPath)} ${shellQuote(helper)} date "$@"; fi\nexec /bin/date "$@"\n`, { mode: 0o755 });
   const scenarioFile = path.join(directory, 'scenario.json'), alertsFile = path.join(directory, 'alerts.jsonl');
   const env = {
     ...process.env,
@@ -72,6 +76,7 @@ function fixture(options = {}) {
     MONITOR_ALERTS: alertsFile
   };
   const scenario = {
+    start: Math.floor(Date.now() / 1000),
     body: JSON.stringify({ ok: true, service: 'recipeboibot', billing: { required: options.required ?? false, configured: true } }),
     container: `running healthy 0 false ${new Date().toISOString()}`,
     ...options
@@ -83,7 +88,7 @@ function fixture(options = {}) {
       // Set PATH inside the shell so Git Bash does not replace the fixture directory.
       const result = spawnSync(shell, ['-c', `PATH=${shellQuote(bin)}:$PATH; export PATH; sh ${shellQuote(script)}`], { env, encoding: 'utf8' });
       const alerts = existsSync(alertsFile) ? readFileSync(alertsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
-      const status = existsSync(path.join(state, 'current-status')) ? readFileSync(path.join(state, 'current-status'), 'utf8') : '';
+      const status = existsSync(path.join(state, 'current-status')) ? readFileSync(path.join(state, 'current-status'), 'utf8').trimEnd() : '';
       return { ...result, alerts, statusText: status };
     },
     cleanup() { rmSync(directory, { recursive: true, force: true }); }
@@ -93,7 +98,8 @@ function fixture(options = {}) {
 function runOnce(options) {
   const context = fixture(options);
   try {
-    const result = context.run();
+    context.run();
+    const result = context.run({elapsed: 600});
     assert.equal(result.status, 0, result.stderr);
     return result;
   } finally { context.cleanup(); }
@@ -107,21 +113,21 @@ test('configured billing is healthy with either value of BILLING_REQUIRED', () =
   }
 });
 
-test('retention failure alerts once and recovery is reported; an active deployment is tolerated', () => {
+test('retention waits for repeated failures across an hour and recovers silently', () => {
   const context = fixture({retentionFailure: true});
   try {
-    const first = context.run();
-    assert.equal(first.status, 0, first.stderr);
-    assert.match(first.statusText, /Нарушена ротация резервов или Docker в Telegram\/MAX/);
+    for (const elapsed of [0, 600, 1200, 1800]) assert.equal(context.run({elapsed}).alerts.length, 0);
+    assert.equal(context.run({elapsed: 1920, retentionFailure: false}).alerts.length, 0);
+    for (const elapsed of [2040, 2640, 3240, 3840, 4440, 5040]) {
+      assert.equal(context.run({elapsed, retentionFailure: true}).alerts.length, 0);
+    }
+    const first = context.run({elapsed: 5640});
     assert.equal(first.alerts.length, 1);
-    assert.equal(context.run().alerts.length, 1);
-    const busy = context.run({retentionBusy: true});
-    assert.equal(busy.statusText, first.statusText);
-    assert.equal(busy.alerts.length, 1, 'A skipped check must not send a false recovery');
+    assert.match(first.statusText, /Нарушена ротация/);
+    assert.equal(context.run({retentionBusy: true}).statusText, first.statusText);
     const recovery = context.run({retentionFailure: false, retentionBusy: false});
     assert.equal(recovery.statusText, '');
-    assert.equal(recovery.alerts.length, 2);
-    assert.equal(context.run({retentionBusy: true}).alerts.length, 2);
+    assert.equal(recovery.alerts.length, 1);
   } finally {context.cleanup();}
   assert.match(runOnce({missingRetention: true}).statusText, /Отсутствует общий механизм ротации/);
 });
@@ -160,7 +166,8 @@ test('short normal startup is tolerated but prolonged startup, OOM and restarts 
 test('real offsite warning remains and repeated state does not send duplicates', () => {
   const context = fixture({ missingOffsite: true });
   try {
-    const first = context.run();
+    assert.equal(context.run().alerts.length, 0);
+    const first = context.run({elapsed: 600});
     assert.equal(first.status, 0, first.stderr);
     assert.equal(first.statusText, 'Ещё не подтверждена внешняя резервная копия');
     assert.equal(first.alerts.length, 1);
@@ -169,56 +176,69 @@ test('real offsite warning remains and repeated state does not send duplicates',
   assert.equal(runOnce({ offsiteAge: 140000 }).statusText, 'Внешняя резервная копия старше 36 часов');
 });
 
-test('obsolete sales warning is replaced once without a false all-clear for backups', () => {
+test('a previously delivered backup warning stays silent across the upgrade', () => {
   const result = runOnce({ missingOffsite: true, previous: 'Ещё не подтверждена внешняя резервная копия\nПродажи выключены: BILLING_REQUIRED не равен true' });
-  assert.equal(result.alerts.length, 1);
-  assert.match(result.alerts[0], /внешняя резервная копия/);
-  assert.match(result.alerts[0], /Устранено:\nПродажи выключены/);
-  assert.doesNotMatch(result.alerts[0], /снова в норме/);
+  assert.equal(result.alerts.length, 0);
+  assert.equal(result.statusText, 'Ещё не подтверждена внешняя резервная копия');
 });
 
-test('failed alert delivery preserves state for retry, recovery sends once', () => {
+test('failed alert delivery preserves state for retry, recovery is silent', () => {
   const context = fixture({ previous: 'previous failure', readinessFailure: true, alertFailure: true });
   try {
-    const failed = context.run();
+    context.run();
+    const failed = context.run({elapsed: 600});
     assert.notEqual(failed.status, 0);
-    assert.equal(failed.statusText, 'previous failure');
+    assert.equal(failed.statusText, '');
     const delivered = context.run({ alertFailure: false });
     assert.equal(delivered.status, 0, delivered.stderr);
     assert.equal(delivered.alerts.length, 1);
     const recovered = context.run({ readinessFailure: false });
     assert.equal(recovered.statusText, '');
-    assert.equal(recovered.alerts.length, 2);
-    assert.match(recovered.alerts[1], /снова в норме/);
-    assert.equal(context.run().alerts.length, 2);
+    assert.equal(recovered.alerts.length, 1);
+
+    assert.equal(context.run().alerts.length, 1);
   } finally { context.cleanup(); }
 });
 
-test('MAX aggregate failure alerts once and its recovery is visible with a persistent backup warning', () => {
+test('MAX aggregate failure alerts once and its recovery is silent with a persistent backup warning', () => {
   const context = fixture({ missingOffsite: true, previous: 'Ещё не подтверждена внешняя резервная копия', bridgeFailure: true });
   try {
-    const failed = context.run();
+    context.run();
+    const failed = context.run({elapsed: 600});
     assert.equal(failed.status, 0, failed.stderr);
     assert.match(failed.statusText, /Данные MAX недоступны/);
     assert.equal(failed.alerts.length, 1);
     assert.equal(context.run().alerts.length, 1);
     const recovered = context.run({ bridgeFailure: false });
     assert.equal(recovered.statusText, 'Ещё не подтверждена внешняя резервная копия');
-    assert.equal(recovered.alerts.length, 2);
-    assert.match(recovered.alerts[1], /Устранено:\nДанные MAX недоступны/);
-    assert.doesNotMatch(recovered.alerts[1], /снова в норме/);
-    assert.equal(context.run().alerts.length, 2);
+    assert.equal(recovered.alerts.length, 1);
+    assert.doesNotMatch(failed.alerts[0], /резервная копия/);
+    assert.equal(context.run().alerts.length, 1);
   } finally { context.cleanup(); }
 });
 
 test('Telegram application rejection preserves the incident for another delivery attempt', () => {
   const context = fixture({ bridgeFailure: true, alertRejected: true });
   try {
-    assert.notEqual(context.run().status, 0);
+    assert.equal(context.run().alerts.length, 0);
+    assert.notEqual(context.run({elapsed: 600}).status, 0);
     assert.equal(context.run().statusText, '');
     const retried = context.run({ alertRejected: false });
     assert.equal(retried.status, 0, retried.stderr);
     assert.match(retried.statusText, /Данные MAX недоступны/);
     assert.equal(retried.alerts.length, 1);
+  } finally { context.cleanup(); }
+});
+
+test('missing checks reset confirmation and changing percentages keep one disk incident', () => {
+  const context = fixture({ disk: 76 });
+  try {
+    assert.equal(context.run().alerts.length, 0);
+    assert.equal(context.run({ elapsed: 1200, disk: 77 }).alerts.length, 0);
+    assert.equal(context.run({ elapsed: 1799, disk: 78 }).alerts.length, 0);
+    const confirmed = context.run({ elapsed: 1800, disk: 79 });
+    assert.equal(confirmed.alerts.length, 1);
+    assert.match(confirmed.alerts[0], /79%/);
+    assert.equal(context.run({ elapsed: 1920, disk: 80 }).alerts.length, 1);
   } finally { context.cleanup(); }
 });
