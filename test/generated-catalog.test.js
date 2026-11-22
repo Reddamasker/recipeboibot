@@ -7,7 +7,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { publicRecipe, createGeneratedCatalogStore, catalogProjection, publicationProblems, validateCatalogSnapshot, exactCatalogDuplicate, readCatalogInput } from '../src/generated-catalog.js';
 import { reviewCatalogCandidate } from '../src/catalog-review.js';
-import { SEED_RECIPES } from '../src/dinner-seeds.js';
+import { SEED_RECIPES, withSeedImage } from '../src/dinner-seeds.js';
 
 const dish=()=>({title:'Тыквенная каша с пшеном',description:'Пшённая каша с мягкой тыквой.',servings:3,prepMinutes:10,cookMinutes:30,
   ingredients:[{name:'пшено',quantity:150,unit:'г'},{name:'тыква',quantity:300,unit:'г'},{name:'вода',quantity:600,unit:'мл'}],
@@ -102,6 +102,9 @@ test('published recipes use only the editorial frame for their own catalog ID', 
   const recipe = {...dish(), thumbnailUrl: 'https://example.org/private-photo.jpg'};
   assert.equal(publicRecipe(recipe, id).thumbnailUrl, `/assets/dinner/${id}.jpg`);
   assert.equal(publicRecipe(recipe, id).imageGenerated, false);
+  const saved = {sourceKey: 'dinner-choice:seed:' + id, thumbnailUrl: null};
+  assert.deepEqual(withSeedImage(saved), {...saved, thumbnailUrl: `/assets/dinner/${id}.jpg`, imageGenerated: false});
+  assert.equal(withSeedImage({...saved, thumbnailUrl: '/custom.jpg'}).thumbnailUrl, '/custom.jpg');
   assert.equal(publicRecipe(recipe, 'community-000000000000000000000000').thumbnailUrl, null);
   assert.equal(publicRecipe(recipe, '../' + id).thumbnailUrl, null);
 });

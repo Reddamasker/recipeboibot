@@ -1,5 +1,6 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
+import { editorialCover } from './generated-catalog.js';
 import { existsSync } from 'node:fs';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
 import cuisineCatalog from './cuisine-catalog.json' with { type: 'json' };
@@ -206,6 +207,10 @@ export function withSeedImage(recipe) {
   if (!recipe || recipe.thumbnailUrl) return recipe;
   const key = recipe.sourceKey?.startsWith('dinner-choice:seed:')
     ? recipe.sourceKey.slice('dinner-choice:'.length) : recipe.id;
+  if (key?.startsWith('seed:community-')) {
+    const thumbnailUrl = editorialCover(key.slice('seed:'.length));
+    if (thumbnailUrl) return { ...recipe, thumbnailUrl, imageGenerated: false };
+  }
   const thumbnailUrl = seedImages.get(key);
   return thumbnailUrl ? { ...recipe, thumbnailUrl, imageGenerated: true } : recipe;
 }
