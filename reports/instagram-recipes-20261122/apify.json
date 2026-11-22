@@ -1,0 +1,118 @@
+[
+  {
+    "id": "KreebZwc0O2oV2X0m",
+    "status": "SUCCEEDED",
+    "usd": 0.01566,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 7,
+      "reel-checked": 0,
+      "transcript-addon": 5,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "sBvVLftK3pWbbLpxN",
+    "status": "ABORTED",
+    "usd": 0.07754000000000001,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 30,
+      "reel-checked": 0,
+      "transcript-addon": 26,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "ipxTVDV7zueGo4RcV",
+    "status": "ABORTED",
+    "usd": 0.05294,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 27,
+      "reel-checked": 0,
+      "transcript-addon": 17,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "Lf6QngRWOd1qIMir9",
+    "status": "ABORTED",
+    "usd": 0.0781,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 32,
+      "reel-checked": 0,
+      "transcript-addon": 26,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "hX6lLUFniOft6EMSy",
+    "status": "ABORTED",
+    "usd": 0.05474,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 24,
+      "reel-checked": 0,
+      "transcript-addon": 18,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "ECOWl7LRsZRjrXGWL",
+    "status": "SUCCEEDED",
+    "usd": 0.056499999999999995,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 200,
+      "reel-checked": 0,
+      "transcript-addon": 0,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "JfyQSWyHdl0gKUhqa",
+    "status": "SUCCEEDED",
+    "usd": 0.04334,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 153,
+      "reel-checked": 0,
+      "transcript-addon": 0,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "l78qmuIQkJlNfxWFT",
+    "status": "SUCCEEDED",
+    "usd": 0.0173,
+    "events": {
+      "apify-actor-start": 1,
+      "reel": 60,
+      "reel-checked": 0,
+      "transcript-addon": 0,
+      "video-file": 0
+    }
+  },
+  {
+    "id": "KphHITTlnalRSFzM7",
+    "status": "FAILED",
+    "usd": 0,
+    "events": {
+      "REEL_ANALYZED": 0,
+      "EXTRA_MINUTE": 0
+    }
+  },
+  {
+    "id": "DvGz2vacHVQxBU69U",
+    "status": "SUCCEEDED",
+    "usd": 0.099,
+    "events": {
+      "reel-transcript": 6,
+      "long-video-surcharge": 3,
+      "image-text": 0,
+      "video-description": 0
+    }
+  }
+]
