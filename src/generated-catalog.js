@@ -51,10 +51,15 @@ export function exactCatalogDuplicate(recipe, catalog) {
   const title=normalizedTitle(recipe.title), composition=compositionKey(recipe);
   return catalog.find(r=>normalizedTitle(r.title)===title||compositionKey(r)===composition) || null;
 }
-export function editorialCover(id) {
-  // Only editorial frames shipped with the catalog can be public covers.
-  const imagePath = /^community-[a-f0-9]{24}$/.test(id) ? `/assets/dinner/${id}.jpg` : null;
-  return imagePath && existsSync(new URL(`../public${imagePath}`, import.meta.url)) ? imagePath : null;
+export function catalogCover(id) {
+  if (!/^community-[a-f0-9]{24}$/.test(id)) return null;
+  for (const suffix of ['.jpg', '-generated.jpg']) {
+    const thumbnailUrl = `/assets/dinner/${id}${suffix}`;
+    if (existsSync(new URL(`../public${thumbnailUrl}`, import.meta.url))) {
+      return {thumbnailUrl, imageGenerated: suffix === '-generated.jpg'};
+    }
+  }
+  return null;
 }
 
 export function editorialSource(id) {
@@ -63,8 +68,8 @@ export function editorialSource(id) {
 
 export function publicRecipe(recipe,id) {
   const safe=catalogProjection(recipe);
-  const thumbnailUrl = editorialCover(id);
-  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,...editorialSource(id),thumbnailUrl,imageGenerated:false,userSaved:false,
+  const cover = catalogCover(id) || {thumbnailUrl: null, imageGenerated: false};
+  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,...editorialSource(id),...cover,userSaved:false,
     warnings:[],nutrition:recipeNutrition(safe)};
 }
 export function validateCatalogSnapshot(data) {

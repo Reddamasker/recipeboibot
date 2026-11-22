@@ -1,6 +1,6 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
-import { editorialCover, editorialSource } from './generated-catalog.js';
+import { catalogCover, editorialSource } from './generated-catalog.js';
 import { existsSync } from 'node:fs';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
 import cuisineCatalog from './cuisine-catalog.json' with { type: 'json' };
@@ -212,9 +212,8 @@ export function withSeedImage(recipe) {
   if (catalogId) {
     const source = editorialSource(catalogId);
     if (source && !recipe.sourceUrl) recipe = {...recipe, ...source};
-    if (recipe.thumbnailUrl) return recipe;
-    const thumbnailUrl = editorialCover(catalogId);
-    if (thumbnailUrl) return { ...recipe, thumbnailUrl, imageGenerated: false };
+    const cover = catalogCover(catalogId);
+    if (cover && (!recipe.thumbnailUrl || recipe.thumbnailUrl === cover.thumbnailUrl)) return {...recipe, ...cover};
   }
   if (recipe.thumbnailUrl) return recipe;
   const thumbnailUrl = seedImages.get(key);

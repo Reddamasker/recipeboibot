@@ -122,3 +122,15 @@ test('editorial attribution survives an existing photo and a separately saved ca
   assert.deepEqual(withSeedImage(personal), personal);
   assert.equal(publicRecipe({...dish(), sourceUrl: source}, 'community-000000000000000000000000').sourceUrl, null);
 });
+
+test('community illustrations resolve in the catalog and saved copies with their generation flag', () => {
+  const id = 'community-03392023c1b1ee778003b3c6';
+  const thumbnailUrl = `/assets/dinner/${id}-generated.jpg`;
+  const card = publicRecipe(dish(), id);
+  assert.equal(card.thumbnailUrl, thumbnailUrl);
+  assert.equal(card.imageGenerated, true);
+  const copy = {sourceKey: 'dinner-choice:seed:' + id};
+  assert.deepEqual(withSeedImage(copy), {...copy, thumbnailUrl, imageGenerated: true});
+  assert.equal(withSeedImage({...copy, thumbnailUrl}).imageGenerated, true);
+  assert.equal(withSeedImage({...copy, thumbnailUrl: '/custom.jpg'}).thumbnailUrl, '/custom.jpg');
+});
