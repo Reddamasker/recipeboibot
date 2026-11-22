@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-22",
+  "release": "34ea403d65decf335b6274a26139dca34dee0ac2",
+  "runtimeSha256": "881e601817754aff64e615f3074ef03ae9efc5fbd47c83da126c9564e57e4b6b",
+  "localTests": 1135,
+  "uniqueNewJpegs": 97,
+  "stages": {
+    "test": {
+      "base": "https://recipeboibot-test.89-223-123-75.sslip.io",
+      "catalogTotal": 550,
+      "checkedImages": 550,
+      "newCovers": 97,
+      "missingImages": 0
+    },
+    "main": {
+      "base": "https://dishfinder.ru",
+      "catalogTotal": 550,
+      "checkedImages": 550,
+      "newCovers": 97,
+      "missingImages": 0
+    },
+    "max": {
+      "base": "https://recipeboibot-max.89-223-123-75.sslip.io",
+      "catalogTotal": 550,
+      "checkedImages": 550,
+      "newCovers": 97,
+      "missingImages": 0
+    }
+  },
+  "browser": "Public mobile and desktop details and mobile search listing, image decode and intrinsic width verified."
+}
