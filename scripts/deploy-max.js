@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { deployFromCloud } from './cloud-deploy.js';
 import { runReleaseTests } from './release-validation.js';
 
-if (process.argv[3] === '--storage-only' && !process.env.NODE_TEST_CONTEXT) {
+if (['--storage-only', '--monitor-only'].includes(process.argv[3]) && !process.env.NODE_TEST_CONTEXT) {
   const {deployStorage} = await import('./deploy-storage.js');
   deployStorage('max', process.argv[2]);
   process.exit(0);
