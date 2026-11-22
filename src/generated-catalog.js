@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { recipeNutrition, normalizeNutrition } from './nutrition.js';
 
@@ -51,7 +52,10 @@ export function exactCatalogDuplicate(recipe, catalog) {
 }
 export function publicRecipe(recipe,id) {
   const safe=catalogProjection(recipe);
-  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,thumbnailUrl:null,imageGenerated:false,userSaved:false,
+  // Only editorial frames shipped with the catalog can be public covers.
+  const imagePath = /^community-[a-f0-9]{24}$/.test(id) ? `/assets/dinner/${id}.jpg` : null;
+  const thumbnailUrl = imagePath && existsSync(new URL(`../public${imagePath}`, import.meta.url)) ? imagePath : null;
+  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,thumbnailUrl,imageGenerated:false,userSaved:false,
     warnings:[],nutrition:recipeNutrition(safe)};
 }
 export function validateCatalogSnapshot(data) {

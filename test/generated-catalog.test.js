@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { createGeneratedCatalogStore, catalogProjection, publicationProblems, validateCatalogSnapshot, exactCatalogDuplicate, readCatalogInput } from '../src/generated-catalog.js';
+import { publicRecipe, createGeneratedCatalogStore, catalogProjection, publicationProblems, validateCatalogSnapshot, exactCatalogDuplicate, readCatalogInput } from '../src/generated-catalog.js';
 import { reviewCatalogCandidate } from '../src/catalog-review.js';
 import { SEED_RECIPES } from '../src/dinner-seeds.js';
 
@@ -95,4 +95,13 @@ test('reviewed cards appear without restart in anonymous search/detail, can be s
     assert.equal((await fetch(base+'/api/recipes')).status,401);
     assert.equal((await fetch(base+'/api/dashboard/generated-catalog')).status,401);
   }finally{await new Promise(r=>server.close(r));db.close();fs.rmSync(temp,{recursive:true,force:true});}
+});
+
+test('published recipes use only the editorial frame for their own catalog ID', () => {
+  const id = 'community-457776eb2d0860ddad6cdbcb';
+  const recipe = {...dish(), thumbnailUrl: 'https://example.org/private-photo.jpg'};
+  assert.equal(publicRecipe(recipe, id).thumbnailUrl, `/assets/dinner/${id}.jpg`);
+  assert.equal(publicRecipe(recipe, id).imageGenerated, false);
+  assert.equal(publicRecipe(recipe, 'community-000000000000000000000000').thumbnailUrl, null);
+  assert.equal(publicRecipe(recipe, '../' + id).thumbnailUrl, null);
 });
