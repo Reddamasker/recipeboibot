@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-22",
+  "runtime": "1bbb49d1c19f04fc0765cf99cb6ad58d4246f4fc",
+  "sourceHash": "7670da9d093734cb2f61e6246064f8127cf1f5f9e553baf39afef49993d1df78",
+  "localTestsPassed": 1134,
+  "browser": "Verified the public detail link and the Mini App card source label and href for the salmon recipe on all three deployments.",
+  "contours": {
+    "test": {
+      "base": "https://recipeboibot-test.89-223-123-75.sslip.io",
+      "listing": 113,
+      "details": 113,
+      "saved": 0,
+      "salmon": {
+        "sourceName": "prodasha_live · VK Видео",
+        "sourceUrl": "https://vkvideo.ru/clip-228244946_456239071"
+      }
+    },
+    "main": {
+      "base": "https://dishfinder.ru",
+      "listing": 113,
+      "details": 113,
+      "saved": 0,
+      "salmon": {
+        "sourceName": "prodasha_live · VK Видео",
+        "sourceUrl": "https://vkvideo.ru/clip-228244946_456239071"
+      }
+    },
+    "max": {
+      "base": "https://recipeboibot-max.89-223-123-75.sslip.io",
+      "listing": 113,
+      "details": 113,
+      "saved": 0,
+      "salmon": {
+        "sourceName": "prodasha_live · VK Видео",
+        "sourceUrl": "https://vkvideo.ru/clip-228244946_456239071"
+      }
+    }
+  }
+}
