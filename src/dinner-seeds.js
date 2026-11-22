@@ -1,6 +1,6 @@
 // Original house recipes. Stable IDs keep existing recommendation history valid.
 import { recipeNutrition } from './nutrition.js';
-import { editorialCover } from './generated-catalog.js';
+import { editorialCover, editorialSource } from './generated-catalog.js';
 import { existsSync } from 'node:fs';
 import expandedCatalog from './dinner-catalog.json' with { type: 'json' };
 import cuisineCatalog from './cuisine-catalog.json' with { type: 'json' };
@@ -204,13 +204,19 @@ const seedImages = new Map(SEED_RECIPES.map(recipe => [recipe.id, recipe.thumbna
 // Old saved recipes and dinner snapshots may predate the catalog photographs.
 // Fill only missing media at read time; keep user edits and custom images intact.
 export function withSeedImage(recipe) {
-  if (!recipe || recipe.thumbnailUrl) return recipe;
+  if (!recipe) return recipe;
   const key = recipe.sourceKey?.startsWith('dinner-choice:seed:')
     ? recipe.sourceKey.slice('dinner-choice:'.length) : recipe.id;
-  if (key?.startsWith('seed:community-')) {
-    const thumbnailUrl = editorialCover(key.slice('seed:'.length));
+  const catalogId = key?.startsWith('seed:community-') ? key.slice(5)
+    : recipe.sourceKey?.match(/^dinner-choice:public-catalog:(community-[a-f0-9]{24}):[a-f0-9-]{36}$/)?.[1];
+  if (catalogId) {
+    const source = editorialSource(catalogId);
+    if (source && !recipe.sourceUrl) recipe = {...recipe, ...source};
+    if (recipe.thumbnailUrl) return recipe;
+    const thumbnailUrl = editorialCover(catalogId);
     if (thumbnailUrl) return { ...recipe, thumbnailUrl, imageGenerated: false };
   }
+  if (recipe.thumbnailUrl) return recipe;
   const thumbnailUrl = seedImages.get(key);
   return thumbnailUrl ? { ...recipe, thumbnailUrl, imageGenerated: true } : recipe;
 }

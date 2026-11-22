@@ -103,8 +103,22 @@ test('published recipes use only the editorial frame for their own catalog ID', 
   assert.equal(publicRecipe(recipe, id).thumbnailUrl, `/assets/dinner/${id}.jpg`);
   assert.equal(publicRecipe(recipe, id).imageGenerated, false);
   const saved = {sourceKey: 'dinner-choice:seed:' + id, thumbnailUrl: null};
-  assert.deepEqual(withSeedImage(saved), {...saved, thumbnailUrl: `/assets/dinner/${id}.jpg`, imageGenerated: false});
+  assert.deepEqual(withSeedImage(saved), {...saved, sourceName: '@DinaRecipes · YouTube', sourceUrl: 'https://www.youtube.com/watch?v=BMwO91b1gNU', thumbnailUrl: `/assets/dinner/${id}.jpg`, imageGenerated: false});
   assert.equal(withSeedImage({...saved, thumbnailUrl: '/custom.jpg'}).thumbnailUrl, '/custom.jpg');
   assert.equal(publicRecipe(recipe, 'community-000000000000000000000000').thumbnailUrl, null);
   assert.equal(publicRecipe(recipe, '../' + id).thumbnailUrl, null);
+});
+
+test('editorial attribution survives an existing photo and a separately saved catalog snapshot', () => {
+  const id = 'community-23365ee30f4ed2f19e46fb74';
+  const source = 'https://vkvideo.ru/clip-228244946_456239071';
+  const card = publicRecipe(dish(), id);
+  assert.equal(card.sourceName, 'prodasha_live · VK Видео');
+  assert.equal(card.sourceUrl, source);
+  const copy = {sourceKey: 'dinner-choice:public-catalog:' + id + ':00000000-0000-4000-a000-000000000001', thumbnailUrl: '/custom.jpg'};
+  assert.equal(withSeedImage(copy).sourceUrl, source);
+  assert.equal(withSeedImage(copy).thumbnailUrl, '/custom.jpg');
+  const personal = {...copy, sourceUrl: 'https://example.org/own', sourceName: 'Personal'};
+  assert.deepEqual(withSeedImage(personal), personal);
+  assert.equal(publicRecipe({...dish(), sourceUrl: source}, 'community-000000000000000000000000').sourceUrl, null);
 });

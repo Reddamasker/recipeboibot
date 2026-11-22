@@ -1,3 +1,4 @@
+import editorialSources from './editorial-sources.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { recipeNutrition, normalizeNutrition } from './nutrition.js';
@@ -56,10 +57,14 @@ export function editorialCover(id) {
   return imagePath && existsSync(new URL(`../public${imagePath}`, import.meta.url)) ? imagePath : null;
 }
 
+export function editorialSource(id) {
+  return Object.hasOwn(editorialSources, id) ? editorialSources[id] : null;
+}
+
 export function publicRecipe(recipe,id) {
   const safe=catalogProjection(recipe);
   const thumbnailUrl = editorialCover(id);
-  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,thumbnailUrl,imageGenerated:false,userSaved:false,
+  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,...editorialSource(id),thumbnailUrl,imageGenerated:false,userSaved:false,
     warnings:[],nutrition:recipeNutrition(safe)};
 }
 export function validateCatalogSnapshot(data) {
