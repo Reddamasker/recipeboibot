@@ -1,0 +1,175 @@
+{
+  "checkedAt": "2026-11-22T10:59:53.319Z",
+  "contours": {
+    "recipeboibot-test": {
+      "count": 7,
+      "hash": "ac6431917fea6906d7e7d04517dfcf16eab47da3215cc1cc6e1b019490216cc0",
+      "catalogTotal": 508,
+      "missingDuplicates": [],
+      "dbCheck": "ok"
+    },
+    "recipeboibot": {
+      "count": 7,
+      "hash": "ac6431917fea6906d7e7d04517dfcf16eab47da3215cc1cc6e1b019490216cc0",
+      "catalogTotal": 508,
+      "missingDuplicates": [],
+      "dbCheck": "ok"
+    },
+    "recipeboibot-max": {
+      "count": 7,
+      "hash": "ac6431917fea6906d7e7d04517dfcf16eab47da3215cc1cc6e1b019490216cc0",
+      "catalogTotal": 508,
+      "missingDuplicates": [],
+      "dbCheck": "ok"
+    }
+  },
+  "publicChecks": [
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-56f5b0d5a6e9143d7463b93f",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-3e716b6a368c88d81a766e8e",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-918561fc25e50087194b7b26",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-a5f63e1b96675f9b7185b363",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-5a4373e1e8148c0196a42b4a",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-96ed95f98133d8e955692283",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-test",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-b69393e365181b74f3d9e906",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-56f5b0d5a6e9143d7463b93f",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-3e716b6a368c88d81a766e8e",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-918561fc25e50087194b7b26",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-a5f63e1b96675f9b7185b363",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-5a4373e1e8148c0196a42b4a",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-96ed95f98133d8e955692283",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-b69393e365181b74f3d9e906",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-56f5b0d5a6e9143d7463b93f",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-3e716b6a368c88d81a766e8e",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-918561fc25e50087194b7b26",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-a5f63e1b96675f9b7185b363",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-5a4373e1e8148c0196a42b4a",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-96ed95f98133d8e955692283",
+      "foundInSearch": true
+    },
+    {
+      "contour": "recipeboibot-max",
+      "platform": "VK",
+      "segment": "EN",
+      "id": "community-b69393e365181b74f3d9e906",
+      "foundInSearch": true
+    }
+  ]
+}
