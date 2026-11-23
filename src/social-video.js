@@ -45,7 +45,7 @@ export function socialVideo(input) {
     const owner = match?.[1] || (query && url.searchParams.getAll('owner_id').length === 1 ? url.searchParams.get('owner_id') : null);
     const clip = match?.[2] || (query && url.searchParams.getAll('clip_id').length === 1 ? url.searchParams.get('clip_id') : null);
     if (!/^-?[1-9]\d{0,19}$/.test(owner || '') || !/^[1-9]\d{0,19}$/.test(clip || '')) {
-      throw sourceError('Пришлите ссылку на отдельный клип Одноклассников с идентификаторами автора и клипа.', 'INVALID_SOCIAL_VIDEO_URL');
+      throw sourceError('Скопируйте полную ссылку через «Поделиться» у нужного клипа в Одноклассниках.', 'INVALID_SOCIAL_VIDEO_URL');
     }
     const id = `${owner}_${clip}`;
     return {
