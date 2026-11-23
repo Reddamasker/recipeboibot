@@ -7,6 +7,8 @@ import { reviewCatalogCandidate } from './catalog-review.js';
 import { reviewPublicCatalogRecipe } from './openai.js';
 import { readCatalogInput } from './generated-catalog.js';
 
+import { prepareSavedVideos } from './catalog-saved-videos.js';
+
 const action=process.argv[2];
 const input=()=>readCatalogInput(process.stdin);
 function scan(history=false){
@@ -20,7 +22,8 @@ function scan(history=false){
   if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='dinner_options'").get())for(const r of db.prepare("SELECT o.option_json FROM dinner_options o JOIN users u ON u.id=o.user_id WHERE o.created_at>=? AND json_extract(o.option_json,'$.method')='generated' AND u.telegram_id NOT LIKE '%private-test%' AND u.telegram_id NOT LIKE '%preview%' AND u.telegram_id NOT LIKE '%sandbox%'").all(rollout))generatedCatalog.enqueue(config.botPlatform,JSON.parse(r.option_json).recipe,'generated');
 }
 try {
-  if(action==='scan'||action==='backfill'){scan(action==='backfill');console.log(JSON.stringify(generatedCatalog.exportCandidates()));}
+  if(action==='videos' && !config.testContour)await prepareSavedVideos(db,generatedCatalog,config.botPlatform);
+  else if(action==='scan'||action==='backfill'){scan(action==='backfill');console.log(JSON.stringify(generatedCatalog.exportCandidates()));}
   else if(action==='ingest'){generatedCatalog.ingest(await input());console.log(JSON.stringify({ok:true}));}
   else if(action==='ack'){generatedCatalog.acknowledge(await input());console.log(JSON.stringify({ok:true}));}
   else if(action==='snapshot')console.log(JSON.stringify(generatedCatalog.snapshot()));

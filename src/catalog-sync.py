@@ -16,7 +16,7 @@ def call(container, action, data=None, limit=None):
                             text=True, encoding='utf-8', capture_output=True, timeout=600)
     if result.returncode:
         raise RuntimeError(container + ': catalog maintenance failed (' + action + ')')
-    if action == 'review':
+    if action in ('review', 'videos'):
         return None
     return json.loads(result.stdout)
 
@@ -24,6 +24,7 @@ def run(backfill=False, limit=4):
     rows = []
     batches = {}
     for container in SOURCES:
+        call(container, 'videos')
         batches[container] = call(container, 'backfill' if backfill else 'scan')
         rows.extend(batches[container])
     call('recipeboibot', 'ingest', rows)
