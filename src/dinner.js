@@ -172,6 +172,9 @@ import { totalMinutes, hasCompleteCookingTime } from './recipe-time.js';
 export { totalMinutes, hasCompleteCookingTime };
 
 export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, history = [], rejected = [], pantry = [], requestedCategories = [], mealRequest = null, feedback = {}, now = Date.now() } = {}) {
+  const knownMinutes = totalMinutes(recipe);
+  const minutes = hasCompleteCookingTime(recipe) ? knownMinutes : null;
+  if (profile.preferredMaxCookingTime && ((knownMinutes !== null && knownMinutes > profile.preferredMaxCookingTime) || (minutes === null && !recipe.userSaved))) return null;
   if (isDislikedDish(recipe, profile)) return null;
   if (rejected.includes(recipe.id) || hasExcludedIngredient(recipe, [...(profile.excludedIngredients || []), ...(mealRequest?.excludedIngredients || []), ...(feedback.unavailableIngredients || [])])) return null;
   if (!matchesObjectiveMealRequest(recipe, mealRequest)) return null;
@@ -185,9 +188,6 @@ export function scoreCandidate(recipe, { profile = {}, categorySignals = {}, his
   if (profile.hasChildren && isSpicy(recipe)) return null;
   if ((feedback.avoidTitles || []).some((title) => containsFoodPhrase(recipe.title, title))) return null;
   if (feedback.simpleOnly && ((recipe.ingredients?.length || 0) > 8 || (recipe.steps?.length || 0) > 6 || /лепите|слепите|фарширу|фритюр/iu.test((recipe.steps || []).map((s) => s.text || s).join(' ')))) return null;
-  const knownMinutes = totalMinutes(recipe);
-  const minutes = hasCompleteCookingTime(recipe) ? knownMinutes : null;
-  if (profile.preferredMaxCookingTime && ((knownMinutes !== null && knownMinutes > profile.preferredMaxCookingTime) || (minutes === null && !recipe.userSaved))) return null;
   const categories = recipeCategories(recipe);
   const ingredientNames = (recipe.ingredients || []).map((item) => item.name || item.raw || item);
   const matchesRequestedCategory = (key) => categories.includes(key)
