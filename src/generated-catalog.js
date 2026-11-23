@@ -1,3 +1,4 @@
+import { catalogVideoSource } from './catalog-video-source.js';
 import editorialSources from './editorial-sources.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -69,7 +70,7 @@ export function editorialSource(id) {
 export function publicRecipe(recipe,id) {
   const safe=catalogProjection(recipe);
   const cover = catalogCover(id) || {thumbnailUrl: null, imageGenerated: false};
-  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,...editorialSource(id),...cover,userSaved:false,
+  return {...safe,id:`seed:${id}`,origin:'seed',sourceName:'Общая подборка «Твоих рецептов»',sourceUrl:null,...catalogVideoSource(recipe.videoSource),...editorialSource(id),...cover,userSaved:false,
     warnings:[],nutrition:recipeNutrition(safe)};
 }
 export function validateCatalogSnapshot(data) {
@@ -77,6 +78,7 @@ export function validateCatalogSnapshot(data) {
   const ids=new Set(), titles=new Set();
   for(const r of data.recipes){
     if(!/^community-[a-f0-9]{24}$/.test(r.id)||ids.has(r.id)||titles.has(normalizedTitle(r.recipe?.title))||publicationProblems(r.recipe).length)throw Error('Invalid catalog recipe');
+    if(r.recipe.videoSource && !catalogVideoSource(r.recipe.videoSource))throw Error('Invalid video attribution');
     ids.add(r.id);titles.add(normalizedTitle(r.recipe.title));
   }
   if(data.report.platforms.length!==2||!['telegram','max'].every(p=>data.report.platforms.some(x=>x.platform===p)))throw Error('Invalid catalog report');
@@ -103,8 +105,13 @@ export function createGeneratedCatalogStore(db) {
     return cache;
   };
   function enqueue(platform,recipe,provenance) {
-    if(!['telegram','max'].includes(platform)||provenance!=='generated')return false;
-    const safe=catalogProjection(recipe), json=JSON.stringify(safe);
+    if(!['telegram','max'].includes(platform)||!['generated','public_video'].includes(provenance))return false;
+    const safe=catalogProjection(recipe);
+    if(provenance==='public_video'){
+      safe.videoSource=catalogVideoSource(recipe.videoSource);
+      if(!safe.videoSource)return false;
+    }
+    const json=JSON.stringify(safe);
     if(!safe.title||!safe.ingredients.length||!safe.steps.length||json.length>20000)return false;
     const id=hash(`${platform}\0${json}`), at=now();
     if(db.prepare('SELECT 1 FROM generated_catalog_candidates WHERE id=?').get(id))return false;
@@ -113,7 +120,7 @@ export function createGeneratedCatalogStore(db) {
   }
   function ingest(rows){
     if(!Array.isArray(rows)||rows.length>10000)throw Error('Invalid catalog candidates');
-    for(const r of rows)enqueue(r.platform,r.recipe,'generated');
+    for(const r of rows)enqueue(r.platform,r.recipe,r.recipe.videoSource?'public_video':'generated');
   }
   const pending=()=>db.prepare("SELECT * FROM generated_catalog_candidates WHERE state IN ('pending','error') AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at,id").all(now());
   function finish(id,state,{reason=null,duplicateId=null,elapsed=0}={}){
@@ -124,6 +131,8 @@ export function createGeneratedCatalogStore(db) {
   function publish(candidate,recipe){
     if(publicationProblems(recipe).length)throw Error('Invalid reviewed recipe');
     const safe=catalogProjection(recipe),id=`community-${hash(JSON.stringify(safe)).slice(0,24)}`,at=now();
+    const source=catalogVideoSource(candidate?.recipe_json && JSON.parse(candidate.recipe_json).videoSource);
+    if(source)safe.videoSource=source;
     db.prepare('INSERT OR IGNORE INTO generated_catalog_recipes(id,title_key,recipe_json,created_at) VALUES(?,?,?,?)').run(id,normalizedTitle(safe.title),JSON.stringify(safe),at);
     db.prepare("INSERT INTO generated_catalog_meta VALUES('revision',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(`${at}:${id}`);
     return id;
@@ -142,7 +151,7 @@ export function createGeneratedCatalogStore(db) {
     validateCatalogSnapshot(data);
     db.exec('SAVEPOINT catalog_replication');
     try{
-      for(const row of data.recipes)db.prepare('INSERT INTO generated_catalog_recipes(id,title_key,recipe_json,created_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET title_key=excluded.title_key,recipe_json=excluded.recipe_json').run(row.id,normalizedTitle(row.recipe.title),JSON.stringify(catalogProjection(row.recipe)),now());
+      for(const row of data.recipes)db.prepare('INSERT INTO generated_catalog_recipes(id,title_key,recipe_json,created_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET title_key=excluded.title_key,recipe_json=excluded.recipe_json').run(row.id,normalizedTitle(row.recipe.title),JSON.stringify({...catalogProjection(row.recipe),...(row.recipe.videoSource?{videoSource:catalogVideoSource(row.recipe.videoSource)}:{})}),now());
       // Replication is append-only: an incomplete or empty snapshot never erases cards.
       db.prepare("INSERT INTO generated_catalog_meta VALUES('revision',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(hash(JSON.stringify(data.recipes)));
       db.prepare("INSERT INTO generated_catalog_meta VALUES('report',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(data.report));
