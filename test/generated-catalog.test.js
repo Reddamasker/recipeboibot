@@ -134,3 +134,48 @@ test('community illustrations resolve in the catalog and saved copies with their
   assert.equal(withSeedImage({...copy, thumbnailUrl}).imageGenerated, true);
   assert.equal(withSeedImage({...copy, thumbnailUrl: '/custom.jpg'}).thumbnailUrl, '/custom.jpg');
 });
+
+test('verified video attribution survives forwarding, editorial review and replication without owner data', async () => {
+  const sender=fixture(), central=fixture(), mirror=fixture();
+  const source={sourceName:'YouTube · oblomoff',sourceUrl:'https://www.youtube.com/watch?v=GtoVhacNZ9s'};
+  const imported={...dish(),notes:'PRIVATE',rating:'PRIVATE',photos:['PRIVATE'],videoSource:{...source,userId:'PRIVATE'}};
+  assert.equal(sender.store.enqueue('max',imported,'public_video'),true);
+  const rows=sender.store.exportCandidates();
+  assert.ok(!JSON.stringify(rows).includes('PRIVATE'));
+  central.store.ingest(rows);
+  central.store.ingest(rows);
+  const [row]=central.store.pending();
+  const review=await reviewCatalogCandidate(JSON.parse(row.recipe_json),[],async original=>{
+    assert.equal(original.videoSource,undefined);
+    return {decision:'publish',recipe:{...original,sourceUrl:'https://example.org'}};
+  });
+  central.store.publish(row,review.recipe);
+  mirror.store.applySnapshot(central.store.snapshot());
+  assert.equal(mirror.store.read()[0].sourceName,source.sourceName);
+  assert.equal(mirror.store.read()[0].sourceUrl,source.sourceUrl);
+  assert.equal(sender.store.enqueue('max',{...imported,videoSource:{...source,sourceUrl:source.sourceUrl+'&secret=PRIVATE'}},'public_video'),false);
+  for(const f of [sender,central,mirror])f.db.close();
+});
+
+test('saved-video scan reads only completed imports and rebuilds edited recipes from the source',async()=>{
+  const {prepareSavedVideos}=await import('../src/catalog-saved-videos.js');
+  const {db,store}=fixture();
+  db.exec(`CREATE TABLE import_jobs(user_id,recipe_id,source_key,source_type,status,source_url,created_at);
+    CREATE TABLE recipes(id,user_id,status,origin,source_type,source_key,created_at,updated_at,title,description,servings,prep_minutes,cook_minutes,ingredients_json,steps_json,tags_json,notes);`);
+  const ids=['GtoVhacNZ9s','aaaaaaaaaaa','bbbbbbbbbbb','ccccccccccc'];
+  const sample=dish();
+  for(const [index,id] of ids.entries()){
+    const key='youtube:'+id,url='https://www.youtube.com/watch?v='+id;
+    db.prepare('INSERT INTO import_jobs VALUES(?,?,?,?,?,?,?)').run(1,index,key,'url',index===3?'failed':'ready',url,'2026-11-19');
+    db.prepare('INSERT INTO recipes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(index,1,'ready','imported','url',key,'original',index===1?'edited':'original',
+      index===1?'PRIVATE':sample.title,sample.description,3,10,30,JSON.stringify(sample.ingredients),JSON.stringify(sample.steps),'[]','PRIVATE');
+  }
+  let extracted=0;
+  const adapters={author:async url=>url.endsWith(ids[2])?null:'YouTube · Автор',extract:async()=>{extracted++;return sample;}};
+  for(let i=0;i<3;i++)await prepareSavedVideos(db,store,'telegram',adapters);
+  assert.equal(extracted,1);
+  assert.equal(store.pending().length,2);
+  assert.ok(!JSON.stringify(store.exportCandidates()).includes('PRIVATE'));
+  assert.equal(db.prepare("SELECT count(*) n FROM catalog_video_checks WHERE state='unconfirmed'").get().n,1);
+  db.close();
+});

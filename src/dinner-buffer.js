@@ -125,7 +125,7 @@ function synchronize(userId, sessionId, context) {
 function fallbackFill(userId, sessionId, context, target = DINNER_BUFFER.total) {
   // An unjudged catalog recipe must never silently satisfy an open-ended
   // semantic request when the validator or generator is unavailable.
-  if (needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
+  if (activeCount(userId, sessionId) >= target || needsSemanticValidation(context.mealRequest, context.requestedCategories)) return;
   const previous = listDinnerOptions(userId, sessionId), excluded = [...context.rejected, ...previous.map((o) => o.recipe.id)];
   const candidates = [...context.saved, ...publicCatalogRecipes()].filter((r) => !duplicateDinner(r, previous.map((o) => o.recipe)));
   let ranked = rotateDinnerCandidates(rankCandidates(candidates, { ...context, rejected: excluded }), context.recentShownRecipes);
