@@ -147,7 +147,7 @@ export async function importText(userId, text, options = {}) {
   }
 }
 
-export async function importUrl(userId, input) {
+export async function importUrl(userId, input, adapters = {}) {
   const normalizedSource = normalizeSourceUrl(input);
   const claim = claimImport(userId, { sourceType: 'url', ...normalizedSource, sourceUrl: normalizedSource.url });
   const existing = outcomeFromClaim(claim); if (existing) return existing;
@@ -164,7 +164,7 @@ export async function importUrl(userId, input) {
     const youtube = youtubeVideo(normalizedSource.url);
     const social = socialVideo(normalizedSource.url);
     const youtubeResult = youtube ? await extractYoutubeRecipe(normalizedSource.url, { userId, onPhase: phase => updateJob(job.id, phase) }) : null;
-    const source = youtubeResult?.source || (social ? await extractSocialVideoSource(normalizedSource.url, { userId }) : null);
+    const source = youtubeResult?.source || (social ? await (adapters.extractSocial || extractSocialVideoSource)(normalizedSource.url, { userId }) : null);
     const page = source ? { url: source.url, text: '' } : await safeFetchText(normalizedSource.url, config.maxRemoteBytes);
     updateJob(job.id, 'extracting');
     const host = new URL(page.url).hostname.replace(/^www\./, '');
@@ -177,7 +177,7 @@ export async function importUrl(userId, input) {
       try { if (rawPreview) { const candidate = new URL(rawPreview, page.url); if (['http:', 'https:'].includes(candidate.protocol)) thumbnailUrl = candidate.toString(); } } catch { /* honest fallback */ }
     }
     updateJob(job.id, 'normalizing', { thumbnailUrl });
-    const normalized = youtubeResult?.recipe || await normalizeRecipe({ userId, text: text.slice(0, 24000), sourceName: source?.sourceName || host });
+    const normalized = youtubeResult?.recipe || await (adapters.normalize || normalizeRecipe)({ userId, text: text.slice(0, 24000), sourceName: source?.sourceName || host });
     if (source) normalized.warnings = [...new Set([...(normalized.warnings || []), ...source.warnings])];
     const recipe = createRecipe(userId, { ...normalized, status: 'ready', origin: 'imported', sourceType: 'url', sourceUrl: page.url, sourceKey: normalizedSource.sourceKey, sourceName: normalized.sourceName || source?.sourceName || host, thumbnailUrl });
     updateJob(job.id, 'ready', { recipeId: recipe.id, thumbnailUrl });

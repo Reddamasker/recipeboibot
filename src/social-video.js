@@ -11,10 +11,11 @@ const hosts = new Map([
   ['instagram.com', 'instagram'], ['www.instagram.com', 'instagram'],
   ['tiktok.com', 'tiktok'], ['www.tiktok.com', 'tiktok'], ['m.tiktok.com', 'tiktok'], ['vm.tiktok.com', 'tiktok'], ['vt.tiktok.com', 'tiktok'],
   ['vk.com', 'vk'], ['www.vk.com', 'vk'], ['m.vk.com', 'vk'], ['vk.ru', 'vk'], ['www.vk.ru', 'vk'],
-  ['vkvideo.ru', 'vk'], ['www.vkvideo.ru', 'vk']
+  ['vkvideo.ru', 'vk'], ['www.vkvideo.ru', 'vk'],
+  ['ok.ru', 'ok'], ['www.ok.ru', 'ok'], ['m.ok.ru', 'ok']
 ]);
 
-const labels = { instagram: 'Instagram', tiktok: 'TikTok', vk: 'VK Video' };
+const labels = { instagram: 'Instagram', tiktok: 'TikTok', vk: 'VK Video', ok: 'Одноклассники' };
 const sourceError = (message, code = 'SOCIAL_VIDEO_UNAVAILABLE', status = 422) => Object.assign(new Error(message), { status, code });
 
 function cleanUrl(url) {
@@ -36,6 +37,22 @@ export function socialVideo(input) {
     throw sourceError('Нужна обычная публичная ссылка на ролик без логина и нестандартного порта.', 'INVALID_SOCIAL_VIDEO_URL');
   }
   url.protocol = 'https:';
+  if (platform === 'ok') {
+    // OK clips use the VK owner/clip identity. Resolve it without downloading
+    // OK's multi-megabyte feed or confusing the clip ID with an OK video ID.
+    const match = url.pathname.match(/^\/clip\/(-?[1-9]\d{0,19})\/([1-9]\d{0,19})\/?$/);
+    const query = /^\/clip\/?$/.test(url.pathname);
+    const owner = match?.[1] || (query && url.searchParams.getAll('owner_id').length === 1 ? url.searchParams.get('owner_id') : null);
+    const clip = match?.[2] || (query && url.searchParams.getAll('clip_id').length === 1 ? url.searchParams.get('clip_id') : null);
+    if (!/^-?[1-9]\d{0,19}$/.test(owner || '') || !/^[1-9]\d{0,19}$/.test(clip || '')) {
+      throw sourceError('Пришлите ссылку на отдельный клип Одноклассников с идентификаторами автора и клипа.', 'INVALID_SOCIAL_VIDEO_URL');
+    }
+    const id = `${owner}_${clip}`;
+    return {
+      platform, id, url: `https://ok.ru/clip?owner_id=${owner}&clip_id=${clip}`,
+      downloadUrl: `https://vk.com/clip${id}`, sourceKey: `vk:${id}`, label: labels.ok
+    };
+  }
   cleanUrl(url);
   let id = null;
   const instagramMatch = platform === 'instagram' ? url.pathname.match(/^\/(reel|reels|p|tv)\/([A-Za-z0-9_-]+)/i) : null;
@@ -106,12 +123,12 @@ async function runDownloader(url, directory) {
   });
 }
 
-export async function downloadPublicVideo(input) {
+export async function downloadPublicVideo(input, adapters = {}) {
   const video = socialVideo(input);
-  if (!video) throw sourceError('Это не ссылка Instagram, TikTok или VK Video.', 'UNSUPPORTED_SOCIAL_VIDEO');
+  if (!video) throw sourceError('Это не ссылка Instagram, TikTok, VK Video или клипа Одноклассников.', 'UNSUPPORTED_SOCIAL_VIDEO');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'recipe-video-'));
   try {
-    const info = await runDownloader(video.url, directory);
+    const info = await (adapters.runDownloader || runDownloader)(video.downloadUrl || video.url, directory);
     const entries = await fs.readdir(directory);
     const mediaName = entries.find(name => name.startsWith('media.') && !name.endsWith('.json') && !name.endsWith('.part'));
     if (!mediaName) throw sourceError('Соцсеть не отдала файл ролика.', 'SOCIAL_VIDEO_MEDIA_MISSING');
@@ -120,7 +137,7 @@ export async function downloadPublicVideo(input) {
     if (!stat.size || stat.size > MAX_MEDIA_BYTES) throw sourceError('Ролик слишком большой для обработки: максимум 24 МБ.', 'SOCIAL_VIDEO_TOO_LARGE', 413);
     const extension = path.extname(mediaName).slice(1).toLowerCase();
     let webpageUrl = video.url;
-    try { if (info.webpage_url && socialVideo(info.webpage_url)) webpageUrl = info.webpage_url; } catch { /* Keep the validated input URL. */ }
+    try { if (video.platform !== 'ok' && info.webpage_url && socialVideo(info.webpage_url)) webpageUrl = info.webpage_url; } catch { /* Keep the validated input URL. */ }
     return {
       buffer: await fs.readFile(mediaPath), mime: extensionMime(extension), filename: mediaName,
       info: {
@@ -137,7 +154,7 @@ export async function downloadPublicVideo(input) {
 
 export async function extractSocialVideoSource(input, adapters = {}) {
   const video = socialVideo(input);
-  if (!video) throw sourceError('Это не ссылка Instagram, TikTok или VK Video.', 'UNSUPPORTED_SOCIAL_VIDEO');
+  if (!video) throw sourceError('Это не ссылка Instagram, TikTok, VK Video или клипа Одноклассников.', 'UNSUPPORTED_SOCIAL_VIDEO');
   const download = adapters.download || downloadPublicVideo;
   const transcribe = adapters.transcribe || transcribeMedia;
   const media = await download(video.url);
