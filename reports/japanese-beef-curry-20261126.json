@@ -6,7 +6,7 @@
     "telegram",
     "max"
   ],
-  "publicCardSha256": "f9e4e7402507c35c23c196855d1e1d61298c9599ddc72db1b9983104f9a8fb2a",
+  "publicCardSha256": "e98c0f5c6a7a89deb352010513ef8bb5b0516b065d55f21bae4fe6e8905a58e3",
   "recipe": {
     "title": "Японское карри с говяжьим фаршем и рисом",
     "description": "Домашнее карри с говяжьим фаршем, морковью и луком, поданное с рассыпчатым рисом.",
@@ -103,5 +103,16 @@
         "Приблизительная оценка по составу и числу порций."
       ]
     }
+  },
+  "cover": {
+    "image": "/assets/dinner/community-710ab64a03d96c4886320e8e-generated.jpg",
+    "imageGenerated": true,
+    "sha256": "24f0bf0940b4257dfc1f8d5a90abe99f6dc4358f18bddce1b53e6e68aa26b435",
+    "release": "5e0eb3178447aadf379b911e89febad3db1e7337",
+    "verified": [
+      "telegram-test",
+      "telegram",
+      "max"
+    ]
   }
 }
