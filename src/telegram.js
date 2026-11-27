@@ -1553,19 +1553,27 @@ async function handleGroupMessage(message) {
   await send(chatId, 'Не понял цель. Для поиска напишите <code>/find запрос</code>, для сохранения — <code>/save рецепт</code>.');
 }
 
-let running = false;
+let running = false, pollingReady = false;
+export const telegramPollingReady = () => pollingReady;
 export async function startTelegramPolling() {
   if (config.botPlatform !== 'telegram' || running || !config.telegramToken) return;
-  if (config.testContour) {
-    const bot = await telegram('getMe');
-    if (bot.username?.toLowerCase() !== config.testBotUsername.toLowerCase()) throw new Error('Unexpected bot token for test contour');
-  }
-  await configureTelegramMenuButton();
-  running = true; let offset = 0;
-  log('info', 'telegram_polling_started');
+  running = true;
+  let initialized = false, offset = 0;
   while (running) {
     try {
-      const updates = await telegram('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'my_chat_member', 'callback_query'] });
+      if (!initialized) {
+        if (config.testContour) {
+          const bot = await telegram('getMe');
+          if (bot.username?.toLowerCase() !== config.testBotUsername.toLowerCase()) throw new Error('Unexpected bot token for test contour');
+        }
+        await configureTelegramMenuButton();
+        initialized = true;
+      }
+      if (!running) break;
+      const updates = await telegram('getUpdates', { offset, timeout: pollingReady ? 25 : 0, allowed_updates: ['message', 'my_chat_member', 'callback_query'] });
+      if (!running) break;
+      if (!pollingReady) log('info', 'telegram_polling_started');
+      pollingReady = true;
       for (const update of updates) {
         offset = Math.max(offset, update.update_id + 1);
         if ((!update.message && !update.my_chat_member && !update.callback_query) || !claimUpdate(update.update_id)) continue;
@@ -1576,10 +1584,10 @@ export async function startTelegramPolling() {
         }
         catch (error) { failUpdate(update.update_id); log('error', 'telegram_update_failed', { error, updateId: update.update_id }); }
       }
-    } catch (error) { log('error', 'telegram_polling_error', { error }); await new Promise((resolve) => setTimeout(resolve, 3000)); }
+    } catch (error) { pollingReady = false; log('error', 'telegram_polling_error', { error }); await new Promise((resolve) => setTimeout(resolve, 3000)); }
   }
 }
-export function stopTelegramPolling() { running = false; }
+export function stopTelegramPolling() { pollingReady = false; running = false; }
 
 // Both transports execute the same recipe workflow. MAX normalizes events only
 // after verifying the private chat binding; external IDs remain namespaced.

@@ -985,10 +985,12 @@ test('polling completes a dinner callback without routing it as an absent messag
   const from = { id: 6405, first_name: 'Polling' }, chat = { id: 6405, type: 'private' };
   const user = activeUser(from); database.allowUser(user.id);
   database.setPendingIntent(user.id, { kind: 'dinner-intake' });
-  let polls = 0; const calls = [];
+  let polls = 0, menuAttempts = 0; const calls = [];
   globalThis.fetch = async (url, options) => {
     calls.push({ method: new URL(url).pathname.split('/').at(-1), body: JSON.parse(options.body) });
+    if (String(url).endsWith('/setChatMenuButton') && ++menuAttempts === 1) throw new Error('ECONNREFUSED');
     if (String(url).endsWith('/getUpdates')) {
+      assert.equal(telegramModule.telegramPollingReady(), polls > 0);
       polls += 1;
       if (polls > 1) telegramModule.stopTelegramPolling();
       return { json: async () => ({ ok: true, result: polls === 1 ? [{ update_id: 76405, callback_query: { id: 'polling-dinner', data: 'dinner:skip', message: { chat }, from } }] : [] }) };
@@ -997,6 +999,7 @@ test('polling completes a dinner callback without routing it as an absent messag
   };
   try {
     await telegramModule.startTelegramPolling();
+    assert.equal(menuAttempts, 2);
     assert.equal(database.db.prepare('SELECT status FROM processed_updates WHERE update_id=?').get('76405').status, 'done');
     assert.equal(database.getPendingIntent(user.id), null);
     const menu = calls.find((call) => call.method === 'setChatMenuButton');

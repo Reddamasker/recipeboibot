@@ -26,7 +26,7 @@ import { changeDinnerRequest, decideDinner, finishDinner, getDinnerRecipe, nextD
 import { cancelMockAutoRenew, claimMockOffer, createMockOrder, finishMockOrder, mockPaymentStatus, resetTestUser } from './contour-sandbox.js';
 import { getNotificationSchedule, markChoiceFailed, markChoiceSent, saveNotificationSchedule } from './notification-store.js';
 import { openNotificationDinner, selectNotificationDinner } from './notifications.js';
-import { sendNotificationRecipeLink, sendFeedbackNotification } from './telegram.js';
+import { sendNotificationRecipeLink, sendFeedbackNotification, telegramPollingReady } from './telegram.js';
 import { submitFeedback, restoreFeedbackConversation } from './feedback.js';
 import { billingAvailable, cancelAutoRenew, createPaymentOrder, getBillingOffer, getPaymentOrder, paymentRedirectDocument, paymentReturnDocument, processRobokassaResult, processRobokassaResultJws, recordBillingExposure } from './billing.js';
 import { promoQuote, redeemFreePromo } from './promos.js';
@@ -808,8 +808,11 @@ async function handleRequest(request, response) {
       }
       if (url.pathname === '/readyz') {
         const billingReady = !config.billingRequired || billingAvailable();
-        return json(response, billingReady ? 200 : 503, {
-          ok: billingReady,
+        const pollingRequired = config.botPlatform === 'telegram' && config.telegramPolling;
+        const ready = billingReady && (!pollingRequired || telegramPollingReady());
+        return json(response, ready ? 200 : 503, {
+          ok: ready,
+          telegramPolling: { required: pollingRequired, ready: telegramPollingReady() },
           service: 'recipeboibot',
           platform: config.botPlatform,
           billing: { required: config.billingRequired, configured: billingAvailable() }
