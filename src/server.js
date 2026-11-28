@@ -61,11 +61,14 @@ import { createRecipeWorkspace } from './recipe-workspace.js';
 import { createRecipeCardStore } from './recipe-card.js';
 import { workspaceFeature } from './workspace-analytics.js';
 import { isImportFailureOwner, importFailureReport, removeImportFailure } from './import-failures.js';
+import { createMiniAppHealth, isIphoneWebView } from './mini-app-health.js';
 
 const publicDir = path.resolve('public');
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon' };
 const rate = new Map();
 let webDocument;
+let miniDocument;
+const miniAppHealth = createMiniAppHealth();
 const recipeCards = createRecipeCardStore(db, {
   getRecipe(userId, id) { assertFirstRecipeReadable(userId, { recipeId: id }); return getRecipe(userId, id); },
   authorizeAsk(userId) { requireRecipeEntry(userId); rateLimit(`ai:${userId}`, 8, 60_000); },
@@ -532,10 +535,13 @@ function serveStatic(request, response, pathname) {
   const appEntry = ['/app', '/app/', '/review/recime-20261109/index.html'].includes(entryUrl.pathname)
     || ['/', '/index.html'].includes(entryUrl.pathname) && (config.testContour || config.botPlatform === 'max' || entryUrl.searchParams.has('view') || entryUrl.searchParams.has('recipe'));
   if (appEntry) {
-    const document = buildMiniAppDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot' });
-    securityHeaders(response, document.scriptHashes);
-    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    response.end(request.method === 'HEAD' ? undefined : document.bytes);
+    miniDocument ??= buildMiniAppDocument(publicDir, { botPlatform: config.botPlatform, botUsername: config.botPlatform === 'max' ? config.maxBotUsername : config.testContour ? config.testBotUsername : 'Recipeboibot' });
+    if (config.botPlatform === 'telegram' && isIphoneWebView(request)) miniAppHealth.observe('opened');
+    const compressed = acceptsGzip(request.headers['accept-encoding']);
+    const bytes = compressed ? miniDocument.gzip : miniDocument.bytes;
+    securityHeaders(response, miniDocument.scriptHashes);
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', vary: 'Accept-Encoding', 'content-length': bytes.length, ...(compressed ? { 'content-encoding': 'gzip' } : {}) });
+    response.end(request.method === 'HEAD' ? undefined : bytes);
     return true;
   }
   const requested = pathname === '/' ? '/index.html' : pathname;
@@ -615,7 +621,10 @@ async function handleRequest(request, response) {
         if (request.method !== 'GET' || config.botPlatform !== 'max' || !maxFunnelAuthorized(request.headers.authorization)) return json(response,404,{error:'Не найдено'});
         return json(response,200,userAdJourneyReport(userAdJourneyFilters(url.searchParams,'max')));
       }
-      if (url.pathname === '/healthz') return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
+      if (url.pathname === '/healthz') {
+        if (config.botPlatform === 'telegram' && isIphoneWebView(request) && url.searchParams.get('mini') === 'view-rendered') miniAppHealth.observe('rendered');
+        return json(response, 200, { ok: true, service: 'recipeboibot', platform: config.botPlatform });
+      }
       if (url.pathname === '/api/owner/import-failures' || url.pathname.startsWith('/api/owner/import-failures/')) {
         const header = request.headers.authorization || '', scheme = config.botPlatform === 'max' ? 'mxa ' : 'tma ';
         if (!header.startsWith(scheme)) return json(response,401,{error:'Откройте этот раздел из своего аккаунта в боте'});
@@ -813,6 +822,7 @@ async function handleRequest(request, response) {
         return json(response, ready ? 200 : 503, {
           ok: ready,
           telegramPolling: { required: pollingRequired, ready: telegramPollingReady() },
+          iphoneLaunchesStalled: miniAppHealth.stalled(),
           service: 'recipeboibot',
           platform: config.botPlatform,
           billing: { required: config.billingRequired, configured: billingAvailable() }

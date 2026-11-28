@@ -173,7 +173,8 @@ test('public documents keep compressed startup; Mini App routes use the shared s
       const html = await response.text();
       assert.match(html, /id="app"/);
       if (route === '/app' || route === '/?view=dinner') {
-        assert.match(html, /shell\.js\?v=forward-guide-1/);
+        assert.doesNotMatch(html, /<script[^>]+src=/);
+        assert.match(html, /window\.RecipeReview=/);
         assert.match(html, /"botUsername":"Recipeboibot"/);
       } else {
         assert.equal(response.headers.get('content-encoding'), 'gzip');

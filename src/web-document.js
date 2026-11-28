@@ -51,9 +51,27 @@ export function buildMiniAppDocument(publicDir, { botPlatform = 'telegram', botU
   const name = botPlatform === 'max' ? 'max' : 'telegram';
   const settings = JSON.stringify({ name, botUsername: botUsername || (name === 'telegram' ? 'Recipeboibot' : '') }).replaceAll('<', '\\u003c');
   const source = `window.__recipePlatform=${settings};`;
-  const scriptHashes = `'sha256-${createHash('sha256').update(source).digest('base64')}'`;
+  const hash = text => `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
+  const hashes = [hash(source)];
   const sdk = name === 'max' ? '<script defer src="https://st.max.ru/js/max-web-app.js"></script>' : '';
-  const html = fs.readFileSync(path.join(publicDir, 'review/recime-20261109/index.html'), 'utf8')
+  let html = fs.readFileSync(path.join(publicDir, 'review/recime-20261109/index.html'), 'utf8')
     .replace('</title>', `</title><script>${source}</script>${sdk}`);
-  return { bytes: Buffer.from(html), scriptHashes };
+  if (name === 'telegram') {
+    const read = url => fs.readFileSync(path.join(publicDir, url.split('?')[0]), 'utf8').replace(/\r\n?/g, '\n');
+    html = html.replace(/<link rel="stylesheet" href="(\/[^"<>]+)">/g, (_, url) => {
+      const css = read(url).replace(/url\((['"]?)\.\/([^)'"]+)\1\)/g, (_, quote, file) =>
+        `url(${quote}${path.posix.join(path.posix.dirname(url), file)}${quote})`);
+      return `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`;
+    });
+    const deferred = [];
+    html = html.replace(/<script defer src="(\/[^"<>]+)"><\/script>/g, (_, url) => {
+      const code = read(url).replace(/<\/script/gi, '<\\/script');
+      hashes.push(hash(code));
+      deferred.push(`<script>${code}</script>`);
+      return '';
+    });
+    html = html.replace('</body>', () => deferred.join('\n') + '\n</body>');
+  }
+  const bytes = Buffer.from(html);
+  return { bytes, gzip: gzipSync(bytes), scriptHashes: hashes.join(' ') };
 }

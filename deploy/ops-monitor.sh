@@ -107,14 +107,19 @@ fi
 # BILLING_REQUIRED only enforces configuration at startup; it does not enable sales.
 # Parse the live JSON with the existing container's Node runtime, without loading the app.
 if readiness="$(curl -fsS --max-time 10 "$local_url/readyz")"; then
-  if ! printf '%s' "$readiness" | docker exec -i "$container" node -e '
+  if printf '%s' "$readiness" | docker exec -i "$container" node -e '
     const fs = require("node:fs");
     try {
       const status = JSON.parse(fs.readFileSync(0, "utf8"));
+      if (status.iphoneLaunchesStalled === true) process.exit(3);
       process.exit(status.ok === true && status.service === "recipeboibot" && status.billing?.configured === true ? 0 : 1);
     } catch { process.exit(1); }
-  '; then
-    add_failure "Готовность платёжного контура не подтверждена"
+  '; then :
+  else
+    case "$?" in
+      3) add_failure "Mini App на iPhone: повторные открытия без подтверждения первого экрана" ;;
+      *) add_failure "Готовность платёжного контура не подтверждена" ;;
+    esac
   fi
 else
   add_failure "Проверка готовности платёжного контура недоступна"
@@ -161,6 +166,7 @@ while IFS= read -r issue; do
   first="${first:-$now}"
   printf '%s\t%s\t%s\n' "$first" "$now" "$key" >> "$history.next"
   case "$issue" in
+    'Mini App на iPhone:'*) delay=0 ;;
     'Нарушена ротация резервов или Docker в Telegram/MAX') delay=3600 ;;
     *) delay=600 ;;
   esac

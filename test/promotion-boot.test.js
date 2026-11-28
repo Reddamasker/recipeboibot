@@ -10,7 +10,14 @@ test('shared Mini App document selects authenticated transport and exact CSP has
   for(const name of ['telegram','max']){
     const doc=buildMiniAppDocument(path.resolve('public'),{botPlatform:name,botUsername:name==='max'?'id500912857935_bot':'Recipeboibot'});
     const html=doc.bytes.toString(),source=html.match(/<script>(.*?)<\/script>/)[1];
-    assert.equal(doc.scriptHashes,`'sha256-${createHash('sha256').update(source).digest('base64')}'`);
+    for (const [,code] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+      assert.ok(doc.scriptHashes.includes(`'sha256-${createHash('sha256').update(code).digest('base64')}'`));
+      new vm.Script(code);
+    }
+    if (name === 'telegram') {
+      assert.doesNotMatch(html, /<(?:script defer src|link rel="stylesheet")=/);
+      assert.match(html, /url\('\/review\/recime-20261109\/inter\.woff2'\)/);
+    }
     const context={window:{}};vm.runInNewContext(source,context);assert.equal(context.window.__recipePlatform.name,name);
     assert.equal(html.includes('https://st.max.ru/js/max-web-app.js'),name==='max');
     assert.ok(!html.includes('тестовый интерфейс'));

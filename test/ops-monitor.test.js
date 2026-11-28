@@ -113,6 +113,14 @@ test('configured billing is healthy with either value of BILLING_REQUIRED', () =
   }
 });
 
+test('repeated iPhone launches with no render notify on the next check', () => {
+  const context = fixture({body: JSON.stringify({ok:true, service:'recipeboibot', billing:{configured:true}, iphoneLaunchesStalled:true})});
+  try {
+    assert.match(context.run().alerts[0], /Mini App на iPhone/);
+    assert.equal(context.run({elapsed:120}).alerts.length, 1);
+  } finally { context.cleanup(); }
+});
+
 test('retention waits for repeated failures across an hour and recovers silently', () => {
   const context = fixture({retentionFailure: true});
   try {
